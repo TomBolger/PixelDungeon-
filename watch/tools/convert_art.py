@@ -86,7 +86,11 @@ for y in range(t0.height):
         if a and g - max(r, b) > 25:   # grass: keep 0.5.1's look exactly (levels 45-210, no gamma)
             lifted = [min(255, int(v * 1.45)) for v in (r, g, b)]
             tp[x, y] = near(tuple(max(0, min(255, (v - 45) * 255 / 165)) for v in lifted)) + (254,)
-total += save(pebbleize(t0, TILES), "tiles_sewers.png")
+ts = pebbleize(t0, TILES)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tile_rules   # 0.60: one clear colour per kind of trap (fire was as red as the alarm trap, paralytic as orange as fire)
+tile_rules.trap_inks(crop("tiles0.png", (0, 0, 256, 64)).convert("RGBA").load(), ts.load())
+total += save(ts, "tiles_sewers.png")
 
 # Sewer water: PD scrolls a translucent texture over a base color; bake it opaque.
 water = Image.new("RGBA", (32, 32), (40, 70, 66, 255))

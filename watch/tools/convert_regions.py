@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from paths import PD_SRC, PD_ASSETS  # upstream Pixel Dungeon (third_party submodule)
 sys.path.insert(0, os.path.dirname(__file__))
 import convert_lib as cl
+import tile_rules
 from PIL import Image
 SRC = PD_ASSETS
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "resources", "images")
@@ -23,6 +24,18 @@ for r in range(1, 5):
                 lifted = [min(255, int(v * 1.45)) for v in (R, G, B)]
                 px[x, y] = cl.near(tuple(max(0, min(255, (v - 45) * 255 / 165)) for v in lifted)) + (254,)
     tp = cl.pebbleize(t, cl.TILES)
+    src0 = Image.open(os.path.join(SRC, f"tiles{r}.png")).convert("RGBA"); sp0 = src0.load(); tp0 = tp.load()
+    tile_rules.warm_stone(sp0, tp0); tile_rules.marble_statues(sp0, tp0); tile_rules.trap_inks(sp0, tp0)
+    if r == 2:   # 0.60: the caves' floor was lifted from near black to (85,85,85), and the mid tones of what stands on it
+        # (the sign's board, the pedestal's plate, the ladders, the lock) snapped to that same grey and vanished into it.
+        # Lifted a step: khaki where the source is warm (wood), light grey where it is not. Walls keep their mortar
+        for y in range(64):
+            for x in range(256):
+                c = (y // 16) * 16 + x // 16
+                if c in (4, 12, 16, 43, 44, 45, 46) or c >= 48: continue
+                R, G, B, A = sp0[x, y]
+                if A == 255 and tp0[x, y][:3] == (85, 85, 85) and max(R, G, B) >= (72 if c == 11 else 90):
+                    tp0[x, y] = ((170, 170, 85) if R - B >= 20 else (170, 170, 170)) + (255,)
     if r == 2:   # 0.56 (owner: "the DM-300 room is just flat grey"): the caves' floor gets grit back. PD's floor is three close
         # shades; the darkest, where it clusters, becomes black on every other pixel (a checker), so the stone reads rough, not flat
         src = Image.open(os.path.join(SRC, f"tiles{r}.png")).convert("RGB"); sp = src.load(); tpp = tp.load()
@@ -81,6 +94,13 @@ for r in range(1, 5):
         for y in range(32):
             for x in range(32): op[x, y] = ((85, 170, 170) if sum(wp[x, y][:3]) > t1 else (0, 85, 85)) + (255,)
         out.save(os.path.join(OUT, f"water_{REGIONS[r]}.png")); print(REGIONS[r], "water: teal"); continue
+    if r == 3:   # 0.60: the city's dark red-brown water lifted onto the palette came out grey (85,85,85), the floor's own
+        # grey, with pink streaks: the pools vanished into the floor. Deep maroon, its brightest ripples (PD's lightest
+        # tone, about 8%) in rose-brown
+        ls = sorted(sum(wp[x, y][:3]) for y in range(32) for x in range(32)); t1 = ls[len(ls) * 85 // 100]
+        for y in range(32):
+            for x in range(32): op[x, y] = ((170, 85, 85) if sum(wp[x, y][:3]) > t1 else (85, 0, 0)) + (255,)
+        out.save(os.path.join(OUT, f"water_{REGIONS[r]}.png")); print(REGIONS[r], "water: maroon"); continue
     if r == 4:   # 0.56 (owner: "the lava is too featureless"): five heat levels, a dark crust to bubbling yellow
         ls = sorted(sum(wp[x, y][:3]) for y in range(32) for x in range(32))
         t1, t2, t3 = (ls[int(len(ls) * p)] for p in (0.35, 0.68, 0.82))
