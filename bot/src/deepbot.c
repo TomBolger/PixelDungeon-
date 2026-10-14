@@ -2198,6 +2198,7 @@ static const char *evidence_hidden(void) {
 }
 // PRESS=1: "just press the middle button": every move is the game's target list entry 0 (the next one if nothing came of it)
 static int st_dither, st_turnback, st_turnback_foe, st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left;
+static bool s_pure;                                       // 0.64 PURE=1: the Assist alone
 static int P, st_press, st_press_off, st_osc, st_press_n, st_floors, s_pp[3];
 static const uint8_t PVIEW[3][4] = { { 12, 8, 8, 9 }, { 6, 4, 4, 4 }, { 3, 2, 2, 2 } };   // Emery's g_view per zoom (main.c VIEW)
 static bool p_onscreen(int c) { int dx = cx(c) - cx(G.hero.pos), dy = cy(c) - cy(G.hero.pos); return dx >= -g_view[0] && dy >= -g_view[1] && dy <= g_view[2] && dx <= g_view[3]; }
@@ -2278,7 +2279,7 @@ static bool press(void) {
     if (hold) { st_hold++; if (++st_hold_run > st_hold_max) st_hold_max = st_hold_run; } else st_hold_run = 0;
     bool mine = kind[i] == TK_MINE;
     if (mine) st_mine++; if (kind[i] == TK_VEIN) st_mine_walk++;
-    if (kind[i] == TK_BAG && g_ovr.ha != ACN_EAT && g_ovr.ha != ACN_DRINK && g_ovr.ha != ACN_THROW && g_ovr.ha != ACN_ZAP) continue;
+    if (kind[i] == TK_BAG && !s_pure && g_ovr.ha != ACN_EAT && g_ovr.ha != ACN_DRINK && g_ovr.ha != ACN_THROW && g_ovr.ha != ACN_ZAP) continue;
     if (i && (kind[0] == TK_BAG || kind[0] == TK_REST)) { g_ovr.dk = kind[0] == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = kind[0] == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; }   // (main.c tg_do: the hands passed over)   // 0.61: the hands (main.c tg_do), those with no aiming or choosing (gear: the bot's own)
     ActResult r = mine ? game_item_do(g_ovr.ms, ACN_MINE) : kind[i] == TK_BAG ? do_item(g_ovr.hs, (ItemAction)g_ovr.ha) : kind[i] == TK_REST ? game_rest(true) : hold ? game_rest(false) : (G.hero.b.roots || c == G.hero.pos) && kind[i] == TK_GO ? bot_search() : tap_safe(c);
     if (G.hero.pos != p0 && !getenv("NOHEAD")) g_from = p0;
@@ -2348,7 +2349,19 @@ static bool warrior_eat(void) {
   for (int j = 0; j < 5; j++) { int s = find_kind(PREF[j]); if (s >= 0 && s < BAG_SIZE) { st_warreat++; DID("a warrior's last 5 HP: eat"); do_item(s, ACN_EAT); return true; } }
   return false;
 }
+// 0.64 oracles: upper bounds on what item management could gain (not fair play: research only)
+//   ORACLE_ID=1: every potion, scroll, wand and ring kind known from the start; ORACLE_GEAR=1: every carried weapon,
+//   armour, ring and wand fully identified (level, curse, charges); ORACLE_FOOD=1: never hungry
+static void oracles(void) {
+  static int8_t o_id = -1, o_gear, o_food; if (o_id < 0) { o_id = getenv("ORACLE_ID") != NULL; o_gear = getenv("ORACLE_GEAR") != NULL; o_food = getenv("ORACLE_FOOD") != NULL; }
+  if (o_food) G.hero.hunger = 0;
+  if (o_id) for (int k = 1; k < IK_COUNT; k++) { int c = item_cat(k); if (c == CAT_POTION || c == CAT_SCROLL || c == CAT_WAND || c == CAT_RING) set_known(k); }
+  if (o_gear) for (int s = -4; s < PACK0 + 32; s = s == BAG_SIZE - 1 ? PACK0 : s + 1) { Item *it = game_slot(s); int c = item_cat(it->kind);
+    if (c == CAT_WEAPON || c == CAT_ARMOR || c == CAT_RING || c == CAT_WAND) it->flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN | IF_CHARGE_KNOWN; }
+}
 static bool decide(void) {
+  oracles();
+  if (P && s_pure && !s_rollout) return press();   // 0.64: Assist alone: every move is Select on the watch's suggestion (windows still the bot's)
   pwater_map(); burnt_scan();
   memset(s_sale, 0, sizeof s_sale); s_sale_any = false; if (!getenv("OLDSALE")) for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && G.heaps[i].pos < MAP_LEN) { BIT_SET(s_sale, G.heaps[i].pos); s_sale_any = true; }
   evidence_track();
@@ -3339,8 +3352,28 @@ static void quest_leave_check(void) {                  // leaving a quest floor 
   if (q->ghost_depth == d && q->ghost >= QS_GIVEN && q->ghost < QS_REWARDED) st_quest_left[0][q->ghost_alt % 3]++;
   if (q->imp_depth == d && q->imp == QS_GIVEN) st_quest_left[3][q->imp_alt ? 1 : 0]++;
 }
+// 0.63 item ledger (owner: "all effort on managing gear, items and the backpack"): what was left lying on each floor
+// when leaving it downwards the first time (seen / never seen), and what was still carried at death
+static const char *LG_NAME[] = { "gold", "food", "dew", "weapon", "armour", "missile", "potion", "scroll", "wand", "ring", "seed", "key", "quest", "misc", "SoU", "PoS", "healing" };
+static long lg_left[17][2], lg_dead[17][2], lg_floors, lg_deaths; static int lg_maxleft;
+static int lg_cat(int k) { return k == IK_SCR_UPGRADE ? 14 : k == IK_POT_STRENGTH ? 15 : k == IK_POT_HEALING ? 16 : k == IK_MYSTERY_MEAT ? CAT_FOOD : item_cat(k); }
+static void ledger_leave(void) {
+  if (s_rollout || s_is_child || s_pend_depth <= G.depth || G.depth <= lg_maxleft) return;
+  lg_maxleft = G.depth; lg_floors++;
+  for (int i = 0; i < G.n_heaps; i++) { Heap *h = &G.heaps[i]; if (h->pos >= MAP_LEN || h->type == HEAP_FOR_SALE || !h->item.kind) continue;
+    lg_left[lg_cat(h->item.kind)][BIT_GET(G.visited, h->pos) ? 0 : 1]++; }
+}
+static void ledger_death(void) {
+  if (s_rollout || s_is_child) return; lg_deaths++;
+  for (int s = 0; s < PACK0 + 32; s = s == BAG_SIZE - 1 ? PACK0 : s + 1) { Item *it = game_slot(s); if (!it->kind) continue; int k = it->kind, c = lg_cat(k);
+    lg_dead[c][(c == CAT_POTION || c == CAT_SCROLL || c == CAT_WAND || c == CAT_RING || c >= 14) && item_known(k) ? 0 : 1] += (c == CAT_MISSILE || c == CAT_GOLD) ? 1 : it->qty; }
+}
+static void ledger_print(void) {
+  printf("ledger: %ld floors left behind; lying there (seen/unseen):", lg_floors); for (int c = 0; c < 17; c++) if (lg_left[c][0] || lg_left[c][1]) printf(" %s %ld/%ld", LG_NAME[c], lg_left[c][0], lg_left[c][1]); printf("\n");
+  printf("ledger: %ld deaths; carried (known/unknown):", lg_deaths); for (int c = 0; c < 17; c++) if (lg_dead[c][0] || lg_dead[c][1]) printf(" %s %ld/%ld", LG_NAME[c], lg_dead[c][0], lg_dead[c][1]); printf("\n");
+}
 static void floor_report(void) {
-  quest_leave_check();
+  quest_leave_check(); ledger_leave();
   if (getenv("FOODLOG") && !s_rollout && !s_is_child && !s_cf_child) { int fb = 0; for (int i = 0; i < BAG_SIZE; i++) if (is_food(G.hero.bag[i].kind)) fb += G.hero.bag[i].qty;
     { int pass = 0, vis = 0, st = 0; for (int c = 0; c < MAP_LEN; c++) { if (PASSABLE(G.map[c]) || G.map[c] == T_DOOR) pass++; if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) vis++; if (BIT_GET(s_stepped, c)) st++; }
       if (getenv("PATHMAP")) { for (int y = 0; y < MAP_H; y++) { printf("   "); for (int x = 0; x < MAP_W; x++) { int c = x + y * MAP_W, n = s_stepcnt[c]; putchar(c == G.entrance ? '<' : c == G.exit ? '>' : n ? (n > 9 ? '+' : '0' + n) : PASSABLE(G.map[c]) || G.map[c] == T_DOOR ? (BIT_GET(G.visited, c) ? '.' : '?') : ' '); } printf("\n"); } }
@@ -3608,10 +3641,10 @@ int main(int argc, char **argv) {
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;
   if (getenv("STOP")) sscanf(getenv("STOP"), "%d:%d", &stop_game, &stop_step);
   V = getenv("V") != NULL;
-  P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0;
+  P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0; s_pure = getenv("PURE") != NULL;
   if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); }
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
-    cur_game = g; srand(g + 1); st_games++;
+    cur_game = g; srand(g + 1); st_games++; lg_maxleft = 0;
     extern uint32_t g_host_time; extern uint16_t g_host_ms;
     g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7);   // a different dungeon each game, night or day
     s_wait_n = 0; s_cooked = 0; s_fork_until = -1; memset(s_bounce_n, 0, sizeof s_bounce_n);
@@ -3870,6 +3903,7 @@ int main(int argc, char **argv) {
     if (s_zone_start) { int zi = s_zone_start / 5; if (G.max_depth >= s_zone_start + 5) st_zone_clear[zi]++; st_zone_depth[zi] += G.max_depth - s_zone_start; }
     for (int d = 5; d <= 25; d += 5) if (G.max_depth > d) st_boss_kill[d]++;
     st_qs[0][G.q.ghost]++; st_qs[1][G.q.wand]++; st_qs[2][G.q.smith]++; st_qs[3][G.q.imp]++;
+    if (G.hero.HP <= 0) ledger_death();
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
                            G.depth, G.max_depth, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl,
                            G.q.ghost, G.q.wand, G.q.smith, G.q.imp, G.hero.HP <= 0 ? ": " : "", G.hero.HP <= 0 ? G.death : "");
@@ -3899,6 +3933,7 @@ int main(int argc, char **argv) {
   if (P) printf("assist audit: steps straight back %d (an enemy in sight %d); dithering (a cell a third time in 24 moves, nothing new seen, no enemy) %d\n", st_turnback, st_turnback_foe, st_dither);
   if (P) printf("assist audit: searches %d (with a foe hunting %d, with the way down known %d); hungry, no food, food within 3: %d presses, not entry 0: %d\n", st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left);
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);
+  ledger_print();
   printf("food: energy eaten %ld (%.1f rations), wasted %ld; warrior emergency meals %d\n", st_eat_energy, st_eat_energy / 260.0, st_eat_waste, st_warreat);
   printf("floors cleared %d (%.1f a game); decisions %d, presses %d (%.1f a floor), entry 0 off screen %d, oscillations %d\n", st_floors, st_floors / (double)(st_games ? st_games : 1), st_press_n, st_press, st_press / (double)(st_floors ? st_floors : 1), st_press_off, st_osc);
   printf("veins: mined %d, walks to one %d (did nothing %d)\n", st_mine, st_mine_walk, st_mine_none);

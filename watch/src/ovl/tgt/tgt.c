@@ -9,6 +9,12 @@
 #define CELLS_POS
 #include "game_int.h"
 #include "ovl.h"
+#ifdef OVL_HOST                                        // 0.64: the bot's A/B switches for the Assist's rules (fixed on the watch)
+#include <stdlib.h>
+#define XENV(n, d) (getenv(n) ? atoi(getenv(n)) : (d))
+#else
+#define XENV(n, d) (d)
+#endif
 // 0.43 (perf): the neighbour test without divisions (MAP_W 32), not inlined (smaller)
 static __attribute__((noinline)) bool nbk(int c, int n) { return (unsigned)n < MAP_LEN && (unsigned)((n & 31) - (c & 31) + 1) <= 2; }
 #define nb_ok nbk
@@ -141,8 +147,17 @@ static bool dead_end(int c) {                          // 0.48 (owner): a corrid
     int t = G.map[n]; if (t != T_WALL && t != T_WALL_DECO && t != T_SECRET_DOOR) { open++; oo += k < 4; } }
   return open == 1 && oo == 1;
 }
+static bool risky(const Heap *h) {                     // 0.64 (the Assist alone died to wraiths and piranhas): a tomb (wraiths) till
+  Hero *hr = &G.hero; int c = h->pos;                  // well ahead of the depth; a pool room's prize (piranhas) unless levitating or
+  if (h->type == HEAP_TOMB) return hr->lvl < G.depth + 3;   // invisible; a skeleton (a cursed one takes half your health) while hurt
+  if (h->type == HEAP_SKELETON && hr->HP * 3 < hr->HT * 2) return true;
+  for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r];
+    if (R->type == RT_POOL && cx(c) >= R->left && cx(c) <= R->right && cy(c) >= R->top && cy(c) <= R->bottom) return !hr->b.levitation && !hr->b.invis; }
+  return false;
+}
 static bool heap_ok(const Heap *h) {                   // worth picking up: not put down on purpose, not known junk, room for it
   int t = h->type;
+  if (XENV("RISKY", 1) && risky(h)) return false;
   if (t >= HEAP_CARRIED || t == HEAP_FOR_SALE || !BIT_GET(G.visited, h->pos) || (TFLAGS(G.map[h->pos]) & F_AVOID) || dropped(h->pos) || ((h->pos == G.entrance || h->pos == G.exit) && !food_k(h->item.kind))) return false;   // (0.50: on the stairs a tap takes them; 0.61: food there all the same: a tap picks up first, Hero.handle)
   if (((unsigned)(t - HEAP_LOCKED_CHEST) < 2 && !(G.keys[G.depth] & 0x30)) || (t == HEAP_PLAIN && (!room_for(&h->item) || junk(&h->item)))) return false;
   return true;
@@ -241,8 +256,18 @@ static int look(bool all) {
   if (best >= 0) g_goal = best;
   return best;
 }
+static bool foul(int c) {                               // 0.64: toxic gas, fire or confusion gas in this cell
+  for (int b = BLOB_TOXIC; b <= BLOB_CONFUSION; b++) if (b != BLOB_REGROWTH && g_blob[b] && g_blob[b][c]) return true;
+  return false;
+}
 static int first(int *kind) {                          // the cell (on the map, maybe off screen) and its kind; -1: none
   int hp = G.hero.pos, best = -1, bk = 0x7FFF, bi = 0;
+  if (XENV("FOUL", 1) && (foul(hp) || G.hero.b.burning)) {   // 0.64 (the Assist alone died in the gas of a potion it had drunk to learn it):
+    bool w = G.hero.b.burning;                         // out of the gas / fire, the nearest clean cell (alight: water, if it's near)
+    for (int p = 0; p < 2 && best < 0; p++, w = false)
+      for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < bk && s_dist[c] > 0 && (!w || s_dist[c] <= 4) && open_cell(c) && !foul(c) && !char_at(c) && (!w || IS_WATER(G.map[c]))) { bk = s_dist[c]; best = c; }
+    if (best >= 0) { *kind = TK_GO; DBG_RET(best); }
+    bk = 0x7FFF; }
   g_ovr.on &= ~2;
   if ((uint8_t)(G.hero.exp + G.hero.lvl * 101) != g_ovr.gk) g_ovr.on &= ~4;   // (a kill: more experience)
   for (int i = 0; i < G.n_mobs; i++) {                 // fight: a boss beside you, the weakest beside you, else the nearest
@@ -284,9 +309,11 @@ static int first(int *kind) {                          // the cell (on the map, 
       } else g_ovr.d |= 128;
     }
     else if (bk >= 1000 && w <= 3 && g_from >= 0 && distance(g_from, best) <= 1 && !(g_ovr.d & 64)) g_ovr.d |= 128 | 64;
-    if (s_fish && IS_WATER(G.map[hp]) && bk < 1000) {   // a piranha beside you in the water: out of it, the shortest way
-      int c0 = -1, d0 = 0x7FFF;
-      for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < d0 && s_dist[c] > 0 && open_cell(c) && !IS_WATER(G.map[c]) && c != G.entrance && c != G.exit) { d0 = s_dist[c]; c0 = c; }
+    if (bk < 1000 && (MOB_DEFS[t].flags & MD_WATER) && (XENV("FISH", 1) || IS_WATER(G.map[hp]))) {   // a piranha beside you: out of its reach, the shortest way (0.64: from the
+      int c0 = -1, d0 = 0x7FFF;                        // shore too: the Assist alone lost 1 game in 7 to them on the first floors)
+      for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < d0 && s_dist[c] > 0 && open_cell(c) && c != G.entrance && c != G.exit) {
+        bool wet = false; for (int k = -1; k < 8; k++) { int n = k < 0 ? c : c + N8[k]; if (k < 0 || nb_ok(c, n)) wet |= IS_WATER(G.map[n]); }
+        if (!wet) { d0 = s_dist[c]; c0 = c; } }
       if (c0 >= 0) { *kind = TK_GO; DBG_RET(c0); }
     }
     *kind = TK_ENEMY; DBG_RET(best);
@@ -453,18 +480,30 @@ static int hands(void) {
     int d = distance(m->pos, hp); if (d <= 3) near = true; if (d <= 1) adj = true;
     hard += (MOB_DEFS[m->type].flags & MD_BOSS) ? 2 : m->state == ST_HUNTING; }   // (a boss, or two coming for you: a hard fight)
   g_ovr.hs = -1;
+  if (XENV("FOUL", 1) && (foul(hp) || h->b.burning)) return -1;   // 0.64: out of the gas / fire first (first())
   // 0.61 (owner): hunger stops rising at Starving, so the turns spent there cost no food (just ~1 HP a 33 turns, and no
   // regeneration): eat only once starving and under 80% health, or to go into a hard fight fed; never with one within 3
   bool eat = STARVING && !near && (h->HP * 5 < h->HT * 4 || hard >= 2);
   // (owner) a warrior near death in a fight, no potion of healing known and none beside him: a meal is 5 HP (3 turns)
   int s = game_bag_find(IK_POT_HEALING); bool pot = s >= 0 && item_known(IK_POT_HEALING);
   bool war = seen && !adj && (h->hclass & 3) == 0 && h->HP * 4 < h->HT && !pot;
+  // 0.64 (owner: "I don't want to starve to death because I ignored food suggestion once"): a meal passed over comes
+  // back once health falls under half, and again under a quarter (two nudges; past that the player has a reason)
+  int band = h->HP * 4 < h->HT ? 2 : h->HP * 2 < h->HT;
+  bool passed = g_ovr.dd == G.depth && g_ovr.da == ACN_EAT;
+  if (!passed) G.tgm.eb = 0;
+  else if (!G.tgm.eb) G.tgm.eb = band + 1;              // (the band it was passed over in)
+  else if (band + 1 > G.tgm.eb) { passed = false; g_ovr.dd = -1; G.tgm.eb = 0; }
   for (int i = 0; i < BAG_SIZE; i++) {
     int k = h->bag[i].kind;
-    if (food_k(k) && (eat || war) && (k != IK_MYSTERY_MEAT || (g_ovr.hs < 0 && !war)) && !DECL(k, ACN_EAT)) { g_ovr.hs = i; g_ovr.ha = ACN_EAT; }   // (0.63: passed over: not again this floor)
+    if (food_k(k) && (eat || war) && (k != IK_MYSTERY_MEAT || (g_ovr.hs < 0 && !war)) && !passed) { g_ovr.hs = i; g_ovr.ha = ACN_EAT; }   // (0.63: passed over: not again this floor, 0.64: but for those two)
   }
   if (g_ovr.hs >= 0) return TK_BAG;
   if (seen && h->HP * 4 < h->HT && pot) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
+  // 0.64 (the Assist alone died carrying 2.4 unknown potions, a healing one among them every other time): beside one,
+  // under a quarter, no known healing: drink an unknown potion (healing is the likeliest), else read an unknown scroll
+  if (XENV("GAMBLE", 1) && adj && h->HP * 4 < h->HT && !pot) for (int c = CAT_POTION; c <= CAT_SCROLL; c++) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind;
+    if (item_cat(k) == c && !item_known(k) && (c == CAT_POTION || !h->b.blind)) { g_ovr.hs = i; g_ovr.ha = c == CAT_POTION ? ACN_DRINK : ACN_READ; return TK_BAG; } }
   if (seen) {                                          // 0.50 (the solver bot): from afar: a full wand, or any charge when hurt; the Huntress's boomerang
     Mob *e = 0; int ed = 99; bool hit;               // every turn (it comes straight back); darts and such at one 3+ away
     for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state != ST_HUNTING || (MOB_DEFS[m->type].flags & MD_NPC)) continue; int d = distance(m->pos, hp); if (d < ed && ballistica(hp, m->pos, &hit) == m->pos) { ed = d; e = m; } }
@@ -481,12 +520,23 @@ static int hands(void) {
       if ((k == IK_WND_LIGHTNING || k == IK_WND_AVALANCHE) && ed < 3) continue;   // (owner: never point blank)
       if (k == IK_WND_FIREBOLT && (TFLAGS(G.map[hp]) & F_FLAMABLE)) continue;
       if (it->ench >= wand_max(it) || h->HP * 2 < h->HT) { g_ovr.hs = sl; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }
+    for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind;   // 0.64: a known harmful potion at one coming from afar (gas: 4+ away)
+      if (!XENV("HARMTHROW", 1)) break;
+      if ((k == IK_POT_TOXIC || k == IK_POT_PARALYTIC) ? ed >= 4 : (k == IK_POT_FLAME || k == IK_POT_FROST) && ed >= 3 && !(TFLAGS(G.map[hp]) & F_FLAMABLE))
+        if (item_known(k)) { g_ovr.hs = i; g_ovr.ha = ACN_THROW; s_aim = e->pos; return TK_BAG; } }
     if ((h->hclass & 3) == 3 && !shooter && (s = game_bag_find(IK_BOOMERANG)) >= 0) { g_ovr.hs = s; g_ovr.ha = ACN_THROW; s_aim = e->pos; return TK_BAG; }
     if (ed >= 3 && !shooter) for (int sl = 0; sl < BAG_SIZE; sl++) { int k = h->bag[sl].kind; if (k == IK_DART || k == IK_JAVELIN || k == IK_SHURIKEN || k == IK_TOMAHAWK) { g_ovr.hs = sl; g_ovr.ha = ACN_THROW; s_aim = e->pos; return TK_BAG; } }
     return -1; }
-  if ((s = game_bag_find(IK_POT_STRENGTH)) >= 0 && item_known(IK_POT_STRENGTH) && !DECL(IK_POT_STRENGTH, ACN_DRINK)) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }   // 0.50
+  for (int k = IK_POT_STRENGTH; k; k = k == IK_POT_STRENGTH ? IK_POT_MIGHT : k == IK_POT_MIGHT ? IK_POT_EXPERIENCE : 0)   // 0.50 (0.64: Might and Experience too)
+    if ((s = game_bag_find(k)) >= 0 && item_known(k) && !DECL(k, ACN_DRINK)) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
   if (!h->b.blind && (s = game_bag_find(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && !DECL(IK_SCR_UPGRADE, ACN_READ)) { g_ovr.hs = s; g_ovr.ha = ACN_READ; return TK_BAG; }   // 0.50: an upgrade (the selector asks what for)
   if (!h->b.blind && h->HP * 5 >= h->HT * 4 && !game_starving()) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_SCROLL && !item_known(k) && !DECL(k, ACN_READ)) { g_ovr.hs = i; g_ovr.ha = ACN_READ; return TK_BAG; } }   // 0.50: read to learn it, nothing about
+  // 0.64: drink unknown potions to learn them while it's safe (PD players do it early: then healing is known when it
+  // matters): healthy, nothing in sight, not on what burns; Liquid Flame not yet known: only in water or with no scrolls to lose
+  if (XENV("TESTDRINK", 1) && h->HP * 10 >= h->HT * 9 && !STARVING && !(TFLAGS(G.map[hp]) & F_FLAMABLE)) {
+    bool scr = false; for (int i = 0; i < BAG_SIZE; i++) scr |= item_cat(h->bag[i].kind) == CAT_SCROLL;
+    if (item_known(IK_POT_FLAME) || IS_WATER(G.map[hp]) || !scr) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind;
+      if (item_cat(k) == CAT_POTION && !item_known(k) && !DECL(k, ACN_DRINK)) { g_ovr.hs = i; g_ovr.ha = ACN_DRINK; return TK_BAG; } } }
   for (int i = 0; i < BAG_SIZE; i++) {
     Item *it = &h->bag[i]; int c = item_cat(it->kind); Item *cur = c == CAT_WEAPON ? &h->weapon : &h->armor;
     if ((c != CAT_WEAPON && c != CAT_ARMOR) || it->kind == IK_PICKAXE || CLASS_ARMOR(it->kind) || (cur->flags & IF_CURSED)) continue;
@@ -494,7 +544,7 @@ static int hands(void) {
     int a = 2 * item_tier(it->kind) + it->lvl, b = cur->kind ? 2 * (CLASS_ARMOR(cur->kind) ? 6 : item_tier(cur->kind)) + ((cur->flags & IF_LEVEL_KNOWN) ? cur->lvl : 0) : -1;
     if (a > b && !DECL(it->kind, ACN_EQUIP)) { g_ovr.hs = i; g_ovr.ha = ACN_EQUIP; return TK_BAG; }
   }
-  if (h->HP * 2 < h->HT && !game_starving() && !DECL(0, 255)) return TK_REST;
+  if (h->HP * 10 < h->HT * XENV("RESTP", 5) && !game_starving() && !DECL(0, 255)) return TK_REST;
   return -1;
 }
 #endif
