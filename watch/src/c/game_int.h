@@ -100,7 +100,7 @@ void affect_paralysis(int who, int turns);
 
 // 0.8: the "floor" overlay (saves, floor changes, new game) and what it needs from game.c
 enum { ARRIVE_ENTRANCE, ARRIVE_EXIT, ARRIVE_FALL, ARRIVE_CELL = 16 };   // ARRIVE_CELL + cell: Lloyd's beacon
-enum { FO_BUILD, FO_LOAD, FO_SAVE, FO_SAVE_SIZE, FO_ERASE, FO_PEEK, FO_GO, FO_RESURRECT, FO_RANK };
+enum { FO_BUILD, FO_LOAD, FO_SAVE, FO_SAVE_SIZE, FO_ERASE, FO_PEEK, FO_GO, FO_RESURRECT, FO_RANK, FO_WHATIF };
 int floor_op(int op, int a, void *p);                // ovl.c
 void newgame_ovl(void);                              // ovl.c: the "newgame" overlay
 extern int s_pend_depth, s_pend_arrive;

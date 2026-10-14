@@ -693,6 +693,14 @@ static int save_dispatch(int op, int a, void *p) {
   if (op == FO_PEEK) { uint8_t *b = p, d = 0, l = 0; bool ok = f_peek_save(&d, &l); b[0] = d; b[1] = l; return ok; }
   if (op == FO_RANK) { f_rank(a); return 1; }          // 0.30: the rankings and erasing live here too (the floor overlay is full)
   if (op == FO_ERASE) { f_erase(); return 1; }
+#ifdef WHATIF
+  _Static_assert(FO_WHATIF == 9, "main.c calls it by number");
+  if (op == FO_WHATIF) {                              // the what-if build's frozen bot game: key, length, data ... 255
+    ResHandle r = resource_get_handle(RESOURCE_ID_WHATIF); int n = resource_size(r); uint8_t *b = malloc(n);
+    if (b) { resource_load(r, b, n); for (uint8_t *q = b; *q != 255; q += 3 + (q[1] | q[2] << 8)) persist_write_data(*q, q + 3, q[1] | q[2] << 8); free(b); }
+    return 1;
+  }
+#endif
   return f_save_size();
 }
 OVL_ENTRY(save, (void *)save_dispatch);

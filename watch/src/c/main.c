@@ -1309,8 +1309,10 @@ static void draw_map(void) {
   int ht = s_scene == SC_GAME ? combat_target() : -1;   // PD HealthIndicator over the attack indicator's target
   if (ht >= 0 && s_vis_mob[ht].active) {
     const CharArt *art = mob_art(G.mobs[ht].type); Vis *v = &s_vis_mob[ht];
-    int x = sx_of(v->x + (TS - art->fw) / 2), y = sy_of(v->y + TS - art->fh) - 4, w = art->fw << s_zoom >> 1;   // 0.43: was 0 wide (gone) at the far zoom
-    blit_fill(x, y, w, 2, ARGB(GColorRed)); blit_fill(x, y, w * G.mobs[ht].HP / G.mobs[ht].HT, 2, ARGB(GColorIslamicGreen));
+    int th = s_zoom == 2 ? 5 : s_zoom + 2;            // 0.70 (owner: "very important information"): 2 / 3 / 5 px thick by zoom, outlined in black
+    int x = sx_of(v->x + (TS - art->fw) / 2), y = sy_of(v->y + TS - art->fh) - th - 3, w = art->fw << s_zoom >> 1;   // 0.43: was 0 wide (gone) at the far zoom
+    blit_fill(x - 1, y - 1, w + 2, th + 2, ARGB(GColorBlack));
+    blit_fill(x, y, w, th, ARGB(GColorRed)); blit_fill(x, y, w * G.mobs[ht].HP / G.mobs[ht].HT, th, ARGB(GColorGreen));
   }
   int tg = s_hl < 0 ? combat_target() : -1, cx = -1, cy = 0;
   if (tg >= 0 && s_vis_mob[tg].active) {
@@ -1725,8 +1727,7 @@ static void init(void) {
   if (!s_text_buf) return;
   snd_init();                                  // (loads the sound engine now: long-lived things first, then pictures)
 #ifdef WHATIF
-  if (!persist_exists(1)) { ResHandle r = resource_get_handle(RESOURCE_ID_WHATIF); int n = resource_size(r); uint8_t *b = malloc(n);   // 0.51 what-if build: no save: the frozen bot game (key, length, data... 255)
-    if (b) { resource_load(r, b, n); for (uint8_t *q = b; *q != 255; q += 3 + (q[1] | q[2] << 8)) persist_write_data(*q, q + 3, q[1] | q[2] << 8); free(b); } }
+  int floor_op(int, int, void *); if (!persist_exists(1)) floor_op(9, 0, NULL);   // FO_WHATIF (game_int.h)   // 0.51 what-if build: no save: the frozen bot game (0.70: in the save overlay)
 #endif
   if (persist_exists(KEY_ZOOM)) { int v = persist_read_int(KEY_ZOOM); s_zoom = v & 15; g_assist = ((v >> 4) & 3) ^ ASSIST_DEF; if (s_zoom > 2) s_zoom = 1; }
   sheet_load(&s_chrome, RESOURCE_ID_IMAGE_CHROME);

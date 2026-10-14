@@ -54,7 +54,8 @@ static bool nav_ok(int i) {                        // 0.42: the buttons skip emp
   return bag_selectable(i) && (s_move || i >= BAG_EXIT || ((it = bag_item(i)) && it->kind));
 }
 // 0.70 (owner: "borrow from Shattered PD"): a known potion or scroll shows Shattered PD's own icon for it (item_icons.png,
-// 8x8, potions then scrolls in IK order, built by tools/convert_art.py) in the top right corner; an unknown one an orange "?"
+// 8x8, potions then scrolls in IK order, each against its cell's right edge, built by tools/convert_art.py), bare, in the top
+// right corner beside the bottle's neck; an unknown one an orange "?" there. (The top left is always the count.)
 _Static_assert(IK_POT_FROST - IK_POT_HEALING == 11 && IK_SCR_ENCHANT - IK_SCR_IDENTIFY == 11, "potion / scroll kinds in order");
 static int known_icon(int k) {
   if (k >= IK_POT_HEALING && k <= IK_POT_FROST) return k - IK_POT_HEALING;
@@ -87,6 +88,7 @@ static void draw_bag(GContext *ctx) {
   for (int y = 0; y < s_h; y++) { rrow(0, s_w, y, 129, ARGB(GColorDarkGray)); rrow(0, s_w, y, 127, ARGB(GColorBlack)); }   // a rim
   for (int t = 0; t < ntabs; t++) { GRect q = bag_tab(t); bool sel = t == s_bag_tab; blit_fill(q.origin.x, q.origin.y, CW, CH, sel ? ARGB(GColorLightGray) : ARGB(GColorDarkGray)); if (sel) blit_box(q.origin.x + 2, q.origin.y + 2, CW - 4, CH - 4, 1, ARGB(GColorDarkGray)); }
 #else
+  blit_fog(0, 0, s_w > s_h ? s_w : s_h);           // 0.70 (owner): the game behind the window in the unexplored-cells shadow
   tab_panel(GRect(r.origin.x, r.origin.y + HEAD, r.size.w, r.size.h - HEAD));   // 0.69 (owner): the frame round the cells only, the title on a tab above it
   for (int t = 0; t < ntabs; t++) tab_art(bag_tab(t), t == s_bag_tab);
   { int tw = s_pick >= 0 ? r.size.w - 12 : graphics_text_layout_get_content_size(title, s_font_hud, GRect(0, 0, r.size.w, 20), GTextOverflowModeWordWrap, GTextAlignmentCenter).w + 16;
@@ -124,7 +126,7 @@ static void draw_bag(GContext *ctx) {
         for (int k = 0; k < 3; k++) blit_fill(q.origin.x + 2 + k * 5, q.origin.y + CH - 6, 4, 4, k < nb ? ARGB(GColorGreen) : ARGB(GColorRed));
       }
       int ic = item_known(it->kind) ? known_icon(it->kind) : -1;
-      if (ic >= 0) { blit_fill(q.origin.x + CW - 17, q.origin.y + 1, 16, 16, ARGB(GColorBlack)); if (ii.bmp) blit(&ii, ic * 8, 0, 8, 8, q.origin.x + CW - 17, q.origin.y + 1, 2); }
+      if (ic >= 0 && ii.bmp) blit(&ii, ic * 8, 0, 8, 8, q.origin.x + CW - 18, q.origin.y + 2, 2);
     }
     else if (sl <= -1 && sl >= -4) ITEM_SPR(SP_PH_WEAPON + (i < 2 ? i : 2), cx, cy, 2);   // ghost placeholders for empty gear slots
     else if (sl == SL_GOLD) { Item gold = item_make(IK_GOLD, 1); sprite2(&gold, cx, cy); }
@@ -164,6 +166,8 @@ static void draw_bag(GContext *ctx) {
     if (!it || !it->kind) continue;
     ItemCat cat = item_cat(it->kind);
     if (it->qty > 1) TL("%d", it->qty);
+    if ((cat == CAT_POTION || cat == CAT_SCROLL) && !item_known(it->kind))     // 0.69: not yet known: an orange "?"
+      text_outlined(ctx, "?", s_font_hud, GColorChromeYellow, q.origin.x, q.origin.y - 4, CW - 3, GTextAlignmentRight);
     if (it->kind == IK_DEW_VIAL) TL("%d/10", G.dew);                              // DewVial.status
     if (cat == CAT_WAND && (it->flags & IF_LEVEL_KNOWN)) {                          // Wand.status: charges / max
       if (it->flags & IF_CHARGE_KNOWN) TL("%d/%d", it->ench, wand_max(it)); else TL("?/%d", wand_max(it));
@@ -181,8 +185,6 @@ static void draw_bag(GContext *ctx) {
       snprintf(buf, sizeof buf, "%+d", lvl);
       text_outlined(ctx, buf, s_font_hud, lvl > 0 ? (item_broken(it) ? GColorChromeYellow : GColorGreen) : GColorSunsetOrange, q.origin.x, q.origin.y + CH - 18, CW - 1, GTextAlignmentRight);
     }
-    if ((cat == CAT_POTION || cat == CAT_SCROLL) && !item_known(it->kind))     // 0.69: not yet known: an orange "?"
-      text_outlined(ctx, "?", s_font_hud, GColorChromeYellow, q.origin.x, q.origin.y - 4, CW - 3, GTextAlignmentRight);
   }
 }
 static bool bag_move(int i, bool hold) {            // press and hold picks an item up, the next press puts it there (swapping)

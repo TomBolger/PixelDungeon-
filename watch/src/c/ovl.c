@@ -180,7 +180,7 @@ void wand_effect(int k, int power, int level, const int16_t *trace, int n) {
 void newgame_ovl(void) { const OvlHeader *o = ovl_load(RESOURCE_ID_OVL_NEWGAME); if (o) { ((void (*)(void))o->fn[0])(); ovl_free(o); } }
 // the "floor" overlay: saves, floor changes (see game_int.h FO_*)
 int floor_op(int op, int a, void *p) {
-  const OvlHeader *o = ovl_load(op == FO_SAVE || op == FO_SAVE_SIZE || op == FO_PEEK || op == FO_RANK || op == FO_ERASE ? RESOURCE_ID_OVL_SAVE : RESOURCE_ID_OVL_FLOOR);
+  const OvlHeader *o = ovl_load((op >= FO_SAVE && op <= FO_PEEK) || op >= FO_RANK ? RESOURCE_ID_OVL_SAVE : RESOURCE_ID_OVL_FLOOR);
   if (!o) { ui_log("Not enough memory to do that right now.", C_BAD); return 0; }
   int r = ((int (*)(int, int, void *))o->fn[0])(op, a, p);
   ovl_free(o);
