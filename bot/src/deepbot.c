@@ -235,8 +235,9 @@ static ActResult walk(ActResult r) {
 static ActResult tap_safe(int c);
 static ActResult do_tap(int c) { int32_t t = G.hero.time; int hb = heap_at(c), tb = hb >= 0 ? G.heaps[hb].type : -1; ActResult r = tap_safe(c); if (V) printf("   tap %d: heap type %d -> %d, action %d\n", c, tb, heap_at(c) >= 0 ? G.heaps[heap_at(c)].type : -1, G.action); if ((r == ACT_TURN || r == ACT_WALK) && G.hero.time <= t && G.hero.HP > 0 && !s_pend_depth) viol("NO_TIME", "tap %d (terrain %d) returned %d without time passing", c, G.map[c], r); return walk(r); }
 static int s_line;
+static long st_eat_energy, st_eat_waste; static int st_warreat;   // 0.61: food eaten (energy) and wasted (below 0 hunger)
 #define do_item(s, a) (s_line = __LINE__, do_item_(s, a))
-static ActResult do_item_(int slot, ItemAction a) { { char nm[64]; item_name(game_slot(slot), nm, sizeof nm); DID("%s: %s", ACTION_NAMES[a], nm); } int32_t t = G.hero.time; if (V) printf("  item slot %d kind %d %s (line %d)\n", slot, game_slot(slot)->kind, ACTION_NAMES[a], s_line); ActResult r = game_item_do(slot, a); if (V) printf("   -> %d\n", r); if (r == ACT_TURN && G.hero.time <= t && G.hero.HP > 0 && !s_pend_depth && a != ACN_DROP && a != ACN_RETURN) viol("NO_TIME", "item %d action %s took no time", game_slot(slot)->kind, ACTION_NAMES[a]); return walk(r); }
+static ActResult do_item_(int slot, ItemAction a) { if (a == ACN_EAT && !s_rollout && !s_is_child) { int k = game_slot(slot)->kind, e = k == IK_RATION ? 260 : k == IK_PASTY ? 360 : k == IK_PHANTOM_FISH ? 0 : 100; st_eat_energy += e; if (e > G.hero.hunger) st_eat_waste += e - G.hero.hunger; } { char nm[64]; item_name(game_slot(slot), nm, sizeof nm); DID("%s: %s", ACTION_NAMES[a], nm); } int32_t t = G.hero.time; if (V) printf("  item slot %d kind %d %s (line %d)\n", slot, game_slot(slot)->kind, ACTION_NAMES[a], s_line); ActResult r = game_item_do(slot, a); if (V) printf("   -> %d\n", r); if (r == ACT_TURN && G.hero.time <= t && G.hero.HP > 0 && !s_pend_depth && a != ACN_DROP && a != ACN_RETURN) viol("NO_TIME", "item %d action %s took no time", game_slot(slot)->kind, ACTION_NAMES[a]); return walk(r); }
 
 // ---------------- knowledge ----------------
 static int s_ign_uid[MAX_MOBS], s_ign_until[MAX_MOBS];
@@ -2277,7 +2278,8 @@ static bool press(void) {
     if (hold) { st_hold++; if (++st_hold_run > st_hold_max) st_hold_max = st_hold_run; } else st_hold_run = 0;
     bool mine = kind[i] == TK_MINE;
     if (mine) st_mine++; if (kind[i] == TK_VEIN) st_mine_walk++;
-    if (kind[i] == TK_BAG && g_ovr.ha != ACN_EAT && g_ovr.ha != ACN_DRINK) continue;   // 0.61: the hands (main.c tg_do), those with no aiming or choosing (gear: the bot's own)
+    if (kind[i] == TK_BAG && g_ovr.ha != ACN_EAT && g_ovr.ha != ACN_DRINK) continue;
+    if (i && (kind[0] == TK_BAG || kind[0] == TK_REST)) { g_ovr.dk = kind[0] == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = kind[0] == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; }   // (main.c tg_do: the hands passed over)   // 0.61: the hands (main.c tg_do), those with no aiming or choosing (gear: the bot's own)
     ActResult r = mine ? game_item_do(g_ovr.ms, ACN_MINE) : kind[i] == TK_BAG ? do_item(g_ovr.hs, (ItemAction)g_ovr.ha) : kind[i] == TK_REST ? game_rest(true) : hold ? game_rest(false) : (G.hero.b.roots || c == G.hero.pos) && kind[i] == TK_GO ? bot_search() : tap_safe(c);
     if (G.hero.pos != p0 && !getenv("NOHEAD")) g_from = p0;
     if (kind[i] == TK_VEIN && r == ACT_NONE && G.hero.time == t) { st_mine_none++; if (V) printf("  MINE-WALK did nothing: vein %d hero %d\n", c, G.hero.pos); }
@@ -2326,6 +2328,26 @@ static void sp_stat(void) {
         putchar('\n'); } } }
   if (!stuck && s_sp_t0 >= 0 && BIT_GET(G.visited, G.exit)) { st_sp_turns += (h->time - s_sp_t0) / TICK; st_sp_n++; if (getenv("SPDUMP") || getenv("SPEND")) printf("SEARCH PHASE END game %d d%d turns %d\n", cur_game, G.depth, (h->time - s_sp_t0) / TICK); s_sp_t0 = -1; }
 }
+// 0.61 (owner: "eating before starving is a waste"): hunger stops rising at Starving, so every turn spent there is a
+// turn no food pays for; it costs ~1 HP a 33 turns and the regeneration (1 a 10 turns when hurt). EATLATE=p: eat only once
+// starving and under p% of full health, or with a hard fight coming (a boss, or two hunting you, none near yet)
+static int s_eatlate = -1, s_warreat;
+static bool eat_late(void) {
+  Hero *h = &G.hero; if (!game_starving()) return false;
+  if (h->HP * 100 < h->HT * s_eatlate) return true;
+  int hunt = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || (MOB_DEFS[m->type].flags & MD_NPC)) continue;
+    if (MOB_DEFS[m->type].flags & MD_BOSS) return true; if (m->state == ST_HUNTING) hunt++; }
+  return hunt >= 2;
+}
+// WARREAT=1: a warrior near death in a fight eats for Food.execute's 5 HP (3 turns), none beside him; WARREAT=2: even with one beside him
+static bool warrior_eat(void) {
+  Hero *h = &G.hero;
+  if (!s_warreat || (h->hclass & 3) != 0 || h->HP * 4 >= h->HT || !enemy_count() || (s_warreat == 1 && foe_near(1))) return false;
+  if (find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) return false;   // (the potion first: emergency())
+  static const uint8_t PREF[5] = { IK_OVERPRICED, IK_CHARGRILLED, IK_CARPACCIO, IK_RATION, IK_PASTY };   // (the least food first)
+  for (int j = 0; j < 5; j++) { int s = find_kind(PREF[j]); if (s >= 0 && s < BAG_SIZE) { st_warreat++; DID("a warrior's last 5 HP: eat"); do_item(s, ACN_EAT); return true; } }
+  return false;
+}
 static bool decide(void) {
   pwater_map(); burnt_scan();
   memset(s_sale, 0, sizeof s_sale); s_sale_any = false; if (!getenv("OLDSALE")) for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && G.heaps[i].pos < MAP_LEN) { BIT_SET(s_sale, G.heaps[i].pos); s_sale_any = true; }
@@ -2341,7 +2363,7 @@ static bool decide(void) {
   Hero *h = &G.hero; const char *why = "?";
   if (V) printf("  decide: hero %d hp %d/%d hunger %d blind %d light %d vd %d\n", h->pos, h->HP, h->HT, h->hunger, h->b.blind, h->light, view_distance());
   // eat
-  if (s_oldeat ? game_hungry() : (game_starving() || (((!getenv("OLDEAT2")) || getenv("THRIFT")) && game_hungry() && ({ bool r = false; for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_RATION || h->bag[i].kind == IK_CHARGRILLED || h->bag[i].kind == IK_CARPACCIO || h->bag[i].kind == IK_OVERPRICED) r = true; r; }))) && !foe_near(3)) {   // 0.58 EATEARLY: a ration (260) at hungry (260+) wastes nothing, and a fight while starving has no healing   // 0.47n: only once starving (PD: hungry costs nothing, a ration eaten early wastes up to 100 turns), never with a foe at hand
+  if (s_eatlate >= 0 ? eat_late() : s_oldeat ? game_hungry() : (game_starving() || (((!getenv("OLDEAT2")) || getenv("THRIFT")) && game_hungry() && ({ bool r = false; for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_RATION || h->bag[i].kind == IK_CHARGRILLED || h->bag[i].kind == IK_CARPACCIO || h->bag[i].kind == IK_OVERPRICED) r = true; r; }))) && !foe_near(3)) {   // 0.58 EATEARLY: a ration (260) at hungry (260+) wastes nothing, and a fight while starving has no healing   // 0.47n: only once starving (PD: hungry costs nothing, a ration eaten early wastes up to 100 turns), never with a foe at hand
     int s = -1; for (int i = 0; i < BAG_SIZE && s < 0; i++) if (is_food(h->bag[i].kind) && !(((!getenv("OLDEAT2")) || getenv("THRIFT")) && !game_starving() && h->bag[i].kind == IK_PASTY)) s = i;
     if (s < 0) s = find_kind(IK_MYSTERY_MEAT);
     if (s < 0 && game_starving()) s = find_kind(IK_PHANTOM_FISH) >= 0 && G.q.wand != QS_GIVEN ? find_kind(IK_PHANTOM_FISH) : -1;
@@ -2353,6 +2375,7 @@ static bool decide(void) {
     }
     if (s >= 0) { st_uses[ACN_EAT]++; do_item(s, ACN_EAT); return true; }
   }
+  if (warrior_eat()) return true;
   { bool any = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_PIRANHA) { any = true; if (BIT_GET(G.fov, G.mobs[i].pos)) s_piranhas = true; }
     if (!any || s_brave) s_piranhas = false; }   // (seen once, and still about; unless there's no other way)
   if (h->b.paralysis || h->b.frost) { walk(game_rest(false)); return true; }
@@ -3029,7 +3052,7 @@ static int cands(Cand *c) {
     else if (cat == CAT_SEED && k != IK_SEED_ROTBERRY && plant_at(hp) < 0 && heap_at(hp) < 0 && hp != G.exit && hp != G.entrance) c[n++] = (Cand){ C_ITEM, ACN_PLANT, s, 0 };
     else if (cat == CAT_WAND && it->ench > 0 && fp >= 0) c[n++] = (Cand){ C_ZAP, 0, s, fp };
     else if (cat == CAT_MISSILE && fp >= 0) c[n++] = (Cand){ C_THROW, 0, s, fp };
-    else if (is_food(k) && h->hunger >= 150) c[n++] = (Cand){ C_ITEM, ACN_EAT, s, 0 };
+    else if (is_food(k) && (s_eatlate < 0 ? h->hunger >= 150 : game_starving() || (s_warreat && (h->hclass & 3) == 0 && h->HP * 4 < h->HT))) c[n++] = (Cand){ C_ITEM, ACN_EAT, s, 0 };
     if (n > 60) break;
   }
   return n;
@@ -3575,7 +3598,7 @@ int main(int argc, char **argv) {
   if (!game_init()) return 1;
   prm_load();
   if (getenv("LAK")) LA_K = atoi(getenv("LAK"));
-  { s_noburnt = getenv("NOBURNT") != NULL; s_oldfire = getenv("OLDFIRE") != NULL; s_oldchoke = getenv("OLDCHOKE") != NULL; s_oldeat = getenv("OLDEAT") != NULL; s_oldgear = getenv("OLDGEAR") != NULL; s_oldtrap = getenv("OLDTRAP") != NULL; if (getenv("SRCH_WIN")) s_srch_win = atoi(getenv("SRCH_WIN")); if (getenv("SRCH_K")) s_srch_k = atoi(getenv("SRCH_K")); s_olddead = getenv("OLDDEAD") != NULL; s_olddark = getenv("OLDDARK") != NULL; if (getenv("RISKP")) s_riskp = atof(getenv("RISKP")); s_nounk = getenv("NOUNK") != NULL; s_oldsleep = getenv("OLDSLEEP") != NULL; }
+  { s_noburnt = getenv("NOBURNT") != NULL; s_oldfire = getenv("OLDFIRE") != NULL; s_oldchoke = getenv("OLDCHOKE") != NULL; s_oldeat = getenv("OLDEAT") != NULL; if (getenv("EATLATE")) s_eatlate = atoi(getenv("EATLATE")); if (getenv("WARREAT")) s_warreat = atoi(getenv("WARREAT")); s_oldgear = getenv("OLDGEAR") != NULL; s_oldtrap = getenv("OLDTRAP") != NULL; if (getenv("SRCH_WIN")) s_srch_win = atoi(getenv("SRCH_WIN")); if (getenv("SRCH_K")) s_srch_k = atoi(getenv("SRCH_K")); s_olddead = getenv("OLDDEAD") != NULL; s_olddark = getenv("OLDDARK") != NULL; if (getenv("RISKP")) s_riskp = atof(getenv("RISKP")); s_nounk = getenv("NOUNK") != NULL; s_oldsleep = getenv("OLDSLEEP") != NULL; }
   if (getenv("ARRLAB")) return run_lab(getenv("ARRLAB"));
   s_dring_on = getenv("DEATHRING") != NULL; if (getenv("STARVELEAVE")) s_starve_leave = atoi(getenv("STARVELEAVE"));
   if (getenv("ARM_SPEEDK")) s_arm_speedk = atof(getenv("ARM_SPEEDK"));
@@ -3876,6 +3899,7 @@ int main(int argc, char **argv) {
   if (P) printf("assist audit: steps straight back %d (an enemy in sight %d); dithering (a cell a third time in 24 moves, nothing new seen, no enemy) %d\n", st_turnback, st_turnback_foe, st_dither);
   if (P) printf("assist audit: searches %d (with a foe hunting %d, with the way down known %d); hungry, no food, food within 3: %d presses, not entry 0: %d\n", st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left);
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);
+  printf("food: energy eaten %ld (%.1f rations), wasted %ld; warrior emergency meals %d\n", st_eat_energy, st_eat_energy / 260.0, st_eat_waste, st_warreat);
   printf("floors cleared %d (%.1f a game); decisions %d, presses %d (%.1f a floor), entry 0 off screen %d, oscillations %d\n", st_floors, st_floors / (double)(st_games ? st_games : 1), st_press_n, st_press, st_press / (double)(st_floors ? st_floors : 1), st_press_off, st_osc);
   printf("veins: mined %d, walks to one %d (did nothing %d)\n", st_mine, st_mine_walk, st_mine_none);
   printf("fallbacks (entry 0 did nothing) %d; waits for an enemy a step short %d (longest run %d)\n", st_fb, st_hold, st_hold_max);

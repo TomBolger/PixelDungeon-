@@ -40,9 +40,14 @@ static int s_h0;                                        // 0.51 (owner): entries
 #else
 #define s_h0 0
 #endif
+#if TGT_PART == 1
+__attribute__((noinline))                              // (tgt2: shared by t_add and t_front, room)
+#endif
+static void t_del(int j) {                             // 0.61: entry j out
+  while (++j < s_tn) { s_tc[j - 1] = s_tc[j]; s_tk[j - 1] = s_tk[j]; s_tkey[j - 1] = s_tkey[j]; g_tgobj[j - 1] = g_tgobj[j]; } s_tn--; }
 static void t_add(int c, int kind, int key) {
   key = t_key(c, key);
-  for (int j = s_h0; j < s_tn; j++) if (s_tc[j] == c) { if (key >= s_tkey[j]) return; while (++j < s_tn) { s_tc[j - 1] = s_tc[j]; s_tk[j - 1] = s_tk[j]; s_tkey[j - 1] = s_tkey[j]; g_tgobj[j - 1] = g_tgobj[j]; } s_tn--; break; }   // once, at its best
+  for (int j = s_h0; j < s_tn; j++) if (s_tc[j] == c) { if (key >= s_tkey[j]) return; t_del(j); break; }   // once, at its best
   int i = s_tn;
   if (i == TGT_CAP) { if (key >= s_tkey[--i]) return; } else s_tn++;   // full: the last one makes way (0.47: 8 plans at most)
   for (; i > s_h0 && s_tkey[i - 1] > key; i--) { s_tc[i] = s_tc[i - 1]; s_tk[i] = s_tk[i - 1]; s_tkey[i] = s_tkey[i - 1]; g_tgobj[i] = g_tgobj[i - 1]; }
@@ -386,8 +391,11 @@ static __attribute__((noinline)) int mind(int hp) {
 // to you blind. DM-300 repairs itself on every dead trap it steps on: wait for it where there's none on or beside you.
 // (owner) the door trick: a creature coming for you from afar, a door between: through it and wait beside it, out of
 // its sight; it comes through blind and the first blow is yours.
-static bool wet_near(int c) { if (IS_WATER(G.map[c])) return true; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && IS_WATER(G.map[n])) return true; } return false; }
-static bool dead_trap_near(int c) { if (G.map[c] == T_INACTIVE_TRAP) return true; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && G.map[n] == T_INACTIVE_TRAP) return true; } return false; }
+static bool t_near(int c, int t) {                     // on or beside c: water (t -1), else that terrain (0.61: one helper, room)
+  for (int k = -1; k < 8; k++) { int n = k < 0 ? c : c + N8[k]; if (k >= 0 && !nb_ok(c, n)) continue; int m = G.map[n]; if (t < 0 ? IS_WATER(m) : m == t) return true; }
+  return false; }
+#define wet_near(c) t_near(c, -1)
+#define dead_trap_near(c) t_near(c, T_INACTIVE_TRAP)
 static bool stand_ok(int c, int hp) { return c == hp || (open_cell(c) && !char_at(c) && walk(c) <= 6); }
 static int tactics(void) {
   Hero *h = &G.hero; int hp = h->pos; bool hit;
@@ -437,16 +445,23 @@ static int tactics(void) {
 static int16_t s_aim;                                 // 0.50: the cell an aimed hand (zap, throw) is for
 #define DECL(k, a) (g_ovr.dd == G.depth && g_ovr.dk == (k) && g_ovr.da == (a))   // 0.53 (owner): passed over: not again till the stairs are plan A or the next floor
 static int hands(void) {
-  Hero *h = &G.hero; int hp = h->pos; bool near = false, seen = false;
-  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & MD_NPC)) continue; seen = true; if (distance(m->pos, hp) <= 3) near = true; }
+  Hero *h = &G.hero; int hp = h->pos; bool near = false, seen = false, adj = false; int hard = 0;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & MD_NPC)) continue; seen = true;
+    int d = distance(m->pos, hp); if (d <= 3) near = true; if (d <= 1) adj = true;
+    hard += (MOB_DEFS[m->type].flags & MD_BOSS) ? 2 : m->state == ST_HUNTING; }   // (a boss, or two coming for you: a hard fight)
   g_ovr.hs = -1;
+  // 0.61 (owner): hunger stops rising at Starving, so the turns spent there cost no food (just ~1 HP a 33 turns, and no
+  // regeneration): eat only once starving and under 80% health, or to go into a hard fight fed; never with one within 3
+  bool eat = STARVING && !near && (h->HP * 5 < h->HT * 4 || hard >= 2);
+  // (owner) a warrior near death in a fight, no potion of healing known and none beside him: a meal is 5 HP (3 turns)
+  int s = game_bag_find(IK_POT_HEALING); bool pot = s >= 0 && item_known(IK_POT_HEALING);
+  bool war = seen && !adj && (h->hclass & 3) == 0 && h->HP * 4 < h->HT && !pot;
   for (int i = 0; i < BAG_SIZE; i++) {
     int k = h->bag[i].kind;
-    if (food_k(k) && !near && (STARVING ? k != IK_MYSTERY_MEAT || g_ovr.hs < 0 : HUNGRY && k != IK_PASTY && k != IK_MYSTERY_MEAT)) { g_ovr.hs = i; g_ovr.ha = ACN_EAT; }
-  }                                                    // (0.61: a ration once hungry, as the bot does since 0.58: nothing's wasted, and no fight starving)
+    if (food_k(k) && (eat || war) && (k != IK_MYSTERY_MEAT || (g_ovr.hs < 0 && !war))) { g_ovr.hs = i; g_ovr.ha = ACN_EAT; }
+  }
   if (g_ovr.hs >= 0) return TK_BAG;
-  int s = game_bag_find(IK_POT_HEALING);
-  if (seen && h->HP * 4 < h->HT && s >= 0 && item_known(IK_POT_HEALING)) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
+  if (seen && h->HP * 4 < h->HT && pot) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
   if (seen) {                                          // 0.50 (the solver bot): from afar: a full wand, or any charge when hurt; the Huntress's boomerang
     Mob *e = 0; int ed = 99; bool hit;               // every turn (it comes straight back); darts and such at one 3+ away
     for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state != ST_HUNTING || (MOB_DEFS[m->type].flags & MD_NPC)) continue; int d = distance(m->pos, hp); if (d < ed && ballistica(hp, m->pos, &hit) == m->pos) { ed = d; e = m; } }
@@ -530,7 +545,7 @@ static void hl_rank(int hk) {                          // 0.54 (owner): Back wal
   for (int i = 0; i < 8; i++) { int b = 0; for (int j = 1; j < 8; j++) if (sc[j] > sc[b]) b = j; g_hl_order[i] = b; sc[b] = -1; }
 }
 static void t_front(int c, int kind) {               // 0.51: a pinned entry, after those pinned before it (the one at that cell goes)
-  for (int j = s_h0; j < s_tn; j++) if (s_tc[j] == c) { while (++j < s_tn) { s_tc[j - 1] = s_tc[j]; s_tk[j - 1] = s_tk[j]; s_tkey[j - 1] = s_tkey[j]; g_tgobj[j - 1] = g_tgobj[j]; } s_tn--; break; }
+  for (int j = s_h0; j < s_tn; j++) if (s_tc[j] == c) { t_del(j); break; }
   int i = s_tn < TGT_CAP ? s_tn++ : TGT_CAP - 1;
   for (; i > s_h0; i--) { s_tc[i] = s_tc[i - 1]; s_tk[i] = s_tk[i - 1]; s_tkey[i] = s_tkey[i - 1]; g_tgobj[i] = g_tgobj[i - 1]; }
   s_tc[i] = c; s_tk[i] = kind; s_tkey[i] = 0; g_tgobj[i] = c; s_h0++;
