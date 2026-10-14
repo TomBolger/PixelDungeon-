@@ -53,10 +53,23 @@ static bool nav_ok(int i) {                        // 0.42: the buttons skip emp
   Item *it;
   return bag_selectable(i) && (s_move || i >= BAG_EXIT || ((it = bag_item(i)) && it->kind));
 }
+// 0.69 (owner: "it's annoying to figure out what is what"): a known potion or scroll shows its effect's buff icon (PD's
+// BuffIndicator art, buffs.png strip cells) in the top right corner; an unknown one an orange "?"
+static const uint8_t KNOWN_ICON[24] = { 16, 25, 0, 5, 27, 6, 7, 8, 15, 9, 14, 10,     // potions: healing (heart), experience (light),
+  8, 26, 29, 25, 20, 23, 24, 13, 11, 28, 22, 17 };   // toxic, flame, strength (fury), paralytic, levitation, mind vision, purity, invisible, might,
+_Static_assert(IK_POT_FROST - IK_POT_HEALING == 11 && IK_SCR_ENCHANT - IK_SCR_IDENTIFY == 11, "potion / scroll kinds in order");   // frost;
+static int known_icon(int k) {                       // scrolls: identify (eye), mapping, recharging, remove curse (light), teleport (vertigo),
+  if (k >= IK_POT_HEALING && k <= IK_POT_FROST) return KNOWN_ICON[k - IK_POT_HEALING];   // challenge (amok), terror, lullaby (slow),
+  if (k >= IK_SCR_IDENTIFY && k <= IK_SCR_ENCHANT) return KNOWN_ICON[12 + k - IK_SCR_IDENTIFY];   // psionic (blind), mirror (shadows),
+  return -1;                                         // upgrade (+), enchantment (armour)
+}
 static void sprite2(const Item *it, int x, int y) { g_blit_glow = item_glow(it); item_spr(item_sprite(it->kind), x, y, 2); g_blit_glow = 0; }   // ItemSprite at 2x
 static void draw_bag(GContext *ctx) {
   GRect r = PBL_IF_ROUND_ELSE(GRect(s_w / 2 - 80, ROW_Y(0) + 2, 160, 30), bag_win());   // Gabbro: the title's place
   int ntabs = bag_ntabs(), kind = bag_tab_kind(s_bag_tab);   // a selector shows tabs only once there are bags
+  static const char *PICK_TITLES[12] = { "Select an item to identify", "Select an item to upgrade", "Select a weapon to upgrade", "Select an enchantable item", "", "Select an item for the quickslot", "Select an item to sell", "Select a seed to throw", "Select an item to reforge", "Select an armor to upgrade", "Select a weapon to balance", "Select a wand to upgrade" };
+  static const char *const TAB_TITLES[5] = { "Backpack", "Seed pouch", "Scroll holder", "Wand holster", "Keyring" };
+  const char *title = s_pick >= 0 ? PICK_TITLES[s_pick] : TAB_TITLES[kind];
   blit_begin(ctx);
 #ifdef PBL_ROUND
   blit_fill(0, 0, s_w, s_h, ARGB(GColorBlack));
@@ -78,7 +91,9 @@ static void draw_bag(GContext *ctx) {
     blit(&s_icons, 17 + ICON[bag_tab_kind(t)] * 10, 0, 10, 10, tr.origin.x + (tr.size.w - 20) / 2, tr.origin.y + (sel ? 3 : 5), 2);
     if (s_sel == BAG_UI_TAB0 + t) blit_box(tr.origin.x + 4, tr.origin.y + (sel ? 1 : 5), tr.size.w - 8, tr.size.h - (sel ? 5 : 9), 1, ARGB(GColorChromeYellow));
   }
-  blit_fill(r.origin.x, r.origin.y + HEAD, r.size.w, BAG_ROWS * (SLOT_H + 1) - 1, ARGB(GColorBlack));   // 1 px gaps between the cells
+  blit_fill(r.origin.x, r.origin.y + HEAD - 1, r.size.w, BAG_ROWS * (SLOT_H + 1), ARGB(GColorBlack));   // 1 px gaps between the cells (0.69: and above the top row)
+  { int tw = s_pick >= 0 ? r.size.w - 12 : graphics_text_layout_get_content_size(title, s_font_hud, GRect(0, 0, r.size.w, 20), GTextOverflowModeWordWrap, GTextAlignmentCenter).w;
+    blit_nine(&s_chrome, 22, 0, 18, 18, 5, r.origin.x + (r.size.w - tw) / 2 - 7, r.origin.y - 3, tw + 14, 16); }   // 0.69 (owner): the name on a PD plate
 #endif
   for (int i = 0; i < BAG_UI_TAB0; i++) {
     int sl = bag_ui_to_slot(i);
@@ -92,10 +107,13 @@ static void draw_bag(GContext *ctx) {
     int cx = q.origin.x + (CW - 32) / 2, cy = q.origin.y + (CH - 32) / 2;
     if (has) {
       sprite2(it, cx, cy);
-      if (item_upgradable(it->kind) && (it->flags & IF_LEVEL_KNOWN)) {          // durability: 3 pips, green then red
+      if (item_upgradable(it->kind) && (it->flags & IF_LEVEL_KNOWN)) {          // durability: 3 pips, green then red (0.69: bigger, outlined)
         int mx = item_max_dur(it), nb = (3 * it->dur + mx / 2) / mx;
-        for (int k = 0; k < 3; k++) blit_fill(q.origin.x + 2 + k * 4, q.origin.y + CH - 4, 3, 3, k < nb ? ARGB(GColorGreen) : ARGB(GColorRed));
+        blit_fill(q.origin.x + 1, q.origin.y + CH - 7, 16, 6, ARGB(GColorBlack));
+        for (int k = 0; k < 3; k++) blit_fill(q.origin.x + 2 + k * 5, q.origin.y + CH - 6, 4, 4, k < nb ? ARGB(GColorGreen) : ARGB(GColorRed));
       }
+      int ic = item_known(it->kind) ? known_icon(it->kind) : -1;
+      if (ic >= 0) { blit_fill(q.origin.x + CW - 17, q.origin.y + 1, 16, 16, ARGB(GColorBlack)); blit(&s_buffs, ic * 7, 0, 7, 7, q.origin.x + CW - 16, q.origin.y + 2, 2); }
     }
     else if (sl <= -1 && sl >= -4) ITEM_SPR(SP_PH_WEAPON + (i < 2 ? i : 2), cx, cy, 2);   // ghost placeholders for empty gear slots
     else if (sl == SL_GOLD) { Item gold = item_make(IK_GOLD, 1); sprite2(&gold, cx, cy); }
@@ -116,9 +134,6 @@ static void draw_bag(GContext *ctx) {
     blit_box(x0 - 1, y - 1, x1 - x0 + 2, ucell(s_sel - BAG_ROWM).size.h + 2, 2, ARGB(GColorChromeYellow));
   }
   blit_end(ctx);
-  static const char *PICK_TITLES[12] = { "Select an item to identify", "Select an item to upgrade", "Select a weapon to upgrade", "Select an enchantable item", "", "Select an item for the quickslot", "Select an item to sell", "Select a seed to throw", "Select an item to reforge", "Select an armor to upgrade", "Select a weapon to balance", "Select a wand to upgrade" };
-  static const char *const TAB_TITLES[5] = { "Backpack", "Seed pouch", "Scroll holder", "Wand holster", "Keyring" };
-  const char *title = s_pick >= 0 ? PICK_TITLES[s_pick] : TAB_TITLES[kind];
 #ifdef PBL_ROUND
   graphics_context_set_text_color(ctx, GColorIcterine);   // two lines for the selectors' longer titles
   graphics_draw_text(ctx, title, s_pick >= 0 ? s_font_log : s_font_hud, s_pick >= 0 ? r : GRect(r.origin.x, r.origin.y + 8, r.size.w, 20), GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
@@ -130,7 +145,7 @@ static void draw_bag(GContext *ctx) {
     int sl = bag_ui_to_slot(i);
     Item *it = bag_item(i);
     GRect q = bag_cell(i);
-    #define TL(...) do { snprintf(buf, sizeof buf, __VA_ARGS__); text_outlined(ctx, buf, s_font_tiny, GColorWhite, q.origin.x + 2, q.origin.y - 2, CW - 2, GTextAlignmentLeft); } while (0)
+    #define TL(...) do { snprintf(buf, sizeof buf, __VA_ARGS__); text_outlined(ctx, buf, s_font_hud, GColorWhite, q.origin.x + 2, q.origin.y - 4, CW - 2, GTextAlignmentLeft); } while (0)   // (0.69: Gothic 14 bold, was 9)
     int kd;
     if (sl == SL_GOLD) TL("%d", G.hero.gold);
     if (sl == SL_KEY && key_at(i, &kd) >= 0) TL("%d", kd);                       // Key.status: the depth it opens
@@ -147,13 +162,15 @@ static void draw_bag(GContext *ctx) {
       Item typ = *it; typ.lvl = 0;
       int str = lk ? item_str(it) : item_str(&typ);
       snprintf(buf, sizeof buf, lk ? ":%d" : "%d?", str);
-      text_outlined(ctx, buf, s_font_tiny, !lk ? GColorChromeYellow : str > G.hero.STR ? GColorSunsetOrange : GColorWhite, q.origin.x, q.origin.y - 2, CW - 2, GTextAlignmentRight);
+      text_outlined(ctx, buf, s_font_hud, !lk ? GColorChromeYellow : str > G.hero.STR ? GColorSunsetOrange : GColorWhite, q.origin.x, q.origin.y - 4, CW - 1, GTextAlignmentRight);
     }
     int lvl = (it->flags & IF_LEVEL_KNOWN) ? it->lvl : 0;                    // bottom right: "+N" / "-N"
     if ((lvl || (it->flags & (IF_LEVEL_KNOWN | IF_CURSED | IF_CURSED_KNOWN)) == (IF_LEVEL_KNOWN | IF_CURSED | IF_CURSED_KNOWN)) && item_upgradable(it->kind)) {   // ItemSlot: a known curse shows "+0" too
       snprintf(buf, sizeof buf, "%+d", lvl);
-      text_outlined(ctx, buf, s_font_tiny, lvl > 0 ? (item_broken(it) ? GColorChromeYellow : GColorGreen) : GColorSunsetOrange, q.origin.x, q.origin.y + CH - 12, CW - 2, GTextAlignmentRight);
+      text_outlined(ctx, buf, s_font_hud, lvl > 0 ? (item_broken(it) ? GColorChromeYellow : GColorGreen) : GColorSunsetOrange, q.origin.x, q.origin.y + CH - 18, CW - 1, GTextAlignmentRight);
     }
+    if ((cat == CAT_POTION || cat == CAT_SCROLL) && !item_known(it->kind))     // 0.69: not yet known: an orange "?"
+      text_outlined(ctx, "?", s_font_hud, GColorChromeYellow, q.origin.x, q.origin.y - 4, CW - 3, GTextAlignmentRight);
   }
 }
 static bool bag_move(int i, bool hold) {            // press and hold picks an item up, the next press puts it there (swapping)
