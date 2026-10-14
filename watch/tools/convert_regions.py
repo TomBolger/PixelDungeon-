@@ -26,7 +26,9 @@ for r in range(1, 5):
     if r == 2:   # 0.56 (owner: "the DM-300 room is just flat grey"): the caves' floor gets grit back. PD's floor is three close
         # shades; the darkest, where it clusters, becomes black on every other pixel (a checker), so the stone reads rough, not flat
         src = Image.open(os.path.join(SRC, f"tiles{r}.png")).convert("RGB"); sp = src.load(); tpp = tp.load()
-        for cell in (1, 24):                           # EMPTY and EMPTY_DECO (the pebbles keep their own pixels)
+        cellpx = lambda i: src.crop(((i % 16) * 16, (i // 16) * 16, (i % 16) * 16 + 16, (i // 16) * 16 + 16)).tobytes()
+        floors = [i for i in range(64) if cellpx(i) == cellpx(1)] + [24]   # EMPTY, the secret traps drawn as EMPTY (they must match it
+        for cell in floors:                            # exactly, or they give themselves away), and EMPTY_DECO (its pebbles stay)
             ox, oy = (cell % 16) * 16, (cell // 16) * 16
             V = [[max(sp[ox + x, oy + y]) for x in range(16)] for y in range(16)]
             for y in range(16):
@@ -35,6 +37,10 @@ for r in range(1, 5):
                     if not 30 <= v < 60: continue
                     n = sum(V[(y + dy) % 16][(x + dx) % 16] == v for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
                     if v == min(min(row) for row in V) and n >= 2 and (x + y) % 2 == 0: tpp[ox + x, oy + y] = (0, 0, 0, 255)
+        ox, oy = 14 * 16, 0                            # EMPTY_SP (shops and other special rooms): PD's bevelled slabs and rivets,
+        for y in range(16):                            # not one flat grey: the dark seams and rivets black, the lit edges light grey
+            for x in range(16):
+                v = max(sp[ox + x, oy + y]); tpp[ox + x, oy + y] = ((0, 0, 0) if v < 58 else (170, 170, 170) if v >= 72 else (85, 85, 85)) + (255,)
     tp.save(os.path.join(OUT, f"tiles_{REGIONS[r]}.png"))
     # water: three shades by brightness (deep, mid, light), each the region's colour lifted onto the Pebble palette
     w = Image.open(os.path.join(SRC, f"water{r}.png")).convert("RGBA")
