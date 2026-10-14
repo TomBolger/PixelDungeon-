@@ -2820,6 +2820,12 @@ static void photo_step(int g, int steps) {
     char fn[300]; snprintf(fn, sizeof fn, "%s/bag_d25.bin", getenv("PHOTODIR"));
     if (access(fn, F_OK) != 0) { static Game keep2; memcpy(&keep2, &G, sizeof G); ph_loot(); ph_save("bag_d25", g, steps); memcpy(&G, &keep2, sizeof G); }
   }
+  if (d == 1 && getenv("PHOTORAT") && (h->hclass & 3) == 0 && h->HP == h->HT) {   // PHOTORAT=1: a warrior about to meet a rat, loot in sight
+    int rats = 0, others = 0, rd = 0, loot = 0;
+    for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || !BIT_GET(G.fov, m->pos)) continue; if (m->type == MT_RAT) { rats++; rd = ph_dist(m->pos, hp); } else others++; }
+    for (int i = 0; i < G.n_heaps; i++) if (BIT_GET(G.fov, G.heaps[i].pos) && ph_dist(G.heaps[i].pos, hp) <= 3 && G.heaps[i].item.kind != IK_GOLD) loot++;
+    if (rats == 1 && !others && rd >= 2 && rd <= 3 && loot) { char nm[40]; snprintf(nm, sizeof nm, "rat_g%03d", g); ph_save(nm, g, steps); }
+  }
   if (d == 25 && getenv("PHOTOYOG")) {           // PHOTOYOG=1: the best Yog shot of each game (Yog in the open and near, fists in view)
     static int s_yog_game = -1, s_yog_best; if (s_yog_game != g) { s_yog_game = g; s_yog_best = 0; }
     for (int i = 0; i < G.n_mobs; i++) {
