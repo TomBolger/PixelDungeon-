@@ -1,0 +1,29 @@
+import os.path
+top = '.'
+out = 'build'
+
+def options(ctx):
+    ctx.load('pebble_sdk')
+
+def configure(ctx):
+    ctx.load('pebble_sdk')
+
+def build(ctx):
+    ctx.load('pebble_sdk')
+    binaries = []
+    cached_env = ctx.env
+    for platform in ctx.env.TARGET_PLATFORMS:
+        ctx.env = ctx.all_envs[platform]
+        keep = ctx.path.find_node('keep_syms.txt')     # app symbols the code overlays call (tools/build_ovl.py)
+        if keep and '-Wl,-u,rnd_next' not in ctx.env.LINKFLAGS:
+            extra = ctx.path.find_node('keep_syms_{}.txt'.format(platform))   # 0.35: what only this platform's overlays call
+            ctx.env.append_value('LINKFLAGS', ['-Wl,-u,' + s for s in keep.read().split() + (extra.read().split() if extra else [])] + ['-Wl,-u,rnd_next', '-Wl,-u,TERRAIN_FLAGS'])
+        if '-flto' not in ctx.env.CFLAGS:
+            ctx.env.append_value('CFLAGS', ['-flto']); ctx.env.append_value('LINKFLAGS', ['-flto', '-Wl,-u,__pbl_app_info'])
+        ctx.set_group(ctx.env.PLATFORM_NAME)
+        app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
+        ctx.pbl_build(source=ctx.path.ant_glob('src/c/**/*.c'), target=app_elf, bin_type='app')
+        binaries.append({'platform': platform, 'app_elf': app_elf})
+    ctx.env = cached_env
+    ctx.set_group('bundle')
+    ctx.pbl_bundle(binaries=binaries)

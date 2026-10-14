@@ -1,0 +1,6 @@
+[submodule "third_party/pixel-dungeon"]
+	path = third_party/pixel-dungeon
+	url = https://github.com/watabou/pixel-dungeon
+[submodule "third_party/pd-classes"]
+	path = third_party/pd-classes
+	url = https://github.com/watabou/pd-classes

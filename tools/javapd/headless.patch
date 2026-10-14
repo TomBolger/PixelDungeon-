@@ -1,0 +1,392 @@
+--- a/com/watabou/pixeldungeon/actors/mobs/Mimic.java
++++ b/com/watabou/pixeldungeon/actors/mobs/Mimic.java
+@@ -64,7 +64,7 @@
+ 	@Override
+ 	public void restoreFromBundle( Bundle bundle ) {
+ 		super.restoreFromBundle( bundle );
+-		items = new ArrayList<Item>( (Collection<? extends Item>) bundle.getCollection( ITEMS ) ); 
++		items = new ArrayList<Item>( (Collection<? extends Item>)(Collection<?>) bundle.getCollection( ITEMS ) ); 
+ 		adjustStats( bundle.getInt( LEVEL ) );
+ 	}
+ 	
+--- a/com/watabou/pixeldungeon/items/Heap.java
++++ b/com/watabou/pixeldungeon/items/Heap.java
+@@ -370,7 +370,7 @@
+ 	public void restoreFromBundle( Bundle bundle ) {
+ 		pos = bundle.getInt( POS );
+ 		type = Type.valueOf( bundle.getString( TYPE ) );
+-		items = new LinkedList<Item>( (Collection<? extends Item>) bundle.getCollection( ITEMS ) ); 
++		items = new LinkedList<Item>( (Collection<? extends Item>)(Collection<?>) bundle.getCollection( ITEMS ) ); 
+ 	}
+ 
+ 	@Override
+--- a/com/watabou/pixeldungeon/levels/RegularLevel.java
++++ b/com/watabou/pixeldungeon/levels/RegularLevel.java
+@@ -679,7 +679,7 @@
+ 	public void restoreFromBundle( Bundle bundle ) {
+ 		super.restoreFromBundle( bundle );
+ 		
+-		rooms = new HashSet<Room>( (Collection<? extends Room>) bundle.getCollection( "rooms" ) );
++		rooms = new HashSet<Room>( (Collection<? extends Room>)(Collection<?>) bundle.getCollection( "rooms" ) );
+ 		for (Room r : rooms) {
+ 			if (r.type == Type.WEAK_FLOOR) {
+ 				weakFloorCreated = true;
+--- a/com/watabou/pixeldungeon/scenes/GameScene.java
++++ b/com/watabou/pixeldungeon/scenes/GameScene.java
+@@ -461,19 +461,20 @@
+ 	public static void add( Heap heap ) {
+ 		if (scene != null) {
+ 			scene.addHeapSprite( heap );
+-		}
++		} /*HEADLESS*/ else { com.watabou.pixeldungeon.sprites.HeadlessItemSprite.attach( heap ); }
+ 	}
+ 	
+ 	public static void discard( Heap heap ) {
+ 		if (scene != null) {
+ 			scene.addDiscardedSprite( heap );
+-		}
++		} /*HEADLESS*/ else { com.watabou.pixeldungeon.sprites.HeadlessItemSprite.attach( heap ); }
+ 	}
+ 	
+ 	public static void add( Mob mob ) {
+ 		Dungeon.level.mobs.add( mob );
+ 		Actor.add( mob );
+ 		Actor.occupyCell( mob );
++		/*HEADLESS*/ if (scene == null) { com.watabou.pixeldungeon.sprites.HeadlessSprite.attach( mob ); return; }
+ 		scene.addMobSprite( mob );
+ 	}
+ 	
+@@ -481,24 +482,29 @@
+ 		Dungeon.level.mobs.add( mob );
+ 		Actor.addDelayed( mob, delay );
+ 		Actor.occupyCell( mob );
++		/*HEADLESS*/ if (scene == null) { com.watabou.pixeldungeon.sprites.HeadlessSprite.attach( mob ); return; }
+ 		scene.addMobSprite( mob );
+ 	}
+ 	
+ 	public static void add( EmoIcon icon ) {
++		/*HEADLESS*/ if (scene == null) return;
+ 		scene.emoicons.add( icon );
+ 	}
+ 	
+ 	public static void effect( Visual effect ) {
++		/*HEADLESS*/ if (scene == null) return;
+ 		scene.effects.add( effect );
+ 	}
+ 	
+ 	public static Ripple ripple( int pos ) {
++		/*HEADLESS*/ if (scene == null) return new Ripple();
+ 		Ripple ripple = (Ripple)scene.ripples.recycle( Ripple.class );
+ 		ripple.reset( pos );
+ 		return ripple;
+ 	}
+ 	
+ 	public static SpellSprite spellSprite() {
++		/*HEADLESS*/ if (scene == null) return new SpellSprite();
+ 		return (SpellSprite)scene.spells.recycle( SpellSprite.class );
+ 	}
+ 	
+@@ -508,7 +514,7 @@
+ 			emitter.revive();
+ 			return emitter;
+ 		} else {
+-			return null;
++			/*HEADLESS*/ return new Emitter();
+ 		}
+ 	}
+ 	
+@@ -517,6 +523,7 @@
+ 	}
+ 	
+ 	public static void pickUp( Item item ) {
++		/*HEADLESS*/ if (scene == null) return;
+ 		scene.toolbar.pickup( item );
+ 	}
+ 	
+@@ -539,6 +546,7 @@
+ 	}
+ 	
+ 	public static void show( Window wnd ) {
++		/*HEADLESS*/ if (scene == null) return;
+ 		cancelCellSelector();
+ 		scene.add( wnd );
+ 	}
+@@ -554,10 +562,12 @@
+ 	}
+ 	
+ 	public static void flash( int color ) {
++		/*HEADLESS*/ if (scene == null) return;
+ 		scene.fadeIn( 0xFF000000 | color, true );
+ 	}
+ 	
+ 	public static void gameOver() {
++		/*HEADLESS*/ if (scene == null) return;
+ 		Banner gameOver = new Banner( BannerSprites.get( BannerSprites.Type.GAME_OVER ) );
+ 		gameOver.show( 0x000000, 1f );
+ 		scene.showBanner( gameOver );
+@@ -566,6 +576,7 @@
+ 	}
+ 	
+ 	public static void bossSlain() {
++		/*HEADLESS*/ if (scene == null) return;
+ 		if (Dungeon.hero.isAlive()) {
+ 			Banner bossSlain = new Banner( BannerSprites.get( BannerSprites.Type.BOSS_SLAIN ) );
+ 			bossSlain.show( 0xFFFFFF, 0.3f, 5f );
+@@ -576,10 +587,12 @@
+ 	}
+ 	
+ 	public static void handleCell( int cell ) {
++		/*HEADLESS*/ if (scene == null) return;
+ 		cellSelector.select( cell );
+ 	}
+ 	
+ 	public static void selectCell( CellSelector.Listener listener ) {
++		/*HEADLESS*/ if (scene == null) return;
+ 		cellSelector.listener = listener;
+ 		scene.prompt( listener.prompt() );
+ 	}
+@@ -594,6 +607,7 @@
+ 	}
+ 	
+ 	public static WndBag selectItem( WndBag.Listener listener, WndBag.Mode mode, String title ) {
++		/*HEADLESS*/ if (scene == null) return null;
+ 		cancelCellSelector();
+ 		
+ 		WndBag wnd = mode == Mode.SEED ?
+@@ -619,6 +633,7 @@
+ 	}
+ 	
+ 	public static void ready() {
++		/*HEADLESS*/ if (scene == null) return;
+ 		selectCell( defaultCellListener );
+ 		QuickSlot.cancel();
+ 	}
+--- a/com/watabou/pixeldungeon/scenes/PixelScene.java
++++ b/com/watabou/pixeldungeon/scenes/PixelScene.java
+@@ -262,6 +262,7 @@
+ 	}
+ 	
+ 	public static void showBadge( Badges.Badge badge ) {
++		/*HEADLESS*/ if (uiCamera == null || Game.scene() == null) return;
+ 		BadgeBanner banner = BadgeBanner.show( badge.image );
+ 		banner.camera = uiCamera;
+ 		banner.x = align( banner.camera, (banner.camera.width - banner.width) / 2 );
+--- a/com/watabou/pixeldungeon/sprites/HeadlessItemSprite.java
++++ b/com/watabou/pixeldungeon/sprites/HeadlessItemSprite.java
+@@ -0,0 +1,18 @@
++package com.watabou.pixeldungeon.sprites;
++
++import com.watabou.pixeldungeon.items.Heap;
++
++/** HEADLESS addition: item/heap sprite with no visual behaviour (texture is a fake stub bitmap). */
++public class HeadlessItemSprite extends ItemSprite {
++	public static HeadlessItemSprite attach( Heap heap ) {
++		HeadlessItemSprite s = new HeadlessItemSprite();
++		heap.sprite = s;
++		s.link( heap );
++		return s;
++	}
++	@Override public void drop() {}
++	@Override public void drop( int from ) {}
++	@Override public void place( int p ) {}
++	@Override public void update() {}
++	@Override public void draw() {}
++}
+--- a/com/watabou/pixeldungeon/sprites/HeadlessSprite.java
++++ b/com/watabou/pixeldungeon/sprites/HeadlessSprite.java
+@@ -0,0 +1,106 @@
++package com.watabou.pixeldungeon.sprites;
++
++import java.util.ArrayList;
++
++import com.watabou.noosa.particles.Emitter;
++import com.watabou.pixeldungeon.actors.Char;
++import com.watabou.pixeldungeon.levels.Level;
++import com.watabou.utils.Callback;
++import com.watabou.utils.PointF;
++import com.watabou.utils.Random;
++
++/**
++ * HEADLESS addition (not in the original game).
++ *
++ * A CharSprite with no graphics. Every visual method is a no-op. Methods whose
++ * animation completion drives game logic (attack / operate / jump / attack-with-callback)
++ * queue the completion; the driver calls {@link #flush()} after Actor.process() returns,
++ * which emulates "the animation finished on a later frame" exactly like the real game loop.
++ * move() calls ch.onMotionComplete() synchronously, as the original CharSprite.move() does.
++ */
++public class HeadlessSprite extends CharSprite {
++
++	private static final ArrayList<Runnable> pending = new ArrayList<Runnable>();
++
++	/** Optional trace hook for status texts (damage numbers etc). */
++	public static boolean TRACE = false;
++
++	public static HeadlessSprite attach( Char ch ) {
++		HeadlessSprite s = new HeadlessSprite();
++		s.link( ch );
++		return s;
++	}
++
++	/** Runs queued animation completions. Returns true if anything ran. */
++	public static boolean flush() {
++		if (pending.isEmpty()) return false;
++		ArrayList<Runnable> copy = new ArrayList<Runnable>( pending );
++		pending.clear();
++		for (Runnable r : copy) r.run();
++		return true;
++	}
++
++	public static void clearPending() {
++		pending.clear();
++	}
++
++	public HeadlessSprite() {
++		super();
++	}
++
++	@Override
++	public void link( Char ch ) {
++		this.ch = ch;
++		ch.sprite = this;
++		// original link() consumes one random number in turnTo( ch.pos, Random.Int( Level.LENGTH ) )
++		Random.Int( Level.LENGTH );
++		ch.updateSpriteState();
++	}
++
++	@Override public PointF worldToCamera( int cell ) { return new PointF(); }
++	@Override public void place( int cell ) {}
++	@Override public void showStatus( int color, String text, Object... args ) {
++		if (TRACE) {
++			System.out.println( "  [status " + (ch != null ? ch.name : "?") + "] " +
++				(args.length > 0 ? String.format( text, args ) : text) );
++		}
++	}
++	@Override public void idle() {}
++	@Override public void move( int from, int to ) {
++		isMoving = false;
++		ch.onMotionComplete();
++	}
++	@Override public void interruptMotion() {}
++	@Override public void attack( int cell ) {
++		final Char c = ch;
++		pending.add( new Runnable() { public void run() { c.onAttackComplete(); } } );
++	}
++	@Override public void attack( int cell, final Callback callback ) {
++		pending.add( new Runnable() { public void run() { callback.call(); } } );
++	}
++	@Override public void operate( int cell ) {
++		final Char c = ch;
++		pending.add( new Runnable() { public void run() { c.onOperateComplete(); } } );
++	}
++	@Override public void zap( int cell ) {}
++	@Override public void turnTo( int from, int to ) {}
++	@Override public void jump( int from, int to, final Callback callback ) {
++		pending.add( new Runnable() { public void run() { if (callback != null) callback.call(); } } );
++	}
++	@Override public void die() {}
++	@Override public Emitter emitter() { return new Emitter(); }
++	@Override public Emitter centerEmitter() { return new Emitter(); }
++	@Override public Emitter bottomEmitter() { return new Emitter(); }
++	@Override public void burst( int color, int n ) {}
++	@Override public void bloodBurstA( PointF from, int damage ) {}
++	@Override public void flash() {}
++	@Override public void add( State state ) {}
++	@Override public void remove( State state ) {}
++	@Override public void update() {}
++	@Override public void showSleep() {}
++	@Override public void hideSleep() {}
++	@Override public void showAlert() {}
++	@Override public void hideAlert() {}
++	@Override public void kill() {}
++	@Override public void draw() {}
++}
+--- a/com/watabou/pixeldungeon/ui/AttackIndicator.java
++++ b/com/watabou/pixeldungeon/ui/AttackIndicator.java
+@@ -156,12 +156,14 @@
+ 	
+ 	public static void target( Char target ) {
+ 		lastTarget = (Mob)target;
++		/*HEADLESS*/ if (instance == null) return;
+ 		instance.updateImage();
+ 		
+ 		HealthIndicator.instance.target( target );
+ 	}
+ 	
+ 	public static void updateState() {
++		/*HEADLESS*/ if (instance == null) return;
+ 		instance.checkEnemies();
+ 	}
+ }
+--- a/com/watabou/utils/Random.java
++++ b/com/watabou/utils/Random.java
+@@ -22,32 +22,38 @@
+ 
+ public class Random {
+ 
++	/*HEADLESS*/ // Math.random() is backed by one java.util.Random; using our own instance keeps the
++	/*HEADLESS*/ // exact same algorithm/distribution but makes runs reproducible via seed().
++	/*HEADLESS*/ private static java.util.Random rng = new java.util.Random();
++	/*HEADLESS*/ public static void seed( long s ) { rng = new java.util.Random( s ); }
++	/*HEADLESS*/ private static double rnd() { return rng.nextDouble(); }
++
+ 	public static float Float( float min, float max ) {
+-		return (float)(min + Math.random() * (max - min)); 
++		return (float)(min + rnd() * (max - min)); 
+ 	}
+ 	
+ 	public static float Float( float max ) {
+-		return (float)(Math.random() * max);
++		return (float)(rnd() * max);
+ 	}
+ 	
+ 	public static float Float() {
+-		return (float)Math.random();
++		return (float)rnd();
+ 	}
+ 	
+ 	public static int Int( int max ) {
+-		return max > 0 ? (int)(Math.random() * max) : 0;
++		return max > 0 ? (int)(rnd() * max) : 0;
+ 	}
+ 	
+ 	public static int Int( int min, int max ) {
+-		return min + (int)(Math.random() * (max - min));
++		return min + (int)(rnd() * (max - min));
+ 	}
+ 	
+ 	public static int IntRange( int min, int max ) {
+-		return min + (int)(Math.random() * (max - min + 1));
++		return min + (int)(rnd() * (max - min + 1));
+ 	}
+ 	
+ 	public static int NormalIntRange( int min, int max ) {
+-		return min + (int)((Math.random() + Math.random()) * (max - min + 1) / 2f);
++		return min + (int)((rnd() + rnd()) * (max - min + 1) / 2f);
+ 	}
+ 	
+ 	public static int chances( float[] chances ) {
+@@ -98,12 +104,12 @@
+ 	}
+ 	
+ 	public static int index( Collection<?> collection ) {
+-		return (int)(Math.random() * collection.size());
++		return (int)(rnd() * collection.size());
+ 	}
+ 	
+ 	@SafeVarargs
+ 	public static<T> T oneOf( T... array ) {
+-		return array[(int)(Math.random() * array.length)];
++		return array[(int)(rnd() * array.length)];
+ 	}
+ 	
+ 	public static<T> T element( T[] array ) {
+@@ -111,7 +117,7 @@
+ 	}
+ 	
+ 	public static<T> T element( T[] array, int max ) {
+-		return array[(int)(Math.random() * max)];
++		return array[(int)(rnd() * max)];
+ 	}
+ 	
+ 	@SuppressWarnings("unchecked")

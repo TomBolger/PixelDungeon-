@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pebxel Bot Replays</title>
+<meta name="description" content="Watch a bot play Pixel Dungeon step by step, and tell it what a good player would have done.">
+<meta property="og:title" content="Pebxel Bot Replays: help a bot learn Pixel Dungeon">
+<meta property="og:description" content="Step through a bot's Pixel Dungeon runs and point out its mistakes, one moment at a time.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2312141a'/%3E%3Crect x='6' y='3' width='4' height='7' fill='%23f2a93b'/%3E%3Crect x='5' y='10' width='6' height='3' fill='%23e4e2dc'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&family=Pixelify+Sans:wght@500;700&display=swap">
+<style>
+/* A debugger console for a dungeon: map on the left, the bot's mind on the right, a tape transport below. */
+:root {
+  --bg: #12141a; --panel: #1a1d25; --panel2: #222632; --line: #2e3341;
+  --fg: #e4e2dc; --muted: #8d93a3; --torch: #f2a93b; --plan: #5aa9e6; --hurt: #e5534b; --search: #4fc1b0; --floor: #9b7be0;
+  --display: "Pixelify Sans", "Courier New", monospace;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.45 var(--body); }
+a { color: var(--torch); }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 14px 16px 24px; display: grid; gap: 12px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+h1 { font: 700 22px/1 var(--display); letter-spacing: .02em; margin: 0; color: var(--torch); }
+h1 small { font: 500 14px var(--display); color: var(--muted); margin-left: 6px; }
+header .grow { flex: 1; }
+select, button, input, textarea { font: 600 13px var(--body); color: var(--fg); }
+select, button { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
+button:hover, select:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--torch); outline-offset: 2px; }
+button.primary { background: var(--torch); color: #1b1408; border-color: var(--torch); }
+button.primary:hover { filter: brightness(1.08); }
+button:disabled { opacity: .5; cursor: default; }
+.intro { background: linear-gradient(135deg, #241c10, var(--panel)); border: 1px solid #4a3a1e; border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; position: relative; }
+.intro h2 { margin: 0; font: 700 17px var(--display); color: var(--torch); padding-right: 30px; }
+.intro p { margin: 0; max-width: 78ch; }
+.intro .x { position: absolute; top: 8px; right: 8px; background: none; border: 0; font-size: 20px; line-height: 1; color: var(--muted); padding: 4px 8px; }
+.gamebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.gamebar .who { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 260px; }
+.gamebar .who canvas { width: 24px; height: 30px; image-rendering: pixelated; flex: none; }
+.gamebar .who b { font: 700 16px var(--display); }
+.gamebar .who span { color: var(--muted); font-size: 13px; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; align-items: start; }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.stage { background: #000; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; position: relative; }
+canvas#map { display: block; width: min(100%, calc(100vh - 280px)); min-width: min(100%, 320px); max-width: 100%; height: auto; margin: 0 auto; image-rendering: pixelated; aspect-ratio: 1; }
+.flash { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 4px var(--hurt); opacity: 0; transition: opacity .25s; }
+.flash.on { opacity: 1; transition: none; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.7); font: 600 15px var(--display); color: var(--torch); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); padding: 8px 10px; border-top: 1px solid var(--line); background: var(--panel); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.side { display: grid; gap: 10px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+.label { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+.fid { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fid .big { font: 700 24px/1.05 var(--display); color: var(--torch); font-variant-numeric: tabular-nums; }
+.fid .small { font: 13px var(--mono); color: var(--muted); margin-top: 4px; }
+.did { font: 600 15px/1.4 var(--mono); color: var(--fg); overflow-wrap: anywhere; }
+.why { display: inline-block; margin-top: 6px; font: 600 11px var(--body); text-transform: uppercase; letter-spacing: .06em; padding: 2px 7px; border-radius: 4px; background: var(--panel2); color: var(--torch); border: 1px solid var(--line); }
+.log { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 13.5px; }
+.log li { overflow-wrap: anywhere; }
+.log .none { color: var(--muted); font-style: italic; }
+.dmg { color: var(--hurt); font-weight: 700; }
+.heal { color: var(--search); font-weight: 700; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; font: 13px var(--mono); }
+.stats div { background: var(--panel2); border-radius: 5px; padding: 5px 6px; text-align: center; }
+.stats b { display: block; font: 600 10px var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.hpbar { height: 8px; background: #3a1d1d; border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+.hpbar i { display: block; height: 100%; background: #5fbf5a; }
+.plans { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; font: 13px var(--mono); }
+.plans li { display: flex; gap: 8px; align-items: baseline; }
+.plans .k { color: var(--plan); font-weight: 600; min-width: 1.4em; }
+.slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 5px; margin-top: 6px; }
+.slot { position: relative; aspect-ratio: 1; background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; padding: 0; display: grid; place-items: center; cursor: default; }
+.slot canvas { width: 32px; height: 32px; image-rendering: pixelated; }
+.slot.empty { opacity: .35; }
+.slot.new { box-shadow: 0 0 0 2px var(--search); }
+.slot.cursed { border-color: var(--hurt); }
+.slot .q { position: absolute; right: 2px; bottom: 0; font: 600 10px var(--mono); color: var(--fg); text-shadow: 0 0 2px #000, 0 0 2px #000; }
+.slot .tag { position: absolute; left: 2px; top: 0; font: 700 9px var(--body); color: var(--muted); }
+.slot:hover, .slot:focus-visible { border-color: var(--torch); outline: none; }
+.eqrow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.sublabel { font: 600 10px var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-top: 10px; }
+#tip { position: fixed; z-index: 30; max-width: min(320px, calc(100vw - 32px)); background: #0d0f14; border: 1px solid var(--torch); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.45; box-shadow: 0 6px 24px rgba(0,0,0,.5); pointer-events: none; }
+#tip h4 { margin: 0 0 4px; font: 700 14px var(--body); color: var(--torch); overflow-wrap: anywhere; }
+#tip .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+#tip .chip { font: 600 10.5px var(--body); padding: 1px 6px; border-radius: 3px; background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
+#tip .chip.bad { color: var(--hurt); border-color: var(--hurt); }
+#tip .chip.good { color: var(--search); border-color: var(--search); }
+#tip p { margin: 0; color: var(--fg); white-space: pre-wrap; }
+.log li canvas { width: 16px; height: 16px; image-rendering: pixelated; vertical-align: -3px; margin-right: 5px; }
+.transport { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.row .grow { flex: 1 1 160px; min-width: 0; }
+.tbtn { min-width: 42px; font-family: var(--mono); }
+#play { min-width: 78px; }
+input[type=range] { width: 100%; accent-color: var(--torch); margin: 0; }
+canvas#ticks { display: block; width: 100%; height: 14px; margin-top: 2px; }
+.keys { font-size: 12px; color: var(--muted); }
+.keys kbd { font: 11px var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; color: var(--fg); }
+.toggles label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.toast { font-size: 12.5px; color: var(--search); min-height: 1em; }
+.toast.err { color: var(--hurt); }
+/* Feedback: the one thing we ask of visitors, so it gets the warm colour */
+.fb { border-color: #6b4f22; background: linear-gradient(180deg, #231d13, var(--panel) 70%); }
+.fb .label { color: var(--torch); }
+.fb p { margin: 0 0 8px; font-size: 13.5px; color: var(--muted); }
+.fb form { display: grid; gap: 9px; margin-top: 4px; }
+.cats { display: flex; flex-wrap: wrap; gap: 5px; border: 0; padding: 0; margin: 0; }
+.cats legend, .fb .flab { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; padding: 0; }
+.cats label { cursor: pointer; }
+.cats input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.cats span { display: inline-block; font: 600 12.5px var(--body); padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); color: var(--fg); }
+.cats input:checked + span { background: var(--torch); border-color: var(--torch); color: #1b1408; }
+.cats input:focus-visible + span { outline: 2px solid var(--torch); outline-offset: 2px; }
+.fb textarea, .fb input[type=text], .fb select { width: 100%; font: 14px var(--body); background: #0f1116; border: 1px solid var(--line); border-radius: 6px; padding: 8px 9px; color: var(--fg); }
+.fb textarea { resize: vertical; min-height: 84px; }
+.fb .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 420px) { .fb .two { grid-template-columns: 1fr; } }
+.fb .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hp-trap { position: absolute; left: -9999px; }
+.ctx { font: 12px var(--mono); color: var(--muted); background: #0f1116; border: 1px dashed var(--line); border-radius: 6px; padding: 6px 8px; overflow-wrap: anywhere; }
+/* Game picker */
+dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 0; width: min(760px, calc(100vw - 32px)); max-height: min(80vh, 760px); }
+dialog::backdrop { background: rgba(0,0,0,.65); }
+dialog .dh { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+dialog .dh h3 { margin: 0; font: 700 17px var(--display); color: var(--torch); flex: 1 1 auto; }
+dialog .body { padding: 6px 8px 12px; }
+.glist { display: grid; gap: 4px; }
+.grow-btn { display: grid; grid-template-columns: 26px 3.2em minmax(0, 1fr) auto; align-items: center; gap: 10px; text-align: left; padding: 8px 10px; background: transparent; border: 1px solid transparent; border-radius: 6px; width: 100%; }
+.grow-btn:hover, .grow-btn:focus-visible { background: var(--panel2); border-color: var(--line); }
+.grow-btn.cur { border-color: var(--torch); }
+.grow-btn canvas { width: 20px; height: 25px; image-rendering: pixelated; }
+.grow-btn .fl { font: 700 15px var(--display); color: var(--torch); }
+.grow-btn .c { font-weight: 400; color: var(--fg); overflow-wrap: anywhere; }
+.grow-btn .c small { display: block; color: var(--muted); font-size: 12px; }
+.grow-btn .n { font: 12px var(--mono); color: var(--muted); }
+.about { padding: 4px 18px 16px; font-size: 14.5px; }
+.about h4 { margin: 14px 0 4px; color: var(--torch); font: 700 15px var(--display); }
+.about p, .about li { color: var(--fg); max-width: 70ch; }
+.about ul { padding-left: 18px; margin: 4px 0; }
+footer { color: var(--muted); font-size: 12.5px; text-align: center; padding-top: 6px; }
+footer a { color: var(--muted); }
+@media (max-width: 600px), (pointer: coarse) { .keys { display: none; } }
+@media (prefers-reduced-motion: reduce) { .flash { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pebxel Bot Replays <small>Pixel Dungeon</small></h1>
+    <span class="grow"></span>
+    <button id="aboutbtn" type="button">How this works</button>
+  </header>
+
+  <section class="intro" id="intro" hidden>
+    <button class="x" id="introx" type="button" aria-label="Hide this message">×</button>
+    <h2>This bot can't win Pixel Dungeon yet. Can you show it where it goes wrong?</h2>
+    <p>Every run here was played by a bot in a Pebble watch port of Pixel Dungeon 1.x (no challenges, no head start, no second lives). Step through a game, and when you see a move a good player wouldn't make, press <b>Suggest a better move</b> and say what you'd do. The notes are read by a person and turned into better rules for the bot.</p>
+  </section>
+
+  <div class="gamebar">
+    <div class="who"><canvas id="whoicon" width="12" height="15"></canvas><div><b id="whotitle">Loading…</b><br><span id="whosub"></span></div></div>
+    <button type="button" id="prevgame" title="Previous game">◀ Game</button>
+    <button type="button" class="primary" id="pick">Choose a game</button>
+    <button type="button" id="nextgame" title="Next game">Game ▶</button>
+  </div>
+
+  <div class="main">
+    <div style="display:grid;gap:12px;min-width:0">
+      <div class="stage">
+        <canvas id="map" width="512" height="512" aria-label="Dungeon map at this step"></canvas>
+        <div class="flash" id="flash"></div>
+        <div class="loading" id="loading">Loading the dungeon…</div>
+        <div class="legend">
+          <span><i class="sw" style="background:var(--torch)"></i>Where the bot is going</span>
+          <span><i class="sw" style="background:var(--plan)"></i>Other options A, B, C…</span>
+          <span><i class="sw" style="background:#f2a93b55;border:1px solid var(--torch)"></i>Recent path</span>
+          <span><i class="sw" style="background:#ff4fd8"></i>Hidden door or trap</span>
+        </div>
+      </div>
+      <div class="transport">
+        <div class="row">
+          <button class="tbtn" id="first" title="First step" aria-label="First step">|◀</button>
+          <button class="tbtn" id="prevev" title="Previous event ([)" aria-label="Previous event">◀◀</button>
+          <button class="tbtn" id="back" title="Step back (←)" aria-label="Step back">◀</button>
+          <button class="primary" id="play" title="Play / pause (space)">Play</button>
+          <button class="tbtn" id="fwd" title="Step forward (→)" aria-label="Step forward">▶</button>
+          <button class="tbtn" id="nextev" title="Next event (])" aria-label="Next event">▶▶</button>
+          <button class="tbtn" id="last" title="Last step (the death)" aria-label="Last step">▶|</button>
+          <select id="speed" aria-label="Speed">
+            <option value="1">1 step/s</option><option value="3">3 steps/s</option><option value="6" selected>6 steps/s</option>
+            <option value="12">12 steps/s</option><option value="30">30 steps/s</option>
+          </select>
+          <select id="evkind" aria-label="Which events the ◀◀ ▶▶ buttons jump to">
+            <option value="hurt">◀◀ ▶▶ jump to: damage taken</option><option value="floor">◀◀ ▶▶ jump to: new floor</option>
+            <option value="fight">◀◀ ▶▶ jump to: start of a fight</option><option value="item">◀◀ ▶▶ jump to: item use</option>
+            <option value="search">◀◀ ▶▶ jump to: searching</option>
+          </select>
+        </div>
+        <div>
+          <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Step">
+          <canvas id="ticks" width="1000" height="14" aria-hidden="true"></canvas>
+        </div>
+        <div class="row toggles">
+          <label><input type="checkbox" id="showplans" checked> Other options</label>
+          <label><input type="checkbox" id="showtrail" checked> Recent path</label>
+          <label><input type="checkbox" id="showhidden"> Show what the bot can't see</label>
+          <span class="grow"></span>
+          <span class="keys"><kbd>Space</kbd> play · <kbd>←</kbd><kbd>→</kbd> step · <kbd>Shift</kbd> ×10 · <kbd>[</kbd><kbd>]</kbd> events</span>
+        </div>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="card">
+        <div class="fid">
+          <div>
+            <div class="big" id="fid">Step 0</div>
+            <div class="small" id="fsub"></div>
+          </div>
+          <button id="share" type="button" title="Copy a link straight to this moment">Copy link</button>
+        </div>
+        <div class="toast" id="sharetoast" role="status"></div>
+      </div>
+      <div class="card">
+        <div class="label">From here, the bot decided</div>
+        <div class="did" id="did"></div>
+        <span class="why" id="why" hidden></span>
+      </div>
+
+      <div class="card fb" id="fbcard">
+        <div class="label">Help the bot</div>
+        <div id="fbclosed">
+          <p>Would a good player do something else here? Even a one-line note helps.</p>
+          <button class="primary" type="button" id="fbopen">Suggest a better move</button>
+          <span class="toast" id="fbthanks" role="status"></span>
+        </div>
+        <form id="fbform" hidden novalidate>
+          <div class="ctx" id="fbctx"></div>
+          <fieldset class="cats">
+            <legend>What's wrong here?</legend>
+            <label><input type="radio" name="cat" value="bad-move" checked><span>Bad move</span></label>
+            <label><input type="radio" name="cat" value="run"><span>Should run</span></label>
+            <label><input type="radio" name="cat" value="fight"><span>Should fight</span></label>
+            <label><input type="radio" name="cat" value="item"><span>Use an item</span></label>
+            <label><input type="radio" name="cat" value="waste"><span>Wasting turns / food</span></label>
+            <label><input type="radio" name="cat" value="explore"><span>Exploring wrong</span></label>
+            <label><input type="radio" name="cat" value="gear"><span>Gear / upgrades</span></label>
+            <label><input type="radio" name="cat" value="other"><span>Other</span></label>
+          </fieldset>
+          <div>
+            <label class="flab" for="fbtext">What would you do instead, and why?</label>
+            <textarea id="fbtext" maxlength="2000" placeholder="e.g. Retreat to the corridor so only one gnoll can reach you, then fight."></textarea>
+          </div>
+          <div class="two">
+            <div><label class="flab" for="fbscope">This is about</label>
+              <select id="fbscope"><option value="moment">this exact step</option><option value="recent">the last few steps</option><option value="game">the whole game's strategy</option></select></div>
+            <div><label class="flab" for="fbname">Your name (optional)</label>
+              <input type="text" id="fbname" maxlength="60" placeholder="e.g. u/yourname" autocomplete="nickname"></div>
+          </div>
+          <input class="hp-trap" type="text" id="fbweb" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <div class="acts">
+            <button class="primary" type="submit" id="fbsend">Send</button>
+            <button type="button" id="fbcancel">Cancel</button>
+            <span class="toast" id="fbmsg" role="status"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="label">What happened</div>
+        <ul class="log" id="log"></ul>
+      </div>
+      <div class="card">
+        <div class="label">Hero</div>
+        <div class="stats">
+          <div><b>HP</b><span id="hp"></span></div><div><b>Level</b><span id="lvl"></span></div>
+          <div><b>STR</b><span id="str"></span></div><div><b>Food</b><span id="food"></span></div>
+        </div>
+        <div class="hpbar"><i id="hpbar"></i></div>
+        <div class="sublabel">Equipped · weapon, armour, rings</div>
+        <div class="eqrow" id="eq"></div>
+        <div class="sublabel">Backpack <span id="bagcount"></span></div>
+        <div class="slots" id="bag"></div>
+      </div>
+      <div class="card">
+        <div class="label">Other options the bot weighed</div>
+        <ul class="plans" id="plans"></ul>
+      </div>
+    </aside>
+  </div>
+  <footer>
+    Pixel Dungeon and its art are by <a href="https://github.com/watabou/pixel-dungeon">Watabou</a> (GPLv3). This is a fan project, not affiliated with the game's authors.
+  </footer>
+</div>
+
+<dialog id="picker" aria-labelledby="pickh">
+  <div class="dh">
+    <h3 id="pickh">Choose a game</h3>
+    <select id="pcls" aria-label="Hero class"><option value="-1">All heroes</option><option value="0">Warrior</option><option value="1">Mage</option><option value="2">Rogue</option><option value="3">Huntress</option></select>
+    <select id="psort" aria-label="Sort"><option value="depth">Deepest first</option><option value="early">Earliest deaths first</option><option value="id">Game number</option></select>
+    <button type="button" id="prand">Random</button>
+    <button type="button" id="pclose" aria-label="Close">Close</button>
+  </div>
+  <div class="body"><div class="glist" id="glist"></div></div>
+</dialog>
+
+<dialog id="about" aria-labelledby="abouth">
+  <div class="dh"><h3 id="abouth">How this works</h3><button type="button" id="aclose">Close</button></div>
+  <div class="about">
+    <p>These are full runs of a bot playing a faithful port of <b>Pixel Dungeon 1.x</b> made for the Pebble smartwatch. It plays the real game: no challenges, no head start, no extra lives, and it only knows what the hero could know. It hasn't won a single game yet. Skilled players say they win most of their runs, so the bot is missing something, and that's what we'd like your help with.</p>
+    <h4>Reading the screen</h4>
+    <ul>
+      <li><b>The map</b> shows what the hero can see now (bright) and remembers (dim). The orange reticle is where the bot is heading this step; blue letters are the other options it weighed.</li>
+      <li><b>From here, the bot decided</b> is the bot's own reason for the move, such as <i>walk to 12,5 [explore]</i>. Coordinates are column,row on the map.</li>
+      <li><b>What happened</b> is the game log for that step. A red flash means the hero took damage.</li>
+      <li>Hover or tap any backpack slot to see the item's description.</li>
+      <li>Tick <b>Show what the bot can't see</b> to reveal the whole floor, including hidden doors and traps (pink).</li>
+    </ul>
+    <h4>Giving feedback</h4>
+    <p>Pause on a moment that looks wrong, press <b>Suggest a better move</b>, and say what you'd do. The note is saved with the exact game and step, so it can be replayed. Notes about overall strategy are just as welcome (choose "the whole game's strategy"). Your name is optional.</p>
+    <h4>Sharing a moment</h4>
+    <p><b>Copy link</b> gives a link that opens this exact step of this game.</p>
+    <h4>Privacy</h4>
+    <p>A note stores what you type, the moment it's about and the time. To block spam, it also stores a scrambled code made from your connection, which can't be turned back into your address. Nothing else is kept, and there are no ads or trackers.</p>
+  </div>
+</dialog>
+
+<div id="tip" hidden></div>
+<script>
+"use strict";
+let ASSETS = null, INDEX = [], DATA = null;
+const CLS = ["Warrior", "Mage", "Rogue", "Huntress"];
+const TK = ["fight", "pick up", "go to", "mine", "gold vein", "use item", "rest"];
+const STATE = ["asleep", "wandering", "hunting", "fleeing", "passive"];
+const SECRET = new Set([16, 18, 20, 22, 28, 31, 33, 38, 40]);
+const $ = id => document.getElementById(id);
+const cv = $("map"), ctx = cv.getContext("2d"); ctx.imageSmoothingEnabled = false;
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+let IM = null, gi = -1, fi = 0, playing = false, timer = null, mapCache = new Map(), loadSeq = 0;
+
+const img = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(i); i.src = src; });
+function drawItem(c, spr, x, y, s) { const si = ASSETS.itemidx[spr] ?? 127; c.drawImage(IM.items, (si % 8) * 16, Math.floor(si / 8) * 16, 16, 16, x, y, s, s); }
+function icon(spr) { const c = document.createElement("canvas"); c.width = c.height = 16; const x = c.getContext("2d"); x.imageSmoothingEnabled = false; if (spr != null) drawItem(x, spr, 0, 0, 16); return c; }
+function heroIcon(c, cls) { const x = c.getContext("2d"); x.imageSmoothingEnabled = false; x.clearRect(0, 0, 12, 15); x.drawImage(IM.hero, cls * 12, 0, 12, 15, 0, 0, 12, 15); }
+
+function b64bytes(s) { const b = atob(s), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+function mapOf(g, mi) { if (!mapCache.has(mi)) mapCache.set(mi, b64bytes(g.maps[mi][1])); return mapCache.get(mi); }
+function visOf(f) { const b = b64bytes(f[4]), v = new Uint8Array(1024); for (let i = 0; i < 1024; i++) v[i] = (b[i >> 2] >> ((i & 3) * 2)) & 3; return v; }
+const G = () => DATA, F = (i = fi) => DATA.frames[i], S = i => DATA.strs[i], META = () => INDEX[gi];
+
+function cellXY(c) { return [(c % 32) * 16, Math.floor(c / 32) * 16]; }
+function reticle(c, color, w = 2) { const [x, y] = cellXY(c); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.strokeRect(x + 1, y + 1, 14, 14);
+  ctx.beginPath(); for (const [a, b, d, e] of [[x + 8, y - 3, x + 8, y + 3], [x + 8, y + 13, x + 8, y + 19], [x - 3, y + 8, x + 3, y + 8], [x + 13, y + 8, x + 19, y + 8]]) { ctx.moveTo(a, b); ctx.lineTo(d, e); } ctx.stroke(); }
+function targetOf(did) { const m = /(\d+),(\d+)/.exec(did); return m ? (+m[1]) + 32 * (+m[2]) : -1; }
+function whyOf(did) { const m = /\[([^\]]+)\]/.exec(did); return m ? m[1] : ""; }
+
+function draw() {
+  if (!DATA) return;
+  const g = G(), f = F(), map = mapOf(g, f[3]), vis = visOf(f), depth = f[2], reg = Math.min(4, Math.floor((depth - 1) / 5));
+  const hidden = $("showhidden").checked;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, 512, 512);
+  for (let c = 0; c < 1024; c++) {
+    const v = vis[c]; if (!v && !hidden) continue;
+    const [x, y] = cellXY(c), t = map[c];
+    ctx.globalAlpha = v ? 1 : .28;
+    if (t >= 48) ctx.drawImage(IM.water[reg], (c % 2) * 16, (Math.floor(c / 32) % 2) * 16, 16, 16, x, y, 16, 16);
+    if (t !== 63) ctx.drawImage(IM.tiles[reg], (t % 16) * 16, Math.floor(t / 16) * 16, 16, 16, x, y, 16, 16);
+    ctx.globalAlpha = 1;
+    if (v === 1) { ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(x, y, 16, 16); }
+    if (hidden && SECRET.has(t)) { ctx.strokeStyle = "#ff4fd8"; ctx.lineWidth = 2; ctx.strokeRect(x + 2, y + 2, 12, 12); }
+  }
+  for (const p of (f[18] || [])) { if (!vis[p[0]] && !hidden) continue; const [x, y] = cellXY(p[0]); ctx.drawImage(IM.plants, p[1] * 16, 0, 16, 16, x, y, 16, 16); }
+  const heaps = f[17] || f[9].map(h => [h[0], h[1], h[2], h[3], 1, 1]);
+  for (const h of heaps) { if (!h[4] && !hidden) continue; const [x, y] = cellXY(h[0]); ctx.globalAlpha = h[4] ? 1 : .55; drawItem(ctx, h[1], x, y, 16); ctx.globalAlpha = 1; }
+  const GAS = ["rgba(90,200,60,.45)", "rgba(190,120,230,.45)", "rgba(255,120,30,.55)", "rgba(60,160,60,.3)", "rgba(240,120,200,.4)", "rgba(230,230,230,.35)"];
+  for (const q of (f[19] || [])) { if (!vis[q[0]] && !hidden) continue; const [x, y] = cellXY(q[0]); ctx.fillStyle = GAS[q[1]] || GAS[0]; ctx.fillRect(x, y, 16, 16); }
+  if ($("showtrail").checked) {
+    for (let k = Math.max(0, fi - 24); k < fi; k++) { const p = F(k); if (p[2] !== depth) continue; const [x, y] = cellXY(p[5][0]);
+      ctx.fillStyle = `rgba(242,169,59,${.12 + .5 * (k - fi + 24) / 24})`; ctx.fillRect(x + 5, y + 5, 6, 6); }
+  }
+  for (const m of f[8]) {
+    const [x, y] = cellXY(m[0]), mm = ASSETS.mobmeta[m[1]]; if (!mm || !mm[1]) continue;
+    const dw = Math.min(mm[1], 24), dh = Math.round(mm[2] * dw / mm[1]);
+    ctx.drawImage(IM.mobs, mm[0], 0, mm[1], mm[2], x + 8 - dw / 2, y + 16 - dh, dw, dh);
+    if (m[3] > 0) { ctx.fillStyle = "#7a1f1f"; ctx.fillRect(x + 1, y - 2, 14, 2); ctx.fillStyle = m[5] ? "#5aa9e6" : "#e5534b"; ctx.fillRect(x + 1, y - 2, Math.max(1, Math.round(14 * m[2] / m[3])), 2); }
+    if (m[4] === 0) { ctx.fillStyle = "#cfd8ff"; ctx.font = "bold 8px monospace"; ctx.fillText("z", x + 12, y + 6); }
+  }
+  const hp = f[5][0], [hx, hy] = cellXY(hp);
+  ctx.drawImage(IM.hero, g.cls * 12, 0, 12, 15, hx + 2, hy + 1, 12, 15);
+  if ($("showplans").checked) f[10].forEach((t, i) => { if (t[0] < 0 || t[0] >= 1024) return; reticle(t[0], "#5aa9e6", i ? 1 : 1.5);
+    const [x, y] = cellXY(t[0]); ctx.fillStyle = "#5aa9e6"; ctx.font = "bold 8px monospace"; ctx.fillText(String.fromCharCode(65 + i), x + 1, y + 7); });
+  const tc = targetOf(S(f[11]));
+  if (tc >= 0 && tc < 1024) { const [tx, ty] = cellXY(tc); ctx.strokeStyle = "rgba(242,169,59,.7)"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(hx + 8, hy + 8); ctx.lineTo(tx + 8, ty + 8); ctx.stroke(); ctx.setLineDash([]); reticle(tc, "#f2a93b", 2); }
+}
+
+function panel() {
+  if (!DATA) return;
+  const g = G(), f = F(), prev = fi ? F(fi - 1) : null, did = S(f[11]), h = f[5];
+  $("fid").textContent = `Step ${fi + 1} of ${g.frames.length}`;
+  $("fsub").textContent = `Game ${g.id} · floor ${f[2]} · turn ${f[1]}`;
+  $("did").textContent = did.replace(/\s*\[[^\]]+\]\s*/, " ").trim() || "(nothing)";
+  const w = whyOf(did); $("why").hidden = !w; $("why").textContent = w;
+  const log = $("log"); log.innerHTML = "";
+  const dh = f[13] - h[1];
+  if (dh) { const li = document.createElement("li"); li.className = dh < 0 ? "dmg" : "heal"; li.textContent = `${dh > 0 ? "+" : "−"}${Math.abs(dh)} HP this step (${h[1]} → ${f[13]})`; log.append(li); }
+  const nxt = fi + 1 < g.frames.length ? F(fi + 1) : null;
+  for (const s of f[12]) { const li = document.createElement("li"), txt = S(s), m = /^You now have (.+?)\.?$/.exec(txt);
+    if (m) { const pool = [...((nxt && nxt[16]) || []), ...(f[16] || [])], hit = pool.find(e => S(e[2]).startsWith(m[1]) || m[1].startsWith(S(e[2]).split(" :")[0]));
+      if (hit) li.append(icon(hit[0])); }
+    li.append(document.createTextNode(txt)); log.append(li); }
+  { const dj = /^leave the junk behind: (.+)$/.exec(did); if (dj) { const e = (f[16] || []).find(e => S(e[2]) === dj[1]); const li = document.createElement("li"); if (e) li.append(icon(e[0])); li.append(document.createTextNode("Dropped " + dj[1])); log.append(li); } }
+  if (!log.children.length) log.innerHTML = '<li class="none">Nothing to report</li>';
+  $("hp").textContent = `${h[1]}/${h[2]}`; $("lvl").textContent = h[3]; $("str").textContent = h[4];
+  $("food").textContent = h[5] >= 360 ? "starving" : h[5] >= 260 ? "hungry" : "fed";
+  $("food").style.color = h[5] >= 360 ? "var(--hurt)" : h[5] >= 260 ? "var(--torch)" : "";
+  $("hpbar").style.width = Math.max(0, 100 * h[1] / h[2]) + "%";
+  const prevNames = new Set(prev && prev[16] ? prev[16].map(e => S(e[2]) + "|" + e[1]) : []);
+  $("eq").innerHTML = ""; (f[15] || [null, null, null, null]).forEach((e, i) => $("eq").append(slot(e, ["W", "A", "R", "R"][i], false)));
+  $("bag").innerHTML = ""; const bi = f[16] || f[14].map(n => [null, 1, n, 0]);
+  bi.forEach(e => $("bag").append(slot(e, "", prev && !prevNames.has(S(e[2]) + "|" + e[1]))));
+  for (let i = bi.length; i < 19; i++) $("bag").append(slot(null, "", false));
+  $("bagcount").textContent = `(${bi.length} of 19)`;
+  const pl = $("plans"); pl.innerHTML = "";
+  f[10].forEach((t, i) => { const li = document.createElement("li"); const mob = f[8].find(m => m[0] === t[0]);
+    li.innerHTML = `<span class="k">${String.fromCharCode(65 + i)}</span><span></span>`;
+    li.lastChild.textContent = `${TK[t[1]] || "?"} ${mob ? ASSETS.mobnames[mob[1]] + " (" + STATE[mob[4]] + ")" : t[0] >= 0 && t[0] < 1024 ? (t[1] === 2 ? "" : "at ") + (t[0] % 32) + "," + Math.floor(t[0] / 32) : ""}`; pl.append(li); });
+  if (!f[10].length) pl.innerHTML = '<li class="none" style="color:var(--muted)">none</li>';
+  $("scrub").value = fi;
+  if (!$("fbform").hidden) fbContext();
+  if (dh < 0) { $("flash").classList.add("on"); requestAnimationFrame(() => setTimeout(() => $("flash").classList.remove("on"), 60)); }
+}
+function slot(e, tag, isNew) {
+  const b = document.createElement("button"); b.className = "slot" + (e ? "" : " empty") + (isNew ? " new" : "") + (e && (e[3] & 6) === 6 ? " cursed" : "");
+  b.type = "button"; b.append(icon(e ? e[0] : null));
+  if (tag) { const t = document.createElement("span"); t.className = "tag"; t.textContent = tag; b.append(t); }
+  if (e && e[1] > 1) { const q = document.createElement("span"); q.className = "q"; q.textContent = e[1]; b.append(q); }
+  if (e) { b.setAttribute("aria-label", S(e[2])); b.onmouseenter = b.onfocus = () => tip(b, e); b.onmouseleave = b.onblur = () => { $("tip").hidden = true; };
+    b.onclick = ev => { ev.stopPropagation(); $("tip").hidden ? tip(b, e) : ($("tip").hidden = true); }; }
+  else b.tabIndex = -1;
+  return b;
+}
+function tip(el, e) {
+  const t = $("tip"), name = S(e[2]), fl = e[3], g = G(), infoIdx = g.info ? g.info[e[2]] : undefined;
+  const chips = [];
+  if (e[1] > 1) chips.push(["×" + e[1], ""]);
+  chips.push(fl & 8 ? ["identified", "good"] : fl & 16 ? ["kind known", ""] : ["unknown", ""]);
+  if (fl & 2) chips.push(fl & 4 ? ["cursed", "bad"] : ["not cursed", "good"]); else chips.push(["curse unknown", ""]);
+  if (fl & 1) chips.push(["level known", "good"]);
+  t.innerHTML = ""; const h = document.createElement("h4"); h.textContent = name; t.append(h);
+  const c = document.createElement("div"); c.className = "chips"; for (const [l, k] of chips) { const s = document.createElement("span"); s.className = "chip " + k; s.textContent = l; c.append(s); } t.append(c);
+  const p = document.createElement("p"); p.textContent = infoIdx !== undefined ? S(infoIdx) : "(no description recorded)"; t.append(p);
+  t.hidden = false; const r = el.getBoundingClientRect(), tw = t.offsetWidth, th = t.offsetHeight;
+  let x = r.left - tw - 8; if (x < 8) x = Math.min(window.innerWidth - tw - 8, r.right + 8); if (x < 8) x = 8;
+  const y = Math.min(window.innerHeight - th - 8, Math.max(8, r.top));
+  t.style.left = x + "px"; t.style.top = y + "px";
+}
+document.addEventListener("click", () => { $("tip").hidden = true; });
+let hashTimer = null;
+function show() { $("tip").hidden = true; draw(); panel(); clearTimeout(hashTimer); hashTimer = setTimeout(setHash, playing ? 1000 : 150); }
+function setHash() { if (!DATA) return; const h = `#g${META().id}/${fi}`; if (location.hash !== h) history.replaceState(null, "", h); }
+
+const isFight = f => /^fight |losing duel|door kite/.test(S(f[11]));
+const EV = {
+  hurt: (f, p) => f[13] < f[5][1],
+  floor: (f, p) => p && p[2] !== f[2],
+  fight: (f, p) => isFight(f) && !(p && isFight(p)),
+  search: (f) => /search/i.test(S(f[11])),
+  item: (f) => /^(Eat|Drink|Read|Zap|Throw|wear|wield|put|drop|item)/i.test(S(f[11])) || /eat|drink|read|zap|wear|wield/i.test(S(f[11]).split(" ")[0]),
+};
+function ticks() {
+  const c = $("ticks"), x = c.getContext("2d"), fr = G().frames, n = fr.length; x.clearRect(0, 0, c.width, c.height);
+  const col = { hurt: "#e5534b", floor: "#9b7be0", search: "#4fc1b0" };
+  fr.forEach((f, i) => { const p = i ? fr[i - 1] : null, px = Math.round(i / Math.max(1, n - 1) * (c.width - 2));
+    if (EV.floor(f, p)) { x.fillStyle = col.floor; x.fillRect(px, 0, 2, 14); }
+    else if (EV.hurt(f, p)) { x.fillStyle = col.hurt; x.fillRect(px, 8, 2, 6); }
+    else if (EV.search(f, p)) { x.fillStyle = col.search; x.fillRect(px, 0, 2, 5); } });
+}
+function jump(dir) { if (!DATA) return; const k = $("evkind").value, fr = G().frames; for (let i = fi + dir; i >= 0 && i < fr.length; i += dir) if (EV[k](fr[i], i ? fr[i - 1] : null)) { go(i); return; } }
+function go(i) { if (!DATA) return; fi = Math.max(0, Math.min(G().frames.length - 1, i)); show(); }
+function setPlay(on) { playing = on && !!DATA; $("play").textContent = playing ? "Pause" : "Play"; clearInterval(timer);
+  if (playing) timer = setInterval(() => { if (fi >= G().frames.length - 1) setPlay(false); else go(fi + 1); }, 1000 / +$("speed").value); }
+
+function describe(m) { return `${m.cause.replace(/ on level \d+$/, "")} on floor ${m.depth}`; }
+async function loadGame(i, frame = 0) {
+  setPlay(false); gi = i; const m = META(), seq = ++loadSeq;
+  heroIcon($("whoicon"), m.cls); $("whotitle").textContent = `Game ${m.id} · ${CLS[m.cls]}`;
+  $("whosub").textContent = `${describe(m)} · level ${m.lvl} · ${m.turns.toLocaleString()} turns`;
+  $("loading").hidden = false; $("loading").textContent = "Loading the dungeon…";
+  try {
+    const r = await fetch("games/" + m.file); if (!r.ok) throw new Error(r.status);
+    const d = (await r.json()).games[0]; if (seq !== loadSeq) return;
+    DATA = d; mapCache.clear();
+  } catch (e) { if (seq === loadSeq) $("loading").textContent = "Couldn't load this game. Try reloading the page."; return; }
+  $("loading").hidden = true; $("scrub").max = DATA.frames.length - 1;
+  fi = Math.max(0, Math.min(DATA.frames.length - 1, frame)); closeForm(); $("fbthanks").textContent = "";
+  ticks(); show();
+}
+
+/* Game picker */
+function fillPicker() {
+  const cls = +$("pcls").value, sort = $("psort").value, list = $("glist"); list.innerHTML = "";
+  const rows = INDEX.map((m, i) => [m, i]).filter(([m]) => cls < 0 || m.cls === cls);
+  rows.sort(sort === "depth" ? (a, b) => b[0].depth - a[0].depth || b[0].turns - a[0].turns : sort === "early" ? (a, b) => a[0].depth - b[0].depth || a[0].turns - b[0].turns : (a, b) => a[0].id - b[0].id);
+  for (const [m, i] of rows) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "grow-btn" + (i === gi ? " cur" : "");
+    const c = document.createElement("canvas"); c.width = 12; c.height = 15; heroIcon(c, m.cls);
+    const fl = document.createElement("span"); fl.className = "fl"; fl.textContent = "F" + m.depth;
+    const t = document.createElement("span"); t.className = "c"; t.textContent = `${CLS[m.cls]} · ${m.cause.replace(/ on level \d+$/, "")}`;
+    const s = document.createElement("small"); s.textContent = `Game ${m.id} · hero level ${m.lvl}`; t.append(s);
+    const n = document.createElement("span"); n.className = "n"; n.textContent = `${m.steps} steps`;
+    b.append(c, fl, t, n); b.onclick = () => { $("picker").close(); loadGame(i); }; list.append(b);
+  }
+}
+$("pick").onclick = () => { fillPicker(); $("picker").showModal(); const cur = $("glist").querySelector(".cur"); if (cur) cur.focus(); };
+$("pclose").onclick = () => $("picker").close();
+$("pcls").onchange = $("psort").onchange = fillPicker;
+$("prand").onclick = () => { $("picker").close(); loadGame(Math.floor(Math.random() * INDEX.length)); };
+$("prevgame").onclick = () => loadGame((gi + INDEX.length - 1) % INDEX.length);
+$("nextgame").onclick = () => loadGame((gi + 1) % INDEX.length);
+for (const d of [$("picker"), $("about")]) d.addEventListener("click", e => { if (e.target === d) d.close(); });
+$("aboutbtn").onclick = () => $("about").showModal(); $("aclose").onclick = () => $("about").close();
+if (store.get("pebxel-intro") !== "hidden") $("intro").hidden = false;
+$("introx").onclick = () => { $("intro").hidden = true; store.set("pebxel-intro", "hidden"); };
+
+/* Feedback */
+function fbContext() { const f = F(); $("fbctx").textContent = `Game ${G().id} · step ${fi + 1} · floor ${f[2]}, turn ${f[1]} · bot decided: ${S(f[11])}`; }
+function openForm() { if (!DATA) return; setPlay(false); fbContext(); $("fbclosed").hidden = true; $("fbform").hidden = false; $("fbmsg").textContent = ""; $("fbmsg").className = "toast";
+  const n = store.get("pebxel-name"); if (n && !$("fbname").value) $("fbname").value = n; $("fbtext").focus(); }
+function closeForm() { $("fbform").hidden = true; $("fbclosed").hidden = false; }
+$("fbopen").onclick = openForm; $("fbcancel").onclick = closeForm;
+$("fbform").onsubmit = async e => {
+  e.preventDefault(); const text = $("fbtext").value.trim(), msg = $("fbmsg");
+  if (text.length < 3) { msg.className = "toast err"; msg.textContent = "Please write a few words about what you'd do."; $("fbtext").focus(); return; }
+  const f = F(), body = { game: G().id, frame: fi, step: f[0], turn: f[1], depth: f[2], bot: META().bot || "", did: S(f[11]),
+    cat: (document.querySelector('input[name="cat"]:checked') || {}).value || "other", scope: $("fbscope").value, text, name: $("fbname").value.trim(), website: $("fbweb").value };
+  $("fbsend").disabled = true; msg.className = "toast"; msg.textContent = "Sending…";
+  try {
+    const r = await fetch("api/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "The note didn't go through. Please try again.");
+    if (body.name) store.set("pebxel-name", body.name);
+    $("fbtext").value = ""; closeForm(); $("fbthanks").textContent = ` Thanks! Your note on step ${fi + 1} was sent.`;
+  } catch (err) { msg.className = "toast err"; msg.textContent = err.message === "Failed to fetch" ? "Couldn't reach the server. Check your connection and try again." : err.message; }
+  finally { $("fbsend").disabled = false; }
+};
+
+/* Transport */
+$("scrub").oninput = e => go(+e.target.value);
+$("play").onclick = () => setPlay(!playing);
+$("speed").onchange = () => { if (playing) setPlay(true); };
+$("back").onclick = () => go(fi - 1); $("fwd").onclick = () => go(fi + 1);
+$("first").onclick = () => go(0); $("last").onclick = () => go(G().frames.length - 1);
+$("prevev").onclick = () => jump(-1); $("nextev").onclick = () => jump(1);
+for (const id of ["showplans", "showtrail", "showhidden"]) $(id).onchange = draw;
+$("share").onclick = () => { setHash(); const url = location.href, t = $("sharetoast");
+  const ok = () => { t.textContent = "Link copied. Anyone who opens it lands on this exact step."; };
+  const fail = () => { t.textContent = url; };
+  try { navigator.clipboard.writeText(url).then(ok, fail); } catch (e) { fail(); } };
+document.addEventListener("keydown", e => {
+  if (["SELECT", "TEXTAREA", "INPUT"].includes(e.target.tagName) || document.querySelector("dialog[open]")) return;
+  const n = e.shiftKey ? 10 : 1;
+  if (e.key === " ") { e.preventDefault(); setPlay(!playing); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); setPlay(false); go(fi + n); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); setPlay(false); go(fi - n); }
+  else if (e.key === "]") jump(1); else if (e.key === "[") jump(-1); });
+function fromHash() { const m = /^#g(\d+)(?:\/(\d+))?/.exec(location.hash); if (!m) return null; const i = INDEX.findIndex(x => x.id === +m[1]); return i < 0 ? null : [i, +(m[2] || 0)]; }
+window.addEventListener("hashchange", () => { const h = fromHash(); if (!h) return; if (h[0] !== gi) loadGame(h[0], h[1]); else if (h[1] !== fi) go(h[1]); });
+
+(async function start() {
+  try {
+    const [a, ix] = await Promise.all([fetch("assets.json").then(r => r.json()), fetch("games/index.json").then(r => r.json())]);
+    ASSETS = a; INDEX = ix.games;
+    const [tiles, water, items, hero, mobs, plants] = await Promise.all([Promise.all(a.tiles.map(img)), Promise.all(a.water.map(img)), img(a.items), img(a.hero), img(a.mobs), img(a.plants)]);
+    IM = { tiles, water, items, hero, mobs, plants };
+  } catch (e) { $("loading").textContent = "Couldn't load the replays. Try reloading the page."; return; }
+  const h = fromHash();
+  if (h) loadGame(h[0], h[1]);
+  else { let best = 0; INDEX.forEach((m, i) => { if (m.depth > INDEX[best].depth) best = i; }); loadGame(best); }
+})();
+</script>
+</body>
+</html>

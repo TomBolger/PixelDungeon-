@@ -1,0 +1,449 @@
+"""Convert Pixel Dungeon art to Pebble-ready PNGs (64-color palette).
+
+Method: stretch contrast (levels), then snap each color to the nearest Pebble
+color using a luminance-weighted distance. Alpha becomes fully on/off.
+Tiles use a stronger stretch so the dark sewer stone keeps its mortar lines.
+Character sheets get a mirrored second row, because Pebble can't flip bitmaps.
+
+Usage: python convert_art.py <pixel-dungeon/assets> <project/resources/images>
+"""
+import sys, os, colorsys
+from PIL import Image
+
+SRC, OUT = sys.argv[1], sys.argv[2]
+PAL = [(r, g, b) for r in (0, 85, 170, 255) for g in (0, 85, 170, 255) for b in (0, 85, 170, 255)]
+TILES, SPRITES, CHARS = (40, 205), (20, 230), (19, 230)   # CHARS: heroes, monsters, items (0.5.2 punch)
+_cache = {}
+
+def near(c):
+    return min(PAL, key=lambda p: 2 * (p[0] - c[0]) ** 2 + 4 * (p[1] - c[1]) ** 2 + 3 * (p[2] - c[2]) ** 2)
+
+def pebbleize(img, levels, alpha_cut=100, keep_gray=False):
+    lo, hi = levels
+    img = img.convert("RGBA")
+    px = img.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            if a < alpha_cut:
+                px[x, y] = (0, 0, 0, 0)
+                continue
+            if a == 254:                                   # already snapped by the caller
+                px[x, y] = (r, g, b, 255)
+                continue
+            key = (r, g, b, lo, hi, keep_gray)
+            if keep_gray and max(r, g, b) - min(r, g, b) < 24:
+                v = max(0, min(255, (((r + g + b) / 3) - lo) * 255 / (hi - lo)))
+                _cache[key] = (min((0, 85, 170, 255), key=lambda p: abs(p - v)),) * 3
+            if key not in _cache:
+                # 0.5.2 "punch" for the dim Pebble screen: lift mid-tones (gamma 0.85), keep near-greys neutral
+                # (tiles only), boost already-colourful pixels' saturation 1.3x
+                if levels == SPRITES:                      # UI art: unchanged mapping
+                    _cache[key] = near(tuple(max(0, min(255, (v - lo) * 255 / (hi - lo))) for v in (r, g, b)))
+                    px[x, y] = _cache[key] + (255,)
+                    continue
+                c = [max(0.0, min(1.0, (v - lo) / (hi - lo))) ** (0.85 if levels == TILES else 1.0) for v in (r, g, b)]
+                if levels == TILES and max(r, g, b) - min(r, g, b) < 28:
+                    m = sum(c) / 3 * 255
+                    _cache[key] = (min((0, 85, 170, 255), key=lambda p: abs(p - m)),) * 3
+                else:
+                    h, l, sat = colorsys.rgb_to_hls(*c)
+                    if sat > 0.3: sat = min(1.0, sat * 1.3)
+                    _cache[key] = near(tuple(v * 255 for v in colorsys.hls_to_rgb(h, l, sat)))
+            px[x, y] = _cache[key] + (255,)
+    return img
+
+def with_mirror(img, fw):
+    """Row 0 = original frames (facing right), row 1 = each frame mirrored."""
+    out = Image.new("RGBA", (img.width, img.height * 2))
+    out.paste(img, (0, 0))
+    for i in range(img.width // fw):
+        f = img.crop((i * fw, 0, i * fw + fw, img.height)).transpose(Image.FLIP_LEFT_RIGHT)
+        out.paste(f, (i * fw, img.height))
+    return out
+
+def crop(name, box):
+    return Image.open(os.path.join(SRC, name)).crop(box)
+
+def save(img, name):
+    img.save(os.path.join(OUT, name))
+    data = img.get_flattened_data()
+    n = len({p for p in data if p[3]}) + (1 if any(p[3] == 0 for p in data) else 0)
+    b = 1 if n <= 2 else 2 if n <= 4 else 4 if n <= 16 else 8
+    ram = img.width * img.height * b // 8
+    print(f"{name:20s} {img.width:3d}x{img.height:<3d} {n:2d} colors -> {b}bpp ~{ram / 1024:.1f} KB")
+    return ram
+
+os.makedirs(OUT, exist_ok=True)
+total = 0
+# 0.5: the whole sewer tile sheet, indexed by terrain code like PD's DungeonTilemap
+# 0.5.1: grass one Pebble shade brighter (greenish source pixels are lifted before snapping)
+t0 = crop("tiles0.png", (0, 0, 256, 64)).convert("RGBA")
+tp = t0.load()
+for y in range(t0.height):
+    for x in range(t0.width):
+        r, g, b, a = tp[x, y]
+        if a and g - max(r, b) > 25:   # grass: keep 0.5.1's look exactly (levels 45-210, no gamma)
+            lifted = [min(255, int(v * 1.45)) for v in (r, g, b)]
+            tp[x, y] = near(tuple(max(0, min(255, (v - 45) * 255 / 165)) for v in lifted)) + (254,)
+total += save(pebbleize(t0, TILES), "tiles_sewers.png")
+
+# Sewer water: PD scrolls a translucent texture over a base color; bake it opaque.
+water = Image.new("RGBA", (32, 32), (40, 70, 66, 255))
+w = Image.open(os.path.join(SRC, "water0.png")).convert("RGBA")
+water.alpha_composite(w)
+# 0.5.3: the baked texture's brightness drives PD's sewer green-teal, lifted like the grass (deep, jade, soft teal)
+wp = water.load()
+ls = sorted(sum(wp[x, y][:3]) for y in range(32) for x in range(32))
+q1, q2 = ls[len(ls) * 50 // 100], ls[len(ls) * 88 // 100]
+for y in range(32):
+    for x in range(32):
+        v = sum(wp[x, y][:3]); wp[x, y] = ((0, 85, 85) if v < q1 else (0, 170, 85) if v < q2 else (85, 170, 170)) + (255,)
+total += save(water, "water_sewers.png")
+
+def max16(img):
+    """At most 16 colours (4 bpp halves the RAM): fold the rarest colour into its nearest until 16 remain."""
+    px = img.load(); counts = {}
+    for y in range(img.height):
+        for x in range(img.width):
+            if px[x, y][3]: counts[px[x, y][:3]] = counts.get(px[x, y][:3], 0) + 1
+    remap = {}
+    while len(counts) > 15:                        # 15 + transparent
+        rare = min(counts, key=counts.get)
+        n = counts.pop(rare)
+        to = min(counts, key=lambda c: sum((a - b) ** 2 for a, b in zip(c, rare)))
+        counts[to] += n
+        for k, v in list(remap.items()):
+            if v == rare: remap[k] = to
+        remap[rare] = to
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            if a and (r, g, b) in remap: px[x, y] = remap[(r, g, b)] + (255,)
+    return img
+
+# 0.6: HeroSprite.tiers(): one 15 px row per armour tier (0 none .. 5 plate); the game loads only the worn one
+for cls, f in (("warrior", "warrior.png"), ("mage", "mage.png"), ("rogue", "rogue.png"), ("huntress", "ranger.png")):   # 0.13: every class
+    for t in range(7):                              # 0.12: + 6, the class armour
+        total += save(max16(pebbleize(crop(f, (0, t * 15, 252, t * 15 + 15)), CHARS)), f"hero_{cls}_{t}.png")   # 0.20: no mirrored row, the blitter flips
+
+def outlined(img, fw):
+    """0.6: 1 px black edge around the creature inside each frame, so grey monsters read on grey floors."""
+    out = img.copy(); src = img.load(); dst = out.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            if src[x, y][3]: continue
+            f0 = x // fw * fw
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if f0 <= nx < f0 + fw and 0 <= ny < img.height and src[nx, ny][3]:
+                    dst[x, y] = (0, 0, 0, 255); break
+    return out
+
+total += save(pebbleize(crop("banners.png", (0, 0, 128, 70)), SPRITES), "logo.png")
+
+print(f"Total bitmap RAM if all loaded: ~{total / 1024:.1f} KB")
+
+# ---- 0.2: item sheet (10 x 3) and toolbar ----
+# order must match ITEM_SPRITES in items.c
+# 0.6: every 0.6 item; order must match the SP_ enum in items.c
+ITEM_IDX = ([14, 4, 81, 112, 113, 114, 116] + [19, 16, 2, 17, 29, 18, 20, 21, 22, 23, 30] + [31, 108, 109, 15, 110, 107]
+            + [24, 25, 26, 27, 28] + list(range(56, 68)) + [40, 41, 42, 43, 44, 45, 46, 47, 76, 77, 78, 79]
+            + [5, 6, 7, 11, 0]
+            + [48, 49, 50, 51, 52, 53, 54, 55, 68, 69, 70, 71]          # 0.7: wands (Wand.woods order)
+            + [32, 33, 34, 35, 36, 37, 38, 39, 72, 73, 74, 75]          # 0.7: rings (Ring.gems order)
+            + list(range(88, 96)) + [120, 9, 10, 8] + [100, 103, 101, 102, 121, 118, 122]   # 0.8: seeds, vial, keys, quest items
+            + [1, 82, 84, 85, 86, 87, 123, 124, 125] + [83, 104, 111, 115, 106]             # misc, bags, food, boomerang
+            + [12, 13, 105, 126, 97, 96, 98, 99, 3]                     # chests, keyring, class armours, magic missile
+            + [117]                                                     # 0.9: scroll of wipe out
+            + [127])                                                    # 0.14: ItemSpriteSheet.SMTH (the catalogue's unknown "?")
+items = Image.open(os.path.join(SRC, "items.png")).convert("RGBA")
+sheet = Image.new("RGBA", (160, 16 * ((len(ITEM_IDX) + 9) // 10)))
+for i, idx in enumerate(ITEM_IDX):
+    x, y = (idx % 8) * 16, (idx // 8) * 16
+    sheet.paste(items.crop((x, y, x + 16, y + 16)), ((i % 10) * 16, (i // 10) * 16))
+total += save(pebbleize(sheet, CHARS), "items_02.png")
+# PD toolbar row: wait(0) search(20) info(40) backpack(60) quickslot(83..)
+total += save(pebbleize(crop("toolbar.png", (0, 7, 106, 32)), SPRITES, keep_gray=True), "toolbar.png")
+print(f"Total with 0.2 sheets: ~{total / 1024:.1f} KB")
+
+# ---- 0.3: PD chrome (window frames), status pane, hp bar ----
+chrome = crop("chrome.png", (0, 0, 86, 36)).convert("RGBA"); cp = chrome.load()
+for y in range(22, 36):                             # 0.6.1: tab interiors are the window's colour (they snapped to black)
+    for x in range(64, 84):
+        if cp[x, y][3] and cp[x, y][:3] in ((53, 56, 49), (55, 59, 52)): cp[x, y] = (85, 85, 85, 254)
+chrome = pebbleize(chrome, SPRITES, keep_gray=True); cp = chrome.load()
+for y in range(6, 16):                              # 0.6.5: window interiors black, so white text reads on the dim screen
+    for x in range(6, 16): cp[x, y] = (0, 0, 0, 255)   # plain windows only; the backpack (tabbed) stays grey
+total += save(chrome, "chrome.png")   # 0.5.1: + tab frames
+total += save(pebbleize(crop("status_pane.png", (0, 0, 128, 36)), SPRITES, alpha_cut=24, keep_gray=True), "status_pane.png")
+total += save(pebbleize(crop("hp_bar.png", (0, 0, 64, 4)), SPRITES), "hp_bar.png")
+print(f"Total with 0.3 sheets: ~{total / 1024:.1f} KB")
+
+# ---- 0.4: title + hero select + attack indicator ----
+arcs = Image.new("RGBA", (64, 64))
+bg = Image.open(os.path.join(SRC, "arcs1.png")).convert("RGBA")
+for y in (0, 32):
+    for x in (0, 32): arcs.paste(bg, (x, y))
+arcs.alpha_composite(Image.open(os.path.join(SRC, "arcs2.png")).convert("RGBA"))
+# arcs are ~12% grey: Pebble has nothing between black and 33% grey, so pillars are dithered
+ap = arcs.load()
+for y in range(64):
+    for x in range(64):
+        r, g, b, al = ap[x, y]
+        if (r, g, b) == (29, 32, 33): ap[x, y] = (85, 85, 85, 255) if (x + y) % 2 == 0 else (0, 0, 0, 255)
+        elif r > 40 or (r, g, b) == (26, 18, 11): ap[x, y] = (85, 0, 0, 255)
+        else: ap[x, y] = (0, 0, 0, 255)
+total += save(arcs, "arcs.png")
+# 0.5.2: Play stairs hand-mapped so the three steps keep separate tones (light, checker, dark)
+L_, M_, D_ = (170, 170, 170), (85, 85, 85), (0, 0, 0)
+PLAY_MAP = {(143, 142, 124): L_, (124, 124, 105): M_, (109, 107, 93): L_, (89, 84, 75): M_, (92, 90, 79): "LM",
+            (75, 71, 65): "MD", (76, 72, 66): M_, (64, 58, 56): D_, (61, 56, 54): M_}
+play = crop("dashboard.png", (0, 0, 32, 32)).convert("RGBA"); pp = play.load()
+for y in range(32):
+    for x in range(32):
+        r, g, b, a = pp[x, y]
+        if a < 100: pp[x, y] = (0, 0, 0, 0); continue
+        m = PLAY_MAP.get((r, g, b), D_)
+        if m == "LM": m = L_ if (x + y) % 2 == 0 else M_
+        if m == "MD": m = M_ if (x + y) % 2 == 0 else D_
+        pp[x, y] = m + (255,)
+# 0.14: + the Rankings podium (dashboard index 2) beside it
+hs = crop("dashboard.png", (64, 0, 96, 32)).convert("RGBA"); hp = hs.load()
+for y in range(32):
+    for x in range(32):
+        r, g, b, a = hp[x, y]
+        if a < 100: hp[x, y] = (0, 0, 0, 0)
+        elif max(r, g, b) - min(r, g, b) < 24: v = (r + g + b) // 3; hp[x, y] = ((255,) * 3 if v > 190 else (170,) * 3 if v > 120 else (85,) * 3) + (255,)   # the silver bar stays grey
+both = Image.new("RGBA", (64, 32)); both.paste(play, (0, 0)); both.paste(pebbleize(hs, SPRITES), (32, 0))
+total += save(both, "play.png")
+av = pebbleize(crop("avatars.png", (0, 0, 96, 28)), SPRITES)
+faded = av.copy(); fp = faded.load()                 # locked heroes: PD shows them faded
+for y in range(faded.height):
+    for x in range(faded.width):
+        r, g, b, a = fp[x, y]
+        if a: fp[x, y] = near((r * 0.35 + 20, g * 0.35 + 20, b * 0.35 + 20)) + (255,)
+sheet = Image.new("RGBA", (96, 56)); sheet.paste(av, (0, 0)); sheet.paste(faded, (0, 28))
+total += save(sheet, "avatars.png")
+total += save(pebbleize(crop("banners.png", (0, 140, 128, 161)), SPRITES), "banner_select.png")
+tag = Image.open(os.path.join(SRC, "chrome.png")).convert("RGBA").crop((22, 18, 38, 32))
+tp = tag.load()                                     # Tag.hardlight(0xFF4A4D): PD's red attack tag
+for y in range(tag.height):
+    for x in range(tag.width):
+        r, g, b, a = tp[x, y]
+        if a: tp[x, y] = (min(255, int(r * 1.0)), int(g * 0.29), int(b * 0.30), a)
+total += save(pebbleize(tag, SPRITES), "tag_red.png")
+tag = Image.open(os.path.join(SRC, "chrome.png")).convert("RGBA").crop((22, 18, 38, 32))
+tp = tag.load()                                     # 0.6.1: LootIndicator's Tag(0x1F75CC), blue
+for y in range(tag.height):
+    for x in range(tag.width):
+        r, g, b, a = tp[x, y]
+        if a: tp[x, y] = (int(r * 0.12), int(g * 0.46), int(b * 0.80), a)
+total += save(pebbleize(tag, SPRITES), "tag_blue.png")
+tag = Image.open(os.path.join(SRC, "chrome.png")).convert("RGBA").crop((22, 18, 38, 32))
+tp = tag.load()                                     # 0.17: ResumeButton's Tag(0xCDD5C0), pale
+for y in range(tag.height):
+    for x in range(tag.width):
+        r, g, b, a = tp[x, y]
+        if a: tp[x, y] = (int(r * 0.80), int(g * 0.84), int(b * 0.75), a)
+total += save(pebbleize(tag, SPRITES), "tag_white.png")
+print(f"Total with 0.4 sheets: ~{total / 1024:.1f} KB")
+
+# ---- 0.5: sewer monsters, buff icons ----
+# 0.7: WandOfFlock.Sheep (SheepSprite: 16x15 frames)
+# BuffIndicator icons (7x7): poison 3, hunger 5, starvation 6, cripple 23, bleeding 26
+bf = Image.open(os.path.join(SRC, "buffs.png")).convert("RGBA")
+strip = Image.new("RGBA", (7 * 30, 7))                 # 0.6: + fire, paralysis, levitation, mind vision, invisible, frost, blind, roots, slow, barkskin, immunity
+for i, idx in enumerate((3, 5, 6, 23, 26, 2, 4, 1, 0, 12, 15, 16, 11, 7, 24, 25, 21, 20, 28, 8, 29, 14, 19, 9, 10, 22, 17, 18, 13, 30)):
+    strip.paste(bf.crop(((idx % 18) * 7, (idx // 18) * 7, (idx % 18) * 7 + 7, (idx // 18) * 7 + 7)), (i * 7, 0))
+total += save(max16(pebbleize(strip, SPRITES)), "buffs.png")   # 0.20: 4 bpp
+print(f"Total with 0.5 sheets: ~{total / 1024:.1f} KB")
+
+# ---- 0.5.1: UI pass ----
+ic = Image.open(os.path.join(SRC, "icons.png")).convert("RGBA")
+# Icons: sleep (9x8), alert (8x8), then 10x10 bag tabs: backpack, keyring, seed pouch, scroll holder, wand holster
+# 0.6.1: + the quickslot targeting reticle (Icons.TARGET, 16x16) at x 67
+strip = Image.new("RGBA", (17 + 50 + 16 + 27, 16))   # 0.17: + Icons.RESUME (x 83, 12x11), SKULL (95, 8x8), COMPASS (103, 7x5)
+strip.paste(ic.crop((13, 45, 22, 53)), (0, 0)); strip.paste(ic.crop((22, 45, 30, 53)), (9, 0))
+for i, (x, y) in enumerate(((58, 0), (64, 29), (78, 0), (68, 0), (88, 0))):
+    strip.paste(ic.crop((x, y, x + 10, y + 10)), (17 + i * 10, 0))
+strip.paste(ic.crop((0, 13, 16, 29)), (67, 0))
+strip.paste(ic.crop((114, 0, 126, 11)), (83, 0)); strip.paste(ic.crop((0, 0, 8, 8)), (95, 0)); strip.paste(ic.crop((0, 8, 7, 13)), (103, 0))
+total += save(max16(pebbleize(strip, SPRITES)), "icons.png")   # 0.20: 4 bpp
+lb = Image.open(os.path.join(SRC, "large_buffs.png")).convert("RGBA")
+strip = Image.new("RGBA", (16 * 30, 16))                # WndHero buffs, same order as buffs.png
+for i, idx in enumerate((3, 5, 6, 23, 26, 2, 4, 1, 0, 12, 15, 16, 11, 7, 24, 25, 21, 20, 28, 8, 29, 14, 19, 9, 10, 22, 17, 18, 13, 30)):
+    strip.paste(lb.crop(((idx % 16) * 16, (idx // 16) * 16, (idx % 16) * 16 + 16, (idx // 16) * 16 + 16)), (i * 16, 0))
+total += save(pebbleize(strip, SPRITES), "buffs_large.png")
+total += save(pebbleize(crop("banners.png", (0, 105, 128, 140)), SPRITES), "banner_gameover.png")
+total += save(pebbleize(crop("banners.png", (0, 70, 128, 105)), SPRITES), "banner_boss.png")   # 0.17: GameScene.bossSlain
+print(f"Total with 0.5.1 sheets: ~{total / 1024:.1f} KB")
+
+# ---- 0.6.5: items and tiles go into 4-bit strips (half the RAM) ----
+import subprocess
+subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "split_sheets.py")], check=True)
+
+# ---- 0.12: the endings: AmuletScene's amulet; SurfaceScene's frame, clouds, grass and pet (16 colours: 4 bits) ----
+total += save(pebbleize(crop("amulet.png", (0, 0, 32, 32)), SPRITES), "amulet.png")
+surf = Image.new("RGBA", (152, 141), (0, 0, 0, 0))
+surf.paste(crop("surface.png", (0, 0, 152, 125)), (0, 0))
+surf.paste(crop("pet.png", (0, 0, 32, 16)), (0, 125))
+surf = pebbleize(surf, SPRITES)
+from collections import Counter
+freq = Counter(p for p in surf.get_flattened_data() if p[3])
+keep = [c for c, _ in freq.most_common(15)]
+sp = surf.load()
+for y in range(surf.height):
+    for x in range(surf.width):
+        p = sp[x, y]
+        if p[3] and p not in keep:
+            sp[x, y] = min(keep, key=lambda k: sum((a - b) ** 2 for a, b in zip(k[:3], p[:3])))
+total += save(surf, "surface.png")
+
+# ---- 0.18: big-button menus: 16x16 icons drawn at 2x (menu_icons.png) ----
+def pix(rows, pal):
+    im = Image.new("RGBA", (16, 16))
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch != "." and ch in pal: im.putpixel((x, y), pal[ch] + (255,))
+    return im
+FLOPPY = ["................",
+          ".BBBBBBBBBBBBB..",
+          ".BBKKKKKKKKBBBB.",
+          ".BBKKKKKWWKBBBB.",
+          ".BBKKKKKWWKBBBB.",
+          ".BBKKKKKKKKBBBB.",
+          ".BBBBBBBBBBBBBB.",
+          ".BBBBBBBBBBBBBB.",
+          ".BBWWWWWWWWWWBB.",
+          ".BBWLLLLLLLLWBB.",
+          ".BBWWWWWWWWWWBB.",
+          ".BBWLLLLLLLLWBB.",
+          ".BBWWWWWWWWWWBB.",
+          ".BBWWWWWWWWWWBB.",
+          ".BBBBBBBBBBBBBB.",
+          "................"]
+QUILL = ["...........WWW..",
+         "..........WWWL..",
+         ".........WWWL...",
+         "........WWWL....",
+         ".PPPPPPWWWLPP...",
+         ".PPPPPWWWLPPP...",
+         ".PDDDWWWLDDDP...",
+         ".PPPPWWLPPPPP...",
+         ".PDDDWLDDDDDP...",
+         ".PPPPKPPPPPPP...",
+         ".PDDDKDDDDDDP...",
+         ".PPPPPPPPPPPP...",
+         ".PDDDDDDDDDPP...",
+         ".PPPPPPPPPPPP...",
+         ".PPPPPPPPPPPP...",
+         "................"]
+NOTE = ["................",
+        ".......WWWWWWWW.",
+        ".......WWWWWWWW.",
+        ".......W......W.",
+        ".......W......W.",
+        ".......W......W.",
+        ".......W......W.",
+        ".......W......W.",
+        ".......W......W.",
+        "....WWWW...WWWW.",
+        "...WWWWW..WWWWW.",
+        "...WWWWW..WWWWW.",
+        "....WWW....WWW..",
+        "................",
+        "................",
+        "................"]
+SPEAKER = ["................",
+           "......W.........",
+           ".....WW.....W...",
+           "....WWW...W..W..",
+           "WWWWWWW....W..W.",
+           "WWWWWWW..W..W.W.",
+           "WWWWWWW...W.W.W.",
+           "WWWWWWW...W.W.W.",
+           "WWWWWWW...W.W.W.",
+           "WWWWWWW..W..W.W.",
+           "WWWWWWW....W..W.",
+           "....WWW...W..W..",
+           ".....WW.....W...",
+           "......W.........",
+           "................",
+           "................"]
+GEAR = ["................",
+        ".......LL.......",
+        "...L..LWWL..L...",
+        "..LWLLWWWWLLWL..",
+        "...LWWWWWWWWL...",
+        "...LWWWLLWWWL...",
+        ".LLWWWL..LWWWLL.",
+        ".LWWWL....LWWWL.",
+        ".LWWWL....LWWWL.",
+        ".LLWWWL..LWWWLL.",
+        "...LWWWLLWWWL...",
+        "...LWWWWWWWWL...",
+        "..LWLLWWWWLLWL..",
+        "...L..LWWL..L...",
+        ".......LL.......",
+        "................"]
+STAIRS = ["................",
+          "PPPP............",
+          "DDDP............",
+          "DDDPPPPP........",
+          "DDDDDDDP........",
+          "DDDDDDDPPPP.....",
+          "DDDDDDDDDDP.....",
+          "DDDDDDDDDDPPPP..",
+          "DDDDDDDDDDDDDP..",
+          "DDDDDDDDDDDDDPPP",
+          "DDDDDDDDDDDDDDDP",
+          "KKKKKKKKKKKKKKKK",
+          "................",
+          "................",
+          "................",
+          "................"]
+MUTED = ["................",
+         ".RR..........RR.",
+         ".RRR........RRR.",
+         "..RRR......RRR..",
+         "...RRR....RRR...",
+         "....RRR..RRR....",
+         ".....RRRRRR.....",
+         "......RRRR......",
+         "......RRRR......",
+         ".....RRRRRR.....",
+         "....RRR..RRR....",
+         "...RRR....RRR...",
+         "..RRR......RRR..",
+         ".RRR........RRR.",
+         ".RR..........RR.",
+         "................"]
+MPAL = {"R": (255, 85, 85), "B": (0, 85, 170), "K": (0, 0, 0), "W": (255, 255, 255), "L": (170, 170, 170), "P": (255, 255, 170), "D": (170, 170, 85)}
+ic = Image.open(os.path.join(SRC, "icons.png")).convert("RGBA")
+def cell(box):
+    c = ic.crop(box); out = Image.new("RGBA", (16, 16)); out.paste(c, ((16 - c.width) // 2, (16 - c.height) // 2)); return out
+dash = Image.open(os.path.join(SRC, "dashboard.png")).convert("RGBA")
+def small(box):
+    c = dash.crop(box).resize((16, 16), Image.LANCZOS); px = c.load()
+    for y in range(16):
+        for x in range(16):
+            if px[x, y][3] < 128: px[x, y] = (0, 0, 0, 0)
+            else: px[x, y] = px[x, y][:3] + (255,)
+    return c
+items = Image.open(os.path.join(SRC, "items.png")).convert("RGBA")
+def item(idx): return items.crop(((idx % 8) * 16, (idx // 8) * 16, (idx % 8) * 16 + 16, (idx // 8) * 16 + 16))
+cells = [pix(FLOPPY, MPAL), pix(QUILL, MPAL), pix(GEAR, MPAL), pix(NOTE, MPAL), pix(SPEAKER, MPAL), cell((16, 0, 30, 13)),
+         pix(STAIRS, MPAL), small((64, 0, 96, 32)), cell((98, 0, 114, 16)), cell((114, 0, 126, 11)), pix(MUTED, MPAL),
+         cell((16, 13, 30, 27)), item(56)]
+sheet = Image.new("RGBA", (16 * len(cells), 16))
+def outline(im):                                  # a black edge, so the pictures read on the red buttons
+    px = im.load(); out = im.copy(); o = out.load()
+    for y in range(16):
+        for x in range(16):
+            if px[x, y][3] >= 128: continue
+            if any(0 <= x + dx < 16 and 0 <= y + dy < 16 and px[x + dx, y + dy][3] >= 128 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                o[x, y] = (0, 0, 0, 255)
+    return out
+for i, c in enumerate(cells): sheet.paste(outline(c), (16 * i, 0))
+total += save(max16(pebbleize(sheet, SPRITES)), "menu_icons.png")   # 0.20: 4 bpp

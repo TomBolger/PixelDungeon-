@@ -1,0 +1,1185 @@
+{
+  "name": "pixel-dungeon",
+  "author": "Thomas",
+  "version": "0.55.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Pixel Dungeon",
+    "uuid": "6a37c89f-b93c-4210-921d-59710f0dcf1f",
+    "projectType": "native",
+    "sdkVersion": "3",
+    "targetPlatforms": [
+      "emery",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_WATER_SEWERS",
+          "file": "images/water_sewers.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_WARRIOR_0",
+          "file": "images/hero_warrior_0.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_WARRIOR_1",
+          "file": "images/hero_warrior_1.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_WARRIOR_2",
+          "file": "images/hero_warrior_2.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_WARRIOR_3",
+          "file": "images/hero_warrior_3.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_WARRIOR_4",
+          "file": "images/hero_warrior_4.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_WARRIOR_5",
+          "file": "images/hero_warrior_5.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_WARRIOR_6",
+          "file": "images/hero_warrior_6.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_MAGE_0",
+          "file": "images/hero_mage_0.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_MAGE_1",
+          "file": "images/hero_mage_1.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_MAGE_2",
+          "file": "images/hero_mage_2.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_MAGE_3",
+          "file": "images/hero_mage_3.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_MAGE_4",
+          "file": "images/hero_mage_4.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_MAGE_5",
+          "file": "images/hero_mage_5.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_MAGE_6",
+          "file": "images/hero_mage_6.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_ROGUE_0",
+          "file": "images/hero_rogue_0.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_ROGUE_1",
+          "file": "images/hero_rogue_1.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_ROGUE_2",
+          "file": "images/hero_rogue_2.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_ROGUE_3",
+          "file": "images/hero_rogue_3.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_ROGUE_4",
+          "file": "images/hero_rogue_4.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_ROGUE_5",
+          "file": "images/hero_rogue_5.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_ROGUE_6",
+          "file": "images/hero_rogue_6.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_HUNTRESS_0",
+          "file": "images/hero_huntress_0.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_HUNTRESS_1",
+          "file": "images/hero_huntress_1.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_HUNTRESS_2",
+          "file": "images/hero_huntress_2.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_HUNTRESS_3",
+          "file": "images/hero_huntress_3.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_HUNTRESS_4",
+          "file": "images/hero_huntress_4.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_HUNTRESS_5",
+          "file": "images/hero_huntress_5.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HERO_HUNTRESS_6",
+          "file": "images/hero_huntress_6.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_MOB_RAT",
+          "file": "images/mob_rat.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_LOGO",
+          "file": "images/logo.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_TOOLBAR",
+          "file": "images/toolbar.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_CHROME",
+          "file": "images/chrome.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_STATUS_PANE",
+          "file": "images/status_pane.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_HP_BAR",
+          "file": "images/hp_bar.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_ARCS",
+          "file": "images/arcs.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_PLAY",
+          "file": "images/play.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_AVATARS",
+          "file": "images/avatars.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_BANNER_SELECT",
+          "file": "images/banner_select.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_TAG_RED",
+          "file": "images/tag_red.png"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_TAG_BLUE",
+          "file": "images/tag_blue.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_GNOLL",
+          "file": "images/mob_gnoll.png",
+          "storageFormat": "pbi"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_CRAB",
+          "file": "images/mob_crab.png",
+          "storageFormat": "pbi"
+        },
+        {
+          "type": "bitmap",
+          "storageFormat": "pbi",
+          "name": "IMAGE_MOB_SHEEP",
+          "file": "images/mob_sheep.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_BUFFS",
+          "file": "images/buffs.png",
+          "storageFormat": "pbi"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_ICONS",
+          "file": "images/icons.png",
+          "storageFormat": "pbi"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_BANNER_GAMEOVER",
+          "file": "images/banner_gameover.png",
+          "storageFormat": "pbi"
+        },
+        {
+          "type": "raw",
+          "name": "TEXT",
+          "file": "data/text.bin"
+        },
+        {
+          "type": "raw",
+          "name": "OVL_LEVEL",
+          "file": "data/ovl_level.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_USE",
+          "file": "data/ovl_use.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_PICK",
+          "file": "data/ovl_pick.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_INFO",
+          "file": "data/ovl_info.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_ENCH",
+          "file": "data/ovl_ench.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_SND",
+          "file": "data/ovl_snd.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "MUSIC_THEME",
+          "file": "data/music_theme.bin"
+        },
+        {
+          "type": "raw",
+          "name": "MUSIC_GAME",
+          "file": "data/music_game.bin"
+        },
+        {
+          "type": "raw",
+          "name": "SFX",
+          "file": "data/sfx.bin"
+        },
+        {
+          "type": "raw",
+          "name": "OVL_UI",
+          "file": "data/ovl_ui.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_WAND",
+          "file": "data/ovl_wand.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_FLOOR",
+          "file": "data/ovl_floor.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_ALBINO",
+          "file": "images/mob_albino.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SWARM",
+          "file": "images/mob_swarm.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_FETID_RAT",
+          "file": "images/mob_fetid_rat.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_GHOST",
+          "file": "images/mob_ghost.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_GOO",
+          "file": "images/mob_goo.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_RAT_KING",
+          "file": "images/mob_rat_king.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SKELETON",
+          "file": "images/mob_skeleton.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_THIEF",
+          "file": "images/mob_thief.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_BANDIT",
+          "file": "images/mob_bandit.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SHAMAN",
+          "file": "images/mob_shaman.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_WANDMAKER",
+          "file": "images/mob_wandmaker.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_TENGU",
+          "file": "images/mob_tengu.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_BAT",
+          "file": "images/mob_bat.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_BRUTE",
+          "file": "images/mob_brute.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SHIELDED",
+          "file": "images/mob_shielded.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SPINNER",
+          "file": "images/mob_spinner.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_BLACKSMITH",
+          "file": "images/mob_blacksmith.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_DM300",
+          "file": "images/mob_dm300.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_ELEMENTAL",
+          "file": "images/mob_elemental.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_WARLOCK",
+          "file": "images/mob_warlock.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_MONK",
+          "file": "images/mob_monk.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SENIOR",
+          "file": "images/mob_senior.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_GOLEM",
+          "file": "images/mob_golem.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_IMP",
+          "file": "images/mob_imp.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_KING",
+          "file": "images/mob_king.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_UNDEAD",
+          "file": "images/mob_undead.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SUCCUBUS",
+          "file": "images/mob_succubus.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_EYE",
+          "file": "images/mob_eye.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SCORPIO",
+          "file": "images/mob_scorpio.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_ACIDIC",
+          "file": "images/mob_acidic.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_YOG",
+          "file": "images/mob_yog.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_ROTTING_FIST",
+          "file": "images/mob_rotting_fist.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_BURNING_FIST",
+          "file": "images/mob_burning_fist.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_LARVA",
+          "file": "images/mob_larva.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_SHOPKEEPER",
+          "file": "images/mob_shopkeeper.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_IMP_SHOP",
+          "file": "images/mob_imp_shop.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_MIMIC",
+          "file": "images/mob_mimic.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_WRAITH",
+          "file": "images/mob_wraith.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_STATUE",
+          "file": "images/mob_statue.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_PIRANHA",
+          "file": "images/mob_piranha.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MOB_BEE",
+          "file": "images/mob_bee.png",
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "MOB_ART",
+          "file": "data/mob_art.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "MOB_DEFS",
+          "file": "data/mobs.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_MOBS",
+          "file": "data/ovl_mobs.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_TGT",
+          "file": "data/ovl_tgt.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_TGT2",
+          "file": "data/ovl_tgt2.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_TRAP",
+          "file": "data/ovl_trap.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "ITEM_DEFS",
+          "file": "data/item_defs.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_PLANTS",
+          "file": "images/plants.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "raw",
+          "name": "OVL_GEN",
+          "file": "data/ovl_gen.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "ITEMS_RAW",
+          "file": "data/items_raw.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WATER_PRISON",
+          "file": "images/water_prison.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WATER_CAVES",
+          "file": "images/water_caves.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WATER_CITY",
+          "file": "images/water_city.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WATER_HALLS",
+          "file": "images/water_halls.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "raw",
+          "name": "OVL_PRISON",
+          "file": "data/ovl_prison.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_HERO",
+          "file": "data/ovl_hero.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_CONTENT",
+          "file": "data/ovl_content.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_SEWERS",
+          "file": "data/ovl_sewers.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_CAVES",
+          "file": "data/ovl_caves.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_CITY",
+          "file": "data/ovl_city.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_HALLS",
+          "file": "data/ovl_halls.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_AMULET",
+          "file": "images/amulet.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_SURFACE",
+          "file": "images/surface.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "raw",
+          "name": "OVL_UIW",
+          "file": "data/ovl_uiw.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_NEWGAME",
+          "file": "data/ovl_newgame.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_BAG",
+          "file": "data/ovl_bag.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_SHEET",
+          "file": "data/ovl_sheet.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_TAG_WHITE",
+          "file": "images/tag_white.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_BANNER_BOSS",
+          "file": "images/banner_boss.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "raw",
+          "name": "OVL_HERO2",
+          "file": "data/ovl_hero2.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MENU_ICONS",
+          "file": "images/menu_icons.png",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ],
+          "memoryFormat": "Smallest",
+          "spaceOptimization": "memory"
+        },
+        {
+          "type": "raw",
+          "name": "OVL_SAVE",
+          "file": "data/ovl_save.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "TILES_RAW",
+          "file": "data/tiles_raw.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        }
+      ]
+    }
+  }
+}

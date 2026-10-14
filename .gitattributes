@@ -1,0 +1,12 @@
+# Shell and Python scripts must keep Unix line endings, even when cloned on Windows (they run in WSL)
+*.sh   text eol=lf
+*.py   text eol=lf
+*.c    text eol=lf
+*.h    text eol=lf
+*.inc  text eol=lf
+wscript text eol=lf
+# Windows helper scripts keep Windows line endings
+*.cmd  text eol=crlf
+# Binary resources
+*.bin  binary
+*.png  binary

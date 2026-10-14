@@ -1,0 +1,445 @@
+# Pixel Dungeon texts (PD 1.9.1, GPLv3). ID<TAB>text. Build: python3 tools/build_text.py
+A_CRYSTAL_CLEAR_DEWDROP	A crystal clear dewdrop.
+NOTHING_FANCY_HERE_DRIED	Nothing fancy here: dried meat, some biscuits - things like that.
+THIS_IS_AUTHENTIC_CORNISH	This is authentic Cornish pasty with traditional filling of beef and potato.
+EAT_AT_YOUR_OWN	Eat at your own risk!
+IT_LOOKS_LIKE_A	It looks like a decent steak.
+IT_S_A_PIECE	It's a piece of frozen raw meat. The only way to eat it is by cutting thin slices of it. And this way it's suprisingly good.
+A_SIMPLE_IRON_DAGGER	A simple iron dagger with a well worn wooden handle.
+A_PIECE_OF_IRON	A piece of iron shaped to fit around the knuckles.
+IT_IS_INDEED_QUITE	It is indeed quite short, just a few inches longer, than a dagger.
+A_STAFF_OF_HARDWOOD	A staff of hardwood, its ends are shod with iron.
+A_SLENDER_WOODEN_ROD	A slender wooden rod tipped with sharpened iron.
+THE_IRON_HEAD_OF	The iron head of this weapon inflicts substantial damage.
+THE_RAZOR_SHARP_LENGTH	The razor-sharp length of steel blade shines reassuringly.
+THIS_TOWERING_BLADE_INFLICTS	This towering blade inflicts heavy damage by investing its heft into every cut.
+THE_ENORMOUS_STEEL_HEAD	The enormous steel head of this battle axe puts considerable heft behind each stroke.
+FEW_CREATURES_CAN_WITHSTAND	Few creatures can withstand the crushing blow of this towering mass of lead and steel, but only the strongest of adventurers can use it effectively.
+A_POLEARM_CONSISTING_OF	A polearm consisting of a sword blade on the end of a pole.
+THESE_SIMPLE_METAL_SPIKES	These simple metal spikes are weighted to fly true and sting their prey with a flick of the wrist.
+THE_SPIKE_ON_EACH	The spike on each of these darts is designed to pin it to its target while the unstable compounds strapped to its length burst into brilliant flames.
+THESE_LITTLE_EVIL_DARTS	These little evil darts don't do much damage but they can paralyze the target leaving it helpless and motionless for some time.
+STAR_SHAPED_PIECES_OF	Star-shaped pieces of metal with razor-sharp blades do significant damage when they hit a target. They can be thrown at very high rate.
+THIS_LENGTH_OF_METAL	This length of metal is weighted to keep the spike at its tip foremost as it sails through the air.
+THIS_THROWING_AXE_IS	This throwing axe is not that heavy, but it still requires significant strength to be used effectively.
+THIS_LIGHTWEIGHT_ARMOR_OFFERS	This lightweight armor offers basic protection.
+ARMOR_MADE_FROM_TANNED	Armor made from tanned monster hide. Not as light as cloth armor but provides better protection.
+INTERLOCKING_METAL_LINKS_MAKE	Interlocking metal links make for a tough but flexible suit of armor.
+THE_METAL_SCALES_SEWN	The metal scales sewn onto a leather vest create a flexible, yet protective armor.
+ENORMOUS_PLATES_OF_METAL	Enormous plates of metal are joined together into a suit that provides unmatched protection to any adventurer strong enough to bear its staggering weight.
+AN_ELIXIR_THAT_WILL	An elixir that will instantly return you to full health and cure poison.
+THE_STORIED_EXPERIENCES_OF	The storied experiences of multitudes of battles reduced to liquid form, this draught will instantly raise your experience level.
+UNCORKING_OR_SHATTERING_THIS	Uncorking or shattering this pressurized glass will cause its contents to explode into a deadly cloud of toxic green gas. You might choose to fling this potion at distant enemies instead of uncorking it by hand.
+THIS_FLASK_CONTAINS_AN	This flask contains an unstable compound which will burst violently into flame upon exposure to open air.
+THIS_POWERFUL_LIQUID_WILL	This powerful liquid will course through your muscles, permanently increasing your strength by one point.
+UPON_EXPOSURE_TO_OPEN	Upon exposure to open air, the liquid in this flask will vaporize into a numbing yellow haze. Anyone who inhales the cloud will be paralyzed instantly, unable to move for some time after the cloud dissipates. This item can be thrown at distant enemies to catch them within the effect of the gas.
+DRINKING_THIS_CURIOUS_LIQUID	Drinking this curious liquid will cause you to hover in the air, able to drift effortlessly over traps. Flames and gases fill the air, however, and cannot be bypassed while airborne.
+AFTER_DRINKING_THIS_YOUR	After drinking this, your mind will become attuned to the psychic signature of distant creatures, enabling you to sense biological presences through walls. Also this potion will permit you to see through nearby walls and doors.
+THIS_REAGENT_WILL_QUICKLY	This reagent will quickly neutralize all harmful gases in the area of effect. Drinking it will give you a temporary immunity to such gases.
+DRINKING_THIS_POTION_WILL	Drinking this potion will render you temporarily invisible. While invisible, enemies will be unable to see you. Attacking an enemy, as well as using a wand or a scroll before enemy's eyes, will dispel the effect.
+THIS_POWERFUL_LIQUID_WILL_2	This powerful liquid will course through your muscles, permanently increasing your strength by one point and health by five points.
+UPON_EXPOSURE_TO_OPEN_2	Upon exposure to open air, this chemical will evaporate into a freezing cloud, causing any creature that contacts it to be frozen in place, unable to act and move.
+PERMANENTLY_REVEALS_ALL_OF	Permanently reveals all of the secrets of a single item.
+WHEN_THIS_SCROLL_IS	When this scroll is read, an image of crystal clarity will be etched into your memory, alerting you to the precise layout of the level and revealing all hidden secrets. The locations of items and creatures will remain unknown.
+THE_RAW_MAGICAL_POWER	The raw magical power bound up in this parchment will, when released, recharge all of the reader's wands to full power.
+THE_INCANTATION_ON_THIS	The incantation on this scroll will instantly strip from the reader's weapon, armor, rings and carried items any evil enchantments that might prevent the wearer from removing them.
+THE_SPELL_ON_THIS	The spell on this parchment instantly transports the reader to a random location on the dungeon level. It can be used to escape a dangerous situation, but the unlucky reader might find himself in an even more dangerous place.
+WHEN_READ_ALOUD_THIS	When read aloud, this scroll will unleash a challenging roar that will awaken all monsters and alert them to the reader's location.
+A_FLASH_OF_RED	A flash of red light will overwhelm all creatures in your field of view with terror, and they will turn and flee. Attacking a fleeing enemy will dispel the effect.
+A_SOOTHING_MELODY_WILL	A soothing melody will put all creatures in your field of view into a deep sleep, giving you a chance to flee or make a surprise attack on them.
+THIS_SCROLL_CONTAINS_DESTRUCTIVE	This scroll contains destructive energy, that can be psionically channeled to inflict a massive damage to all creatures within a field of view. An accompanying flash of light will temporarily blind everybody in the area of effect including the reader of the scroll.
+THE_INCANTATION_ON_THIS_2	The incantation on this scroll will create illusionary twins of the reader, which will chase his enemies.
+THIS_SCROLL_WILL_UPGRADE	This scroll will upgrade a single item, improving its quality. A wand will increase in power and in number of charges; a weapon will inflict more damage or find its mark more frequently; a suit of armor will deflect additional blows; the effect of a ring on its wearer will intensify. Weapons and armor will also require less strength to use, and any curses on the item will be lifted.
+THIS_SCROLL_IS_ABLE	This scroll is able to imbue a weapon or an armor with a random enchantment, granting it a special power.
+THIS_FLASK_CONTAINS_A	This flask contains a swirling liquid. Who knows what it will do when drunk or thrown?
+THIS_PARCHMENT_IS_COVERED	This parchment is covered with indecipherable writing. Who knows what it will do when read aloud?
+THIS_FLASK_CONTAINS_A_2	This flask contains a swirling %s liquid. Who knows what it will do when drunk or thrown?
+THIS_PARCHMENT_IS_COVERED_2	This parchment is covered with indecipherable writing, and bears a title of rune %s. Who knows what it will do when read aloud?
+COLLECT_GOLD_COINS_TO	Collect gold coins to spend them later in a shop.
+THIS_IS_TIER_MELEE	\n\nThis %s is %s tier-%d melee weapon. 
+ITS_AVERAGE_DAMAGE_IS	Its average damage is %d points per hit. 
+ITS_TYPICAL_AVERAGE_DAMAGE	Its typical average damage is %d points per hit and usually it requires %d points of strength. 
+PROBABLY_THIS_WEAPON_IS	Probably this weapon is too heavy for you. 
+BECAUSE_OF_YOUR_INADEQUATE	\n\nBecause of your inadequate strength the accuracy and speed of your attack with this %s is decreased.
+BECAUSE_OF_YOUR_EXCESS	\n\nBecause of your excess strength the damage of your attack with this %s is increased.
+AND_BECAUSE_IT_IS	, and because it is cursed, you are powerless to let go.
+YOU_CAN_FEEL_A	\n\nYou can feel a malevolent magic lurking within %s.
+AVERAGE_DAMAGE_OF_THIS	\n\nAverage damage of this weapon equals to %d points per hit. 
+BECAUSE_OF_YOUR_INADEQUATE_2	Because of your inadequate strength the accuracy and speed of your attack with this %s is decreased.
+BECAUSE_OF_YOUR_EXCESS_2	Because of your excess strength the damage of your attack with this %s is increased.
+THIS_PROVIDES_DAMAGE_ABSORPTION	\n\nThis %s provides damage absorption up to %d points per attack. 
+BECAUSE_OF_YOUR_INADEQUATE_3	\n\nBecause of your inadequate strength your movement speed and defense skill is decreased. 
+BECAUSE_OF_YOUR_INADEQUATE_4	\n\nBecause of your inadequate strength wearing this armor will decrease your movement speed and defense skill. 
+TYPICAL_PROVIDES_DAMAGE_ABSORPTION	\n\nTypical %s provides damage absorption up to %d points per attack  and requires %d points of strength. 
+PROBABLY_THIS_ARMOR_IS	Probably this armor is too heavy for you. 
+AND_BECAUSE_IT_IS_2	, and because it is cursed, you are powerless to remove it.
+YOU_CAN_FEEL_A_2	\n\nYou can feel a malevolent magic lurking within the %s.
+MARSUPIAL_RATS_ARE_AGGRESSIVE	Marsupial rats are aggressive, but rather weak denizens of the sewers. They can be dangerous only in big numbers.
+GNOLLS_ARE_HYENA_LIKE	Gnolls are hyena-like humanoids. They dwell in sewers and dungeons, venturing up to raid the surface from time to time. Gnoll scouts are regular members of their pack, they are not as strong as brutes and not as intelligent as shamans.
+THESE_HUGE_CRABS_ARE	These huge crabs are at the top of the food chain in the sewers. They are extremely fast and their thick exoskeleton can withstand heavy blows.
+THIS_ILLUSION_BEARS_A	This illusion bears a close resemblance to you, but it's paler and twitches a little.
+BECAUSE_OF_FREQUENT_USE	Because of frequent use, your %s is going to break soon.
+BECAUSE_OF_FREQUENT_USE_2	Because of frequent use, your %s has broken.
+YOU_ARE_NOW_FAMILIAR	You are now familiar enough with your %s to identify it. It is %s.
+YOU_ARE_NOW_FAMILIAR_2	you are now familiar enough with your %s to identify it. It is %s.
+THE_TRAP_EMITS_A	The trap emits a piercing sound that echoes throughout the dungeon!
+YOU_WERE_KILLED_BY	You were killed by a discharge of a lightning trap...
+KILLED_BY_A_SKELETON	Killed by a skeleton's curse on level %d
+DON_T_OVERESTIMATE_YOUR	Don't overestimate your strength, use weapons and armor you can handle.
+NOT_ALL_DOORS_IN	Not all doors in the dungeon are visible at first sight. If you are stuck, search for hidden doors.
+REMEMBER_THAT_RAISING_YOUR	Remember, that raising your strength is not the only way to access better equipment. You can go the other way, lowering its strength requirement with Scrolls of Upgrade.
+YOU_CAN_SPEND_YOUR	You can spend your gold in shops on deeper levels of the dungeon. The first one is on the 6th level.
+ONE_DOES_NOT_SIMPLY	One does not simply leave Pixel Dungeon.
+THE_STAIRS_LEAD_DOWN	The stairs lead down to Goo's lair. That fight arrives in a later build of Pixel Dungeon for Pebble.
+THE_FLASK_SHATTERS_AND	The flask shatters and %s liquid splashes harmlessly
+NEWFOUND_STRENGTH_SURGES_THROUGH	Newfound strength surges through your body.
+YOU_CAN_SOMEHOW_FEEL	You can somehow feel the presence of other creatures' minds!
+YOU_CAN_SOMEHOW_TELL	You can somehow tell that you are alone on this level at the moment.
+A_SURGE_OF_ENERGY	a surge of energy courses through your pack, but nothing happens
+YOUR_PACK_GLOWS_WITH	Your pack glows with a cleansing light, and a malevolent energy disperses.
+YOUR_PACK_GLOWS_WITH_2	Your pack glows with a cleansing light, but nothing happens.
+STRONG_MAGIC_AURA_OF	Strong magic aura of this place prevents you from teleporting!
+IN_A_BLINK_OF	In a blink of an eye you were teleported to another location of the level.
+THE_SCROLL_EMITS_A	The scroll emits a challenging roar that echoes throughout the dungeon!
+THE_SCROLL_EMITS_A_2	The scroll emits a brilliant flash of red light
+THE_SCROLL_EMITS_A_3	The scroll emits a brilliant flash of red light and the %s flees!
+THE_SCROLL_EMITS_A_4	The scroll emits a brilliant flash of red light and the monsters flee!
+THE_SCROLL_UTTERS_A	The scroll utters a soothing melody and the %s falls asleep!
+THE_SCROLL_UTTERS_A_2	The scroll utters a soothing melody and the monsters fall asleep!
+YOU_REFORGED_THE_SHORT	you reforged the short sword to upgrade your %s
+YOU_WINCE_AS_YOUR	you wince as your grip involuntarily tightens around your %s
+WELCOME_BACK_TO_THE	Welcome back to the level %d of Pixel Dungeon!
+WELCOME_TO_THE_LEVEL	Welcome to the level %d of Pixel Dungeon!
+YOU_HEAR_THE_WATER	You hear the water splashing around you.
+THE_SMELL_OF_VEGETATION	The smell of vegetation is thick in the air.
+THE_ATMOSPHERE_HINTS_THAT	The atmosphere hints that this floor hides many secrets.
+WELCOME_TO_THE_LEVEL_2	Welcome to the level 1 of Pixel Dungeon!
+YOU_WON_T_KNOW	You won't know what's inside until you open it!
+THIS_IS_ALL_THAT	This is all that's left from one of your predecessors. Maybe it's worth checking for any valuables.
+A_GREENISH_CLOUD_OF	A greenish cloud of toxic gas is swirling here.
+A_CLOUD_OF_PARALYTIC	A cloud of paralytic gas is swirling here.
+THE_BOOKSHELF_IS_PACKED	The bookshelf is packed with cheap useless books. Might it burn?
+THIS_DOOR_IS_LOCKED	This door is locked, you need a matching key to unlock it.
+HEAVY_BARS_BLOCK_THE	Heavy bars block the stairs leading down.
+THE_WOODEN_BARRICADE_IS	The wooden barricade is firmly set but has dried over the years. Might it burn?
+STEPPING_ONTO_A_HIDDEN	Stepping onto a hidden pressure plate will activate the trap.
+THE_TRAP_HAS_BEEN	The trap has been triggered before and it's not dangerous anymore.
+SOMEONE_WANTED_TO_ADORN	Someone wanted to adorn this place, but failed, obviously.
+IN_CASE_OF_BURNING	In case of burning step into the water to extinguish the fire.
+# 0.7: wands (Wand.desc in Wand.wands order) and rings (Ring.desc in Ring.rings order)
+WND_TELEPORT	A blast from this wand will teleport a creature against its will to a random place on the current level.
+WND_SLOW	This wand will cause a creature to move and attack at half its ordinary speed until the effect ends
+WND_FIREBOLT	This wand unleashes bursts of magical fire. It will ignite flammable terrain, and will damage and burn a creature it hits.
+WND_POISON	The vile blast of this twisted bit of wood will imbue its target with a deadly venom. A creature that is poisoned will suffer periodic damage until the effect ends. The duration of the effect increases with the level of the staff.
+WND_REGROWTH	"When life ceases new life always begins to grow... The eternal cycle always remains!"
+WND_BLINK	This wand will allow you to teleport in the chosen direction. Creatures and inanimate obstructions will block the teleportation.
+WND_LIGHTNING	This wand conjures forth deadly arcs of electricity, which deal damage to several creatures standing close to each other.
+WND_AMOK	The purple light from this wand will make the target run amok attacking random creatures in its vicinity.
+WND_REACH	This utility wand can be used to grab objects from a distance and to switch places with enemies. Waves of magic force radiated from it will affect all cells on their way triggering traps, trampling high vegetation, opening closed doors and closing open ones.
+WND_FLOCK	A flick of this wand summons a flock of magic sheep, creating temporary impenetrable obstacle.
+WND_DISINTEGRATION	This wand emits a beam of destructive energy, which pierces all creatures in its way. The more targets it hits, the more damage it inflicts to each of them.
+WND_AVALANCHE	When a discharge of this wand hits a wall (or any other solid obstacle) it causes an avalanche of stones, damaging and stunning all creatures in the affected area.
+WND_WOOD	This thin %s wand is warm to the touch. Who knows what it will do when used?
+RNG_MENDING	This ring increases the body's regenerative properties, allowing one to recover lost health at an accelerated rate. Degraded rings will decrease or even halt one's natural regeneration.
+RNG_DETECTION	Wearing this ring will allow the wearer to notice hidden secrets - traps and secret doors - without taking time to search. Degraded rings of detection will dull your senses, making it harder to notice secrets even when actively searching for them.
+RNG_SHADOWS	Enemies will be less likely to notice you if you wear this ring. Degraded rings of shadows will alert enemies who might otherwise not have noticed your presence.
+RNG_POWER	Your wands will become more powerful in the energy field that radiates from this ring. Degraded rings of power will instead weaken your wands.
+RNG_HERBALISM	This ring increases your chance to gather dew and seeds from trampled grass.
+RNG_ACCURACY	This ring increases your chance to hit the enemy.
+RNG_EVASION	This ring increases your chance to dodge enemy attack.
+RNG_SATIETY	Wearing this ring you can go without food longer. Degraded rings of satiety will cause the opposite effect.
+RNG_HASTE	This ring accelerates the wearer's flow of time, allowing one to perform all actions a little faster.
+RNG_HAGGLER	In fact this ring doesn't provide any magic effect, but it demonstrates to shopkeepers and vendors, that the owner of the ring is a member of The Thieves' Guild. Usually they are glad to give a discount in exchange for temporary immunity guarantee. Upgrading this ring won't give any additional bonuses.
+RNG_ELEMENTS	This ring provides resistance to different elements, such as fire, electricity, gases etc. Also it decreases duration of negative effects.
+RNG_THORNS	Though this ring doesn't provide real thorns, an enemy that attacks you will itself be wounded by a fraction of the damage that it inflicts. Upgrading this ring won't give any additional bonuses.
+RNG_GEM	This metal band is adorned with a large %s gem that glitters in the darkness. Who knows what effect it has when worn?
+RNG_IDENTIFY	You are now familiar enough with your %s to identify it. It is %s.
+SCR_RECHARGED	A surge of energy courses through your pack, recharging your wand%s
+SHEEP_DESC	This is a magic sheep. What's so magical about it? You can't kill it. It will stand there until it magcially fades away, all the while chewing cud with a blank stare.
+# item names (Item.name)
+IN_GOLD	gold
+IN_DEW	dewdrop
+IN_RATION	ration of food
+IN_PASTY	pasty
+IN_MYSTERY_MEAT	mystery meat
+IN_CHARGRILLED	chargrilled meat
+IN_CARPACCIO	frozen carpaccio
+IN_DAGGER	dagger
+IN_KNUCKLES	knuckleduster
+IN_SHORT_SWORD	short sword
+IN_QUARTERSTAFF	quarterstaff
+IN_SPEAR	spear
+IN_MACE	mace
+IN_SWORD	sword
+IN_LONGSWORD	longsword
+IN_BATTLE_AXE	battle axe
+IN_WAR_HAMMER	war hammer
+IN_GLAIVE	glaive
+IN_DART	dart
+IN_INCENDIARY_DART	incendiary dart
+IN_CURARE_DART	curare dart
+IN_SHURIKEN	shuriken
+IN_JAVELIN	javelin
+IN_TOMAHAWK	tomahawk
+IN_CLOTH_ARMOR	cloth armor
+IN_LEATHER_ARMOR	leather armor
+IN_MAIL_ARMOR	mail armor
+IN_SCALE_ARMOR	scale armor
+IN_PLATE_ARMOR	plate armor
+IN_POT_HEALING	Potion of Healing
+IN_POT_EXPERIENCE	Potion of Experience
+IN_POT_TOXIC	Potion of Toxic Gas
+IN_POT_FLAME	Potion of Liquid Flame
+IN_POT_STRENGTH	Potion of Strength
+IN_POT_PARALYTIC	Potion of Paralytic Gas
+IN_POT_LEVITATION	Potion of Levitation
+IN_POT_MIND	Potion of Mind Vision
+IN_POT_PURITY	Potion of Purification
+IN_POT_INVIS	Potion of Invisibility
+IN_POT_MIGHT	Potion of Might
+IN_POT_FROST	Potion of Frost
+IN_SCR_IDENTIFY	Scroll of Identify
+IN_SCR_MAPPING	Scroll of Magic Mapping
+IN_SCR_RECHARGING	Scroll of Recharging
+IN_SCR_REMOVE_CURSE	Scroll of Remove Curse
+IN_SCR_TELEPORT	Scroll of Teleportation
+IN_SCR_CHALLENGE	Scroll of Challenge
+IN_SCR_TERROR	Scroll of Terror
+IN_SCR_LULLABY	Scroll of Lullaby
+IN_SCR_PSIONIC	Scroll of Psionic Blast
+IN_SCR_MIRROR	Scroll of Mirror Image
+IN_SCR_UPGRADE	Scroll of Upgrade
+IN_SCR_ENCHANT	Scroll of Enchantment
+IN_WND_TELEPORT	Wand of Teleportation
+IN_WND_SLOW	Wand of Slowness
+IN_WND_FIREBOLT	Wand of Firebolt
+IN_WND_POISON	Wand of Poison
+IN_WND_REGROWTH	Wand of Regrowth
+IN_WND_BLINK	Wand of Blink
+IN_WND_LIGHTNING	Wand of Lightning
+IN_WND_AMOK	Wand of Amok
+IN_WND_REACH	Wand of Reach
+IN_WND_FLOCK	Wand of Flock
+IN_WND_DISINTEGRATION	Wand of Disintegration
+IN_WND_AVALANCHE	Wand of Avalanche
+IN_RNG_MENDING	Ring of Mending
+IN_RNG_DETECTION	Ring of Detection
+IN_RNG_SHADOWS	Ring of Shadows
+IN_RNG_POWER	Ring of Power
+IN_RNG_HERBALISM	Ring of Herbalism
+IN_RNG_ACCURACY	Ring of Accuracy
+IN_RNG_EVASION	Ring of Evasion
+IN_RNG_SATIETY	Ring of Satiety
+IN_RNG_HASTE	Ring of Haste
+IN_RNG_HAGGLER	Ring of Haggler
+IN_RNG_ELEMENTS	Ring of Elements
+IN_RNG_THORNS	Ring of Thorns
+# 0.8 items
+IN_SEED_FIREBLOOM	seed of Firebloom
+SD_0	Throw this seed to the place where you want to grow a Firebloom.\n\nWhen something touches a Firebloom, it bursts into flames.
+PL_FIREBLOOM	Firebloom
+PD_FIREBLOOM	When something touches a Firebloom, it bursts into flames.
+IN_SEED_ICECAP	seed of Icecap
+SD_1	Throw this seed to the place where you want to grow an Icecap.\n\nUpon touching an Icecap excretes a pollen, which freezes everything in its vicinity.
+PL_ICECAP	Icecap
+PD_ICECAP	Upon touching an Icecap excretes a pollen, which freezes everything in its vicinity.
+IN_SEED_SORROWMOSS	seed of Sorrowmoss
+SD_2	Throw this seed to the place where you want to grow a Sorrowmoss.\n\nA Sorrowmoss is a flower (not a moss) with razor-sharp petals, coated with a deadly venom.
+PL_SORROWMOSS	Sorrowmoss
+PD_SORROWMOSS	A Sorrowmoss is a flower (not a moss) with razor-sharp petals, coated with a deadly venom.
+IN_SEED_DREAMWEED	seed of Dreamweed
+SD_3	Throw this seed to the place where you want to grow a Dreamweed.\n\nUpon touching a Dreamweed it secretes a glittering cloud of confusing gas.
+PL_DREAMWEED	Dreamweed
+PD_DREAMWEED	Upon touching a Dreamweed it secretes a glittering cloud of confusing gas.
+IN_SEED_SUNGRASS	seed of Sungrass
+SD_4	Throw this seed to the place where you want to grow a Sungrass.\n\nSungrass is renowned for its sap's healing properties.
+PL_SUNGRASS	Sungrass
+PD_SUNGRASS	Sungrass is renowned for its sap's healing properties.
+IN_SEED_EARTHROOT	seed of Earthroot
+SD_5	Throw this seed to the place where you want to grow an Earthroot.\n\nWhen a creature touches an Earthroot, its roots create a kind of natural armor around it.
+PL_EARTHROOT	Earthroot
+PD_EARTHROOT	When a creature touches an Earthroot, its roots create a kind of natural armor around it.
+IN_SEED_FADELEAF	seed of Fadeleaf
+SD_6	Throw this seed to the place where you want to grow a Fadeleaf.\n\nTouching a Fadeleaf will teleport any creature to a random place on the current level.
+PL_FADELEAF	Fadeleaf
+PD_FADELEAF	Touching a Fadeleaf will teleport any creature to a random place on the current level.
+IN_SEED_ROTBERRY	seed of Rotberry
+SD_7	Throw this seed to the place where you want to grow a Rotberry.\n\nBerries of this shrub taste like sweet, sweet death.
+PL_ROTBERRY	Rotberry
+PD_ROTBERRY	Berries of this shrub taste like sweet, sweet death.
+IN_DEW_VIAL	dew vial
+ID_DEW_VIAL	You can store excess dew in this tiny vessel for drinking it later. If the vial is full, in a moment of deadly peril the dew will be consumed automatically.
+IN_IRON_KEY	iron key
+ID_IRON_KEY	The notches on this ancient iron key are well worn; its leather lanyard is battered by age. What door might it open?
+IN_GOLDEN_KEY	golden key
+ID_GOLDEN_KEY	The notches on this golden key are tiny and intricate. Maybe it can open some chest lock?
+IN_SKELETON_KEY	skeleton key
+ID_SKELETON_KEY	This key looks serious: its head is shaped like a skull. Probably it can open some serious door.
+IN_ROSE	dried rose
+ID_ROSE	The rose has dried long ago, but it has kept all its petals somehow.
+IN_RAT_SKULL	giant rat skull
+ID_RAT_SKULL	It could be a nice hunting trophy, but it smells too bad to place it on a wall.
+IN_PICKAXE	pickaxe
+ID_PICKAXE	This is a large and sturdy tool for breaking rocks. Probably it can be used as a weapon.
+IN_DARK_GOLD	dark gold ore
+ID_DARK_GOLD	This metal is called dark not because of its color (it doesn't differ from the normal gold), but because it melts under the daylight, making it useless on the surface.
+IN_CORPSE_DUST	corpse dust
+ID_CORPSE_DUST	The ball of corpse dust doesn't differ outwardly from a regular dust ball. However, you know somehow that it's better to get rid of it as soon as possible.
+IN_PHANTOM_FISH	phantom fish
+ID_PHANTOM_FISH	You can barely see this tiny translucent fish in the air. In the water it becomes effectively invisible.
+IN_DWARF_TOKEN	dwarf token
+ID_DWARF_TOKEN	Many dwarves and some of their larger creations carry these small pieces of metal of unknown purpose. Maybe they are jewelry or maybe some kind of ID. Dwarves are strange folk.
+IN_ANKH	Ankh
+ID_ANKH	The ancient symbol of immortality grants an ability to return to life after death. Upon resurrection all non-equipped items are lost.
+IN_MASTERY	Tome of Mastery
+ID_MASTERY	This worn leather book is not that thick, but you feel somehow, that you can gather a lot from it. Remember though that reading this tome may require some time.
+IN_TORCH	torch
+ID_TORCH	It's an indispensable item in The Demon Halls, which are notorious for their poor ambient lighting.
+IN_BEACON	lloyd's beacon
+ID_BEACON	Lloyd's beacon is an intricate magic device, that allows you to return to a place you have already been.
+IN_ARMOR_KIT	armor kit
+ID_ARMOR_KIT	Using this kit of small tools and materials anybody can transform any armor into an "epic armor", which will keep all properties of the original armor, but will also provide its wearer a special ability depending on his class. No skills in tailoring, leatherworking or blacksmithing are required.
+IN_AMULET	Amulet of Yendor
+ID_AMULET	The Amulet of Yendor is the most powerful known artifact of unknown origin. It is said that the amulet is able to fulfil any wish if its owner's will-power is strong enough to "persuade" it to do it.
+IN_WEIGHTSTONE	weightstone
+ID_WEIGHTSTONE	Using a weightstone, you can balance your melee weapon to increase its speed or accuracy.
+IN_BOMB	bomb
+ID_BOMB	This is a relatively small bomb, filled with black powder. Conveniently, its fuse is lit automatically when the bomb is thrown.
+IN_HONEYPOT	honeypot
+ID_HONEYPOT	There is not much honey in this small honeypot, but there is a golden bee there and it doesn't want to leave it.
+IN_SEED_POUCH	seed pouch
+ID_SEED_POUCH	This small velvet pouch allows you to store any number of seeds in it. Very convenient.
+IN_SCROLL_HOLDER	scroll holder
+ID_SCROLL_HOLDER	You can place any number of scrolls into this tubular container. It saves room in your backpack and protects scrolls from fire.
+IN_WAND_HOLSTER	wand holster
+ID_WAND_HOLSTER	This slim holder is made of leather of some exotic animal. It allows to compactly carry up to 12 wands.
+IN_OVERPRICED	overpriced food ration
+ID_OVERPRICED	It looks exactly like a standard ration of food but smaller.
+IN_BOOMERANG	boomerang
+ID_BOOMERANG	Thrown to the enemy this flat curved wooden missile will return to the hands of its thrower.
+IN_WIPE_OUT	Scroll of Wipe Out
+ID_WIPE_OUT	Read this scroll to unleash the wrath of the dungeon spirits, killing everything on the current level. Well, almost everything. Some of the more powerful creatures may be not affected.
+IN_ARMOR_WARRIOR	warrior suit of armor
+ID_ARMOR_WARRIOR	While this armor looks heavy, it allows a warrior to perform heroic leap towards a targeted location, slamming down to stun all neighbouring enemies.
+IN_ARMOR_ROGUE	rogue garb
+ID_ARMOR_ROGUE	Wearing this dark garb, a rogue can perform a trick, that is called "smoke bomb" (though no real explosives are used): he blinds enemies who could see him and jumps aside.
+IN_ARMOR_MAGE	mage robe
+ID_ARMOR_MAGE	Wearing this gorgeous robe, a mage can cast a spell of molten earth: all the enemies in his field of view will be set on fire and unable to move at the same time.
+IN_ARMOR_HUNTRESS	huntress cloak
+ID_ARMOR_HUNTRESS	A huntress in such cloak can create a fan of spectral blades. Each of these blades will target a single enemy in the huntress's field of view, inflicting damage depending on her currently equipped melee weapon.
+OPT_CHASM	Do you really want to jump into the chasm? You can probably die.
+OPT_DRINK	Are you sure you want to drink it? In most cases you should throw such potions at your enemies.
+OPT_THROW	Are you sure you want to throw it? In most cases it makes sense to drink it.
+OPT_RINGS	You can only wear two rings at a time. Unequip one of your equipped rings.
+OPT_QUICK	Put it in which quickslot?
+OPT_QUEST	-
+OPT_MISSILE	Do you really want to equip it as a melee weapon?
+C_VISCOSITY	Killed by the enchantment of viscosity on level %d
+L_VISCOSITY	The enchantment of viscosity killed you...
+L_DEW_AUTO	The dew vial was emptied to heal your wounds.
+L_DIED_FAR	You hear something died in the distance
+C_OOZE	Killed by a caustic ooze on level %d
+L_OOZE	Caustic ooze killed you...
+C_GAS	Died from toxic gas on level %d
+L_GAS	You died from a toxic gas..
+L_PLATE	A hidden pressure plate clicks!
+L_NO_KEY	You don't have a matching key.
+C_POISON	Died from poison on level %d
+L_POISON	You died from poison...
+C_BURNED	Burned to death on level %d
+C_BLED	Bled to death on level %d
+L_BLED	You bled to death...
+C_STARVED	Starved to death on level %d
+L_NO_ENEMY	No enemy in sight. Tap a target.
+H_THROW	Choose direction of throw
+H_ZAP	Choose direction to zap
+H_LEAP	Choose direction to leap
+H_INSPECT	Tap a tile to inspect it
+IN_WND_MM	Wand of Magic Missile
+ID_WND_MM	This wand launches missiles of pure magical energy, dealing moderate damage to a target creature.
+HUNTRESS_LOCKED	To unlock this character class, slay the 3rd boss with any other class
+H_JUMP	Choose a location to jump to
+STORY_0	The Dungeon lies right beneath the City, its upper levels actually constitute the City's sewer system. Being nominally a part of the City, these levels are not that dangerous. No one will call it a safe place, but at least you won't need to deal with evil magic here.
+STORY_1	Many years ago an underground prison was built here for the most dangerous criminals. At the time it seemed like a very clever idea, because this place indeed was very hard to escape. But soon dark miasma started to permeate from below, driving prisoners and guards insane. In the end the prison was abandoned, though some convicts were left locked up here.
+STORY_2	The caves, which stretch down under the abandoned prison, are sparcely populated. They lie too deep to be exploited by the City and they are too poor in minerals to interest the dwarves. In the past there was a trade outpost somewhere here on the route between these two states, but it has perished since the decline of Dwarven Metropolis. Only omnipresent gnolls and subterranean animals dwell here now.
+STORY_3	Dwarven Metropolis was once the greatest of dwarven city-states. In its heyday the mechanized army of dwarves has successfully repelled the invasion of the old god and his demon army. But it is said, that the returning warriors have brought seeds of corruption with them, and that victory was the beginning of the end for the underground kingdom.
+STORY_4	In the past these levels were the outskirts of Metropolis. After the costly victory in the war with the old god dwarves were too weakened to clear them of remaining demons. Gradually demons have tightened their grip on this place and now it's called Demon Halls.\n\nVery few adventurers have ever descended this far...
+PERKS_0	- Warriors start with 11 points of Strength.\n- Warriors start with a unique short sword. This sword can be later "reforged" to upgrade another melee weapon.\n- Warriors are less proficient with missile weapons.\n- Any piece of food restores some health when eaten.\n- Potions of Strength are identified from the beginning.
+PERKS_1	- Mages start with a unique Wand of Magic Missile. This wand can be later "disenchanted" to upgrade another wand.\n- Mages recharge their wands faster.\n- When eaten, any piece of food restores 1 charge for all wands in the inventory.\n- Mages can use wands as a melee weapon.\n- Scrolls of Identify are identified from the beginning.
+PERKS_2	- Rogues start with a Ring of Shadows+1.\n- Rogues identify a type of a ring on equipping it.\n- Rogues are proficient with light armor, dodging better while wearing one.\n- Rogues are proficient in detecting hidden doors and traps.\n- Rogues can go without food longer.\n- Scrolls of Magic Mapping are identified from the beginning.
+PERKS_3	- Huntresses start with 15 points of Health.\n- Huntresses start with a unique upgradeable boomerang.\n- Huntresses are proficient with missile weapons and get a damage bonus for excessive strength when using them.\n- Huntresses gain more health from dewdrops.\n- Huntresses sense neighbouring monsters even if they are hidden behind obstacles.
+L_LEVEL_UP	Welcome to level %d! Now you are healthier and more focused. It's easier for you to hit enemies and dodge their attacks.
+L_BLINDED	You are blinded!
+L_FURIOUS	You become furious!
+L_SPINNING	Everything is spinning around you!
+L_PAIN_SNAP	The pain snapped %s out of paralysis
+L_STARVED	You starved to death...
+L_NIGHT	Be cautious, since the dungeon is even more dangerous at night!
+L_CHARMED	You are charmed!
+SIGN_1	Don't overestimate your strength, use weapons and armor you can handle.
+SIGN_2	Not all doors in the dungeon are visible at first sight. If you are stuck, search for hidden doors.
+SIGN_3	Remember, that raising your strength is not the only way to access better equipment. You can go the other way, lowering its strength requirement with Scrolls of Upgrade.
+SIGN_4	You can spend your gold in shops on deeper levels of the dungeon. The first one is on the 6th level.
+SIGN_5	Beware of Goo!
+SIGN_6	Pixel-Mart - all you need for successful adventure!
+SIGN_7	Identify your potions and scrolls as soon as possible. Don't put it off to the moment when you actually need them.
+SIGN_8	Being hungry doesn't hurt, but starving does hurt.
+SIGN_9	Surprise attack has a better chance to hit. For example, you can ambush your enemy behind a closed door when you know it is approaching.
+SIGN_10	Don't let The Tengu out!
+SIGN_11	Pixel-Mart. Spend money. Live longer.
+SIGN_12	When you're attacked by several monsters at the same time, try to retreat behind a door.
+SIGN_13	If you are burning, you can't put out the fire in the water while levitating.
+SIGN_14	There is no sense in possessing more than one Ankh at the same time, because you will lose them upon resurrecting.
+SIGN_15	DANGER! Heavy machinery can cause injury, loss of limbs or death!
+SIGN_16	Pixel-Mart. A safer life in dungeon.
+SIGN_17	When you upgrade an enchanted weapon, there is a chance to destroy that enchantment.
+SIGN_18	Weapons and armors deteriorate faster than wands and rings, but there are more ways to fix them.
+SIGN_19	The only way to obtain a Scroll of Wipe Out is to receive it as a gift from the dungeon spirits.
+SIGN_20	No weapons allowed in the presence of His Majesty!
+SIGN_21	Pixel-Mart. Special prices for demon hunters!
+L_SIGN_BURN	As you try to read the sign it bursts into greenish flames.
+I_TOMB_OWNER	This ancient tomb may contain something useful, but its owner will most certainly object to checking.
+I_NEED_KEY	You won't know what's inside until you open it! But to open it you need a golden key.
+I_INSIDE	You can see %s inside, but to open the chest you need a golden key.
+I_WAND_MELEE	\n\nWhen this wand is used as a melee weapon, its average damage is %d points per hit.
+I_WAND_WEAPON	\n\nYou can use this wand as a melee weapon.
+I_BEACON_SET	\n\nThis beacon was set somewhere on the level %d of Pixel Dungeon.
+I_CURSE_DESC	This creature resembles the sad ghost, but it swirls with darkness. Its face bears an expression of despair.
+I_CARRIES	\n\n%s is carrying a %s. Stolen obviously.
+L_ROAR	The seed emits a roar that echoes throughout the dungeon!
+INTRO	Many heroes of all kinds ventured into the Dungeon before you. Some of them have returned with treasures and magical artifacts, most have never been heard of since. But none have succeeded in retrieving the Amulet of Yendor, which is told to be hidden in the depths of the Dungeon.\n\nYou consider yourself ready for the challenge, but most importantly, you feel that fortune smiles on you. It's time to start your own adventure!
+W_SCROLL_CANCEL	Do you really want to cancel this scroll usage? It will be consumed anyway.
+I_SHELF_0	The bookshelf is packed with cheap useless books. Might it burn?
+I_SHELF_1	This is probably a vestige of a prison library. Might it burn?
+I_SHELF_2	Who would need a bookshelf in a cave?
+I_SHELF_3	The rows of books on different disciplines fill the bookshelf.
+I_SHELF_4	Books in ancient languages smoulder in the bookshelf.
+I_T0	Wet yellowish moss covers the floor.
+I_T1	There are old blood stains on the floor.
+I_T2	Several tiles are missing here.
+I_T3	The ladder leads up to the upper depth.
+I_T4	The ladder leads down to the lower depth.
+I_T5	Huge mushrooms block the view.
+I_T6	A vein of some ore is visible on the wall. Gold?
+I_T7	A ramp leads up to the upper depth.
+I_T8	A ramp leads down to the lower depth.
+I_T9	Thick carpet covers the floor.
+I_T10	The statue depicts some dwarf standing in a heroic stance.
+I_T11	It looks like lava, but it's cold and probably safe to touch.
+I_T12	The pillar is made of real humanoid skulls. Awesome.
+I_T13	Stairs lead up to the upper depth.
+I_T14	Stairs lead down to the lower depth.
+I_T15	Dense vegetation blocks the view.
+I_T16	You can't read the text from here.
+I_T17	Drop some seeds here to cook a potion.
+I_T18	, and because it is cursed, you are powerless to remove it.
+I_T19	It was balanced to make it faster. 
+I_T20	It was balanced to make it more accurate. 
+I_T21	You don't know what is there.
+I_T22	Power of health radiates from the water of this well. Take a sip from it to heal your wounds and satisfy hunger.
+I_T23	Power of knowledge radiates from the water of this well. Take a sip from it to reveal all secrets of equipped items.
+I_T24	Power of change radiates from the water of this well. Throw an item into the well to turn it into something else.
+I_T25	Sacrificial fire burns here. Every creature touched by this fire is marked as an offering for the spirits of the dungeon.
+I_T26	Shafts of light pierce the gloom of the underground garden.
+I_T27	A cloud of confusion gas is swirling here.
+I_T28	Everything is covered with a thick web here.

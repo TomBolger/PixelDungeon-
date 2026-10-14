@@ -1,0 +1,24 @@
+# Build output
+build/
+dist/
+*.pyc
+__pycache__/
+
+# Watch app: written by watch/tools/build.sh on every build
+watch/.lock-waf*
+watch/resources/data/ovl_*.bin
+watch/keep_syms*.txt
+watch/src/c/ovl_keep.auto.c
+watch/tools/stub/res_ids.h
+watch/resources/data/whatif.bin
+
+# Replay site: recorded games are large; make them with replay-site/tools/record_games.sh
+replay-site/www/games/
+replay-site/dist/
+replay-site/data/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

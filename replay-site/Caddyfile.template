@@ -1,0 +1,29 @@
+# Pebxel replay site. setup.sh fills in DOMAIN. Caddy gets the HTTPS certificate by itself.
+DOMAIN {
+	root * SITEDIR/www
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	@games path /games/*
+	header @games Cache-Control "public, max-age=3600"
+	handle /api/* {
+		request_body {
+			max_size 16KB
+		}
+		reverse_proxy 127.0.0.1:8080
+	}
+	handle {
+		file_server {
+			precompressed gzip
+		}
+	}
+	log {
+		output file /var/log/caddy/pebxel.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+	}
+}
