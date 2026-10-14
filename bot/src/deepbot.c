@@ -76,6 +76,7 @@ static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 
 static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static bool attack_wand_ready(void); static bool room_seen(int r);
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
+static double s_hp_cut; static bool s_toe; static int toe_upgrade(int scroll); static int toe_choose(bool *hold); static bool toe_keep(int slot); static bool toe_buy(int hh);
 static int s_boom_plus; static bool hunt2(void); static bool dm_hold(void); static int boom_slot(void); static double boom_dpt_vs(int def, int dr, int extra, bool near);
 static int s_rollout; static int32_t s_last_up = -1000000; static int s_avoid_n; static int s_upg_child, s_upgcf_n; static int s_ev_sou0 = -1, s_ev_str0, s_ev_d = -1; static int food_budget(void); static uint8_t s_stepped[MAP_LEN / 8 + 1]; static uint8_t s_stepcnt[MAP_LEN]; static int s_wk[5]; static int s_floor_moves, s_floor_lastpos = -1; static int32_t s_floor_t0; static int storage_barr(void); static bool pot_new(int sl); static int s_barr_tries;   // (0.58: declared early: STAIRFLEE)                                   // bot3: inside a look-ahead copy of the game
 static char s_ring[64][96]; static int s_ring_n;      // 0.52g: the last 64 decisions, shown at a lockout
@@ -548,6 +549,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
   if (p == PICK_UPGRADE && s_force_pick != -999) { int f = s_force_pick; s_force_pick = -999; if (game_pick_ok(p, f)) return f; }
   switch (p) {
     case PICK_IDENTIFY: {
+      if (s_toe) for (int sl = 0; sl < BAG_SIZE; sl++) if (game_pick_ok(p, sl) && toe_keep(sl)) return sl;   // 0.73 TOE (owner: "identify the armor we're 1 point away from wearing"): the piece the plan grows into
       if (!getenv("OLDHERO")) {                          // 0.52 (audit): what wearing won't tell: potions while Healing/Strength are unknown (the commonest colour), wands, gear in the bag; worn gear last (it tells itself)
         int bp = -1, bq = 0; if (!item_known(IK_POT_HEALING) || !item_known(IK_POT_STRENGTH)) ALL_SLOTS(s) { Item *it = game_slot(s); if (game_pick_ok(p, s) && item_cat(it->kind) == CAT_POTION && it->qty > bq) { bq = it->qty; bp = s; } }
         if (bp >= 0) return bp;
@@ -560,7 +562,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
       return -1000;
     }
     case PICK_UPGRADE: case PICK_ENCHANT: {
-      if (p == PICK_UPGRADE && PRM[P_GEARMODEL]) { int bs = upg_plan(NULL); if (bs > -1000) return bs; }
+      if (p == PICK_UPGRADE && PRM[P_GEARMODEL]) { int bs = s_toe && !s_rollout ? toe_choose(NULL) : upg_plan(NULL); if (bs > -1000) return bs; }
       bool arm = h->armor.kind && game_pick_ok(p, -2), wpn = h->weapon.kind && game_pick_ok(p, -1);
       if (p == PICK_ENCHANT && !getenv("OLDGEARFIX")) {   // 0.52 (audit): cursed or broken first, then armour with no glyph (+tier DR for good), a plain weapon; never re-roll a good one
         if (arm && (cursed_known(&h->armor) || item_broken(&h->armor))) return -2; if (wpn && (cursed_known(&h->weapon) || item_broken(&h->weapon))) return -1;
@@ -586,6 +588,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
       for (int s = 0; s < BAG_SIZE; s++) {
         Item *it = &h->bag[s]; int c = item_cat(it->kind);
         if (!it->kind || !game_pick_ok(p, s)) continue;
+        if (s_toe && (c == CAT_ARMOR || c == CAT_WEAPON) && toe_keep(s)) continue;   // 0.73 TOE
         if ((c == CAT_ARMOR && armor_score(it) <= armor_score(&h->armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&h->weapon))) { s_shop_sold++; st_sells++; return s; }
       }
       return -1000;
@@ -698,7 +701,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
     for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl > 0 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur * 6 <= item_max_dur(it) && game_pick_ok(PICK_UPGRADE, w)) {
       s_force_pick = w; DID("upgrade the %s before it breaks", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
   if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && G.now >= s_upg_hold_until && !(getenv("UPGHOLDBOSS") && !boss_depth(G.depth) && !boss_depth(G.depth + 1)) &&   /* 0.58 test (owner: hold for better gear): read only on or just before a boss floor */ (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {
-    if (!s_rollout && !getenv("NOSTRAT")) { int r = strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
+    if (!s_rollout && !getenv("NOSTRAT")) { int r = s_toe ? toe_upgrade(s) : strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
     else { bool hold = false; if (PRM[P_GEARMODEL]) upg_plan(&hold); if (!hold) { do_item(s, ACN_READ); return true; } if (!s_rollout) st_upg_holds++; }
   }
   if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_ENCHANT)) >= 0 && item_known(IK_SCR_ENCHANT) && (game_pick_ok(PICK_ENCHANT, -1) || game_pick_ok(PICK_ENCHANT, -2)) &&
@@ -822,6 +825,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       if (cursed_known(it) || ((it->flags & IF_LEVEL_KNOWN) && it->lvl < 0)) junk = true;
       else { Item b = believed(it, 1); double now = gear_cost_b(&h->weapon, &h->armor, 0), with = c == CAT_WEAPON ? ({ Item ba = believed(&h->armor, 0); gear_cost(&b, &ba); }) : ({ Item bw = believed(&h->weapon, 0); gear_cost(&bw, &b); });
         junk = with > now * 1.05; }
+      if (junk && s_toe && toe_keep(i)) junk = false;   // 0.73 TOE: the plan grows into it, or the blacksmith wants its twin
     }
     if (junk && heap_at(h->pos) < 0 && h->pos != G.entrance && h->pos != G.exit) { BIT_SET(s_dropped, h->pos); st_uses[ACN_DROP]++; DID("leave the junk behind: %s", ({ static char jn[96]; item_name(it, jn, sizeof jn); jn; })); do_item(i, ACN_DROP); return true; }
   }
@@ -834,6 +838,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       sc = c == CAT_ARMOR ? armor_score(it) : c == CAT_WEAPON ? weapon_score(it) / 3 : c == CAT_MISSILE ? 20 : c == CAT_SEED ? 5 : c == CAT_MISC ? 30 : c == CAT_FOOD ? 60 : 40;
       if (c == CAT_ARMOR && armor_score(it) <= armor_score(&h->armor)) sc = -10;
       if (c == CAT_WEAPON && weapon_score(it) <= weapon_score(&h->weapon)) sc = -10;
+      if (s_toe && (c == CAT_ARMOR || c == CAT_WEAPON) && toe_keep(i)) sc = 50;
       if (it->kind == IK_PICKAXE) sc = G.q.smith == QS_GIVEN ? 1000 : -20;   // (the blacksmith wants it back)
       if (it->kind == IK_DARK_GOLD && G.q.smith == QS_GIVEN) sc = 1000;
       if (sc < ws) { ws = sc; worst = i; }
@@ -1462,9 +1467,9 @@ static double hp_cost_vs(int mt, const Item *w, const Item *a) {
   if (hunt2() && boom_slot() != -100) {                // 0.54: a couple of free boomerang throws while it comes, then the better of her blade and a point-blank throw
     double far = boom_dpt_vs(md->def, md->dr, s_boom_plus, false), near = boom_dpt_vs(md->def, md->dr, s_boom_plus, true);
     bool shoots = mt == MT_TENGU || mt == MT_EYE || mt == MT_SCORPIO || mt == MT_SHAMAN || mt == MT_DM300;
-    double left = md->HT - (shoots ? 0 : 2.0) * far; if (left < 0) left = 0; double d2 = dps > near ? dps : near;
+    double left = (md->HT - s_hp_cut > 1 ? md->HT - s_hp_cut : 1) - (shoots ? 0 : 2.0) * far; if (left < 0) left = 0; double d2 = dps > near ? dps : near;
     return left / (d2 > 0.01 ? d2 : 0.01) * mdps; }
-  return md->HT / (dps > 0.01 ? dps : 0.01) * mdps;
+  return (md->HT - s_hp_cut > 1 ? md->HT - s_hp_cut : 1) / (dps > 0.01 ? dps : 0.01) * mdps;
 }
 static double gear_cost(const Item *w, const Item *a) {   // lower: better (the region's monsters, and its boss)
   static const uint8_t REF[5][3] = { { MT_GNOLL, MT_CRAB, MT_GOO }, { MT_SKELETON, MT_THIEF, MT_TENGU }, { MT_BAT, MT_BRUTE, MT_DM300 }, { MT_MONK, MT_GOLEM, MT_KING }, { MT_SUCCUBUS, MT_SCORPIO, MT_EYE } };
@@ -1523,6 +1528,7 @@ static double unk_cost(const Item *it, int cat, double base) {   // 0.48 experim
   if (getenv("UNKAS")) { Item t = *it; t.lvl = atoi(getenv("UNKAS")); Item ow = believed(&G.hero.weapon, 0), oa = believed(&G.hero.armor, 0); return cat == CAT_WEAPON ? gear_cost(&t, &oa) : gear_cost(&ow, &t); }
   return ev_cost(it, cat, base);
 }
+#include "toe.inc"
 static int32_t s_goo_calm = -1;                          // bot3: just dodged a pumped Goo: hold still a moment (don't walk back into it)
 static int s_goo_spot = -1, s_goo_hold;                  // bot3: the owner's spot outside Goo's door
 static bool goo_open(int mi) {                           // bot3 (owner): bombs, darts, missiles, known harmful potions, attack wands at a Goo 2+ away in line
@@ -2018,6 +2024,7 @@ static bool want_buy(int h) {
   Item *it = &G.heaps[h].item; int k = it->kind;
   if (G.hero.gold < 60) return false;
   if (k == IK_POT_HEALING || is_food(k) || k == IK_ANKH || k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER || k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH) return true;
+  if (s_toe && (item_cat(k) == CAT_ARMOR || item_cat(k) == CAT_WEAPON)) return toe_buy(h);   // 0.73 TOE: by the plan
   if (item_cat(k) == CAT_ARMOR && armor_score(it) > armor_score(&G.hero.armor) + 2) return true;
   return false;
 }
@@ -3710,7 +3717,7 @@ int main(int argc, char **argv) {
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;
   if (getenv("STOP")) sscanf(getenv("STOP"), "%d:%d", &stop_game, &stop_step);
   V = getenv("V") != NULL;
-  P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0; s_pure = getenv("PURE") != NULL;
+  P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0; s_pure = getenv("PURE") != NULL; s_toe = getenv("TOE") != NULL;
   if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); }
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
     cur_game = g; srand(g + 1); st_games++; lg_maxleft = 0;
@@ -4005,6 +4012,7 @@ int main(int argc, char **argv) {
   printf("arrivals onto a creature on the stairs (PD quirk, not reported): %d checks\n", st_overlap);
   printf("amulet thief: hunting decisions %d, amulet got back %d times\n", st_thief_hunt, st_thief_back);
   if (getenv("TT")) printf("tgt build: %ld calls, avg %.1f us, max %.1f us; over 25/50/100/200/400/800 us: %ld %ld %ld %ld %ld %ld\n", tt_n, tt_sum / 1000.0 / (tt_n ? tt_n : 1), tt_max / 1000.0, tt_h[0], tt_h[1], tt_h[2], tt_h[3], tt_h[4], tt_h[5]);
+  if (s_toe) printf("toe: upgrades planned %ld, held %ld, bought %ld, kept to grow into %ld, kept for the smith %ld\n", st_toe_upg, st_toe_hold, st_toe_buy, st_toe_keep, st_toe_smith);
   if (ct_trips) { long t = 0; for (int i = 0; i < 12; i++) t += ct_n[i]; printf("contra audit: %d trips (%d arrived, %d gave up), %ld hops judged:", ct_trips, ct_arrived, ct_abort, t); for (int i = 0; i < 12; i++) if (ct_n[i]) printf(" %s %ld (%.1f%%)", CT_NAME[i], ct_n[i], 100.0 * ct_n[i] / t); printf("\n");
     static const char *MN[4] = { "far explored cell", "back to the way up", "the way down early", "another unexplored part" };
     for (int m = 0; m < 4; m++) { long t = 0; for (int i = 0; i < 12; i++) t += ct_mn[m][i]; if (t) printf("  %s: %d trips, %ld hops: with %.1f%% beside %.1f%% AGAINST %.1f%% item against %.1f%% stand %.1f%% hands %.1f%%\n", MN[m], ct_mtrips[m], t, 100.0 * ct_mn[m][0] / t, 100.0 * ct_mn[m][1] / t, 100.0 * ct_mn[m][2] / t, 100.0 * ct_mn[m][5] / t, 100.0 * ct_mn[m][6] / t, 100.0 * ct_mn[m][7] / t); } }
