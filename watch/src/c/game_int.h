@@ -5,8 +5,13 @@
 #pragma once
 #include "pd.h"
 
+#ifdef CELLS_POS                                     // 0.61: an overlay whose cells are never negative: shifts and masks (smaller)
+static inline int cx(int c) { return c & (MAP_W - 1); }
+static inline int cy(int c) { return c >> 5; }
+#else
 static inline int cx(int c) { return c % MAP_W; }
 static inline int cy(int c) { return c / MAP_W; }
+#endif
 static inline bool adjacent(int a, int b) { return a != b && abs(cx(a) - cx(b)) <= 1 && abs(cy(a) - cy(b)) <= 1; }
 static inline int distance(int a, int b) { int dx = abs(cx(a) - cx(b)), dy = abs(cy(a) - cy(b)); return dx > dy ? dx : dy; }
 static inline bool in_map(int c) { return c >= 0 && c < MAP_LEN; }

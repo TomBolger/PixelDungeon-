@@ -549,7 +549,7 @@ static uint32_t anim_wait(void) {
   }
   if (s_msg[1][0]) until(&w, s_msg_until);                            // the log clears
   until(&w, s_boss_until);
-  if (now_ms() - s_hand_t0 < HAND_MS) w = 33;
+  { uint32_t e = now_ms() - s_hand_t0; if (e < HAND_MS) w = HAND_MS - e < 33 ? HAND_MS - e : 33; }   // 0.61 (owner): the last frame lands on the tag
   if (s_vis_hero.active && G.hero.HP > 0) { uint32_t n = anim_next(&s_vis_hero, &HERO_ART); if (n < w) w = n; }
   for (int i = 0; i < G.n_mobs; i++) {
     if (!s_vis_mob[i].active) continue;
@@ -1453,17 +1453,16 @@ after_toolbar:;
     }
   }
   int hl = s_hl;
-  if (hl < 0 && s_tg >= 0) hl = s_tgk == TK_BAG ? hand_btn() : s_tgk == TK_REST ? TB_WAIT : s_tgk == TK_GO && s_tg == G.hero.pos ? TB_SEARCH : -1;   // 0.48 test kit: the bot's hands: that button's reticle
+  if (hl < 0 && s_tg >= 0) hl = s_tgk == TK_BAG ? hand_btn() : s_tgk == TK_REST ? TB_WAIT : s_tgk == TK_GO && s_tg == G.hero.pos ? (g_ovr.d & 128 ? TB_WAIT : TB_SEARCH) : -1;   // (0.61: a hold: Select waits)   // 0.48 test kit: the bot's hands: that button's reticle
   if (hl >= 0 && s_scene == SC_GAME) {             // 0.42: the highlighted button, and a half-size copy of it on the middle tag
     GRect a = ctag(1), r = hl_rect(hl);
     blit_nine(&s_tag_white, 0, 0, 16, 14, 3, a.origin.x, a.origin.y, a.size.w + 4, a.size.h);
-    blit_shrink(r, a.origin.x + 2 + (a.size.w - r.size.w / 2) / 2, a.origin.y + (a.size.h - r.size.h / 2) / 2);
-    if (s_hl < 0 && s_tgk == TK_BAG) {               // (the bag: the item it's for) 0.51 (owner): a new one flies out of the backpack first
+    if (s_hl < 0 && s_tgk == TK_BAG) {               // (the bag: the item it's for) 0.51 (owner): a new one flies out of the backpack first (0.61: onto an empty tag, not over the button)
       int key = g_ovr.hs << 4 | g_ovr.ha, x = AT1X(a, 16), y = AT1Y(a, 16); uint32_t e = now_ms() - s_hand_t0;
       if (key != s_hand_key) { s_hand_key = key; s_hand_t0 = now_ms(); e = 0; }
       if (e < HAND_MS) { GRect b = hl_rect(hand_btn()); int bx = AT1X(b, 16), by = AT1Y(b, 16); x = bx + (x - bx) * (int)e / HAND_MS; y = by + (y - by) * (int)e / HAND_MS; }
       item_spr(item_sprite(game_slot(g_ovr.hs)->kind), x, y, 1);
-    } else s_hand_key = -1;
+    } else { s_hand_key = -1; blit_shrink(r, a.origin.x + 2 + (a.size.w - r.size.w / 2) / 2, a.origin.y + (a.size.h - r.size.h / 2) / 2); }
     reticle(r);
   }
   #undef AT1

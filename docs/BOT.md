@@ -57,6 +57,7 @@ Settings are environment variables; there are about 300 of them. Most are experi
 | `NOLA=1` | Turn off look-ahead (rules only) |
 | `LAMULT`, `LAK` | Look-ahead effort |
 | `ASSIST=0/1/2` | The watch's Assist level, for testing the suggester |
+| `PRESS=1` (`MIND=1`) | Play by the watch's suggestions, pressing Select only. Ends with an "assist audit": steps straight back, dithering, wall searches with the way down known, and food left lying while hungry (`AUDV=1` lists each one, `AUDMAP=1` with a map) |
 | `REC=file.jsonl` | Record every step of every game as one JSON line (map, hero, creatures, items, decision, log) |
 | `CAMPDIR=dir` | Write a checkpoint at each new floor (`dir/gGGGG_dDD.bin`) |
 | `CAMPLOAD=file` | Continue a game from a checkpoint |
