@@ -87,10 +87,10 @@ static double toe_floor(int d, const Item *w, const Item *a, const TPiece *ps, i
   for (int i = 0; i < n; i++) {
     int mt = BEST_KIND[o + i]; bool boss = MOB_DEFS[mt].flags & MD_BOSS;
     s_hp_cut = boss ? cutb : cut; double c = hp_cost_vs(mt, w && w->kind ? w : NULL, a && a->kind ? a : NULL) * slow; s_hp_cut = 0;
-    if (boss) { double x = c / H; load += 0.9 / 0.33 * x * x; s_toe_lb = x; continue; }
+    if (boss) { double x = c / H; load += 0.45 + x * x; s_toe_lb = x; continue; }   // (cal1, 384 games: Goo exp(-(0.18 + 0.5 x2)), Tengu exp(-(0.45 + 0.6 x2)))
     double x = c / p->ht; load += nf * BEST_W[o + i] / W * x * x; s_toe_lr += nf * BEST_W[o + i] / W * x * x;
   }
-  double surv = exp(-0.33 * load);
+  double surv = exp(-0.05 - 0.55 * load);             // (cal1: the sewers exp(-(0.01 + 0.50 L)), the prison exp(-(0.05 + 0.62 L)))
   h->attack_skill = sa; h->defense_skill = sd; h->HT = sht; s_str_plus = ssp; s_boom_plus = sbp;
   return surv;
 }
