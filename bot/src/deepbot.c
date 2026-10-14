@@ -2820,6 +2820,21 @@ static void photo_step(int g, int steps) {
     char fn[300]; snprintf(fn, sizeof fn, "%s/bag_d25.bin", getenv("PHOTODIR"));
     if (access(fn, F_OK) != 0) { static Game keep2; memcpy(&keep2, &G, sizeof G); ph_loot(); ph_save("bag_d25", g, steps); memcpy(&G, &keep2, sizeof G); }
   }
+  if (d == 25 && getenv("PHOTOYOG")) {           // PHOTOYOG=1: the best Yog shot of each game (Yog in the open and near, fists in view)
+    static int s_yog_game = -1, s_yog_best; if (s_yog_game != g) { s_yog_game = g; s_yog_best = 0; }
+    for (int i = 0; i < G.n_mobs; i++) {
+      Mob *m = &G.mobs[i]; if (m->type != MT_YOG || m->HP <= 0 || !BIT_GET(G.fov, m->pos)) continue;
+      int dist = ph_dist(m->pos, hp); if (dist != 2 || h->HP * 10 < h->HT * 4) continue;
+      int open = 0; for (int dy = -3; dy <= 3; dy++) for (int dx = -3; dx <= 3; dx++) { int x = m->pos % 32 + dx, y = m->pos / 32 + dy; if (x >= 0 && x < 32 && y >= 0 && y < 32 && (TFLAGS(G.map[y * 32 + x]) & F_PASSABLE)) open++; }
+      int fists = 0; for (int j = 0; j < G.n_mobs; j++) if ((G.mobs[j].type == MT_ROTTING_FIST || G.mobs[j].type == MT_BURNING_FIST) && G.mobs[j].HP > 0 && BIT_GET(G.fov, G.mobs[j].pos) && ph_dist(G.mobs[j].pos, hp) <= 4) fists++;
+      int score = open + 25 * (fists > 0) + 10 * (fists > 1) + (dist == 3 ? 5 : 0);
+      if (score > s_yog_best && fists > 0 && open >= 30) {
+        s_yog_best = score; char nm[40]; snprintf(nm, sizeof nm, "yog_g%03d", g);
+        char fn[300]; snprintf(fn, sizeof fn, "%s/%s.bin", getenv("PHOTODIR"), nm); remove(fn);
+        printf("YOG score %d (open %d fists %d dist %d) ", score, open, fists, dist); ph_save(nm, g, steps);
+      }
+    }
+  }
   if (d == 26 && calm) for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_AMULET && BIT_GET(G.fov, G.heaps[i].pos)) ph_save("amulet", g, steps);
 }
 
