@@ -87,8 +87,8 @@ static bool on_screen(int c) {
                   );
 }
 static void t_put(int c, int kind, int key) {
-  s_obj = c;
-  for (int c0 = c; !on_screen(c) || (c != c0 && (c == G.entrance || c == G.exit)); ) {   // back along the walk until on screen
+  s_obj = c; int c0 = c;
+  for (; !on_screen(c) || (c != c0 && (c == G.entrance || c == G.exit)); ) {   // back along the walk until on screen
     int b = c;                                         // (0.41: not onto the stairs on the way, Select would take them: a
     if (on_screen(c))                                  // spot beside them as far on, else back)
       for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && on_screen(n) && open_cell(n) && n != G.entrance && n != G.exit && s_dist[n] >= s_dist[c] && s_dist[n] < 255) { b = n; break; } }
@@ -97,6 +97,12 @@ static void t_put(int c, int kind, int key) {
     if (b == c) return;
     c = b; kind = TK_GO;
   }
+  if (c != c0) for (int t = 0; t < 4; t++) {        // 0.67 (owner: "just 2 reasonable ones, a ridiculous one, and nothing else"): two far
+    bool used = false; for (int j = 0; j < s_tn; j++) used |= s_tc[j] == c;   // objectives standing in at one cell were one entry: the second
+    if (!used) break;                                  // stands a step nearer instead
+    int b = c; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && s_dist[n] < s_dist[b]) b = n; }
+    if (b == c || b == G.hero.pos) break;
+    c = b; }
   if (c != G.hero.pos || kind == TK_ITEM || s_zero) t_add(c, kind, key);   // (the first entry on the hero: search here)
 }
 // 0.40: the first entry: what a good player would do next (the deep test bot's choice of where to go, from what the
@@ -712,7 +718,7 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
     if (m->HP <= 0 || !BIT_GET(G.fov, m->pos)) continue;
     int d = distance(hp, m->pos);
     if (!ally(i)) { ne++; if (on_screen(m->pos) && (d < 2 || !(MOB_DEFS[m->type].flags & MD_WATER))) { s_obj = m->pos; t_add(m->pos, TK_ENEMY, 1 << 10 | d); } }   // a piranha: only beside you
-    else if (npc_wanted(m->type) && walk(m->pos) < 255) t_put(m->pos, TK_GO, 4 << 10 | walk(m->pos));
+    else if ((npc_wanted(m->type) || m->type == MT_SHOPKEEPER || m->type == MT_IMP_SHOP) && walk(m->pos) < 255) t_put(m->pos, TK_GO, 4 << 10 | walk(m->pos));   // (0.67: the shopkeeper too: a tap sells)
   }
   for (int i = 0; i < G.n_heaps; i++) {
     Heap *h = &G.heaps[i];                              // (a carried heap's pos is off the map: not walked to)
@@ -727,10 +733,11 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
     int t = G.map[c], d = walk(c);
     if (d >= 255 || c == hp) continue;
     if ((t == T_WELL && c == G.well_pos) || t == T_ALCHEMY || (t == T_LOCKED_DOOR && (keys & 15))) t_put(c, TK_GO, 4 << 10 | d);
-    else if (t == T_WALL_DECO && s_pick && on_screen(c)) { s_obj = c; t_add(c, d == 1 ? TK_MINE : TK_VEIN, 4 << 10 | d); }   // 0.41: a gold vein
+    else if (t == T_WALL_DECO && s_pick && on_screen(c) && G.q.smith_depth == G.depth && G.q.smith == QS_GIVEN && !G.q.smith_alt) { s_obj = c; t_add(c, d == 1 ? TK_MINE : TK_VEIN, 4 << 10 | d); }   // 0.41: a gold vein (0.67: only while the smith wants the gold)
     else if (dead_end(c)) t_put(c, TK_GO, 4 << 10 | d);   // 0.48: a dead end: search there
     else if (c == G.exit && (t != T_LOCKED_EXIT || (keys & 64))) t_put(c, TK_GO, 6 << 10 | d);
     else if (c == G.entrance && t == T_ENTRANCE) t_put(c, TK_GO, 7 << 10 | d);
+    else if ((t == T_DOOR || t == T_OPEN_DOOR) && on_screen(c)) t_put(c, TK_GO, 8 << 10 | d);   // 0.67 (owner): the doors in view, last (the old cycle had them)
   }
 #ifdef OVL_HOST
   if (getenv("TDBG2")) for (int c = 0; c < MAP_LEN; c++) if (G.map[c] == T_DOOR || G.map[c] == T_OPEN_DOOR || opening(c)) printf("   cell %d (%d,%d) t%d vis%d dist%d unseen%d opening%d\n", c, c & 31, c >> 5, G.map[c], BIT_GET(G.visited, c), s_dist[c], unseen_by(c), opening(c));
