@@ -60,6 +60,7 @@ Settings are environment variables; there are about 300 of them. Most are experi
 | `REC=file.jsonl` | Record every step of every game as one JSON line (map, hero, creatures, items, decision, log) |
 | `CAMPDIR=dir` | Write a checkpoint at each new floor (`dir/gGGGG_dDD.bin`) |
 | `CAMPLOAD=file` | Continue a game from a checkpoint |
+| `PHOTODIR=dir` (`PHOTOSTAGE=1`) | Save the game at moments worth a screenshot (each region, special rooms, quest givers, boss fights, a floor-25 backpack) for the What-If build; `PHOTOSTAGE` swaps in a level and gear typical of the depth |
 | `FOODLOG=1`, `FIGHTLOG=1`, `GEARLOG=1` | Extra logs about food, fights and gear |
 
 ### Experiments

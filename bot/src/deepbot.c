@@ -2736,6 +2736,93 @@ static void rec_extra(FILE *f, int g) {
   for (int b = 0; b < BLOB_COUNT; b++) if (g_blob[b]) for (int c = 0; c < MAP_LEN; c++) if (g_blob[b][c]) { fprintf(f, "%s[%d,%d]", fst ? "" : ",", c, b); fst = false; }
   fprintf(f, "]");
 }
+// PHOTODIR=dir: save the game at moments worth a screenshot (one file per kind, first found wins), for the What-If build
+// (bot/tools/whatif_blob.py, scripts/whatif.sh): each region, special rooms, quest givers, boss fights, the depth-25 backpack
+static const char *const PH_ROOM[] = { [RT_SHOP] = "room_shop", [RT_BLACKSMITH] = "room_blacksmith", [RT_TREASURY] = "room_treasury",
+  [RT_ARMORY] = "room_armory", [RT_LIBRARY] = "room_library", [RT_LABORATORY] = "room_laboratory", [RT_VAULT] = "room_vault",
+  [RT_TRAPS] = "room_traps", [RT_STORAGE] = "room_storage", [RT_MAGIC_WELL] = "room_magic_well", [RT_GARDEN] = "room_garden",
+  [RT_CRYPT] = "room_crypt", [RT_STATUE] = "room_statue", [RT_POOL] = "room_pool", [RT_PIT] = "room_pit", [RT_ALTAR] = "room_altar",
+  [RT_RAT_KING] = "room_rat_king" };
+static int ph_dist(int a, int b) { int dx = abs(a % 32 - b % 32), dy = abs(a / 32 - b / 32); return dx > dy ? dx : dy; }
+static int ph_best(int first, int last, int str, int lvl) {   // the highest tier the hero's strength allows at this level
+  int best = first; for (int k = first; k <= last; k++) { Item t = item_make(k, 1); t.lvl = lvl; if (item_str(&t) <= str && item_tier(k) >= item_tier(best)) best = k; }
+  return best;
+}
+static void ph_stage(void) {                    // PHOTOSTAGE: undo the head start for the picture: a level, HP, strength and gear typical of this depth
+  Hero *h = &G.hero; int d = G.depth, z = (d - 1) / 5, p = (d - 1) % 5;
+  int L = 1 + d * 9 / 10 + (d >= 2); if (L > 30) L = 30; if (h->lvl > L) h->lvl = L;
+  int HT = 20 + 5 * (h->lvl - 1); h->HP = h->HT > 0 ? (int)((long)h->HP * HT / h->HT) : HT; if (h->HP < 1) h->HP = 1; h->HT = HT;
+  h->STR = 10 + 2 * z + (p >= 2);
+  int al = 2 * z + (p >= 2), wl = z + (p >= 3);
+  Item a = item_make(ph_best(IK_CLOTH_ARMOR, IK_PLATE_ARMOR, h->STR, al), 1); a.lvl = al; a.flags = IF_LEVEL_KNOWN | IF_CURSED_KNOWN; a.dur = item_max_dur(&a); h->armor = a;
+  Item w = item_make(ph_best(IK_DAGGER, IK_GLAIVE, h->STR, wl), 1); w.lvl = wl; w.flags = IF_LEVEL_KNOWN | IF_CURSED_KNOWN; w.dur = item_max_dur(&w); h->weapon = w;
+  if (d < 25) { h->ring[0] = (Item){ 0 }; h->ring[1] = (Item){ 0 }; }
+}
+static void ph_save(const char *name, int g, int steps) {
+  char fn[300]; snprintf(fn, sizeof fn, "%s/%s.bin", getenv("PHOTODIR"), name);
+  if (access(fn, F_OK) == 0) return;
+  static Game keep; memcpy(&keep, &G, sizeof G);
+  if (getenv("PHOTOSTAGE")) ph_stage();
+  game_save(); FILE *f = fopen(fn, "wb");
+  if (f) { fwrite(g_keys, sizeof g_keys, 1, f); fclose(f);
+    Hero *h = &G.hero; printf("PHOTO %s game %d step %d depth %d lvl %d HP %d/%d STR %d armor %d%+d weapon %d%+d\n", name, g, steps, G.depth, h->lvl, h->HP, h->HT, h->STR, h->armor.kind, h->armor.lvl, h->weapon.kind, h->weapon.lvl); }
+  memcpy(&G, &keep, sizeof G);
+}
+static void ph_loot(void) {                     // the depth-25 backpack: every bag present and every slot filled with good, known things
+  Hero *h = &G.hero;
+  static const uint8_t BAGS[3] = { IK_SEED_POUCH, IK_SCROLL_HOLDER, IK_WAND_HOLSTER };
+  for (int s = 0; s < BAG_SIZE; s++) { int k = h->bag[s].kind; if (k != IK_SEED_POUCH && k != IK_SCROLL_HOLDER && k != IK_WAND_HOLSTER && k != IK_DEW_VIAL) h->bag[s] = (Item){ 0 }; }   // a clean slate
+  for (int s = 0; s < BAG_SIZE; s++) for (int j = s + 1; j < BAG_SIZE; j++) if (!h->bag[s].kind && h->bag[j].kind) { h->bag[s] = h->bag[j]; h->bag[j] = (Item){ 0 }; }
+  for (int i = 0; i < 3; i++) if (game_bag_find(BAGS[i]) < 0) bag_add(item_make(BAGS[i], 1));
+  if (game_bag_find(IK_DEW_VIAL) < 0) bag_add(item_make(IK_DEW_VIAL, 1));
+  G.keys[21] |= 1; G.keys[22] |= 2; G.keys[23] |= 1 | 1 << 4; G.keys[24] |= 1 << 4;   // iron and golden keys for the keyring
+  for (int i = 0; i < N_SEEDS; i++) { G.pack[i] = item_make(IK_FIRST_SEED + i, 1 + i % 3); set_known(IK_FIRST_SEED + i); }
+  for (int i = 0; i < N_SCROLLS; i++) { G.pack[8 + i] = item_make(IK_FIRST_SCROLL + i, i == IK_SCR_UPGRADE - IK_FIRST_SCROLL ? 2 : 1 + i % 2); set_known(IK_FIRST_SCROLL + i); }
+  static const int8_t WL[N_WANDS] = { 3, 2, 5, 2, 3, 4, 6, 2, 3, 2, 5, 4 };
+  for (int i = 0; i < N_WANDS; i++) { Item w = item_make(IK_FIRST_WAND + i, 1); w.lvl = WL[i]; w.flags = IF_LEVEL_KNOWN | IF_CURSED_KNOWN | IF_CHARGE_KNOWN; w.ench = wand_max(&w); w.dur = item_max_dur(&w); G.pack[20 + i] = w; set_known(IK_FIRST_WAND + i); }
+  struct { uint8_t k; uint8_t q; int8_t l; } L[] = { { IK_POT_HEALING, 4, 0 }, { IK_POT_STRENGTH, 1, 0 }, { IK_POT_MIGHT, 1, 0 }, { IK_POT_EXPERIENCE, 2, 0 },
+    { IK_POT_FROST, 2, 0 }, { IK_POT_INVIS, 1, 0 }, { IK_RNG_HASTE, 1, 3 }, { IK_RNG_EVASION, 1, 2 }, { IK_GLAIVE, 1, 3 }, { IK_PLATE_ARMOR, 1, 4 },
+    { IK_RATION, 3, 0 }, { IK_ANKH, 1, 0 }, { IK_JAVELIN, 6, 0 }, { IK_INCENDIARY_DART, 9, 0 }, { IK_BOMB, 2, 0 }, { IK_HONEYPOT, 1, 0 }, { IK_PASTY, 1, 0 } };
+  for (int i = 0; i < (int)(sizeof L / sizeof L[0]); i++) {
+    int used = 0; for (int s = 0; s < BAG_SIZE; s++) used += h->bag[s].kind != IK_NONE;
+    if (used >= BAG_SIZE) break;
+    Item it = item_make(L[i].k, L[i].q); it.lvl = L[i].l; it.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; if (item_upgradable(it.kind)) it.dur = item_max_dur(&it);
+    set_known(it.kind); bag_add(it);
+  }
+}
+static void photo_step(int g, int steps) {
+  if (!getenv("PHOTODIR") || s_rollout || s_is_child) return;
+  Hero *h = &G.hero; int hp = h->pos, d = G.depth;
+  if (h->HP <= 0) return;
+  bool calm = true;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !(MOB_DEFS[m->type].flags & MD_NPC) && m->state == ST_HUNTING && ph_dist(m->pos, hp) <= 4) calm = false; }
+  for (int i = 0; i < G.n_mobs; i++) {
+    Mob *m = &G.mobs[i]; if (m->HP <= 0 || !BIT_GET(G.fov, m->pos)) continue;
+    int dist = ph_dist(m->pos, hp);
+    const char *boss = m->type == MT_GOO ? "boss_goo" : m->type == MT_TENGU ? "boss_tengu" : m->type == MT_DM300 ? "boss_dm300" : m->type == MT_KING ? "boss_king" : m->type == MT_YOG ? "boss_yog" : NULL;
+    if (boss && dist <= 2 && m->HP * 100 <= m->HT * 85 && h->HP * 10 >= h->HT * 4) ph_save(boss, g, steps);
+    if ((m->type == MT_ROTTING_FIST || m->type == MT_BURNING_FIST) && dist <= 2 && h->HP * 10 >= h->HT * 4) ph_save("boss_yog_fist", g, steps);
+    const char *npc = m->type == MT_GHOST ? "npc_ghost" : m->type == MT_WANDMAKER ? "npc_wandmaker" : m->type == MT_BLACKSMITH ? "npc_blacksmith" : m->type == MT_IMP ? "npc_imp" : NULL;
+    if (npc && dist <= 3 && dist >= 1 && calm) ph_save(npc, g, steps);
+  }
+  for (int r = 0; r < G.n_rooms; r++) {
+    Room *rm = &G.rooms[r]; int x = hp % 32, y = hp / 32;
+    if (rm->type >= sizeof PH_ROOM / sizeof PH_ROOM[0] || !PH_ROOM[rm->type]) continue;
+    if (x > rm->left && x < rm->right && y > rm->top && y < rm->bottom && calm) ph_save(PH_ROOM[rm->type], g, steps);
+  }
+  if (d % 5 != 0 && d % 5 >= 2 && s_floor_steps >= 60 && calm) {
+    int seen = 0; for (int i = 0; i < G.n_mobs; i++) seen += G.mobs[i].HP > 0 && BIT_GET(G.fov, G.mobs[i].pos);
+    for (int i = 0; i < G.n_heaps; i++) seen += BIT_GET(G.fov, G.heaps[i].pos);
+    static const char *const REG[5] = { "region_sewers", "region_prison", "region_caves", "region_city", "region_halls" };
+    if (seen >= 2 && d <= 24) ph_save(REG[(d - 1) / 5], g, steps);
+  }
+  if (d == 25 && s_floor_steps >= 3 && calm) {
+    char fn[300]; snprintf(fn, sizeof fn, "%s/bag_d25.bin", getenv("PHOTODIR"));
+    if (access(fn, F_OK) != 0) { static Game keep2; memcpy(&keep2, &G, sizeof G); ph_loot(); ph_save("bag_d25", g, steps); memcpy(&G, &keep2, sizeof G); }
+  }
+  if (d == 26 && calm) for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_AMULET && BIT_GET(G.fov, G.heaps[i].pos)) ph_save("amulet", g, steps);
+}
+
 static char *snap_state(int g, int step) {
   size_t cap = 20000; char *b = malloc(cap); int n = 0; Hero *h = &G.hero; char nm[64];
 #define P(...) n += snprintf(b + n, cap - n, __VA_ARGS__)
@@ -3604,6 +3691,7 @@ int main(int argc, char **argv) {
 #endif
       if (getenv("RNGLOG") && s_fork_until >= 0 && steps == atoi(getenv("RNGLOG"))) { char fn[200]; snprintf(fn, sizeof fn, "%s/rng_%s.txt", getenv("FTDIR"), s_is_child ? "c" : "p"); g_rnglog = fopen(fn, "w");
         fprintf(g_rnglog, "before: now %d hero.time %d turn_due %d level_t0 %d night %d |", G.now, G.hero.time, G.turn_due, G.level_t0, G.night); for (int i = 0; i < G.n_mobs; i++) fprintf(g_rnglog, " %d:%d hp%d t%d", i, G.mobs[i].type, G.mobs[i].HP, G.mobs[i].time); fprintf(g_rnglog, "\n"); }
+      photo_step(g, steps);
       char *snapb = NULL; static FILE *s_rec; if (getenv("REC") && !s_rec && !s_is_child) s_rec = fopen(getenv("REC"), "w"); int nlog0 = s_nlog;   // 0.49: REC=file: every step of every game, one JSON line each
       bool snap_on = (s_rec && !s_is_child) || (getenv("SNAPG") && g == atoi(getenv("SNAPG"))) && steps >= (getenv("SNAPA") ? atoi(getenv("SNAPA")) : 0) && steps <= (getenv("SNAPB") ? atoi(getenv("SNAPB")) : 1 << 30);
       bool snap_death = getenv("SNAPDEATH") != NULL && !s_is_child;

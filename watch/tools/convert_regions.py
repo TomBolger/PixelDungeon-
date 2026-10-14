@@ -22,7 +22,20 @@ for r in range(1, 5):
             if A and G - max(R, B) > 25:              # greenery: lifted a shade like the sewers' grass
                 lifted = [min(255, int(v * 1.45)) for v in (R, G, B)]
                 px[x, y] = cl.near(tuple(max(0, min(255, (v - 45) * 255 / 165)) for v in lifted)) + (254,)
-    cl.pebbleize(t, cl.TILES).save(os.path.join(OUT, f"tiles_{REGIONS[r]}.png"))
+    tp = cl.pebbleize(t, cl.TILES)
+    if r == 2:   # 0.56 (owner: "the DM-300 room is just flat grey"): the caves' floor gets grit back. PD's floor is three close
+        # shades; the darkest, where it clusters, becomes black on every other pixel (a checker), so the stone reads rough, not flat
+        src = Image.open(os.path.join(SRC, f"tiles{r}.png")).convert("RGB"); sp = src.load(); tpp = tp.load()
+        for cell in (1, 24):                           # EMPTY and EMPTY_DECO (the pebbles keep their own pixels)
+            ox, oy = (cell % 16) * 16, (cell // 16) * 16
+            V = [[max(sp[ox + x, oy + y]) for x in range(16)] for y in range(16)]
+            for y in range(16):
+                for x in range(16):
+                    v = V[y][x]
+                    if not 30 <= v < 60: continue
+                    n = sum(V[(y + dy) % 16][(x + dx) % 16] == v for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                    if v == min(min(row) for row in V) and n >= 2 and (x + y) % 2 == 0: tpp[ox + x, oy + y] = (0, 0, 0, 255)
+    tp.save(os.path.join(OUT, f"tiles_{REGIONS[r]}.png"))
     # water: three shades by brightness (deep, mid, light), each the region's colour lifted onto the Pebble palette
     w = Image.open(os.path.join(SRC, f"water{r}.png")).convert("RGBA")
     wp = w.load()
@@ -40,6 +53,16 @@ for r in range(1, 5):
         cols.append(cl.near(tuple(min(255, v * lift + 10 * k) for v in m)))
     out = Image.new("RGBA", (32, 32))
     op = out.load()
+    if r == 4:   # 0.56 (owner: "the lava is too featureless"): five heat levels, a dark crust to bubbling yellow
+        ls = sorted(sum(wp[x, y][:3]) for y in range(32) for x in range(32))
+        t1, t2, t3 = (ls[int(len(ls) * p)] for p in (0.35, 0.68, 0.82))
+        cols = [(170, 0, 0), (255, 0, 0), (255, 85, 0), (255, 255, 0), (255, 255, 170)]
+        for y in range(32):
+            for x in range(32):
+                v = sum(wp[x, y][:3]); k = 0 if v <= t1 else 1 if v <= t2 else 2 if v <= t3 else 3
+                if k == 3 and all(sum(wp[(x + dx) % 32, (y + dy) % 32][:3]) >= t3 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))): k = 4   # a bubble's hot core
+                op[x, y] = cols[k] + (255,)
+        out.save(os.path.join(OUT, f"water_{REGIONS[r]}.png")); print(REGIONS[r], "lava", cols); continue
     for y in range(32):
         for x in range(32):
             v = sum(wp[x, y][:3]); op[x, y] = cols[0 if v <= q1 else 1 if v <= q2 else 2] + (255,)
