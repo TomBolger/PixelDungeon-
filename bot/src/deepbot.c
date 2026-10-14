@@ -3365,6 +3365,7 @@ static void ledger_leave(void) {
 }
 static void ledger_death(void) {
   if (s_rollout || s_is_child) return; lg_deaths++;
+  if (getenv("LGDUMP")) { printf("  BAG at death (STR %d):", hero_str()); for (int s = 0; s < BAG_SIZE; s++) { Item *it = &G.hero.bag[s]; if (it->kind) printf(" %d%s%+d/f%d", it->kind, item_known(it->kind) ? "k" : "", it->lvl, it->flags); } printf(" | worn a%d w%d\n", G.hero.armor.kind, G.hero.weapon.kind); }
   for (int s = 0; s < PACK0 + 32; s = s == BAG_SIZE - 1 ? PACK0 : s + 1) { Item *it = game_slot(s); if (!it->kind) continue; int k = it->kind, c = lg_cat(k);
     lg_dead[c][(c == CAT_POTION || c == CAT_SCROLL || c == CAT_WAND || c == CAT_RING || c >= 14) && item_known(k) ? 0 : 1] += (c == CAT_MISSILE || c == CAT_GOLD) ? 1 : it->qty; }
 }
