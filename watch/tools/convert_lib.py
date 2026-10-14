@@ -77,8 +77,9 @@ def max16(img):
     return img
 
 
-def outlined(img, fw):
-    """0.6: 1 px black edge around the creature inside each frame, so grey monsters read on grey floors."""
+def outlined(img, fw, col=(0, 0, 0)):
+    """0.6: 1 px black edge around the creature inside each frame, so grey monsters read on grey floors.
+    0.60: col, for a creature that is black itself (Goo): there a dark grey edge keeps it apart from black joints."""
     out = img.copy(); src = img.load(); dst = out.load()
     for y in range(img.height):
         for x in range(img.width):
@@ -87,5 +88,5 @@ def outlined(img, fw):
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 nx, ny = x + dx, y + dy
                 if f0 <= nx < f0 + fw and 0 <= ny < img.height and src[nx, ny][3]:
-                    dst[x, y] = (0, 0, 0, 255); break
+                    dst[x, y] = tuple(col) + (255,); break
     return out
