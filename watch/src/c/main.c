@@ -308,9 +308,10 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   if (n && s_tgk == TK_ENEMY) { s_tgu = G.mobs[mob_at(s_tg)].uid; G.last_target = s_tg; }
 }
 void hero_spend(int t); void process(void);
+static void pass_hands(void) { if (s_tgk0 == TK_BAG || s_tgk0 == TK_REST) { g_ovr.dk = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = s_tgk0 == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; } }
 static ActResult tg_do(void) {                    // Select: as a tap on the target (0.36: rooted, 0.40: the hero's own cell: search)
   int c = s_tg, k = s_tgk, hp = G.hero.pos;
-  if (s_tgi && (s_tgk0 == TK_BAG || s_tgk0 == TK_REST)) { g_ovr.dk = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = s_tgk0 == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; }   // 0.53 (owner): plan B over the hands: pass that one over
+  if (s_tgi) pass_hands();                         // 0.53 (owner): plan B over the hands: pass that one over
   if (k == TK_MINE) return game_item_do(g_ovr.ms, ACN_MINE);   // 0.41: beside a dark gold vein: mine it (TK_VEIN: walk there)
   if (k == TK_BAG) return game_item_do(g_ovr.hs, (ItemAction)g_ovr.ha);   // 0.48 test kit (0.51: Assist High): the bot's hands (0.50: a throw or a zap at the nearest foe in line: use overlay)
   if (k == TK_REST) return game_rest(true);
@@ -947,7 +948,7 @@ static void on_tap(int x, int y) {
   if (s_tg >= 0 && in_rect(ctag(1), x, y)) { s_walking = false; act(tg_do()); return; }   // the middle tag
   s_walking = false;
   int16_t c = screen_to_cell(x, y);
-  if (c >= 0) { g_ovr.c = c; g_ovr.t = G.hero.pos - 65536; act(game_tap_cell(c)); }   // 0.43: the player's own way (ovl/tgt), as Select on another target; yourself: Hero.handle(pos): the stairs, things underfoot, a sign (else nothing, no turn)
+  if (c >= 0) { pass_hands(); g_ovr.c = c; g_ovr.t = G.hero.pos - 65536; act(game_tap_cell(c)); }   // (0.63 (owner): a tap passes over the hands too)   // 0.43: the player's own way (ovl/tgt), as Select on another target; yourself: Hero.handle(pos): the stairs, things underfoot, a sign (else nothing, no turn)
 }
 
 static int16_t s_touch_x, s_touch_y, s_touch_moved; static bool s_touching; static uint32_t s_touch_ms;

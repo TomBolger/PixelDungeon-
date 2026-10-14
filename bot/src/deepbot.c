@@ -2278,7 +2278,7 @@ static bool press(void) {
     if (hold) { st_hold++; if (++st_hold_run > st_hold_max) st_hold_max = st_hold_run; } else st_hold_run = 0;
     bool mine = kind[i] == TK_MINE;
     if (mine) st_mine++; if (kind[i] == TK_VEIN) st_mine_walk++;
-    if (kind[i] == TK_BAG && g_ovr.ha != ACN_EAT && g_ovr.ha != ACN_DRINK) continue;
+    if (kind[i] == TK_BAG && g_ovr.ha != ACN_EAT && g_ovr.ha != ACN_DRINK && g_ovr.ha != ACN_THROW && g_ovr.ha != ACN_ZAP) continue;
     if (i && (kind[0] == TK_BAG || kind[0] == TK_REST)) { g_ovr.dk = kind[0] == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = kind[0] == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; }   // (main.c tg_do: the hands passed over)   // 0.61: the hands (main.c tg_do), those with no aiming or choosing (gear: the bot's own)
     ActResult r = mine ? game_item_do(g_ovr.ms, ACN_MINE) : kind[i] == TK_BAG ? do_item(g_ovr.hs, (ItemAction)g_ovr.ha) : kind[i] == TK_REST ? game_rest(true) : hold ? game_rest(false) : (G.hero.b.roots || c == G.hero.pos) && kind[i] == TK_GO ? bot_search() : tap_safe(c);
     if (G.hero.pos != p0 && !getenv("NOHEAD")) g_from = p0;

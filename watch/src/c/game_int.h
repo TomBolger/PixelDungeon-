@@ -5,7 +5,7 @@
 #pragma once
 #include "pd.h"
 
-#ifdef CELLS_POS                                     // 0.61: an overlay whose cells are never negative: shifts and masks (smaller)
+#ifndef CELLS_SIGNED                                 // 0.61 (0.63: everywhere): cells are never negative: shifts and masks (smaller)
 static inline int cx(int c) { return c & (MAP_W - 1); }
 static inline int cy(int c) { return c >> 5; }
 #else

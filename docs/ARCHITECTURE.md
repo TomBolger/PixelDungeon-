@@ -31,7 +31,7 @@ An overlay is a piece of C code that is compiled separately, stored as a resourc
 - `src/c/ovl.c` also holds the small wrapper functions the rest of the game calls (for example, "generate a floor", "use this item"). Each wrapper loads the right overlay, calls it, and frees it.
 - An overlay must fit in 8 KB, and the build stops if one does not. The level generator is the one exception: it is loaded straight onto the heap while a floor is built.
 - Overlay `static` variables start from zero on every load. Anything that must last between loads belongs in the app (`game.c`) or the save.
-- Some overlays share one source file and are split by a define, so each half fits: `hero`/`hero2`, `tgt`/`tgt2`, `use`/`pick`, `floor`/`save`.
+- Some overlays share one source file and are split by a define, so each half fits: `hero`/`hero2`, `tgt`/`tgt2`/`tgt3`, `use`/`pick`, `floor`/`save`.
 
 | Overlay | What it does |
 |---|---|
@@ -44,7 +44,7 @@ An overlay is a piece of C code that is compiled separately, stored as a resourc
 | `use`, `pick` | Using items (eat, drink, read, equip) and item-choice windows |
 | `wand`, `ench`, `trap` | Wand effects, weapon enchantments and armour glyphs, traps and plants |
 | `info` | Item and terrain descriptions |
-| `tgt`, `tgt2` | The target list for the buttons and the Assist suggestions (shared with the bot) |
+| `tgt`, `tgt2`, `tgt3` | The target list for the buttons and the Assist suggestions (shared with the bot): plan A, the other plans, and Assist High's item use |
 | `ui`, `uiw`, `bag`, `sheet` | Title and hero select, in-game windows, backpack, hero and journal windows |
 | `snd` | The music and sound synth |
 
