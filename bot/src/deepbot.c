@@ -2212,6 +2212,7 @@ static int cdir(int c) { return ppang(cx(c) - cx(G.hero.pos), cy(c) - cy(G.hero.
 static int adiff(int a, int b) { return abs(((a - b + 32) & 63) - 32); }
 static int s_f0 = -1, s_k0, st_offf, st_offf_n, st_tramp, st_grass_left, s_hg_depth = -1, s_hg_last;
 void tgt_first(int c, int k) { s_f0 = c; s_k0 = k; }
+static int s_tline; void tgt_line(int l) { s_tline = l; }
 static int hg_count(void) { int n = 0; for (int c = 0; c < MAP_LEN; c++) n += G.map[c] == T_HIGH_GRASS && BIT_GET(G.visited, c); return n; }
 static bool onscreen_frontier(void) {                   // a reachable known open cell on screen beside the unknown (not just beside the hero)
   bfs(G.hero.pos, false);
@@ -2229,6 +2230,71 @@ static void aud_dump(int a, int b) {                   // 0.61: the map round th
       putchar(c == G.hero.pos ? '@' : c == a ? 'A' : c == b ? 'B' : mi >= 0 && BIT_GET(G.fov, c) ? 'm' : !BIT_GET(G.visited, c) ? ' ' : t == T_WALL || t == T_WALL_DECO ? '#' : t == T_DOOR || t == T_OPEN_DOOR ? '+' : IS_WATER(t) ? '~' : (TFLAGS(t) & F_AVOID) ? '^' : PASSABLE(t) ? '.' : '?'); }
     putchar('\n'); }
 }
+// 0.72 (owner: "go to the opposite corner of the map to a fully explored area for no reason. The assist should assist
+// with THAT"): CONTRA=1: once a floor, at a random moment, the player sets off for the farthest explored cell, tapping
+// hops of 2-6 cells along the way (as on the watch's screen). Before each hop, entry 0 is judged: with the player's way,
+// beside it, or against it (a turn round), a trigger (hands, an enemy, gas), or a stand-still. Enemies: the Assist fights.
+static int s_ct_dest = -1, s_ct_depth = -1, s_ct_at, s_ct_fp, s_ct_hops, s_ct_lastk = -1;
+static long ct_n[12], ct_mn[4][12]; static int ct_trips, ct_arrived, ct_abort, s_ct_mode, ct_mtrips[4];
+static const char *CT_NAME[12] = { "with", "beside", "AGAINST", "item with", "item beside", "ITEM AGAINST", "stand still", "hands", "enemy/tactics", "escape", "hold (wait for it)", "nothing" };
+static bool contra(int n, int16_t *cell, uint8_t *kind) {
+  Hero *h = &G.hero; int hp = h->pos;
+  if (G.depth != s_ct_depth) { s_ct_depth = G.depth; s_ct_dest = -1; s_ct_fp = 0; s_ct_at = 30 + rand() % 220; if (boss_depth(G.depth)) s_ct_at = 1 << 30; }
+  s_ct_fp++;
+  if (s_ct_dest < 0) {
+    if (s_ct_fp != s_ct_at || enemy_count()) { if (s_ct_fp == s_ct_at) s_ct_at++; return false; }
+    bfs(hp, false); int best = -1, bd = 7;
+    s_ct_mode = getenv("CTMODE") ? atoi(getenv("CTMODE")) : (cur_game + G.depth) % 4;   // 0 the farthest explored cell, 1 back to the way up,
+    if (s_ct_mode == 1 && b_dist[G.entrance] < 0x7FFF && b_dist[G.entrance] > bd) best = G.entrance;   // 2 the way down (unexplored left behind),
+    if (s_ct_mode == 2 && BIT_GET(G.visited, G.exit) && b_dist[G.exit] < 0x7FFF && b_dist[G.exit] > bd) best = G.exit;   // 3 a part left unexplored, not plan A's
+    if (s_ct_mode == 3) { int o = n > 0 ? g_tgobj[0] : -1;
+      for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] < 0x7FFF && b_dist[c] > bd && frontier(c) && (o < 0 || distance(c, o) > 6)) { bd = b_dist[c]; best = c; } }
+    if (best < 0) { s_ct_mode = 0; for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] < 0x7FFF && b_dist[c] > bd && c != G.exit && c != G.entrance && heap_at(c) < 0) { bd = b_dist[c]; best = c; } }
+    if (best < 0) return false;
+    s_ct_dest = best; s_ct_hops = 0; ct_trips++; ct_mtrips[s_ct_mode]++;
+    if (getenv("CTV")) printf("  CONTRA g%d d%d step %d mode %d: off to %d,%d (%d steps) from %d,%d\n", cur_game, G.depth, s_bot_steps, s_ct_mode, cx(best), cy(best), b_dist[best], cx(hp), cy(hp));
+  }
+  if (s_ct_dest == MAP_LEN) return false;              // (this floor's trip is over)
+  if (enemy_count()) return false;                     // a fight: the Assist's (entry 0 pressed as usual)
+  bfs(s_ct_dest, false); int dh = b_dist[hp];
+  if (dh == 0x7FFF || ++s_ct_hops > 120) { ct_abort++; s_ct_dest = MAP_LEN; return false; }
+  static int16_t dd[MAP_LEN]; memcpy(dd, b_dist, sizeof dd);
+  // judge entry 0
+  int cat = 11;
+  if (n > 0) {
+    int c0 = cell[0], k0 = kind[0];
+    if (k0 == TK_BAG || k0 == TK_REST) cat = 7;
+    else if (G.tgm.src0 == 4) cat = 9;
+    else if (k0 == TK_ENEMY || G.tgm.src0 == 2) cat = 8;
+    else if (c0 == hp) cat = (g_ovr.d & 128) ? 10 : 6;
+    else {
+      bfs(c0, false); int st = -1, sd = 0x7FFF;
+      for (int k = 0; k < 8; k++) { int m = hp + N8[k]; if (nb_ok(hp, m) && b_dist[m] < sd) { sd = b_dist[m]; st = m; } }
+      int v = st < 0 || dd[st] == 0x7FFF ? 1 : dd[st] < dh ? 0 : dd[st] == dh ? 1 : 2;
+      cat = (k0 == TK_ITEM ? 3 : 0) + v;
+      if (v == 2 && s_ct_hops > 1 && getenv("CTV")) {
+        int o = g_tgobj[0];
+        printf("  CT-AGAINST g%d d%d hop %d: hero %d,%d dest %d,%d (%d away) entry0 %d,%d kind %d src0 %d line %d objective %d,%d tile %d visited %d (list %d) ovr c %d on %d d %d\n",
+          cur_game, G.depth, s_ct_hops, cx(hp), cy(hp), cx(s_ct_dest), cy(s_ct_dest), dh, cx(c0), cy(c0), k0, G.tgm.src0, s_tline, o >= 0 ? cx(o) : -1, o >= 0 ? cy(o) : -1, o >= 0 ? G.map[o] : -1, o >= 0 ? BIT_GET(G.visited, o) : -1, n, g_ovr.c, g_ovr.on, g_ovr.d);
+        if (getenv("CTMAP")) aud_dump(c0, hp);
+      }
+    }
+    if (cat == 7 && getenv("CTV")) { char nm[48] = "rest"; if (k0 == TK_BAG) item_name(game_slot(g_ovr.hs), nm, sizeof nm); printf("  CT-HANDS g%d d%d hop %d: %s %s HP %d/%d hunger %d\n", cur_game, G.depth, s_ct_hops, k0 == TK_BAG ? ACTION_NAMES[g_ovr.ha] : "", nm, h->HP, h->HT, h->hunger); }
+  }
+  if (s_ct_hops > 1) { ct_n[cat]++; ct_mn[s_ct_mode][cat]++; }                      // (the first: no way tapped yet)
+  // the player's hop: 2-6 cells along the way, on screen (passing over the hands: main.c on_tap's pass_hands)
+  int want = 2 + rand() % 5, c = hp;
+  for (int s = 0; s < want; s++) { int b = -1, bdd = dd[c]; for (int k = 0; k < 8; k++) { int m = c + N8[k]; if (nb_ok(c, m) && dd[m] < bdd && p_onscreen(m) && m != G.exit && m != G.entrance) { bdd = dd[m]; b = m; } } if (b < 0) break; c = b; }
+  if (c == hp) { ct_abort++; s_ct_dest = MAP_LEN; return false; }
+  if (c == hp && dh <= 2) { ct_arrived++; s_ct_dest = MAP_LEN; return false; }
+  if (n > 0 && (kind[0] == TK_BAG || kind[0] == TK_REST)) { int j = G.tgm.dn++ & 7; G.tgm.dk[j] = kind[0] == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; G.tgm.da[j] = kind[0] == TK_REST ? 255 : g_ovr.ha; G.tgm.dd = G.depth; }
+  if (n > 0 && G.tgm.src0 >= 2 && G.tgm.src0 != 3) { int m = kind[0] == TK_ENEMY ? mob_at(cell[0]) : -1; G.tgm.vs = G.tgm.src0; G.tgm.vu = m >= 0 ? G.mobs[m].uid : 255; G.tgm.vt = G.now + 15 * TICK; }
+  g_ovr.c = c; g_ovr.t = hp - 65536;
+  int32_t t = h->time; ActResult r = tap_safe(c); walk(r);
+  if (G.hero.pos == s_ct_dest || dd[G.hero.pos] <= 1) { ct_arrived++; s_ct_dest = MAP_LEN; if (getenv("CTV")) printf("  CONTRA g%d d%d arrived after %d hops\n", cur_game, G.depth, s_ct_hops); }
+  if (h->time == t && G.hero.pos == hp) { ct_abort++; s_ct_dest = MAP_LEN; }
+  return true;
+}
 static void ph_save(const char *name, int g, int steps);
 static bool press(void) {
   int16_t cell[TARGETS_MAX]; uint8_t kind[TARGETS_MAX];
@@ -2236,6 +2302,7 @@ static bool press(void) {
   s_f0 = -1;
   int n = game_targets(cell, kind), p0 = G.hero.pos, i0 = 0;
   st_press_n++;
+  if (getenv("CONTRA") && !s_rollout && !s_is_child && contra(n, cell, kind)) return true;   // 0.72: the contrary player
   if (s_f0 >= 0 && s_k0 != TK_ENEMY && s_k0 != TK_ITEM && g_ovr.c < 0 && !enemy_count() && !p_onscreen(s_f0)) { st_offf_n++; if (onscreen_frontier()) { st_offf++; if (V) printf("  OFFSCREEN-FIRST %d while an on-screen frontier exists\n", s_f0); } }
   if (P == 2 && n > 0) {
     if (s_odepth != G.depth) s_left = 0;
@@ -3697,6 +3764,11 @@ int main(int argc, char **argv) {
           continue;
         }
       }
+      if (getenv("WALLCHK") && !s_is_child && G.hero.HP > 0) {   // 0.71: any target on a cell you can't stand on (owner: "blank, empty, non-gold wall tiles")
+        int16_t c[TARGETS_MAX]; uint8_t k[TARGETS_MAX]; int n = game_targets(c, k);
+        for (int j = 0; j < n; j++) if (c[j] >= 0 && c[j] < MAP_LEN && !PASSABLE(G.map[c[j]]) && k[j] != TK_ENEMY && k[j] != TK_VEIN && k[j] != TK_MINE && G.map[c[j]] != T_DOOR && G.map[c[j]] != T_LOCKED_DOOR && G.map[c[j]] != T_ALCHEMY && G.map[c[j]] != T_WELL)
+          printf("  WALLCHK game %d step %d depth %d: entry %d/%d kind %d at %d,%d tile %d vis %d (objective %d,%d tile %d) hero %d,%d src0 %d\n", g, steps, G.depth, j, n, k[j], cx(c[j]), cy(c[j]), G.map[c[j]], BIT_GET(G.visited, c[j]), cx(g_tgobj[j]), cy(g_tgobj[j]), g_tgobj[j] >= 0 ? G.map[g_tgobj[j]] : -1, cx(G.hero.pos), cy(G.hero.pos), G.tgm.src0);
+      }
       if (getenv("STEPLOG") && g == atoi(getenv("STEPLOG")) && !s_is_child) printf("  STEP %d pos %d rng %08x now %d hp %d nm %d\n", steps, G.hero.pos, g_rng, G.now, G.hero.HP, G.n_mobs);
       if (getenv("FIREDBG") && g == atoi(getenv("FIREDBG")) && !s_is_child) {   // the fire around the hero: terrain letter, fire level
         bool near = G.hero.b.burning; for (int dy = -3; dy <= 3; dy++) for (int dx = -5; dx <= 5; dx++) { int x = cx(G.hero.pos) + dx, y = cy(G.hero.pos) + dy; if (x >= 0 && y >= 0 && x < MAP_W && y < MAP_H && g_blob[BLOB_FIRE] && g_blob[BLOB_FIRE][x + y * MAP_W]) near = true; }
@@ -3933,6 +4005,9 @@ int main(int argc, char **argv) {
   printf("arrivals onto a creature on the stairs (PD quirk, not reported): %d checks\n", st_overlap);
   printf("amulet thief: hunting decisions %d, amulet got back %d times\n", st_thief_hunt, st_thief_back);
   if (getenv("TT")) printf("tgt build: %ld calls, avg %.1f us, max %.1f us; over 25/50/100/200/400/800 us: %ld %ld %ld %ld %ld %ld\n", tt_n, tt_sum / 1000.0 / (tt_n ? tt_n : 1), tt_max / 1000.0, tt_h[0], tt_h[1], tt_h[2], tt_h[3], tt_h[4], tt_h[5]);
+  if (ct_trips) { long t = 0; for (int i = 0; i < 12; i++) t += ct_n[i]; printf("contra audit: %d trips (%d arrived, %d gave up), %ld hops judged:", ct_trips, ct_arrived, ct_abort, t); for (int i = 0; i < 12; i++) if (ct_n[i]) printf(" %s %ld (%.1f%%)", CT_NAME[i], ct_n[i], 100.0 * ct_n[i] / t); printf("\n");
+    static const char *MN[4] = { "far explored cell", "back to the way up", "the way down early", "another unexplored part" };
+    for (int m = 0; m < 4; m++) { long t = 0; for (int i = 0; i < 12; i++) t += ct_mn[m][i]; if (t) printf("  %s: %d trips, %ld hops: with %.1f%% beside %.1f%% AGAINST %.1f%% item against %.1f%% stand %.1f%% hands %.1f%%\n", MN[m], ct_mtrips[m], t, 100.0 * ct_mn[m][0] / t, 100.0 * ct_mn[m][1] / t, 100.0 * ct_mn[m][2] / t, 100.0 * ct_mn[m][5] / t, 100.0 * ct_mn[m][6] / t, 100.0 * ct_mn[m][7] / t); } }
   if (P) printf("assist audit: steps straight back %d (an enemy in sight %d); dithering (a cell a third time in 24 moves, nothing new seen, no enemy) %d\n", st_turnback, st_turnback_foe, st_dither);
   if (P) printf("assist audit: searches %d (with a foe hunting %d, with the way down known %d); hungry, no food, food within 3: %d presses, not entry 0: %d\n", st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left);
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);

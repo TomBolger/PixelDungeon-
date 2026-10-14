@@ -219,7 +219,8 @@ static bool floor_left(void) {                         // anything left to explo
 #ifdef OVL_HOST
 #include <stdio.h>
 #include <stdlib.h>
-#define DBG_RET(x) do { int _r = (x); if (getenv("TDBG")) printf("  first: line %d -> %d kind %d\n", __LINE__, _r, *kind); return _r; } while (0)
+void tgt_line(int l) __attribute__((weak));   // (botrun deepbot CONTRA: which return made entry 0)
+#define DBG_RET(x) do { int _r = (x); if (tgt_line) tgt_line(__LINE__); if (getenv("TDBG")) printf("  first: line %d -> %d kind %d\n", __LINE__, _r, *kind); return _r; } while (0)
 #else
 #define DBG_RET(x) return (x)
 #endif
@@ -328,13 +329,13 @@ again:
     if (!heap_ok(h) || G.map[c] == T_ALCHEMY || (c != hp && char_at(c)) || (s_fish && IS_WATER(G.map[c]))) continue;   // (0.48: not junk you know of)
     if (h->item.kind == IK_DEW && G.hero.HP >= G.hero.HT && (G.dew >= 10 || !has(IK_DEW_VIAL))) continue;   // 0.41 (user): Dewdrop.doPickUp would do nothing
     int d = c == hp ? 0 : walk(c);
-    if (d < bk && (ahead(c) || precious(h->item.kind) || (!XENV("OBEY", 1) && d <= 4))) { bk = d; best = c; }   // (0.63: the player's way: still upgrades; 0.65 (owner: "if I want to explore a hallway but left a dewdrop behind, it shouldn't turn me around"): nothing else behind)
+    if (d < bk && ((direct(c) && (s_od < 0 || d <= 4)) || precious(h->item.kind) || (!XENV("OBEY", 1) && d <= 4))) { bk = d; best = c; }   // (0.63: the player's way: still upgrades; 0.65 (owner: "if I want to explore a hallway but left a dewdrop behind, it shouldn't turn me around"): nothing else behind)
   }
   if (best >= 0) DBG_RET(best);
   *kind = TK_GO;
   if (g_ovr.c >= 0 && g_ovr.c < MAP_LEN) {             // the cell the player chose
     int c = g_ovr.c, t = G.map[c];                      // 0.47: an objective from the list: plan A till met, then the plan again
-    if ((g_ovr.on & 8) && !unseen_by(c) && heap_at(c) < 0 && mob_at(c) < 0 && c != G.exit && c != G.entrance && t != T_WELL && t != T_ALCHEMY && t != T_LOCKED_DOOR && t != T_WALL_DECO) { g_ovr.c = -1; g_ovr.on &= ~8; s_od = -1; goto again; }
+    if ((g_ovr.on & 8) && !unseen_by(c) && heap_at(c) < 0 && mob_at(c) < 0 && c != G.exit && c != G.entrance && t != T_WELL && t != T_ALCHEMY && t != T_LOCKED_DOOR && t != T_WALL_DECO) { g_ovr.c = MAP_LEN; g_ovr.on &= ~8; goto again; }   // (0.72: met: on that way, not the plan again)
     if (walk(c) < 255) DBG_RET(c);
     g_ovr.c = MAP_LEN; }
 
@@ -383,7 +384,7 @@ again:
     for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && (!BIT_GET(G.visited, n) || (open_cell(n) && s_dist[n] >= 255))) { bk = walk(c); best = c; break; } }
   }
   if (best >= 0) DBG_RET(best);
-  if (s_od >= 0) { g_ovr.c = -1; s_od = -1; goto again; }   // nothing left the player's way: the plan again
+  if (s_od >= 0) { G.tgm.wo = s_od + 1; g_ovr.c = -1; s_od = -1; goto again; }   // nothing left the player's way: the plan again (0.72: tgt2 offers the way on, if there is one)
   if ((best = look(true)) >= 0) DBG_RET(best);        // the rest of the grass before the stairs (after exploring: what lies on is worth more)
   if (st == hp) *kind = TK_ITEM;                       // (on the stairs: Select takes them, not a search)
   if (way) DBG_RET(st);                                // the stairs (0.61 (owner): no more "the quest: look around a while longer first": it searched walls)
@@ -402,11 +403,11 @@ static __attribute__((noinline)) int mind(int hp) {
 #ifdef OVL_HOST
   if (!getenv("MIND")) return -1;                     // (the test bot walks its own way: only when asked)
 #endif
-  struct Tgm *M = &G.tgm; int pr = -1, up = 0;
+  struct Tgm *M = &G.tgm; int pr = -1, up = 0, od = g_ovr.c >= 0 ? g_ovr.d & 63 : -1;
   if (M->t0 == G.level_t0 && M->hp != hp)
     for (int j = 0; j < M->n; j++) {
       int c = M->c[j], g = M->d[j] - ((unsigned)c < MAP_LEN ? walk(c) : 255);
-      if (g > 0) { if (!j) break; up = 1; if (g >= TGT_MIND) { pr = c; up = 0; break; } }
+      if (g > 0) { if (!j) break; up = 1; if (g >= TGT_MIND && (od < 0 || off(c, od) <= 8)) { pr = c; up = 0; break; } }   // (0.72 (owner: "I cannot be fighting the assist"): only one along the way tapped)
     }
   if (!up) {                                           // the list as it is now
     M->t0 = G.level_t0; M->hp = hp; M->n = s_tn;
@@ -656,7 +657,7 @@ static int targets(int16_t *cell, uint8_t *kind) {
   g_ovr.on = (g_ovr.on & 12) | (g_ovr.c >= 0); if (g_ovr.c < 0) g_ovr.on &= ~8; g_ovr.d &= 127; s_od = g_ovr.c >= 0 ? g_ovr.d & 63 : -1;   // (bit 7: entry 0 is an enemy to wait for; 6: waited after a step back)
   { int pk = G.hero.weapon.kind == IK_PICKAXE ? -1 : game_bag_find(IK_PICKAXE); g_ovr.ms = pk;
     s_pick = (pk >= 0 || G.hero.weapon.kind == IK_PICKAXE) && G.depth >= 11 && G.depth <= 15; }
-  G.tgm.src0 = 1;
+  G.tgm.src0 = 1; G.tgm.wo = 0;
   { int k0, c0 = first(&k0); s_zero = true; t_put(c0, k0, 0); s_zero = false;
 #ifdef OVL_HOST
     void tgt_first(int c, int k) __attribute__((weak)); if (tgt_first) tgt_first(c0, k0);   // (botrun deepbot: entry 0 before the on-screen stand-in)
@@ -707,6 +708,11 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
   if (getenv("PRESS") && !getenv("NOTACT"))           // (the solver bot keeps its own: only when it plays by the buttons)
 #endif
   if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
+  if (G.tgm.wo && G.tgm.src0 == 1 && XENV("WAYON", 1)) {   // 0.72 (owner: "go to the opposite corner ... The assist should assist with THAT"): the player's way
+    int od = G.tgm.wo - 1, best = -1, bd = 1;            // has nothing left to do: then the way itself, the farthest cell on screen along it,
+    for (int c = 0; c < MAP_LEN; c++)                  // walked about straight; the plan only once it dead-ends
+      if (s_dist[c] > bd && s_dist[c] <= distance(c, hp) + 4 && on_screen(c) && off(c, od) <= CONE && open_cell(c) && !char_at(c) && c != G.exit && c != G.entrance) { bd = s_dist[c]; best = c; }
+    if (best >= 0) { t_front(best, TK_GO); g_ovr.c = MAP_LEN; } }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos) && m->type == MT_PIRANHA) s_fish = true; }
   { int pk = G.hero.weapon.kind == IK_PICKAXE ? -1 : game_bag_find(IK_PICKAXE); s_pick = (pk >= 0 || G.hero.weapon.kind == IK_PICKAXE) && G.depth >= 11 && G.depth <= 15; }
   // 0.47 (owner: "cycle through its plan B, C..."): the alternatives are objectives, best first by kind then walk:
