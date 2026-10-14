@@ -141,13 +141,84 @@ def write_bin():
     print(f"mobs.bin: {len(MOBS)} creatures, {len(out)} B")
 
 # ---- art ----
-LIFT = {"GOO": (2, 40), "WRAITH": (1, 70)}             # per-pixel v * k + a before snapping
+# 0.60: source colours set by hand where the palette snap loses what makes a creature read on its floor (all the
+# floors are 85-grey stone with black joints, the halls maroon). Keys: (r, g, b), or ((r, g, b), alpha) for PD's
+# translucent pixels. Each was measured on the panel (Pebble's colour correction) on its home floor and water.
+K_, G_, S_, W_ = (0, 0, 0), (85, 85, 85), (170, 170, 170), (255, 255, 255)
+PINK = (255, 170, 170)
+RECOLOR = {
+    # Goo is a black blob with a grey shine. 0.6's lift made its body 85-grey, the sewer floor's own colour, so it
+    # read as a black ring on the stone: the body is black again, the shine white (the panel's dim mid grey is lost),
+    # and its edge (OUTLINE) is the floor's grey, so the floor's black joints don't run into it; on water, a wet rim
+    "GOO": {(0, 0, 0): K_, (6, 6, 6): K_, (38, 38, 38): K_, (64, 64, 64): G_, (128, 128, 128): W_},
+    # the Sad Ghost is drawn additively: a 40% white body (a light grey over the floor) under a fully white face.
+    # All of it snapped to white, one flat sheet that melts into the sewers' white walls: the body is light grey
+    "GHOST": {((255, 255, 255), 102): S_},
+    # the wraith is its shadow twin: a 50% black body under an opaque black hood, white eyes (was all 85-grey)
+    "WRAITH": {((0, 0, 0), 128): G_, ((0, 0, 0), 255): K_},
+    # the golem's lit side snapped to 85-grey, the city floor, so only its black half showed: one step lighter
+    "GOLEM": {(102, 90, 87): S_},
+    # the bat's dark red wing membranes snapped to black with the rest of it: maroon
+    "BAT": {(51, 0, 8): (85, 0, 0)},
+    # Yog's blood vessels are pink a shade off white: they clipped to white and the eyeball went blank
+    "YOG": {c: PINK for c in ((255, 229, 229), (255, 215, 215), (255, 204, 204), (235, 211, 211), (214, 192, 192))},
+    # the bandit is the thief in a purple hood; its darkest purple snapped to maroon and the light one to raspberry
+    "BANDIT": {(58, 6, 42): (85, 0, 85), (95, 10, 77): (85, 0, 85), (100, 42, 82): (85, 0, 85), (122, 40, 104): (170, 0, 170)},
+}
+OUTLINE = {"GOO": G_}                                    # the 1 px edge's colour, when not black (see outlined())
+NEUTRAL = 8                                             # a grey whose channels differ by <= 8 stays grey (DM-300's
+                                                         # mid grey (125,122,128) snapped to (170,85,170), a purple patch)
 ANIMS = ["idle", "run", "attack", "die", "zap"]           # A_IDLE, A_RUN, A_ATTACK, A_DIE, A_OPERATE (ranged / special)
 SEQ = 10
-def write_art():
+def source_strip(m):
+    """The frames a creature's animations use, from its PD sheet: (strip, fw, fh, seqs, used)."""
     from parse_sprites import parse
-    import convert_lib as cl
     from PIL import Image
+    p = parse(m["sprite"])
+    if p["texture"] is None and p["extends"] != "MobSprite": p2 = parse(p["extends"]); p2["anims"].update(p["anims"]); p = p2
+    an = p["anims"]
+    alias = {"zap": ["zap", "cast", "kick", "pump"]}
+    seqs = []
+    for a in ANIMS:
+        cand = alias.get(a, [a])
+        got = next((an[c] for c in cand if c in an and an[c][2]), None)
+        if not got and a in ("run", "attack"): got = an.get("idle")
+        if not got and a == "zap": got = an.get("attack") or an.get("idle")
+        seqs.append(got)
+    used = []
+    for s in seqs:
+        for f in (s[2] if s else []):
+            if f not in used: used.append(f)
+    tex = Image.open(os.path.join(ASSETS, p["texture"])).convert("RGBA")
+    fw, fh = p["fw"], p["fh"]
+    cols = tex.width // fw
+    strip = Image.new("RGBA", (fw * len(used), fh))
+    for i, f in enumerate(used):
+        strip.paste(tex.crop(((f % cols) * fw, (f // cols) * fh, (f % cols) * fw + fw, (f // cols) * fh + fh)), (i * fw, 0))
+    return strip, fw, fh, seqs, used
+
+def convert(m, strip, fw):
+    """PD frames -> the Pebble sheet: per-creature fixes, palette, 16 colours, outline."""
+    import convert_lib as cl
+    strip = strip.copy(); px = strip.load()
+    rc = RECOLOR.get(m["key"], {}); lo, hi = cl.CHARS
+    for y in range(strip.height):                     # alpha 254: already a Pebble colour, pebbleize keeps it
+        for x in range(strip.width):
+            r, g, b, al = px[x, y]
+            if al < 100: continue
+            to = rc.get(((r, g, b), al), rc.get((r, g, b)))
+            if to is None and max(r, g, b) - min(r, g, b) <= NEUTRAL:
+                v = ((r + g + b) / 3 - lo) * 255 / (hi - lo)
+                to = (min((0, 85, 170, 255), key=lambda p: abs(p - v)),) * 3
+            if to is not None: px[x, y] = to + (254,)
+    if m["key"] == "PIRANHA":                         # its idle frames are a 30% black shadow under the water: solid grey here
+        px = strip.load()
+        for y in range(strip.height):
+            for x in range(strip.width):
+                if 0 < px[x, y][3] < 128: px[x, y] = (85, 85, 85, 255)
+    return cl.outlined(cl.max16(cl.pebbleize(strip, cl.CHARS)), fw, OUTLINE.get(m["key"], K_))   # 0.20: no mirrored row, the blitter flips
+
+def write_art():
     pkg = json.load(open(os.path.join(ROOT, "package.json")))
     media = pkg["pebble"]["resources"]["media"]
     arts = b""
@@ -155,39 +226,8 @@ def write_art():
         sp = m["sprite"]
         if not sp:                                        # the mirror image wears the hero's sheet (main.c HERO_ART)
             arts += bytes(2 + 6 * SEQ + 12); continue
-        p = parse(sp)
-        if p["texture"] is None and p["extends"] != "MobSprite": p2 = parse(p["extends"]); p2["anims"].update(p["anims"]); p = p2
-        an = p["anims"]
-        alias = {"zap": ["zap", "cast", "kick", "pump"]}
-        seqs = []
-        for a in ANIMS:
-            cand = alias.get(a, [a])
-            got = next((an[c] for c in cand if c in an and an[c][2]), None)
-            if not got and a in ("run", "attack"): got = an.get("idle")
-            if not got and a == "zap": got = an.get("attack") or an.get("idle")
-            seqs.append(got)
-        used = []
-        for s in seqs:
-            for f in (s[2] if s else []):
-                if f not in used: used.append(f)
-        tex = Image.open(os.path.join(ASSETS, p["texture"])).convert("RGBA")
-        fw, fh = p["fw"], p["fh"]
-        cols = tex.width // fw
-        strip = Image.new("RGBA", (fw * len(used), fh))
-        for i, f in enumerate(used):
-            strip.paste(tex.crop(((f % cols) * fw, (f // cols) * fh, (f % cols) * fw + fw, (f // cols) * fh + fh)), (i * fw, 0))
-        if m["key"] in LIFT:                              # very dark sprites (Goo, wraiths) would vanish into black
-            k, a = LIFT[m["key"]]; px = strip.load()
-            for y in range(strip.height):
-                for x in range(strip.width):
-                    r, g, b, al = px[x, y]
-                    if al: px[x, y] = (min(255, r * k + a), min(255, g * k + a), min(255, b * k + a), 255)
-        if m["key"] == "PIRANHA":                         # its idle frames are a 30% black shadow under the water: solid grey here
-            px = strip.load()
-            for y in range(strip.height):
-                for x in range(strip.width):
-                    if 0 < px[x, y][3] < 128: px[x, y] = (85, 85, 85, 255)
-        img = cl.outlined(cl.max16(cl.pebbleize(strip, cl.CHARS)), fw)   # 0.20: no mirrored row, the blitter flips
+        strip, fw, fh, seqs, used = source_strip(m)
+        img = convert(m, strip, fw)
         name = "mob_" + m["key"].lower() + ".png"
         img.save(os.path.join(ROOT, "resources/images", name))
         rec = struct.pack("<BB", fw, fh)
