@@ -18,7 +18,18 @@ _cache = {}
 def near(c):
     return min(PAL, key=lambda p: 2 * (p[0] - c[0]) ** 2 + 4 * (p[1] - c[1]) ** 2 + 3 * (p[2] - c[2]) ** 2)
 
-def pebbleize(img, levels, alpha_cut=100, keep_gray=False):
+def _hue(c):
+    h, _, s = colorsys.rgb_to_hls(*(v / 255 for v in c)); return h * 360, s
+_PAL_HUE = {p: _hue(p)[0] for p in PAL}
+def near_hue(c, lim=35):
+    """0.60: near() without leaving the colour's hue family: a coloured pixel snaps to a grey or to a Pebble colour
+    within `lim` degrees of its hue. Plain near() turned tan and parchment pink (scrolls, leather, the backpack icon)."""
+    h0, s0 = _hue(c)
+    if s0 < 0.12: return near(c)
+    return min((p for p in PAL if p[0] == p[1] == p[2] or min(abs(_PAL_HUE[p] - h0), 360 - abs(_PAL_HUE[p] - h0)) <= lim),
+               key=lambda p: 2 * (p[0] - c[0]) ** 2 + 4 * (p[1] - c[1]) ** 2 + 3 * (p[2] - c[2]) ** 2)
+
+def pebbleize(img, levels, alpha_cut=100, keep_gray=False, hue_guard=False):
     lo, hi = levels
     img = img.convert("RGBA")
     px = img.load()
@@ -31,7 +42,8 @@ def pebbleize(img, levels, alpha_cut=100, keep_gray=False):
             if a == 254:                                   # already snapped by the caller
                 px[x, y] = (r, g, b, 255)
                 continue
-            key = (r, g, b, lo, hi, keep_gray)
+            key = (r, g, b, lo, hi, keep_gray, hue_guard)
+            snap = near_hue if hue_guard else near
             if keep_gray and max(r, g, b) - min(r, g, b) < 24:
                 v = max(0, min(255, (((r + g + b) / 3) - lo) * 255 / (hi - lo)))
                 _cache[key] = (min((0, 85, 170, 255), key=lambda p: abs(p - v)),) * 3
@@ -39,7 +51,7 @@ def pebbleize(img, levels, alpha_cut=100, keep_gray=False):
                 # 0.5.2 "punch" for the dim Pebble screen: lift mid-tones (gamma 0.85), keep near-greys neutral
                 # (tiles only), boost already-colourful pixels' saturation 1.3x
                 if levels == SPRITES:                      # UI art: unchanged mapping
-                    _cache[key] = near(tuple(max(0, min(255, (v - lo) * 255 / (hi - lo))) for v in (r, g, b)))
+                    _cache[key] = snap(tuple(max(0, min(255, (v - lo) * 255 / (hi - lo))) for v in (r, g, b)))
                     px[x, y] = _cache[key] + (255,)
                     continue
                 c = [max(0.0, min(1.0, (v - lo) / (hi - lo))) ** (0.85 if levels == TILES else 1.0) for v in (r, g, b)]
@@ -49,7 +61,7 @@ def pebbleize(img, levels, alpha_cut=100, keep_gray=False):
                 else:
                     h, l, sat = colorsys.rgb_to_hls(*c)
                     if sat > 0.3: sat = min(1.0, sat * 1.3)
-                    _cache[key] = near(tuple(v * 255 for v in colorsys.hls_to_rgb(h, l, sat)))
+                    _cache[key] = snap(tuple(v * 255 for v in colorsys.hls_to_rgb(h, l, sat)))
             px[x, y] = _cache[key] + (255,)
     return img
 
@@ -122,6 +134,50 @@ def max16(img):
             if a and (r, g, b) in remap: px[x, y] = remap[(r, g, b)] + (255,)
     return img
 
+# 0.60: what each Pebble colour looks like on the panel (the SDK's screenshot colour correction), in PAL order
+PANEL = dict(zip(PAL, [((v >> 16) & 255, (v >> 8) & 255, v & 255) for v in (
+    0x000000, 0x001E41, 0x004387, 0x0068CA, 0x2B4A2C, 0x27514F, 0x16638D, 0x007DCE, 0x5E9860, 0x5C9B72, 0x57A5A2,
+    0x4CB4DB, 0x8EE391, 0x8EE69E, 0x8AEBC0, 0x84F5F1, 0x4A161B, 0x482748, 0x40488A, 0x2F6BCC, 0x564E36, 0x545454,
+    0x4F6790, 0x4180D0, 0x759A64, 0x759D76, 0x71A6A4, 0x69B5DD, 0x9EE594, 0x9DE7A0, 0x9BECC2, 0x95F6F2, 0x99353F,
+    0x983E5A, 0x955694, 0x8F74D2, 0x9D5B4D, 0x9D6064, 0x9A7099, 0x9587D5, 0xAFA072, 0xAEA382, 0xABABAB, 0xA7BAE2,
+    0xC9E89D, 0xC9EAA7, 0xC7F0C8, 0xC3F9F7, 0xE35462, 0xE25874, 0xE16AA3, 0xDE83DC, 0xE66E6B, 0xE6727C, 0xE37FA7,
+    0xE194DF, 0xF1AA86, 0xF1AD93, 0xEFB5B8, 0xECC3EB, 0xFFEEAB, 0xFFF1B5, 0xFFF6D3, 0xFFFFFF)]))
+def panel_lab(c):
+    """CIE L*a*b* of a Pebble colour as the panel shows it."""
+    def lin(u): u /= 255; return ((u + 0.055) / 1.055) ** 2.4 if u > 0.04045 else u / 12.92
+    r, g, b = (lin(v) for v in PANEL[c])
+    f = lambda t: t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+    X, Y, Z = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.9505, 0.2126 * r + 0.7152 * g + 0.0722 * b, (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.089
+    return 116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))
+def fold16(img):
+    """0.60: max16() as the panel sees it. Each step drops the colour whose loss costs least: for every pixel that would
+    move, (how far apart the two colours look on the panel)^2, so many slightly-off pixels beat a few badly-off ones.
+    max16 simply dropped the rarest colour into its RGB-nearest: firebloom lost its yellow heart, sungrass its buds, the
+    fire buff its orange flame, levitation its cyan."""
+    px = img.load(); counts = {}
+    for y in range(img.height):
+        for x in range(img.width):
+            if px[x, y][3]: counts[px[x, y][:3]] = counts.get(px[x, y][:3], 0) + 1
+    lab = {c: panel_lab(c) for c in counts}
+    d = lambda a, b: sum((u - v) ** 2 for u, v in zip(lab[a], lab[b])) ** 0.5
+    orig, remap = dict(counts), {}
+    while len(counts) > 15:                        # 15 + transparent
+        best = None
+        for c in sorted(counts):
+            to = min((o for o in sorted(counts) if o != c), key=lambda o: d(c, o))
+            cost = sum(orig[m] * d(m, to) ** 2 for m in [k for k, v in remap.items() if v == c] + [c])
+            if best is None or cost < best[0]: best = (cost, c, to)
+        _, c, to = best
+        counts[to] += counts.pop(c)
+        for k, v in list(remap.items()):
+            if v == c: remap[k] = to
+        remap[c] = to
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            if a and (r, g, b) in remap: px[x, y] = remap[(r, g, b)] + (255,)
+    return img
+
 # 0.6: HeroSprite.tiers(): one 15 px row per armour tier (0 none .. 5 plate); the game loads only the worn one
 for cls, f in (("warrior", "warrior.png"), ("mage", "mage.png"), ("rogue", "rogue.png"), ("huntress", "ranger.png")):   # 0.13: every class
     for t in range(7):                              # 0.12: + 6, the class armour
@@ -162,7 +218,39 @@ sheet = Image.new("RGBA", (160, 16 * ((len(ITEM_IDX) + 9) // 10)))
 for i, idx in enumerate(ITEM_IDX):
     x, y = (idx % 8) * 16, (idx // 8) * 16
     sheet.paste(items.crop((x, y, x + 16, y + 16)), ((i % 10) * 16, (i // 10) * 16))
-total += save(pebbleize(sheet, CHARS), "items_02.png")
+# 0.60: an unknown potion is known only by its colour, so each liquid's (light, dark) tones are picked by hand to stay
+# apart on the panel (worst pair, CIE dE as the panel shows it: 9 -> 28). The plain snap made golden and amber the same
+# orange, gave crimson no shade, and sank bistre to black like charcoal. A ring is known by its gem: agate's dark tone
+# was quartz's, so agate is grey.
+GEM_FIX = {56: {(0, 196, 232): (0, 255, 255), (0, 131, 155): (0, 170, 170)},     # turquoise (as before)
+           57: {(255, 0, 38): (255, 0, 0), (210, 0, 25): (170, 0, 0)},           # crimson: a dark shade again
+           58: {(0, 62, 255): (0, 85, 255), (0, 41, 184): (0, 0, 170)},          # azure (as before)
+           59: {(0, 180, 62): (0, 170, 85), (0, 116, 38): (0, 85, 0)},           # jade (as before)
+           60: {(217, 172, 0): (255, 255, 0), (149, 118, 0): (170, 170, 0)},     # golden: yellow, not amber's orange
+           61: {(238, 0, 156): (255, 0, 255), (165, 0, 107): (170, 0, 85)},      # magenta: away from crimson
+           62: {(62, 62, 62): (85, 85, 85), (19, 19, 19): (0, 0, 0)},            # charcoal (as before)
+           63: {(246, 236, 218): (255, 255, 255), (183, 175, 162): (170, 170, 170)},   # ivory (as before)
+           64: {(255, 140, 9): (255, 170, 0), (202, 103, 5): (170, 85, 0)},      # amber: orange over brown
+           65: {(107, 54, 6): (170, 85, 0), (54, 24, 3): (85, 0, 0)},            # bistre: brown, not black
+           66: {(122, 0, 184): (85, 0, 170), (77, 0, 118): (85, 0, 85)},         # indigo (as before)
+           67: {(143, 154, 154): (170, 170, 170), (70, 76, 76): (85, 85, 85)},   # silver (as before)
+           75: {(138, 102, 102): (85, 85, 85)}}                                  # agate's dark tone
+sp = sheet.load()
+for i, idx in enumerate(ITEM_IDX):
+    for y in range(16):
+        for x in range(16):
+            p = sp[(i % 10) * 16 + x, (i // 10) * 16 + y]
+            if p[3] >= 100 and p[:3] in GEM_FIX.get(idx, {}): sp[(i % 10) * 16 + x, (i // 10) * 16 + y] = GEM_FIX[idx][p[:3]] + (254,)
+total += save(pebbleize(sheet, CHARS, hue_guard=True), "items_02.png")   # 0.60: no more pink parchment and leather
+# 0.60: PlantSprite frames (plants.png, 8 x 16 px), drawn on grass and floor; 16 colours (4 bpp)
+# 0.60: PD rings each plant with a 30% black shadow that the alpha cut dropped, so plants melted into grass; it is
+# now a solid black edge like the items' (the panel has no translucency). The hue guard keeps earthroot brown, not
+# grey, and fold16 keeps firebloom's yellow heart and sungrass's yellow buds (max16 had folded them into orange).
+plants = crop("plants.png", (0, 0, 128, 16)).convert("RGBA"); pp = plants.load()
+for y in range(16):
+    for x in range(128):
+        if pp[x, y] == (0, 0, 0, 77): pp[x, y] = (0, 0, 0, 254)
+total += save(fold16(pebbleize(plants, CHARS, hue_guard=True)), "plants.png")
 # PD toolbar row: wait(0) search(20) info(40) backpack(60) quickslot(83..)
 total += save(pebbleize(crop("toolbar.png", (0, 7, 106, 32)), SPRITES, keep_gray=True), "toolbar.png")
 print(f"Total with 0.2 sheets: ~{total / 1024:.1f} KB")
@@ -256,7 +344,15 @@ bf = Image.open(os.path.join(SRC, "buffs.png")).convert("RGBA")
 strip = Image.new("RGBA", (7 * 30, 7))                 # 0.6: + fire, paralysis, levitation, mind vision, invisible, frost, blind, roots, slow, barkskin, immunity
 for i, idx in enumerate((3, 5, 6, 23, 26, 2, 4, 1, 0, 12, 15, 16, 11, 7, 24, 25, 21, 20, 28, 8, 29, 14, 19, 9, 10, 22, 17, 18, 13, 30)):
     strip.paste(bf.crop(((idx % 18) * 7, (idx // 18) * 7, (idx % 18) * 7 + 7, (idx // 18) * 7 + 7)), (i * 7, 0))
-total += save(max16(pebbleize(strip, SPRITES)), "buffs.png")   # 0.20: 4 bpp
+def hunger_orange(strip, w):
+    """0.60: Hunger's orange (242,115,24) snapped to (255,85,0), which on the panel is Starving's red (dE 12): it is
+    now (255,170,0) (dE 40), so the warning that you are starving reads apart from plain hunger."""
+    sp = strip.load()
+    for y in range(strip.height):
+        for x in range(w, 2 * w):                   # cell 1: BuffIndicator.HUNGER
+            if sp[x, y][:3] in ((242, 115, 24), (242, 160, 102)): sp[x, y] = (255, 170, 0, 254)
+    return strip
+total += save(fold16(pebbleize(hunger_orange(strip, 7), SPRITES)), "buffs.png")   # 0.20: 4 bpp (0.60: fold16)
 print(f"Total with 0.5 sheets: ~{total / 1024:.1f} KB")
 
 # ---- 0.5.1: UI pass ----
@@ -274,7 +370,7 @@ lb = Image.open(os.path.join(SRC, "large_buffs.png")).convert("RGBA")
 strip = Image.new("RGBA", (16 * 30, 16))                # WndHero buffs, same order as buffs.png
 for i, idx in enumerate((3, 5, 6, 23, 26, 2, 4, 1, 0, 12, 15, 16, 11, 7, 24, 25, 21, 20, 28, 8, 29, 14, 19, 9, 10, 22, 17, 18, 13, 30)):
     strip.paste(lb.crop(((idx % 16) * 16, (idx // 16) * 16, (idx % 16) * 16 + 16, (idx // 16) * 16 + 16)), (i * 16, 0))
-total += save(pebbleize(strip, SPRITES), "buffs_large.png")
+total += save(pebbleize(hunger_orange(strip, 16), SPRITES), "buffs_large.png")
 total += save(pebbleize(crop("banners.png", (0, 105, 128, 140)), SPRITES), "banner_gameover.png")
 total += save(pebbleize(crop("banners.png", (0, 70, 128, 105)), SPRITES), "banner_boss.png")   # 0.17: GameScene.bossSlain
 print(f"Total with 0.5.1 sheets: ~{total / 1024:.1f} KB")
