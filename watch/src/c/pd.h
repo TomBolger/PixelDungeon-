@@ -314,7 +314,7 @@ typedef struct {
   uint8_t last_action; int16_t last_cell;
   uint8_t night;                        // Dungeon.nightMode: before 7 am when the floor was entered
   int32_t srch_t; uint8_t srchd[MAP_LEN / 8];   // not saved (0.47: out of the app image): where this floor was searched, for the target list
-  struct Tgm { int32_t t0; int16_t hp, c[8]; uint8_t n, d[8]; int16_t tr; int32_t trt, fish; uint8_t srch, eb; } tgm;   // (0.61: tr, trt: the door trick's spot, and till when to wait there)   // not saved (0.47, ovl/tgt): the list's objectives and their walks, from where it was taken (hp)
+  struct Tgm { int32_t t0; int16_t hp, c[8]; uint8_t n, d[8]; int16_t tr; int32_t trt, fish; uint8_t srch, eb, pk; } tgm;   /* pk: the slot + 8 the hands would pick in a selector they open (0.64) */   // (0.61: tr, trt: the door trick's spot, and till when to wait there)   // not saved (0.47, ovl/tgt): the list's objectives and their walks, from where it was taken (hp)
 } Game;
 enum { J_WELL_HEALTH, J_WELL_AWARENESS, J_WELL_TRANSMUTATION, J_SACRIFICIAL, J_ALCHEMY, J_GARDEN, J_STATUE, J_GHOST, J_WANDMAKER, J_TROLL, J_IMP, J_COUNT };
 // Blobs (gases and fire): per-cell amounts, allocated only while one exists on the floor

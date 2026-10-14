@@ -733,6 +733,7 @@ static void open_bag(int pick) {                   // pick: -1 plain backpack, e
   if (pick >= 0) {
     s_sel = BAG_ROWM + BAG_EXIT;                   // nothing fits: the window still opens, all greyed (PD)
     for (int i = 0; i < BAG_UI_TAB0; i++) if (bag_selectable(i)) { s_sel = BAG_ROWM + i; break; }   // 0.42: its row
+    { int k = G.tgm.pk - 8, u = k < 0 ? -1 - k : k + 5; G.tgm.pk = 0; if (k >= -4 && k < BAG_SIZE && bag_selectable(u)) s_sel = BAG_ROWM + u; }   // 0.64: the hands' pick (Assist High)
   }
   redraw();
 }
