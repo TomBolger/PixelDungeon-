@@ -329,7 +329,7 @@ again:
     if (!heap_ok(h) || G.map[c] == T_ALCHEMY || (c != hp && char_at(c)) || (s_fish && IS_WATER(G.map[c]))) continue;   // (0.48: not junk you know of)
     if (h->item.kind == IK_DEW && G.hero.HP >= G.hero.HT && (G.dew >= 10 || !has(IK_DEW_VIAL))) continue;   // 0.41 (user): Dewdrop.doPickUp would do nothing
     int d = c == hp ? 0 : walk(c);
-    if (d < bk && ((direct(c) && (s_od < 0 || d <= 4)) || precious(h->item.kind) || (!XENV("OBEY", 1) && d <= 4))) { bk = d; best = c; }   // (0.63: the player's way: still upgrades; 0.65 (owner: "if I want to explore a hallway but left a dewdrop behind, it shouldn't turn me around"): nothing else behind)
+    if (d < bk && ((direct(c) && (s_od < 0 || (d <= 4 && off(c, s_od) <= 6))) || precious(h->item.kind) || (!XENV("OBEY", 1) && d <= 4))) { bk = d; best = c; }   // (0.63: the player's way: still upgrades; 0.65 (owner: "if I want to explore a hallway but left a dewdrop behind, it shouldn't turn me around"): nothing else behind)
   }
   if (best >= 0) DBG_RET(best);
   *kind = TK_GO;
