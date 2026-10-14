@@ -368,7 +368,13 @@ def tag_art(light, body, dark):
             r, g, b, a = tp[x, y]
             tp[x, y] = (0, 0, 0, 0) if a < 100 else (light if r >= 165 else dark if r < 135 else body) + (255,)
     return tag
-total += save(tag_art((255, 85, 0), (170, 0, 0), (85, 0, 0)), "tag_red.png")             # Tag.hardlight(0xFF4A4D): attack
+red = Image.new("RGBA", (28, 14)); red.paste(tag_art((255, 85, 0), (170, 0, 0), (85, 0, 0)), (0, 0))   # Tag.hardlight(0xFF4A4D): attack
+glass = tool.crop((24, 7, 36, 19)); gp = glass.load()   # 0.60: + the zoom tag's search glass at (16, 1), without the button's grey face
+for y in range(12):                                     # (main.c drew it from toolbar.png, a grey square inside the red tag)
+    for x in range(12):
+        if gp[x, y][:3] == (85, 85, 85): gp[x, y] = (0, 0, 0, 0)
+red.paste(glass, (16, 1))
+total += save(red, "tag_red.png")
 total += save(tag_art((0, 170, 255), (0, 85, 170), (0, 0, 85)), "tag_blue.png")           # 0.6.1: LootIndicator's Tag(0x1F75CC)
 total += save(tag_art((255, 255, 255), (170, 170, 170), (85, 85, 85)), "tag_white.png")   # 0.17: ResumeButton's Tag(0xCDD5C0), pale
 print(f"Total with 0.4 sheets: ~{total / 1024:.1f} KB")

@@ -1422,7 +1422,7 @@ after_toolbar:;
   if (combat()) {                                   // the buttons' tags (0.24: slim, pictures at 1x), beside the buttons that work them
     GRect a = ctag(0);                                // zoom: the search glass and a pip per level
     blit_nine(&s_tag, 0, 0, 16, 14, 3, a.origin.x, a.origin.y, a.size.w + 4, a.size.h);
-    blit(&s_toolbar, 24, 7, 12, 12, a.origin.x + 3, a.origin.y + 6, 1);
+    blit(&s_tag, 16, 1, 12, 12, a.origin.x + 3, a.origin.y + 6, 1);   // 0.60: the glass without the button face (tag_red.png)
     for (int i = 0; i <= s_zoom; i++) blit_fill(a.origin.x + 17, a.origin.y + 17 - i * 5, 3, 3, ARGB(GColorIcterine));
   }
   #define AT1(a, s) (a).origin.x + 2 + ((a).size.w - (s)) / 2, (a).origin.y + ((a).size.h - (s)) / 2   // a picture s px wide, centred
