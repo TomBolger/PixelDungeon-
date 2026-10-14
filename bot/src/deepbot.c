@@ -2274,6 +2274,7 @@ static bool press(void) {
   for (int i = i0; i < n; i++) {
     st_press++;
     int c = cell[i]; int32_t t = G.hero.time;
+    if (i && i == i0 && !(kind[0] == TK_ENEMY && adjacent(cell[i], G.hero.pos))) { int m = kind[0] == TK_ENEMY ? mob_at(cell[0]) : -1; G.tgm.vs = G.tgm.src0; G.tgm.vu = m >= 0 ? G.mobs[m].uid : 255; G.tgm.vt = G.now + 15 * TICK; }   // 0.66: main.c pass_hands: the override vetoes plan A's part
     if (i && i == i0 && kind[i] != TK_ENEMY && !getenv("NOOVR")) { g_ovr.c = getenv("OLDOVR") ? c : g_tgobj[i] | 0x4000; g_ovr.t = G.hero.pos - 65536; st_ovr_set++; }   // main.c tg_do: not the first (0.47: the objective)
     bool hold = !i && (g_ovr.d & 128);                  // main.c tg_do: wait for the enemy a step short
     if (hold) { st_hold++; if (++st_hold_run > st_hold_max) st_hold_max = st_hold_run; } else st_hold_run = 0;

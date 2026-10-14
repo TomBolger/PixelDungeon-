@@ -268,6 +268,7 @@ static int first(int *kind) {                          // the cell (on the map, 
     Mob *m = &G.mobs[i]; int fl = MOB_DEFS[m->type].flags;
     if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos)) continue;
     bool adj = adjacent(m->pos, hp);
+    if (!adj && G.tgm.vs == 1 && G.tgm.vu == m->uid && G.now < G.tgm.vt && XENV("VETO", 1)) continue;   // 0.66: the player went another way than at it: not plan A a while
     if (adj) g_ovr.d &= ~64;                           // (beside one: a step back may hold again)
     if ((m->state == ST_PASSIVE && (!adj || m->type == MT_STATUE)) || ((fl & MD_WATER) && !adj)) continue;
     if (!adj && walk(m->pos) > 2 * distance(m->pos, hp) + 4) continue;   // 0.41: sensed through a wall (the Huntress): a long way round
@@ -530,6 +531,12 @@ static int hands(void) {
   if (seen) {                                          // 0.50 (the solver bot): from afar: a full wand, or any charge when hurt; the Huntress's boomerang
     Mob *e = 0; int ed = 99; bool hit;               // every turn (it comes straight back); darts and such at one 3+ away
     for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state != ST_HUNTING || (MOB_DEFS[m->type].flags & MD_NPC)) continue; int d = distance(m->pos, hp); if (d < ed && ballistica(hp, m->pos, &hit) == m->pos) { ed = d; e = m; } }
+    int fs = -1; if (XENV("FLOCK", 1)) for (int sl = 0; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl);
+      if (it->kind == IK_WND_FLOCK && item_known(IK_WND_FLOCK) && (!(it->flags & (IF_LEVEL_KNOWN | IF_CHARGE_KNOWN)) || it->ench > 0)) fs = sl; }
+    if (fs >= 0) {                                     // 0.66 (owner): a Wand of Flock's sheep for cover: beside one, under 40%; or a shaman / warlock
+      int a = -1; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && adjacent(m->pos, hp)) a = m->pos; }   // shooting at you
+      if (a >= 0 && h->HP * 5 < h->HT * 2) { g_ovr.hs = fs; g_ovr.ha = ACN_ZAP; s_aim = a; return TK_BAG; }
+      if (e && ed >= 2 && (e->type == MT_SHAMAN || e->type == MT_WARLOCK)) { g_ovr.hs = fs; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }
     if (!e || ed < 2) return -1;
     int t = e->type; bool shooter = t == MT_TENGU || t == MT_EYE || t == MT_SCORPIO || t == MT_ACIDIC;
     if (t == MT_SHAMAN || t == MT_WARLOCK) return -1;   // 0.63 (owner): those want melee, from round a corner (tactics), not a wand duel
@@ -630,6 +637,7 @@ static int targets(int16_t *cell, uint8_t *kind) {
   g_ovr.on = (g_ovr.on & 12) | (g_ovr.c >= 0); if (g_ovr.c < 0) g_ovr.on &= ~8; g_ovr.d &= 127; s_od = g_ovr.c >= 0 ? g_ovr.d & 63 : -1;   // (bit 7: entry 0 is an enemy to wait for; 6: waited after a step back)
   { int pk = G.hero.weapon.kind == IK_PICKAXE ? -1 : game_bag_find(IK_PICKAXE); g_ovr.ms = pk;
     s_pick = (pk >= 0 || G.hero.weapon.kind == IK_PICKAXE) && G.depth >= 11 && G.depth <= 15; }
+  G.tgm.src0 = 1;
   { int k0, c0 = first(&k0); s_zero = true; t_put(c0, k0, 0); s_zero = false;
 #ifdef OVL_HOST
     void tgt_first(int c, int k) __attribute__((weak)); if (tgt_first) tgt_first(c0, k0);   // (botrun deepbot: entry 0 before the on-screen stand-in)
@@ -660,7 +668,7 @@ static void hl_rank(int hk) {                          // 0.54 (owner): Back wal
 }
 static int targets(int16_t *cell, uint8_t *kind, int n0) {   // 0.63: tgt3: the hands, pinned in front of tgt2's list (main.c game_targets)
   s_tn = n0; s_tc = cell; s_tk = kind; s_h0 = 0;
-  if (g_assist >= 2) { s_aim = -1; int hk = hands(); if (hk >= 0) t_front(hk == TK_BAG && s_aim >= 0 ? s_aim : G.hero.pos, hk); hl_rank(hk); }   // 0.51 (owner): plan A, and Down still offers the rest
+  if (g_assist >= 2) { s_aim = -1; int hk = hands(); if (hk >= 0) { t_front(hk == TK_BAG && s_aim >= 0 ? s_aim : G.hero.pos, hk); G.tgm.src0 = 3; } hl_rank(hk); }   // 0.51 (owner): plan A, and Down still offers the rest
   return s_tn;
 }
 #else
@@ -673,13 +681,14 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
     if (a >= 0 && s_tn > 0 && s_tc[0] == hp) { t_del(0); int n1 = s_tn; s_zero = true; t_put(a, TK_GO, 0); s_zero = false;
       if (s_tn > n1) { int c = s_tc[n1], k = s_tk[n1], o = g_tgobj[n1]; for (int j = n1; j > 0; j--) { s_tc[j] = s_tc[j - 1]; s_tk[j] = s_tk[j - 1]; g_tgobj[j] = g_tgobj[j - 1]; } s_tc[0] = c; s_tk[0] = k; g_tgobj[0] = o; }
       else t_front(hp, TK_GO); } }                      // (nowhere on screen: search here, as before)
-  int esc = escape();                                  // 0.64: out of gas / fire / ooze first (Assist Low too)
-  if (esc >= 0) t_front(esc, TK_GO);
-  else
+  bool vo = G.now < G.tgm.vt && XENV("VETO", 1), veto = vo && G.tgm.vs == 2;   // 0.66: the player overrode where we'd have them stand (or get out
+  int esc = vo && G.tgm.vs == 4 && G.now + 10 * TICK < G.tgm.vt ? -1 : escape();   // of gas: only 5 turns): not again a while
+  if (esc >= 0) { t_front(esc, TK_GO); G.tgm.src0 = 4; }   // 0.64: out of gas / fire / ooze first (Assist Low too)
+  else if (!veto)
 #ifdef OVL_HOST
   if (getenv("PRESS") && !getenv("NOTACT"))           // (the solver bot keeps its own: only when it plays by the buttons)
 #endif
-  if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; t_front(tc, TK_GO); } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
+  if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos) && m->type == MT_PIRANHA) s_fish = true; }
   { int pk = G.hero.weapon.kind == IK_PICKAXE ? -1 : game_bag_find(IK_PICKAXE); s_pick = (pk >= 0 || G.hero.weapon.kind == IK_PICKAXE) && G.depth >= 11 && G.depth <= 15; }
   // 0.47 (owner: "cycle through its plan B, C..."): the alternatives are objectives, best first by kind then walk:

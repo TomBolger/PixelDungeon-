@@ -285,7 +285,7 @@ static const uint8_t VIEW[3][4] = { { 15, 11, 8, 240 }, { 7, 5, 4, 60 }, { 3, 2,
 #else                                               // (Emery, 0.38: left, up, down, right: the map between the status pane, y 49,
 static const uint8_t VIEW[3][4] = { { 12, 8, 8, 9 }, { 6, 4, 4, 4 }, { 3, 2, 2, 2 } };   // and the toolbar, y 190; the tags from x 178)
 #endif
-static int16_t s_tg = -1; static uint8_t s_tgk, s_tgu, s_tgn, s_tgi, s_tgk0;   // the chosen target's cell and kind (an enemy: its uid)
+static int16_t s_tg = -1, s_tg0 = -1; static uint8_t s_tgk, s_tgu, s_tgn, s_tgi, s_tgk0;   // the chosen target's cell and kind (an enemy: its uid)
 static void tg_refresh(int dir) {                 // keep the chosen target while it's in the list, else the best; dir: +1 next, -1 back
   static int32_t s_now = -1, s_t0; static int16_t s_pos; static int8_t s_z;   // the list only changes when time passes, the hero moves or the zoom changes
   if (!dir && G.now == s_now && G.hero.pos == s_pos && s_zoom == s_z) return;
@@ -304,14 +304,19 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   int i = 0;                                         // 0.40: after each step the first one (what a good player would do next)
   if (dir && cur >= 0) i = (cur + dir + n) % n;      // Down / long Down: the next / the one before
   else if (dir < 0) i = n - 1;
-  s_tgn = n; s_tgi = i; s_tg = n ? c[i] : -1; s_tgk = n ? k[i] : 0; s_tgk0 = n ? k[0] : 0;
+  s_tgn = n; s_tgi = i; s_tg = n ? c[i] : -1; s_tgk = n ? k[i] : 0; s_tgk0 = n ? k[0] : 0; s_tg0 = n ? c[0] : -1;
   if (n && s_tgk == TK_ENEMY) { s_tgu = G.mobs[mob_at(s_tg)].uid; G.last_target = s_tg; }
 }
 void hero_spend(int t); void process(void);
-static void pass_hands(void) { if (s_tgk0 == TK_BAG || s_tgk0 == TK_REST) { g_ovr.dk = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = s_tgk0 == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; } }
+static void pass_hands(int c) {                   // the player chose otherwise than plan A (c: where): the hands' suggestion passed over (0.53), and
+  if (s_tgk0 == TK_BAG || s_tgk0 == TK_REST) { g_ovr.dk = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = s_tgk0 == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; }
+  if (s_tgk0 == TK_ENEMY && abs((c & 31) - (G.hero.pos & 31)) <= 1 && abs((c >> 5) - (G.hero.pos >> 5)) <= 1) return;   // (a step back from an enemy: the doorway fight, still on)
+  int m = s_tgk0 == TK_ENEMY && s_tg0 >= 0 ? mob_at(s_tg0) : -1;   // 0.66 (owner: "I cannot be fighting the assist"): what made plan A
+  G.tgm.vs = G.tgm.src0; G.tgm.vu = m >= 0 ? G.mobs[m].uid : 255; G.tgm.vt = G.now + 15 * TICK;   // (an enemy: that one) is vetoed 15 turns (ovl/tgt)
+}
 static ActResult tg_do(void) {                    // Select: as a tap on the target (0.36: rooted, 0.40: the hero's own cell: search)
   int c = s_tg, k = s_tgk, hp = G.hero.pos;
-  if (s_tgi) pass_hands();                         // 0.53 (owner): plan B over the hands: pass that one over
+  if (s_tgi) pass_hands(s_tg);                         // 0.53 (owner): plan B over the hands: pass that one over
   if (k == TK_MINE) return game_item_do(g_ovr.ms, ACN_MINE);   // 0.41: beside a dark gold vein: mine it (TK_VEIN: walk there)
   if (k == TK_BAG) return game_item_do(g_ovr.hs, (ItemAction)g_ovr.ha);   // 0.48 test kit (0.51: Assist High): the bot's hands (0.50: a throw or a zap at the nearest foe in line: use overlay)
   if (k == TK_REST) return game_rest(true);
@@ -949,7 +954,7 @@ static void on_tap(int x, int y) {
   if (s_tg >= 0 && in_rect(ctag(1), x, y)) { s_walking = false; act(tg_do()); return; }   // the middle tag
   s_walking = false;
   int16_t c = screen_to_cell(x, y);
-  if (c >= 0) { pass_hands(); g_ovr.c = c; g_ovr.t = G.hero.pos - 65536; act(game_tap_cell(c)); }   // (0.63 (owner): a tap passes over the hands too)   // 0.43: the player's own way (ovl/tgt), as Select on another target; yourself: Hero.handle(pos): the stairs, things underfoot, a sign (else nothing, no turn)
+  if (c >= 0) { if (c != s_tg0) pass_hands(c); g_ovr.c = c; g_ovr.t = G.hero.pos - 65536; act(game_tap_cell(c)); }   // (0.63 (owner): a tap passes over the hands too)   // 0.43: the player's own way (ovl/tgt), as Select on another target; yourself: Hero.handle(pos): the stairs, things underfoot, a sign (else nothing, no turn)
 }
 
 static int16_t s_touch_x, s_touch_y, s_touch_moved; static bool s_touching; static uint32_t s_touch_ms;
