@@ -75,6 +75,12 @@ for r in range(1, 5):
         cols.append(cl.near(tuple(min(255, v * lift + 10 * k) for v in m)))
     out = Image.new("RGBA", (32, 32))
     op = out.load()
+    if r == 1:   # 0.59 (owner: "that doesn't look like water at all"): lifted onto the palette, PD's dark slate-teal water came out
+        # as greys and read as metal. Deep teal with its brightest ripples (the top 15%) in a lighter teal, as close as the palette gets
+        ls = sorted(sum(wp[x, y][:3]) for y in range(32) for x in range(32)); t1 = ls[len(ls) * 85 // 100]
+        for y in range(32):
+            for x in range(32): op[x, y] = ((85, 170, 170) if sum(wp[x, y][:3]) > t1 else (0, 85, 85)) + (255,)
+        out.save(os.path.join(OUT, f"water_{REGIONS[r]}.png")); print(REGIONS[r], "water: teal"); continue
     if r == 4:   # 0.56 (owner: "the lava is too featureless"): five heat levels, a dark crust to bubbling yellow
         ls = sorted(sum(wp[x, y][:3]) for y in range(32) for x in range(32))
         t1, t2, t3 = (ls[int(len(ls) * p)] for p in (0.35, 0.68, 0.82))
