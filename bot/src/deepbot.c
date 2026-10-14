@@ -2281,7 +2281,7 @@ static bool press(void) {
     bool mine = kind[i] == TK_MINE;
     if (mine) st_mine++; if (kind[i] == TK_VEIN) st_mine_walk++;
     if (kind[i] == TK_BAG && !s_pure && g_ovr.ha != ACN_EAT && g_ovr.ha != ACN_DRINK && g_ovr.ha != ACN_THROW && g_ovr.ha != ACN_ZAP) continue;
-    if (i && (kind[0] == TK_BAG || kind[0] == TK_REST)) { g_ovr.dk = kind[0] == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = kind[0] == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; }   // (main.c tg_do: the hands passed over)   // 0.61: the hands (main.c tg_do), those with no aiming or choosing (gear: the bot's own)
+    if (i && (kind[0] == TK_BAG || kind[0] == TK_REST)) { int j = G.tgm.dn++ & 7; G.tgm.dk[j] = kind[0] == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; G.tgm.da[j] = kind[0] == TK_REST ? 255 : g_ovr.ha; G.tgm.dd = G.depth; }   // (main.c tg_do: the hands passed over)   // 0.61: the hands (main.c tg_do), those with no aiming or choosing (gear: the bot's own)
     ActResult r = mine ? game_item_do(g_ovr.ms, ACN_MINE) : kind[i] == TK_BAG ? do_item(g_ovr.hs, (ItemAction)g_ovr.ha) : kind[i] == TK_REST ? game_rest(true) : hold ? game_rest(false) : (G.hero.b.roots || c == G.hero.pos) && kind[i] == TK_GO ? bot_search() : tap_safe(c);
     if (G.hero.pos != p0 && !getenv("NOHEAD")) g_from = p0;
     if (kind[i] == TK_VEIN && r == ACT_NONE && G.hero.time == t) { st_mine_none++; if (V) printf("  MINE-WALK did nothing: vein %d hero %d\n", c, G.hero.pos); }

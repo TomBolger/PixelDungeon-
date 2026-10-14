@@ -492,12 +492,17 @@ static int tactics(void) {
 // 0.48 test kit (0.51: Assist High in either build) (0.49: in tgt2, 0.63: tgt3, room) (owner: judge the bot by mashing Select): the bot's hands as plan A: eat once starving, a known Potion of
 // Healing when a fight has you under a quarter, a better identified weapon or armour, rest when hurt with nothing about
 static int16_t s_aim;                                 // 0.50: the cell an aimed hand (zap, throw) is for
-#define DECL(k, a) (g_ovr.dd == G.depth && g_ovr.dk == (k) && g_ovr.da == (a))   // 0.53 (owner): passed over: not again till the stairs are plan A or the next floor
+// 0.53 (owner): a hands suggestion passed over: not again this floor (0.67: the last 8 remembered, main.c pass_hands; no
+// longer back once the stairs are plan A: "it won't demote that choice")
+static bool decl(int k, int a) { int n = G.tgm.dd != G.depth ? 0 : G.tgm.dn < 8 ? G.tgm.dn : 8; for (int i = 0; i < n; i++) if (G.tgm.da[i] == a && (k < 0 || G.tgm.dk[i] == k)) return true; return false; }
+#define DECL(k, a) decl(k, a)
+#define decl_a(a) decl(-1, a)
 static int hands(void) {
   Hero *h = &G.hero; int hp = h->pos; bool near = false, seen = false, adj = false; int hard = 0;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & MD_NPC)) continue; seen = true;
     int d = distance(m->pos, hp); if (d <= 3) near = true; if (d <= 1) adj = true;
     hard += (MOB_DEFS[m->type].flags & MD_BOSS) ? 2 : m->state == ST_HUNTING; }   // (a boss, or two coming for you: a hard fight)
+  if (G.tgm.dd != G.depth) { G.tgm.dn = 0; G.tgm.dd = G.depth; }
   g_ovr.hs = -1;                                       // (G.tgm.pk stays till a selector opens: reading may refresh the list first)
   if (XENV("FOUL", 1) && (foul(hp) || h->b.burning)) return -1;   // 0.64: out of the gas / fire first (first())
   // 0.61 (owner): hunger stops rising at Starving, so the turns spent there cost no food (just ~1 HP a 33 turns, and no
@@ -511,10 +516,10 @@ static int hands(void) {
   // 0.64 (owner: "I don't want to starve to death because I ignored food suggestion once"): a meal passed over comes
   // back once health falls under half, and again under a quarter (two nudges; past that the player has a reason)
   int band = h->HP * 4 < h->HT ? 2 : h->HP * 2 < h->HT;
-  bool passed = g_ovr.dd == G.depth && g_ovr.da == ACN_EAT;
+  bool passed = decl_a(ACN_EAT);
   if (!passed) G.tgm.eb = 0;
   else if (!G.tgm.eb) G.tgm.eb = band + 1;              // (the band it was passed over in)
-  else if (band + 1 > G.tgm.eb) { passed = false; g_ovr.dd = -1; G.tgm.eb = 0; }
+  else if (band + 1 > G.tgm.eb) { passed = false; for (int i = 0; i < 8; i++) if (G.tgm.da[i] == ACN_EAT) G.tgm.da[i] = 254; G.tgm.eb = 0; }
   for (int i = 0; i < BAG_SIZE; i++) {
     int k = h->bag[i].kind;
     if (food_k(k) && (eat || war) && (k != IK_MYSTERY_MEAT || (g_ovr.hs < 0 && !war)) && !passed) { g_ovr.hs = i; g_ovr.ha = ACN_EAT; }   // (0.63: passed over: not again this floor, 0.64: but for those two)
@@ -563,7 +568,15 @@ static int hands(void) {
     return -1; }
   for (int k = IK_POT_STRENGTH; k; k = k == IK_POT_STRENGTH ? IK_POT_MIGHT : k == IK_POT_MIGHT ? IK_POT_EXPERIENCE : 0)   // 0.50 (0.64: Might and Experience too)
     if ((s = game_bag_find(k)) >= 0 && item_known(k) && !DECL(k, ACN_DRINK)) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
-  if (!h->b.blind && (s = game_bag_find(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && !DECL(IK_SCR_UPGRADE, ACN_READ)) { G.tgm.pk = h->armor.kind ? 6 : 7; g_ovr.hs = s; g_ovr.ha = ACN_READ; return TK_BAG; }   // (0.64: the selector opens on the armour: upgrades there first)   // 0.50: an upgrade (the selector asks what for)
+  if (!h->b.blind && (s = game_bag_find(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && !DECL(IK_SCR_UPGRADE, ACN_READ)) {
+    // 0.67 (owner: "it won't demote that choice ... I want to save it until my sword gets lower on durability"): an upgrade
+    // is offered for a worn piece of known level worn down to a quarter (it mends it: on that piece), else only while the
+    // armour is behind the depth (early floors) and the player hasn't passed one over yet (G.tgm.uph: for good)
+    int pick = 0; for (int sl = -2; sl < 0; sl++) { Item *it = game_slot(sl); if (it->kind && (it->flags & IF_LEVEL_KNOWN) && it->lvl > 0 && it->dur * 4 <= item_max_dur(it)) pick = sl + 8; }
+    Item *a = &h->armor; int al = (a->flags & IF_LEVEL_KNOWN) ? a->lvl : 0;
+    if (!pick && (!G.tgm.uph || !XENV("UPGHOLD", 1)) && a->kind && (al * 3 < G.depth || !XENV("UPGHOLD", 1))) pick = 6;
+    if (pick) { G.tgm.pk = pick; g_ovr.hs = s; g_ovr.ha = ACN_READ; return TK_BAG; } }
+  if (DECL(IK_SCR_UPGRADE, ACN_READ)) G.tgm.uph = 1;   // (0.64: the selector opens on the armour: upgrades there first)   // 0.50: an upgrade (the selector asks what for)
   if (!h->b.blind && XENV("UTILSCR", 1)) {               // 0.64: the known scrolls that sat unread till death: Remove Curse on a cursed piece worn,
     bool cw = false; int unid = 0;                     // Identify with something to learn, Enchantment, Magic Mapping a while into a floor with no way down yet
     for (int sl = -4; sl < BAG_SIZE; sl++) { Item *it = game_slot(sl); int c = item_cat(it->kind); if (c != CAT_WEAPON && c != CAT_ARMOR && c != CAT_RING && c != CAT_WAND) continue;
@@ -676,7 +689,6 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
   int hp = G.hero.pos, ne = 0;
   s_tn = n0; s_tc = cell; s_tk = kind; s_tkey[0] = 0;
   s_h0 = 0;
-  if (n0 > 0 && cell[0] == G.exit) g_ovr.dd = -1;   // 0.53: the stairs are plan A: passed-over hands come back
   if (G.tgm.srch) { G.tgm.srch = 0; int a = srch_spot(-1, -1);   // 0.63: tgt's last resort, the best spot to search for secret doors from, as entry 0
     if (a >= 0 && s_tn > 0 && s_tc[0] == hp) { t_del(0); int n1 = s_tn; s_zero = true; t_put(a, TK_GO, 0); s_zero = false;
       if (s_tn > n1) { int c = s_tc[n1], k = s_tk[n1], o = g_tgobj[n1]; for (int j = n1; j > 0; j--) { s_tc[j] = s_tc[j - 1]; s_tk[j] = s_tk[j - 1]; g_tgobj[j] = g_tgobj[j - 1]; } s_tc[0] = c; s_tk[0] = k; g_tgobj[0] = o; }

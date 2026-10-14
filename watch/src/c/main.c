@@ -309,7 +309,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
 }
 void hero_spend(int t); void process(void);
 static void pass_hands(int c) {                   // the player chose otherwise than plan A (c: where): the hands' suggestion passed over (0.53), and
-  if (s_tgk0 == TK_BAG || s_tgk0 == TK_REST) { g_ovr.dk = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; g_ovr.da = s_tgk0 == TK_REST ? 255 : g_ovr.ha; g_ovr.dd = G.depth; }
+  if (s_tgk0 == TK_BAG || s_tgk0 == TK_REST) { int i = G.tgm.dn++ & 7; G.tgm.dk[i] = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; G.tgm.da[i] = s_tgk0 == TK_REST ? 255 : g_ovr.ha; G.tgm.dd = G.depth; }   // (0.67: 8 remembered, not just the last)
   if (s_tgk0 == TK_ENEMY && abs((c & 31) - (G.hero.pos & 31)) <= 1 && abs((c >> 5) - (G.hero.pos >> 5)) <= 1) return;   // (a step back from an enemy: the doorway fight, still on)
   int m = s_tgk0 == TK_ENEMY && s_tg0 >= 0 ? mob_at(s_tg0) : -1;   // 0.66 (owner: "I cannot be fighting the assist"): what made plan A
   G.tgm.vs = G.tgm.src0; G.tgm.vu = m >= 0 ? G.mobs[m].uid : 255; G.tgm.vt = G.now + 15 * TICK;   // (an enemy: that one) is vetoed 15 turns (ovl/tgt)

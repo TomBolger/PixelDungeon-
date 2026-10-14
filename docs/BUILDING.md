@@ -83,10 +83,10 @@ On a headless Linux server, `scripts/emu_install.sh <pbw> [wipe]` starts a virtu
 scripts/package.sh 0.56
 ```
 
-This writes two files to `dist/`:
+This writes the game to `dist/` (add `--testkit` for the test kit as well):
 
 - `pixel-dungeon-0.56.pbw`: the game. Update the version string in `watch/src/ovl/ui/ui.c` and `watch/package.json` first.
-- `pixel-dungeon-0.56-testkit.pbw`: **PD Test Kit**, a separate app with its own save, built with `TEST_BUILD`. It starts at level 30 with every item laid out on the first two floors, for testing.
+- `pixel-dungeon-0.56-testkit.pbw` (with `--testkit`): **PD Test Kit**, a separate app with its own save, built with `TEST_BUILD`. It starts at level 30 with every item laid out on the first two floors, for testing.
 
 The script edits `package.json`, `pd.h` and `ui.c` for the test kit and always puts them back, even if the build fails.
 

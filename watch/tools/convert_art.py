@@ -373,6 +373,20 @@ glass = tool.crop((24, 7, 36, 19)); gp = glass.load()   # 0.60: + the zoom tag's
 for y in range(12):                                     # (main.c drew it from toolbar.png, a grey square inside the red tag)
     for x in range(12):
         if gp[x, y][:3] == (85, 85, 85): gp[x, y] = (0, 0, 0, 0)
+# 0.67 (owner: "gold on red makes it hard to see"): on the red tag the glass is silver, its lens pale blue glass with the shine
+SILVER = {(170, 170, 85): (170, 170, 170), (255, 255, 170): (255, 255, 255), (85, 85, 0): (85, 85, 85), (85, 0, 0): (0, 0, 0), (170, 170, 170): (85, 170, 255)}
+for y in range(12):
+    for x in range(12):
+        c = gp[x, y]
+        if c[3] and c[:3] in SILVER: gp[x, y] = SILVER[c[:3]] + (255,)
+out = set(); todo = [(x, y) for x in range(12) for y in (0, 11)] + [(x, y) for y in range(12) for x in (0, 11)]
+while todo:                                             # the lens: the clear cells the outside can't reach
+    x, y = todo.pop()
+    if not (0 <= x < 12 and 0 <= y < 12) or (x, y) in out or gp[x, y][3]: continue
+    out.add((x, y)); todo += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+for y in range(12):
+    for x in range(12):
+        if not gp[x, y][3] and (x, y) not in out: gp[x, y] = (85, 170, 255, 255)
 red.paste(glass, (16, 1))
 total += save(red, "tag_red.png")
 total += save(tag_art((0, 170, 255), (0, 85, 170), (0, 0, 85)), "tag_blue.png")           # 0.6.1: LootIndicator's Tag(0x1F75CC)
