@@ -2708,7 +2708,7 @@ static bool decide(void) {
 // ---- bot2: snapshots for the photo tool (tools/snap.py): the state before a decision, and what was done
 static char *s_snapbuf[16]; static int s_snap_n;
 static void jclean(char *s) { for (; *s; s++) if (*s == '"' || *s == '\\') *s = '\''; }
-// 0.49: the replay viewer's extras: what's carried (icons, state, the game's own description once per name), every heap
+// 0.49: REC extras: what's carried (icons, state, the game's own description once per name), every heap
 // on the floor (seen or not), plants, gas and fire
 static void rec_item(FILE *f, const Item *it, bool *first) {
   if (!it->kind) return; char nm[96]; item_name(it, nm, sizeof nm); jclean(nm);
@@ -3604,7 +3604,7 @@ int main(int argc, char **argv) {
 #endif
       if (getenv("RNGLOG") && s_fork_until >= 0 && steps == atoi(getenv("RNGLOG"))) { char fn[200]; snprintf(fn, sizeof fn, "%s/rng_%s.txt", getenv("FTDIR"), s_is_child ? "c" : "p"); g_rnglog = fopen(fn, "w");
         fprintf(g_rnglog, "before: now %d hero.time %d turn_due %d level_t0 %d night %d |", G.now, G.hero.time, G.turn_due, G.level_t0, G.night); for (int i = 0; i < G.n_mobs; i++) fprintf(g_rnglog, " %d:%d hp%d t%d", i, G.mobs[i].type, G.mobs[i].HP, G.mobs[i].time); fprintf(g_rnglog, "\n"); }
-      char *snapb = NULL; static FILE *s_rec; if (getenv("REC") && !s_rec && !s_is_child) s_rec = fopen(getenv("REC"), "w"); int nlog0 = s_nlog;   // 0.49: REC=file: every step of every game, one JSON line each (the replay viewer)
+      char *snapb = NULL; static FILE *s_rec; if (getenv("REC") && !s_rec && !s_is_child) s_rec = fopen(getenv("REC"), "w"); int nlog0 = s_nlog;   // 0.49: REC=file: every step of every game, one JSON line each
       bool snap_on = (s_rec && !s_is_child) || (getenv("SNAPG") && g == atoi(getenv("SNAPG"))) && steps >= (getenv("SNAPA") ? atoi(getenv("SNAPA")) : 0) && steps <= (getenv("SNAPB") ? atoi(getenv("SNAPB")) : 1 << 30);
       bool snap_death = getenv("SNAPDEATH") != NULL && !s_is_child;
       s_did[0] = 0;

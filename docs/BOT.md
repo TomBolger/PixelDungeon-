@@ -4,7 +4,7 @@
 
 1. **Testing.** Every step, it checks dozens of invariants about the game state. Thousands of bot games find crashes, rule mistakes and save bugs long before a person would.
 2. **Strategy research.** It is an attempt to play the game well: exploring, fighting, item use, food and upgrade decisions, and bosses. Its targeting logic is shared with the watch's Assist suggestions.
-3. **Content.** It records games for the [replay site](../replay-site/README.md) and writes checkpoints for the What-If test build.
+3. **Content.** It can record every step of its games (`REC=`) and writes checkpoints for the What-If test build.
 
 The bot plays fairly. It only knows what the hero could know (unidentified items stay unknown), and under normal settings there is no head start and no second life. It has not won a normal-rules game yet: it reaches floor 5–6 on average, and its most common killers are Goo and Tengu.
 
@@ -57,7 +57,7 @@ Settings are environment variables; there are about 300 of them. Most are experi
 | `NOLA=1` | Turn off look-ahead (rules only) |
 | `LAMULT`, `LAK` | Look-ahead effort |
 | `ASSIST=0/1/2` | The watch's Assist level, for testing the suggester |
-| `REC=file.jsonl` | Record every step for the replay viewer |
+| `REC=file.jsonl` | Record every step of every game as one JSON line (map, hero, creatures, items, decision, log) |
 | `CAMPDIR=dir` | Write a checkpoint at each new floor (`dir/gGGGG_dDD.bin`) |
 | `CAMPLOAD=file` | Continue a game from a checkpoint |
 | `FOODLOG=1`, `FIGHTLOG=1`, `GEARLOG=1` | Extra logs about food, fights and gear |

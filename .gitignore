@@ -12,11 +12,6 @@ watch/src/c/ovl_keep.auto.c
 watch/tools/stub/res_ids.h
 watch/resources/data/whatif.bin
 
-# Replay site: recorded games are large; make them with replay-site/tools/record_games.sh
-replay-site/www/games/
-replay-site/dist/
-replay-site/data/
-
 # Editors and OS
 .vscode/
 .idea/

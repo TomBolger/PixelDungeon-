@@ -4,7 +4,7 @@ A faithful port of **[Pixel Dungeon](https://github.com/watabou/pixel-dungeon) 1
 
 ![Title screen, hero select and the first floor on a Pebble Time 2](docs/images/watch-screens.png)
 
-The repository also holds the **dungeon bot**: a program that plays the real game code on a PC, thousands of games at a time. It is used to test the port, and it powers the watch's built-in move suggestions. A **replay website** lets people step through the bot's games and suggest better moves.
+The repository also holds the **dungeon bot**: a program that plays the real game code on a PC, thousands of games at a time. It is used to test the port, and it powers the watch's built-in move suggestions.
 
 ## Features
 
@@ -24,7 +24,6 @@ The repository also holds the **dungeon bot**: a program that plays the real gam
 | [`watch/`](watch) | The Pebble app: C sources, overlays, art, sound and text resources, and the build tools. |
 | [`bot/`](bot) | The dungeon bot and host tests. They compile the watch's game code for Linux and play it headless. |
 | [`bot/runner/`](bot/runner) | A job runner that spreads bot games across every core of a Windows PC (via WSL). |
-| [`replay-site/`](replay-site) | The public replay viewer and its feedback server, with a one-command deploy to a small Linux server. |
 | [`tools/javapd/`](tools/javapd) | The original Java game, made to run headless, for comparing the C port against the original. |
 | [`scripts/`](scripts) | Release packaging, the "What-If" test build, and emulator helpers. |
 | [`docs/`](docs) | Building, architecture, the bot, and development notes. |
@@ -53,26 +52,18 @@ bot/build.sh                          # -> bot/build/deepbot
 cd bot && ./score.sh 20               # 20 games under normal rules, with a summary
 ```
 
-**Run the replay site locally.**
-
-```sh
-replay-site/tools/record_games.sh 12  # record 12 bot games for the viewer
-cd replay-site/www && python3 -m http.server 8000   # viewing only; feedback needs server.py, see replay-site/README.md
-```
-
 ## Documentation
 
 - [docs/BUILDING.md](docs/BUILDING.md): setting up the SDK, building, installing on a watch or the emulator, and making releases.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the game fits on a watch (memory budget, overlays, resources, saving) and a map of the code.
 - [docs/BOT.md](docs/BOT.md): the dungeon bot, its settings, the test checks it runs, and the PC runner.
-- [replay-site/README.md](replay-site/README.md): the replay viewer, the feedback API and deployment.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to make and test changes.
 
 ## Project status
 
 - **Version 0.55.** The whole game is ported and is tested on a real Pebble Time 2.
 - **Current work:** finishing the Gabbro (round-screen) layout and teaching the bot to win. It reaches floor 5–6 on average and has not won a normal-rules game yet.
-- **Help wanted:** the replay site collects strategy feedback from human players.
+- **Help wanted:** strategy ideas for the bot, especially from experienced players.
 
 ## Credits and license
 
