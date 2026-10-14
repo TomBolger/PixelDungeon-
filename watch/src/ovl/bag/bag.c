@@ -53,16 +53,26 @@ static bool nav_ok(int i) {                        // 0.42: the buttons skip emp
   Item *it;
   return bag_selectable(i) && (s_move || i >= BAG_EXIT || ((it = bag_item(i)) && it->kind));
 }
-// 0.69 (owner: "it's annoying to figure out what is what"): a known potion or scroll shows its effect's buff icon (PD's
-// BuffIndicator art, buffs.png strip cells) in the top right corner; an unknown one an orange "?"
-static const uint8_t KNOWN_ICON[24] = { 16, 25, 0, 5, 27, 6, 7, 8, 15, 9, 14, 10,     // potions: healing (heart), experience (light),
-  8, 26, 29, 25, 20, 23, 24, 13, 11, 28, 22, 17 };   // toxic, flame, strength (fury), paralytic, levitation, mind vision, purity, invisible, might,
-_Static_assert(IK_POT_FROST - IK_POT_HEALING == 11 && IK_SCR_ENCHANT - IK_SCR_IDENTIFY == 11, "potion / scroll kinds in order");   // frost;
-static int known_icon(int k) {                       // scrolls: identify (eye), mapping, recharging, remove curse (light), teleport (vertigo),
-  if (k >= IK_POT_HEALING && k <= IK_POT_FROST) return KNOWN_ICON[k - IK_POT_HEALING];   // challenge (amok), terror, lullaby (slow),
-  if (k >= IK_SCR_IDENTIFY && k <= IK_SCR_ENCHANT) return KNOWN_ICON[12 + k - IK_SCR_IDENTIFY];   // psionic (blind), mirror (shadows),
-  return -1;                                         // upgrade (+), enchantment (armour)
+// 0.70 (owner: "borrow from Shattered PD"): a known potion or scroll shows Shattered PD's own icon for it (item_icons.png,
+// 8x8, potions then scrolls in IK order, built by tools/convert_art.py) in the top right corner; an unknown one an orange "?"
+_Static_assert(IK_POT_FROST - IK_POT_HEALING == 11 && IK_SCR_ENCHANT - IK_SCR_IDENTIFY == 11, "potion / scroll kinds in order");
+static int known_icon(int k) {
+  if (k >= IK_POT_HEALING && k <= IK_POT_FROST) return k - IK_POT_HEALING;
+  if (k >= IK_SCR_IDENTIFY && k <= IK_SCR_ENCHANT) return 12 + k - IK_SCR_IDENTIFY;
+  return -1;
 }
+#ifndef PBL_ROUND
+static void tab_up(int x, int w, int ct, int h) {     // 0.69 (owner): the title's tab on top of the window: tab_art (a chosen tab) upside down,
+  uint8_t L = ARGB(GColorLightGray), D = ARGB(GColorDarkGray), K = ARGB(GColorBlack);   // its foot open into the frame (ct: the content's top)
+  #define F(xx, yy, ww, hh, c) blit_fill(xx, ct - (yy) - (hh), ww, hh, c)
+  F(x + 4, 0, w - 8, 4, D); F(x + 4, 0, w - 8, h - 4, D);
+  F(x, 1, 1, h - 2, L); F(x + 1, 2, 2, h - 2, D); F(x + 3, 0, 1, h - 4, K);
+  F(x + w - 4, 0, 1, h - 4, K); F(x + w - 3, 1, 1, h - 3, L); F(x + w - 2, 2, 2, h - 2, D);
+  F(x, h - 1, 1, 1, D); F(x + w - 3, h - 2, 1, 2, D);
+  F(x + 3, h - 4, w - 6, 1, K); F(x + 3, h - 3, w - 5, 1, L); F(x + 1, h - 2, w - 4, 2, D);
+  #undef F
+}
+#endif
 static void sprite2(const Item *it, int x, int y) { g_blit_glow = item_glow(it); item_spr(item_sprite(it->kind), x, y, 2); g_blit_glow = 0; }   // ItemSprite at 2x
 static void draw_bag(GContext *ctx) {
   GRect r = PBL_IF_ROUND_ELSE(GRect(s_w / 2 - 80, ROW_Y(0) + 2, 160, 30), bag_win());   // Gabbro: the title's place
@@ -70,14 +80,17 @@ static void draw_bag(GContext *ctx) {
   static const char *PICK_TITLES[12] = { "Select an item to identify", "Select an item to upgrade", "Select a weapon to upgrade", "Select an enchantable item", "", "Select an item for the quickslot", "Select an item to sell", "Select a seed to throw", "Select an item to reforge", "Select an armor to upgrade", "Select a weapon to balance", "Select a wand to upgrade" };
   static const char *const TAB_TITLES[5] = { "Backpack", "Seed pouch", "Scroll holder", "Wand holster", "Keyring" };
   const char *title = s_pick >= 0 ? PICK_TITLES[s_pick] : TAB_TITLES[kind];
+  Sheet ii = { gbitmap_create_with_resource(RESOURCE_ID_IMAGE_ITEM_ICONS) };   // 1.5 KB, only while the bag draws
   blit_begin(ctx);
 #ifdef PBL_ROUND
   blit_fill(0, 0, s_w, s_h, ARGB(GColorBlack));
   for (int y = 0; y < s_h; y++) { rrow(0, s_w, y, 129, ARGB(GColorDarkGray)); rrow(0, s_w, y, 127, ARGB(GColorBlack)); }   // a rim
   for (int t = 0; t < ntabs; t++) { GRect q = bag_tab(t); bool sel = t == s_bag_tab; blit_fill(q.origin.x, q.origin.y, CW, CH, sel ? ARGB(GColorLightGray) : ARGB(GColorDarkGray)); if (sel) blit_box(q.origin.x + 2, q.origin.y + 2, CW - 4, CH - 4, 1, ARGB(GColorDarkGray)); }
 #else
-  tab_panel(r);
+  tab_panel(GRect(r.origin.x, r.origin.y + HEAD, r.size.w, r.size.h - HEAD));   // 0.69 (owner): the frame round the cells only, the title on a tab above it
   for (int t = 0; t < ntabs; t++) tab_art(bag_tab(t), t == s_bag_tab);
+  { int tw = s_pick >= 0 ? r.size.w - 12 : graphics_text_layout_get_content_size(title, s_font_hud, GRect(0, 0, r.size.w, 20), GTextOverflowModeWordWrap, GTextAlignmentCenter).w + 16;
+    tab_up(r.origin.x + (r.size.w - tw) / 2, tw, r.origin.y + HEAD, 22); }
 #endif
   for (int t = 0; t < ntabs; t++) {                // BagTab icons, at 2x
     GRect tr = bag_tab(t); bool sel = t == s_bag_tab;
@@ -91,9 +104,7 @@ static void draw_bag(GContext *ctx) {
     blit(&s_icons, 17 + ICON[bag_tab_kind(t)] * 10, 0, 10, 10, tr.origin.x + (tr.size.w - 20) / 2, tr.origin.y + (sel ? 3 : 5), 2);
     if (s_sel == BAG_UI_TAB0 + t) blit_box(tr.origin.x + 4, tr.origin.y + (sel ? 1 : 5), tr.size.w - 8, tr.size.h - (sel ? 5 : 9), 1, ARGB(GColorChromeYellow));
   }
-  blit_fill(r.origin.x, r.origin.y + HEAD - 1, r.size.w, BAG_ROWS * (SLOT_H + 1), ARGB(GColorBlack));   // 1 px gaps between the cells (0.69: and above the top row)
-  { int tw = s_pick >= 0 ? r.size.w - 12 : graphics_text_layout_get_content_size(title, s_font_hud, GRect(0, 0, r.size.w, 20), GTextOverflowModeWordWrap, GTextAlignmentCenter).w;
-    blit_nine(&s_chrome, 22, 0, 18, 18, 5, r.origin.x + (r.size.w - tw) / 2 - 7, r.origin.y - 3, tw + 14, 16); }   // 0.69 (owner): the name on a PD plate
+  blit_fill(r.origin.x, r.origin.y + HEAD, r.size.w, BAG_ROWS * (SLOT_H + 1) - 1, ARGB(GColorBlack));   // 1 px gaps between the cells
 #endif
   for (int i = 0; i < BAG_UI_TAB0; i++) {
     int sl = bag_ui_to_slot(i);
@@ -113,7 +124,7 @@ static void draw_bag(GContext *ctx) {
         for (int k = 0; k < 3; k++) blit_fill(q.origin.x + 2 + k * 5, q.origin.y + CH - 6, 4, 4, k < nb ? ARGB(GColorGreen) : ARGB(GColorRed));
       }
       int ic = item_known(it->kind) ? known_icon(it->kind) : -1;
-      if (ic >= 0) { blit_fill(q.origin.x + CW - 17, q.origin.y + 1, 16, 16, ARGB(GColorBlack)); blit(&s_buffs, ic * 7, 0, 7, 7, q.origin.x + CW - 16, q.origin.y + 2, 2); }
+      if (ic >= 0) { blit_fill(q.origin.x + CW - 17, q.origin.y + 1, 16, 16, ARGB(GColorBlack)); if (ii.bmp) blit(&ii, ic * 8, 0, 8, 8, q.origin.x + CW - 17, q.origin.y + 1, 2); }
     }
     else if (sl <= -1 && sl >= -4) ITEM_SPR(SP_PH_WEAPON + (i < 2 ? i : 2), cx, cy, 2);   // ghost placeholders for empty gear slots
     else if (sl == SL_GOLD) { Item gold = item_make(IK_GOLD, 1); sprite2(&gold, cx, cy); }
@@ -134,11 +145,12 @@ static void draw_bag(GContext *ctx) {
     blit_box(x0 - 1, y - 1, x1 - x0 + 2, ucell(s_sel - BAG_ROWM).size.h + 2, 2, ARGB(GColorChromeYellow));
   }
   blit_end(ctx);
+  if (ii.bmp) { gbitmap_destroy(ii.bmp); blit_forget(); }
 #ifdef PBL_ROUND
   graphics_context_set_text_color(ctx, GColorIcterine);   // two lines for the selectors' longer titles
   graphics_draw_text(ctx, title, s_pick >= 0 ? s_font_log : s_font_hud, s_pick >= 0 ? r : GRect(r.origin.x, r.origin.y + 8, r.size.w, 20), GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
 #else
-  text(ctx, title, s_pick >= 0 ? s_font_log : s_font_hud, GColorIcterine, r.origin.x, r.origin.y - 4, r.size.w, GTextAlignmentCenter);
+  text(ctx, title, s_pick >= 0 ? s_font_log : s_font_hud, GColorIcterine, r.origin.x, r.origin.y - 3, r.size.w, GTextAlignmentCenter);
 #endif
   char buf[12];
   for (int i = 0; i < BAG_UI_TAB0; i++) {          // ItemSlot labels: quantity / status top left, STR top right, level bottom right

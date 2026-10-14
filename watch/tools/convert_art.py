@@ -422,6 +422,16 @@ for i, (x, y) in enumerate(((58, 0), (64, 29), (78, 0), (68, 0), (88, 0))):
 strip.paste(ic.crop((0, 13, 16, 29)), (67, 0))
 strip.paste(ic.crop((114, 0, 126, 11)), (83, 0)); strip.paste(ic.crop((0, 0, 8, 8)), (95, 0)); strip.paste(ic.crop((0, 8, 7, 13)), (103, 0))
 total += save(max16(pebbleize(strip, SPRITES)), "icons.png")   # 0.20: 4 bpp
+# 0.69 (owner: "borrow from Shattered PD"): Shattered's 8x8 item icons for the backpack's known potions and scrolls, in
+# our item order (IK_POT_HEALING.., then IK_SCR_IDENTIFY..). Shattered: rings row 0, scrolls 2, exotic scrolls 3, potions 5
+SPD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../third_party/shattered/item_icons.png")
+si = Image.open(SPD).convert("RGBA")
+ICON_CELLS = [(1, 5), (11, 5), (5, 5), (4, 5), (0, 5), (9, 5), (8, 5), (2, 5), (10, 5), (7, 5), (8, 0), (3, 5),   # healing, experience, toxic,
+              (1, 2), (7, 2), (4, 2), (2, 2), (5, 2), (8, 3), (10, 2), (6, 2), (9, 3), (3, 2), (0, 2), (0, 3)]  # flame, strength, paralytic,
+strip = Image.new("RGBA", (8 * len(ICON_CELLS), 8))   # levitation, mind vision, purity, invisibility, might (ring of might), frost; identify,
+for i, (x, y) in enumerate(ICON_CELLS):              # mapping, recharging, remove curse, teleport, challenge, terror, lullaby, psionic
+    strip.paste(si.crop((x * 8, y * 8, x * 8 + 8, y * 8 + 8)), (i * 8, 0))   # blast, mirror image, upgrade, enchantment
+total += save(pebbleize(strip, SPRITES), "item_icons.png")
 lb = Image.open(os.path.join(SRC, "large_buffs.png")).convert("RGBA")
 strip = Image.new("RGBA", (16 * 30, 16))                # WndHero buffs, same order as buffs.png
 for i, idx in enumerate((3, 5, 6, 23, 26, 2, 4, 1, 0, 12, 15, 16, 11, 7, 24, 25, 21, 20, 28, 8, 29, 14, 19, 9, 10, 22, 17, 18, 13, 30)):

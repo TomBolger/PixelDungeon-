@@ -1,7 +1,7 @@
 {
   "name": "pixel-dungeon",
   "author": "Thomas",
-  "version": "0.69.0",
+  "version": "0.70.0",
   "keywords": [
     "pebble-app"
   ],
@@ -302,6 +302,12 @@
           "type": "bitmap",
           "name": "IMAGE_ICONS",
           "file": "images/icons.png",
+          "storageFormat": "pbi"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_ITEM_ICONS",
+          "file": "images/item_icons.png",
           "storageFormat": "pbi"
         },
         {
