@@ -313,6 +313,7 @@ static int first(int *kind) {                          // the cell (on the map, 
       } else g_ovr.d |= 128;
     }
     else if (bk >= 1000 && w <= 3 && g_from >= 0 && distance(g_from, best) <= 1 && !(g_ovr.d & 64)) g_ovr.d |= 128 | 64;
+    if (bk >= 1000 && m->state == ST_HUNTING && XENV("FOULWAIT", 1)) for (int k = 0; k < 8; k++) { int n = hp + N8[k]; if (nb_ok(hp, n) && foul(n)) g_ovr.d |= 128; }   // 0.64: fire or gas between: let it come through it
     if (bk < 1000 && (MOB_DEFS[t].flags & MD_WATER) && (XENV("FISH", 1) || IS_WATER(G.map[hp]))) {   // a piranha beside you: out of its reach, the shortest way (0.64: from the
       int c0 = -1, d0 = 0x7FFF;                        // shore too: the Assist alone lost 1 game in 7 to them on the first floors)
       for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < d0 && s_dist[c] > 0 && open_cell(c) && c != G.entrance && c != G.exit) {
@@ -534,6 +535,8 @@ static int hands(void) {
       if ((k == IK_WND_LIGHTNING || k == IK_WND_AVALANCHE) && ed < 3) continue;   // (owner: never point blank)
       if (k == IK_WND_FIREBOLT && (TFLAGS(G.map[hp]) & F_FLAMABLE)) continue;
       if (it->ench >= wand_max(it) || h->HP * 2 < h->HT) { g_ovr.hs = sl; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }
+    if (XENV("UNKWAND", 1)) for (int sl = 0; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl);   // 0.64: an unknown wand
+      if (item_cat(it->kind) == CAT_WAND && !item_known(it->kind) && (!(it->flags & (IF_LEVEL_KNOWN | IF_CHARGE_KNOWN)) || it->ench > 0)) { g_ovr.hs = sl; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }   // at it: that's how it's learnt
     for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind;   // 0.64: a known harmful potion at one coming from afar (gas: 4+ away)
       if (!XENV("HARMTHROW", 1)) break;
       if ((k == IK_POT_TOXIC || k == IK_POT_PARALYTIC) ? ed >= 4 : (k == IK_POT_FLAME || k == IK_POT_FROST) && ed >= 3 && !(TFLAGS(G.map[hp]) & F_FLAMABLE))
@@ -573,6 +576,12 @@ static int hands(void) {
     int a = 2 * item_tier(it->kind) + (lk ? it->lvl : -1), b = cur->kind ? 2 * (CLASS_ARMOR(cur->kind) ? 6 : item_tier(cur->kind)) + ((cur->flags & IF_LEVEL_KNOWN) ? cur->lvl : 0) : -1;
     if (a > b && !DECL(it->kind, ACN_EQUIP)) { g_ovr.hs = i; g_ovr.ha = ACN_EQUIP; return TK_BAG; }
   }
+  if (XENV("DROPJUNK", 1)) {                           // 0.64: a nearly full pack: put down what's known to be bad, or a weapon / armour
+    int n = 0; for (int i = 0; i < BAG_SIZE; i++) n += h->bag[i].kind != 0;   // known no better than what's worn
+    if (n >= BAG_SIZE - 2) for (int i = 0; i < BAG_SIZE; i++) { Item *it = &h->bag[i]; int c = item_cat(it->kind); Item *cur = c == CAT_WEAPON ? &h->weapon : &h->armor;
+      bool worse = (c == CAT_WEAPON || c == CAT_ARMOR) && it->kind != IK_PICKAXE && (it->flags & IF_LEVEL_KNOWN) && cur->kind && !CLASS_ARMOR(it->kind) &&
+                   2 * item_tier(it->kind) + it->lvl <= 2 * (CLASS_ARMOR(cur->kind) ? 6 : item_tier(cur->kind)) + ((cur->flags & IF_LEVEL_KNOWN) ? cur->lvl : 0);
+      if ((junk(it) || worse) && !DECL(it->kind, ACN_DROP)) { g_ovr.hs = i; g_ovr.ha = ACN_DROP; return TK_BAG; } } }
   if ((h->HP * 10 < h->HT * XENV("RESTP", 5) || (G.health_pos == hp && h->HP < h->HT)) && !game_starving() && !DECL(0, 255)) return TK_REST;   // (0.64: on Sungrass: to full)
   return -1;
 }

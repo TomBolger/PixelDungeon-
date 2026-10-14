@@ -3646,6 +3646,7 @@ int main(int argc, char **argv) {
   if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); }
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
     cur_game = g; srand(g + 1); st_games++; lg_maxleft = 0;
+    if (!getenv("OLDLEAK")) { g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; g_goal = -1; g_from = -1; memset(g_drop, 0, sizeof g_drop); g_drop_i = 0; }   // 0.64: no Assist state carried from game to game (a game replays alone the same)
     extern uint32_t g_host_time; extern uint16_t g_host_ms;
     g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7);   // a different dungeon each game, night or day
     s_wait_n = 0; s_cooked = 0; s_fork_until = -1; memset(s_bounce_n, 0, sizeof s_bounce_n);
