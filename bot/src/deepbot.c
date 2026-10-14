@@ -562,7 +562,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
       return -1000;
     }
     case PICK_UPGRADE: case PICK_ENCHANT: {
-      if (p == PICK_UPGRADE && PRM[P_GEARMODEL]) { int bs = s_toe && !s_rollout ? toe_choose(NULL) : upg_plan(NULL); if (bs > -1000) return bs; }
+      if (p == PICK_UPGRADE && PRM[P_GEARMODEL]) { int bs = s_toe && !s_rollout && !getenv("TOENOUP") ? toe_choose(NULL) : upg_plan(NULL); if (bs > -1000) return bs; }
       bool arm = h->armor.kind && game_pick_ok(p, -2), wpn = h->weapon.kind && game_pick_ok(p, -1);
       if (p == PICK_ENCHANT && !getenv("OLDGEARFIX")) {   // 0.52 (audit): cursed or broken first, then armour with no glyph (+tier DR for good), a plain weapon; never re-roll a good one
         if (arm && (cursed_known(&h->armor) || item_broken(&h->armor))) return -2; if (wpn && (cursed_known(&h->weapon) || item_broken(&h->weapon))) return -1;
@@ -701,7 +701,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
     for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl > 0 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur * 6 <= item_max_dur(it) && game_pick_ok(PICK_UPGRADE, w)) {
       s_force_pick = w; DID("upgrade the %s before it breaks", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
   if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && G.now >= s_upg_hold_until && !(getenv("UPGHOLDBOSS") && !boss_depth(G.depth) && !boss_depth(G.depth + 1)) &&   /* 0.58 test (owner: hold for better gear): read only on or just before a boss floor */ (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {
-    if (!s_rollout && !getenv("NOSTRAT")) { int r = s_toe ? toe_upgrade(s) : strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
+    if (!s_rollout && !getenv("NOSTRAT")) { int r = s_toe && !getenv("TOENOUP") ? toe_upgrade(s) : strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
     else { bool hold = false; if (PRM[P_GEARMODEL]) upg_plan(&hold); if (!hold) { do_item(s, ACN_READ); return true; } if (!s_rollout) st_upg_holds++; }
   }
   if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_ENCHANT)) >= 0 && item_known(IK_SCR_ENCHANT) && (game_pick_ok(PICK_ENCHANT, -1) || game_pick_ok(PICK_ENCHANT, -2)) &&
@@ -923,9 +923,10 @@ static bool emergency(void) {                           // badly hurt
   if ((s = find_kind(IK_WIPE_OUT)) >= 0 && !G.hero.b.blind && (getenv("OLDALTAR2") || G.depth >= 22 || G.hero.HP * 4 < G.hero.HT)) { st_wipe++; do_item(s, ACN_READ); return true; }   // 0.51: the altar's gift: every lesser creature here dies
   static const uint8_t ESC[] = { IK_SCR_TELEPORT, IK_SCR_TERROR, IK_SCR_LULLABY, IK_SCR_MIRROR, IK_POT_INVIS };
   for (unsigned k = 0; k < sizeof ESC; k++) if ((s = find_kind(ESC[k])) >= 0 && item_known(ESC[k]) && !(G.hero.b.blind && item_cat(ESC[k]) == CAT_SCROLL)) { do_item(s, item_cat(ESC[k]) == CAT_SCROLL ? ACN_READ : ACN_DRINK); return true; }
-  for (int i = 0; i < BAG_SIZE; i++) {                  // a gamble: an unknown potion (likeliest healing)
-    int k = h->bag[i].kind; if (item_cat(k) == CAT_POTION && !item_known(k)) { do_item(i, ACN_DRINK); return true; }
-  }
+  { int bi = -1, bq = 0;                               // a gamble: an unknown potion, the likeliest healing: 0.73 (GAMBLE2=1): the
+    for (int i = 0; i < BAG_SIZE; i++) {               // biggest stack (Healing is the commonest colour by far, 45 of 201)
+      int k = h->bag[i].kind; if (item_cat(k) == CAT_POTION && !item_known(k)) { int q = getenv("GAMBLE2") ? h->bag[i].qty : 1; if (q > bq) { bq = q; bi = i; } } }
+    if (bi >= 0) { do_item(bi, ACN_DRINK); return true; } }
   return false;
 }
 // ---- 0.51 (owner): "something other than whack, whack, dead": the duel sum, and the kit when it's a losing one
@@ -2015,7 +2016,7 @@ static bool npc_wanted(int i) {
     case MT_SHOPKEEPER: case MT_IMP_SHOP: {
       if (s_shop_sold > 6) return false;
       for (int k = 0; k < BAG_SIZE; k++) { Item *it = &G.hero.bag[k]; int c = item_cat(it->kind);
-        if (it->kind && game_pick_ok(PICK_SELL, k) && ((c == CAT_ARMOR && armor_score(it) <= armor_score(&G.hero.armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&G.hero.weapon)))) return true; }
+        if (it->kind && game_pick_ok(PICK_SELL, k) && !(s_toe && toe_keep(k)) && ((c == CAT_ARMOR && armor_score(it) <= armor_score(&G.hero.armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&G.hero.weapon)))) return true; }
       return false; }
   }
   return false;
