@@ -17,3 +17,4 @@ watch/resources/data/whatif.bin
 .idea/
 .DS_Store
 Thumbs.db
+.claude/

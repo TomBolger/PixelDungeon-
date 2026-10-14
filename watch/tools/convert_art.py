@@ -200,7 +200,35 @@ def outlined(img, fw):
                     dst[x, y] = (0, 0, 0, 255); break
     return out
 
-total += save(pebbleize(crop("banners.png", (0, 0, 128, 70)), SPRITES), "logo.png")
+def stone_text(img, cuts, hi=(255, 255, 255), mix=None, moss=None, base=None, other=None):
+    """0.60: PD's carved-stone lettering (logo, banners) as a grey ramp by the pixel's brightness. Snapping each
+    pixel on its own turned the olive-grey gradient into bands of khaki, grey and olive and merged the bevels into
+    the body; a ramp keeps one hue, the light bevel, the body and the dark edge apart on the dim panel.
+    cuts = (black below, dark grey below, light grey below); above the last: hi (the bevel).
+    mix = (from, to): that band is checkered light/dark, a soft step in a long gradient (the logo).
+    moss = (dark, light): greenish pixels (PD's moss on the logo) stay green.
+    base = (below, colour): the darkest body tone is checkered with colour (the logo's mossy, shadowed foot).
+    other(rgb): the colour for pixels that aren't stone (blood, the sword's hilt); default: the usual snap."""
+    img = img.convert("RGBA"); px = img.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            if a < 100: px[x, y] = (0, 0, 0, 0); continue
+            v, ge = (r + g + b) / 3, g - (r + b) / 2
+            if moss and ge > 28 and v >= 40: c = moss[1] if v >= 80 else moss[0]
+            elif max(r, g, b) - min(r, g, b) >= 40 or abs(ge) >= 28:
+                c = other((r, g, b)) if other else near(tuple(max(0, min(255, (q - 20) * 255 / 210)) for q in (r, g, b)))
+            elif v < cuts[0]: c = (0, 0, 0)
+            elif mix and mix[0] <= v < mix[1]: c = (170, 170, 170) if (x + y) % 2 == 0 else (85, 85, 85)
+            elif v < cuts[1]: c = base[1] if base and v < base[0] and (x + y) % 2 == 0 else (85, 85, 85)
+            elif v < cuts[2]: c = (170, 170, 170)
+            else: c = hi
+            px[x, y] = c + (255,)
+    return img
+
+# 0.60: the logo: pale green bevel (the stone's tint), light "Pixel" over a darker "Dungeon" as in PD, mossy foot
+total += save(stone_text(crop("banners.png", (0, 0, 128, 70)), (45, 92, 142), hi=(170, 255, 170), mix=(92, 110),
+                         moss=((0, 85, 0), (85, 170, 85)), base=(62, (0, 85, 0))), "logo.png")
 
 print(f"Total bitmap RAM if all loaded: ~{total / 1024:.1f} KB")
 
@@ -256,7 +284,17 @@ for y in range(16):
         if pp[x, y] == (0, 0, 0, 77): pp[x, y] = (0, 0, 0, 254)
 total += save(fold16(pebbleize(plants, CHARS, hue_guard=True)), "plants.png")
 # PD toolbar row: wait(0) search(20) info(40) backpack(60) quickslot(83..)
-total += save(pebbleize(crop("toolbar.png", (0, 7, 106, 32)), SPRITES, keep_gray=True), "toolbar.png")
+tsrc = crop("toolbar.png", (0, 7, 106, 32)).convert("RGBA"); tool = pebbleize(tsrc, SPRITES, keep_gray=True)
+sp_, tp_ = tsrc.load(), tool.load()
+for y in range(tool.height):                        # 0.60: the pictures' coloured pixels never snap to the button's grey,
+    for x in range(83):                             # where they vanished (the glass's handle, the backpack's shading)
+        r, g, b, a = sp_[x, y]
+        if a < 100 or max(r, g, b) - min(r, g, b) < 24: continue
+        if (r, g, b) == (90, 40, 31): tp_[x, y] = (170, 0, 0, 255); continue   # the "?": PD's dark red on a darker face
+        if tp_[x, y][:3] == (85, 85, 85):           # read as a smudge; one step brighter it reads as red
+            lv = tuple(max(0, min(255, (v - SPRITES[0]) * 255 / (SPRITES[1] - SPRITES[0]))) for v in (r, g, b))
+            tp_[x, y] = min((p for p in PAL if p != (85, 85, 85)), key=lambda p: 2 * (p[0] - lv[0]) ** 2 + 4 * (p[1] - lv[1]) ** 2 + 3 * (p[2] - lv[2]) ** 2) + (255,)
+total += save(tool, "toolbar.png")
 print(f"Total with 0.2 sheets: ~{total / 1024:.1f} KB")
 
 # ---- 0.3: PD chrome (window frames), status pane, hp bar ----
@@ -307,9 +345,11 @@ for y in range(32):
         r, g, b, a = hp[x, y]
         if a < 100: hp[x, y] = (0, 0, 0, 0)
         elif max(r, g, b) - min(r, g, b) < 24: v = (r + g + b) // 3; hp[x, y] = ((255,) * 3 if v > 190 else (170,) * 3 if v > 120 else (85,) * 3) + (255,)   # the silver bar stays grey
+        elif r > 185 and g > 130 and b < 60: hp[x, y] = (255, 255, 0, 254)   # 0.60: the gold bar yellow (orange shows as peach),
+        elif (r, g, b) in ((153, 115, 0), (188, 140, 0)): hp[x, y] = (170, 170, 0, 254)   # its shade khaki, not the bronze's brown
 both = Image.new("RGBA", (64, 32)); both.paste(play, (0, 0)); both.paste(pebbleize(hs, SPRITES), (32, 0))
 total += save(both, "play.png")
-av = pebbleize(crop("avatars.png", (0, 0, 96, 28)), SPRITES)
+av = pebbleize(crop("avatars.png", (0, 0, 96, 28)), SPRITES, keep_gray=True)   # 0.60: greys neutral (the rogue's coat was olive)
 faded = av.copy(); fp = faded.load()                 # locked heroes: PD shows them faded
 for y in range(faded.height):
     for x in range(faded.width):
@@ -317,28 +357,20 @@ for y in range(faded.height):
         if a: fp[x, y] = near((r * 0.35 + 20, g * 0.35 + 20, b * 0.35 + 20)) + (255,)
 sheet = Image.new("RGBA", (96, 56)); sheet.paste(av, (0, 0)); sheet.paste(faded, (0, 28))
 total += save(sheet, "avatars.png")
-total += save(pebbleize(crop("banners.png", (0, 140, 128, 161)), SPRITES), "banner_select.png")
-tag = Image.open(os.path.join(SRC, "chrome.png")).convert("RGBA").crop((22, 18, 38, 32))
-tp = tag.load()                                     # Tag.hardlight(0xFF4A4D): PD's red attack tag
-for y in range(tag.height):
-    for x in range(tag.width):
-        r, g, b, a = tp[x, y]
-        if a: tp[x, y] = (min(255, int(r * 1.0)), int(g * 0.29), int(b * 0.30), a)
-total += save(pebbleize(tag, SPRITES), "tag_red.png")
-tag = Image.open(os.path.join(SRC, "chrome.png")).convert("RGBA").crop((22, 18, 38, 32))
-tp = tag.load()                                     # 0.6.1: LootIndicator's Tag(0x1F75CC), blue
-for y in range(tag.height):
-    for x in range(tag.width):
-        r, g, b, a = tp[x, y]
-        if a: tp[x, y] = (int(r * 0.12), int(g * 0.46), int(b * 0.80), a)
-total += save(pebbleize(tag, SPRITES), "tag_blue.png")
-tag = Image.open(os.path.join(SRC, "chrome.png")).convert("RGBA").crop((22, 18, 38, 32))
-tp = tag.load()                                     # 0.17: ResumeButton's Tag(0xCDD5C0), pale
-for y in range(tag.height):
-    for x in range(tag.width):
-        r, g, b, a = tp[x, y]
-        if a: tp[x, y] = (int(r * 0.80), int(g * 0.84), int(b * 0.75), a)
-total += save(pebbleize(tag, SPRITES), "tag_white.png")
+total += save(stone_text(crop("banners.png", (0, 140, 128, 161)), (60, 88, 118)), "banner_select.png")   # 0.60: as the logo
+# The right-hand tags: PD's TAG (chrome.png) tinted. 0.60: its three tones (light top and left edge, body, dark
+# bottom) each get their own colour of the tint's hue; tinting then snapping merged the edge into the body, turned
+# the loot tag's blue to teal and the pale tag to green. The red's edge is the red buttons' (chrome BUTTON).
+def tag_art(light, body, dark):
+    tag = Image.open(os.path.join(SRC, "chrome.png")).convert("RGBA").crop((22, 18, 38, 32)); tp = tag.load()
+    for y in range(tag.height):
+        for x in range(tag.width):
+            r, g, b, a = tp[x, y]
+            tp[x, y] = (0, 0, 0, 0) if a < 100 else (light if r >= 165 else dark if r < 135 else body) + (255,)
+    return tag
+total += save(tag_art((255, 85, 0), (170, 0, 0), (85, 0, 0)), "tag_red.png")             # Tag.hardlight(0xFF4A4D): attack
+total += save(tag_art((0, 170, 255), (0, 85, 170), (0, 0, 85)), "tag_blue.png")           # 0.6.1: LootIndicator's Tag(0x1F75CC)
+total += save(tag_art((255, 255, 255), (170, 170, 170), (85, 85, 85)), "tag_white.png")   # 0.17: ResumeButton's Tag(0xCDD5C0), pale
 print(f"Total with 0.4 sheets: ~{total / 1024:.1f} KB")
 
 # ---- 0.5: sewer monsters, buff icons ----
@@ -375,8 +407,12 @@ strip = Image.new("RGBA", (16 * 30, 16))                # WndHero buffs, same or
 for i, idx in enumerate((3, 5, 6, 23, 26, 2, 4, 1, 0, 12, 15, 16, 11, 7, 24, 25, 21, 20, 28, 8, 29, 14, 19, 9, 10, 22, 17, 18, 13, 30)):
     strip.paste(lb.crop(((idx % 16) * 16, (idx // 16) * 16, (idx % 16) * 16 + 16, (idx // 16) * 16 + 16)), (i * 16, 0))
 total += save(pebbleize(hunger_orange(strip, 16), SPRITES), "buffs_large.png")
-total += save(pebbleize(crop("banners.png", (0, 105, 128, 140)), SPRITES), "banner_gameover.png")
-total += save(pebbleize(crop("banners.png", (0, 70, 128, 105)), SPRITES), "banner_boss.png")   # 0.17: GameScene.bossSlain
+total += save(stone_text(crop("banners.png", (0, 105, 128, 140)), (45, 80, 118)), "banner_gameover.png")   # 0.60: as the logo
+def gilt(c):                                         # 0.60: the sword's bronze hilt by brightness, never rose or grey
+    r, g, b = c; v = (r + g + b) / 3
+    if not (r >= g >= b and r - g < 70): return near(tuple(max(0, min(255, (q - 20) * 255 / 210)) for q in c))   # the jewel
+    return (255, 255, 85) if v >= 140 else (170, 170, 85) if v >= 100 else (170, 85, 0) if v >= 80 else (85, 85, 0) if v >= 55 else (85, 0, 0)
+total += save(stone_text(crop("banners.png", (0, 70, 128, 105)), (45, 80, 118), other=gilt), "banner_boss.png")   # 0.17: GameScene.bossSlain
 print(f"Total with 0.5.1 sheets: ~{total / 1024:.1f} KB")
 
 # ---- 0.6.5: items and tiles go into 4-bit strips (half the RAM) ----
