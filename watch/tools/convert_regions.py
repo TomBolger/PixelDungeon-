@@ -41,6 +41,22 @@ for r in range(1, 5):
         for y in range(16):                            # not one flat grey: the dark seams and rivets black, the lit edges light grey
             for x in range(16):
                 v = max(sp[ox + x, oy + y]); tpp[ox + x, oy + y] = ((0, 0, 0) if v < 58 else (170, 170, 170) if v >= 72 else (85, 85, 85)) + (255,)
+    if r == 3:   # 0.58 (owner: "what are these grey squares?"): the King's hall pedestals were one flat grey block, and the
+        # decorated floor's darker diamond snapped to a solid black hole. The pedestal gets its bricks back (light bricks, dark
+        # mortar, the front band kept with its gold studs); the diamond becomes a checker, darker floor rather than a pit
+        src = Image.open(os.path.join(SRC, f"tiles{r}.png")).convert("RGBA"); sp = src.load(); tpp = tp.load()
+        ox, oy = 11 * 16, 0                            # PEDESTAL
+        for y in range(16):
+            for x in range(16):
+                R, G, B, A = sp[ox + x, oy + y]
+                if not A: continue
+                if B > R + 10: tpp[ox + x, oy + y] = ((170, 170, 170) if max(R, G, B) >= 0x58 else (85, 85, 85)) + (255,)
+                elif max(R, G, B) < 0x60: tpp[ox + x, oy + y] = ((85, 85, 85) if max(R, G, B) >= 0x48 else (0, 0, 0)) + (255,)
+        ox, oy = (24 % 16) * 16, (24 // 16) * 16       # EMPTY_DECO: where it differs from EMPTY (cell 1) is the diamond
+        for y in range(16):
+            for x in range(16):
+                if sp[ox + x, oy + y] == sp[16 + x, y]: continue
+                if max(sp[ox + x, oy + y][:3]) <= 0x43: tpp[ox + x, oy + y] = ((0, 0, 0) if (x + y) % 2 == 0 else (85, 85, 85)) + (255,)
     tp.save(os.path.join(OUT, f"tiles_{REGIONS[r]}.png"))
     # water: three shades by brightness (deep, mid, light), each the region's colour lifted onto the Pebble palette
     w = Image.open(os.path.join(SRC, f"water{r}.png")).convert("RGBA")
