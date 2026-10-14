@@ -63,6 +63,7 @@ static int toe_pieces(TPiece *ps, int max) {
   }
   return n;
 }
+static double s_toe_lr, s_toe_lb;                       // (TOECAL: the last toe_floor's regular load, boss x)
 static double toe_fightp(double cost, double H) {      // a fight's odds of death from its expected cost against the health to spend
   double x = cost / (H > 1 ? H : 1), x3 = x * x * x;  // (the cost's spread: misses and hits, a second creature joining, a trap)
   return x3 / (1 + x3);
@@ -79,15 +80,15 @@ static double toe_floor(int d, const Item *w, const Item *a, const TPiece *ps, i
     double z = interval / rech; if (z > mx) z = mx;
     cut += 0.6 * z * toe_zap(ps[i].it.kind, lv); cutb += mx * toe_zap(ps[i].it.kind, lv); }
   int nheal = 0; { int s = find_kind(IK_POT_HEALING); if (s >= 0 && item_known(IK_POT_HEALING)) nheal = game_slot(s)->qty; }
-  double H = p->ht * (1 + 0.35 * (nheal > 2 ? 2 : nheal)), load = 0;   // the floor's load: each fight's cost against full health, squared
+  double H = p->ht * (1 + 0.35 * (nheal > 2 ? 2 : nheal)), load = 0; s_toe_lr = s_toe_lb = 0;   // the floor's load: each fight's cost against full health, squared
   int dd = d < 1 ? 1 : d > 25 ? 21 : d, o = BEST_OFF[dd - 1], n = BEST_OFF[dd] - o; double W = 0;   // (big fights weigh more), so it
   int enc = a && a->kind ? item_str(a) - p->str : 0; double slow = enc > 0 ? pow(1.3, enc > 8 ? 8 : enc) : 1;   // never flattens out;
   for (int i = 0; i < n; i++) W += BEST_W[o + i];     // heavy armour: slower on every floor (more fights, more hunger)
   for (int i = 0; i < n; i++) {
     int mt = BEST_KIND[o + i]; bool boss = MOB_DEFS[mt].flags & MD_BOSS;
     s_hp_cut = boss ? cutb : cut; double c = hp_cost_vs(mt, w && w->kind ? w : NULL, a && a->kind ? a : NULL) * slow; s_hp_cut = 0;
-    if (boss) { double x = c / H; load += 0.9 / 0.33 * x * x; continue; }
-    double x = c / p->ht; load += nf * BEST_W[o + i] / W * x * x;
+    if (boss) { double x = c / H; load += 0.9 / 0.33 * x * x; s_toe_lb = x; continue; }
+    double x = c / p->ht; load += nf * BEST_W[o + i] / W * x * x; s_toe_lr += nf * BEST_W[o + i] / W * x * x;
   }
   double surv = exp(-0.33 * load);
   h->attack_skill = sa; h->defense_skill = sd; h->HT = sht; s_str_plus = ssp; s_boom_plus = sbp;
@@ -167,6 +168,12 @@ static int toe_choose(bool *hold) {
   int bi = -3; double best = -1;
   if (getenv("TOEDBG") && !s_rollout) { printf("  TOE d%d kit survival:", G.depth); for (int d = G.depth; d < G.depth + 6; d++) { TProj p = toe_proj(d); int w, a; double sv = toe_kit(d, ps, np, &p, &w, &a); printf(" d%d %.2f", d, sv); } printf("\n"); }
   if (getenv("TOEDBG2") && !s_rollout) toe_alloc(ps, np, G.depth, G.depth + 6);
+  if (getenv("TOEKIT") && !s_rollout) for (int d = G.depth; d <= G.depth + 2; d++) { TProj p = toe_proj(d);
+    for (int i = -1; i < np; i++) { if (i >= 0 && ps[i].cat != CAT_WEAPON) continue; for (int j = 0; j < np; j++) { if (ps[j].cat != CAT_ARMOR) continue;
+      for (int u = 0; u < 2; u++) { if (u && i < 0) continue; if (u) ps[i].it.lvl++; double s0 = toe_floor(d, i >= 0 ? &ps[i].it : NULL, &ps[j].it, ps, np, &p); if (u) ps[i].it.lvl--;
+        ps[j].it.lvl++; double s1 = toe_floor(d, i >= 0 ? &ps[i].it : NULL, &ps[j].it, ps, np, &p); ps[j].it.lvl--;
+        char a[48], b[48]; if (i >= 0) item_name(&ps[i].it, a, sizeof a); else strcpy(a, "-"); item_name(&ps[j].it, b, sizeof b);
+        printf("   kit d%d %s%s + %s: %.3f (armour +1: %.3f)\n", d, a, u ? " (+1)" : "", b, s0, s1); } } } }
   for (int i = 0; i < np; i++) { if (!game_pick_ok(PICK_UPGRADE, ps[i].slot)) continue;
     double v = toe_score(ps, np, i);
     if (getenv("TOEDBG") && !s_rollout) { char nm[64]; item_name(game_slot(ps[i].slot), nm, sizeof nm); printf("  TOE d%d upgrade %-32s -> %.3f floors\n", G.depth, nm, v); }
@@ -209,4 +216,12 @@ static bool toe_buy(int hh) {
   if (getenv("TOEDBG") && !s_rollout) { char nm[64]; item_name(it, nm, sizeof nm); printf("  TOE d%d buy %s for %d? %.3f -> %.3f\n", G.depth, nm, price, v0 / 6, v1 / 6); }
   if ((v1 - v0) / 6 > 0.04) { st_toe_buy++; return true; }
   return false;
+}
+// TOECAL=1: on each new floor, the model's load for the kit worn (to fit its odds to the bot's real deaths)
+static void toe_cal_log(void) {
+  if (s_rollout || s_is_child) return;
+  TPiece ps[24]; int np = toe_pieces(ps, 20); TProj p = toe_proj(G.depth); Hero *h = &G.hero;
+  double sv = toe_floor(G.depth, h->weapon.kind ? &h->weapon : NULL, h->armor.kind ? &h->armor : NULL, ps, np, &p);
+  int nheal = 0; { int sl = find_kind(IK_POT_HEALING); if (sl >= 0 && item_known(IK_POT_HEALING)) nheal = game_slot(sl)->qty; }
+  printf("TOECAL g%d d%d cls %d lvl %d HT %d lreg %.4f xboss %.4f surv %.4f heal %d\n", cur_game, G.depth, h->hclass & 3, h->lvl, h->HT, s_toe_lr, s_toe_lb, sv, nheal);
 }

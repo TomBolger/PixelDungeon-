@@ -3475,7 +3475,9 @@ static void floor_report(void) {
   printf("  leave d%d: %d decisions, %d turns, visited %d, frontier %d, heaps left %d, hunger %d, food %d, food left %d (seen %d)\n", G.depth, s_floor_steps, (G.now - s_floor_turn0) / TICK, vis, fr, hp, G.hero.hunger, find_kind(IK_RATION), fl, fls);
   for (int i = 61; i < 64; i++) { int j = (s_ring_n + i) & 63; if (s_ring[j][0]) printf("      %s\n", s_ring[j]); }
 }
+static void toe_cal_log(void);
 static void on_new_floor(bool first) {
+  if (first && getenv("TOECAL")) toe_cal_log();
   s_avoid_n = 0;
   pwater_map(); g_from = -1;                            // (0.47: the heading starts fresh on each floor, as on the watch)
   s_trail_n = 0; s_ambush = 0;
