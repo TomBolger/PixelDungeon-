@@ -44,7 +44,7 @@ An overlay is a piece of C code that is compiled separately, stored as a resourc
 | `use`, `pick` | Using items (eat, drink, read, equip) and item-choice windows |
 | `wand`, `ench`, `trap` | Wand effects, weapon enchantments and armour glyphs, traps and plants |
 | `info` | Item and terrain descriptions |
-| `tgt`, `tgt2`, `tgt3` | The target list for the buttons and the Assist suggestions (shared with the bot): plan A, the other plans, and Assist High's item use |
+| `tgt`, `tgt2`, `tgt3` | The target list for the buttons: the Assist's predictor of the player's next click (shared with the bot): plan A, the other plans, and Assist High's item use |
 | `ui`, `uiw`, `bag`, `sheet` | Title and hero select, in-game windows, backpack, hero and journal windows |
 | `snd` | The music and sound synth |
 
@@ -93,10 +93,10 @@ An overlay is a piece of C code that is compiled separately, stored as a resourc
   - Up: zoom. Long Up: open the game menu.
   - Back: step across the toolbar buttons. Long Select: open the backpack, or long-press the highlighted button.
 - **The target list:** built by the `tgt` overlay, ranked the way the bot would rank it.
-- **Assist** (game menu): sets how much the list suggests.
+- **Assist** (game menu): sets how much the predictor offers.
   - Low: attack, explore and pick-up targets.
   - Medium: adds single steps.
-  - High: adds toolbar and item use, and makes Back follow the suggested order.
+  - High: adds toolbar and item use, and makes Back follow the predicted order.
 - **Touch:** where the watch has it, taps work as a backup, and a tap cancels a toolbar highlight.
 - **Power saving:** after 10 seconds without input, the game's timers stop until the next button press or tap.
 

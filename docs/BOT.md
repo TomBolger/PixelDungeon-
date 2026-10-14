@@ -3,7 +3,7 @@
 `bot/src/deepbot.c` is a program that plays Pixel Dungeon from start to finish, using the **watch's own game code** compiled for Linux. It has three jobs:
 
 1. **Testing.** Every step, it checks dozens of invariants about the game state. Thousands of bot games find crashes, rule mistakes and save bugs long before a person would.
-2. **Strategy research.** It is an attempt to play the game well: exploring, fighting, item use, food and upgrade decisions, and bosses. Its targeting logic is shared with the watch's Assist suggestions.
+2. **Strategy research.** It is an attempt to play the game well: exploring, fighting, item use, food and upgrade decisions, and bosses. Its targeting logic is shared with the watch's Assist predictor.
 3. **Content.** It can record every step of its games (`REC=`) and writes checkpoints for the What-If test build.
 
 The bot plays fairly. It only knows what the hero could know (unidentified items stay unknown), and under normal settings there is no head start and no second life. It has not won a normal-rules game yet: it reaches floor 5–6 on average, and its most common killers are Goo and Tengu.
@@ -56,8 +56,8 @@ Settings are environment variables; there are about 300 of them. Most are experi
 | `STEPS=n` | Decision limit per game |
 | `NOLA=1` | Turn off look-ahead (rules only) |
 | `LAMULT`, `LAK` | Look-ahead effort |
-| `ASSIST=0/1/2` | The watch's Assist level, for testing the suggester |
-| `PRESS=1` (`MIND=1`) | Play by the watch's suggestions, pressing Select only. Ends with an "assist audit": steps straight back, dithering, wall searches with the way down known, and food left lying while hungry (`AUDV=1` lists each one, `AUDMAP=1` with a map) |
+| `ASSIST=0/1/2` | The watch's Assist level, for testing the predictor (the Assist predicts the player's next click) |
+| `PRESS=1` (`MIND=1`) | Play by the watch's predictions, pressing Select only. Ends with an "assist audit": steps straight back, dithering, wall searches with the way down known, and food left lying while hungry (`AUDV=1` lists each one, `AUDMAP=1` with a map) |
 | `REC=file.jsonl` | Record every step of every game as one JSON line (map, hero, creatures, items, decision, log) |
 | `CAMPDIR=dir` | Write a checkpoint at each new floor (`dir/gGGGG_dDD.bin`) |
 | `CAMPLOAD=file` | Continue a game from a checkpoint |

@@ -617,7 +617,7 @@ static int hands(void) {
     int a = 2 * item_tier(it->kind) + (lk ? it->lvl : -1), b = cur->kind ? 2 * (CLASS_ARMOR(cur->kind) ? 6 : item_tier(cur->kind)) + ((cur->flags & IF_LEVEL_KNOWN) ? cur->lvl : 0) : -1;
     if (a > b && !DECL(it->kind, ACN_EQUIP)) { g_ovr.hs = i; g_ovr.ha = ACN_EQUIP; return TK_BAG; }
   }
-  if (XENV("DROPJUNK", 1)) {                           // 0.64: a nearly full pack: put down what's known to be bad, or a weapon / armour
+  if (XENV("DROPJUNK", 1) && G.depth % 5 != 1 && G.depth % 5 != 2) {   // (0.73 (owner): not on a shop floor or the one below: sell it there)   // 0.64: a nearly full pack: put down what's known to be bad, or a weapon / armour
     int n = 0; for (int i = 0; i < BAG_SIZE; i++) n += h->bag[i].kind != 0;   // known no better than what's worn
     if (n >= BAG_SIZE - 2) for (int i = 0; i < BAG_SIZE; i++) { Item *it = &h->bag[i]; int c = item_cat(it->kind); Item *cur = c == CAT_WEAPON ? &h->weapon : &h->armor;
       bool worse = (c == CAT_WEAPON || c == CAT_ARMOR) && it->kind != IK_PICKAXE && (it->flags & IF_LEVEL_KNOWN) && cur->kind && !CLASS_ARMOR(it->kind) &&
@@ -672,6 +672,11 @@ static void t_front(int c, int kind) {               // 0.51: a pinned entry, af
   for (; i > s_h0; i--) { s_tc[i] = s_tc[i - 1]; s_tk[i] = s_tk[i - 1]; s_tkey[i] = s_tkey[i - 1]; g_tgobj[i] = g_tgobj[i - 1]; }
   s_tc[i] = c; s_tk[i] = kind; s_tkey[i] = 0; g_tgobj[i] = c; s_h0++;
 }
+static void t_first(int obj) {                        // 0.73: the entry standing for obj, to the very front
+  for (int j = 1; j < s_tn; j++) if (g_tgobj[j] == obj) { int c = s_tc[j], k = s_tk[j], ky = s_tkey[j];
+    for (; j > 0; j--) { s_tc[j] = s_tc[j - 1]; s_tk[j] = s_tk[j - 1]; s_tkey[j] = s_tkey[j - 1]; g_tgobj[j] = g_tgobj[j - 1]; }
+    s_tc[0] = c; s_tk[0] = k; s_tkey[0] = ky; g_tgobj[0] = obj; return; }
+}
 #if TGT_PART == 2
 enum { HB_WAIT, HB_SEARCH, HB_INFO, HB_BAG, HB_Q2, HB_Q1 };   // (ui_int.h TB_*: the bottom bar, then 6 the menu, 7 the portrait)
 static void hl_rank(int hk) {                          // 0.54 (owner): Back walks the bottom bar in the bot's order, best first
@@ -708,11 +713,23 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
   if (getenv("PRESS") && !getenv("NOTACT"))           // (the solver bot keeps its own: only when it plays by the buttons)
 #endif
   if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
-  if (G.tgm.wo && G.tgm.src0 == 1 && XENV("WAYON", 1)) {   // 0.72 (owner: "go to the opposite corner ... The assist should assist with THAT"): the player's way
-    int od = G.tgm.wo - 1, best = -1, bd = 1;            // has nothing left to do: then the way itself, the farthest cell on screen along it,
-    for (int c = 0; c < MAP_LEN; c++)                  // walked about straight; the plan only once it dead-ends
-      if (s_dist[c] > bd && s_dist[c] <= distance(c, hp) + 4 && on_screen(c) && off(c, od) <= CONE && open_cell(c) && !char_at(c) && c != G.exit && c != G.entrance) { bd = s_dist[c]; best = c; }
-    if (best >= 0) { t_front(best, TK_GO); g_ovr.c = MAP_LEN; } }
+  int wd = G.tgm.wo ? G.tgm.wo - 1 : g_ovr.c == MAP_LEN ? g_ovr.d & 63 : -1;   // 0.72 (owner: "go to the opposite corner ... The assist should
+  if (wd >= 0 && G.tgm.src0 == 1 && (!s_tn || (s_tk[0] != TK_ENEMY && s_tc[0] != hp)) && XENV("WAYON", 1)) {   // assist with THAT"); 0.73 (owner:
+    int best = -1, bd = 1, nt = -1, ns = 0x7FFF;         // "proceed toward highly often clicked things in the direction I selected, then
+    for (int c = 0; c < MAP_LEN; c++) {                // suggest those", "the predictor"): the player's way: the next click that way, the
+      int sd = s_dist[c]; if (sd < 1 || sd >= 255 || off(c, wd) > CONE) continue;   // nearest thing a player clicks (the stairs first, then
+      int t = G.map[c], m = mob_at(c), hi = heap_at(c);   // things and people, then doors and the unknown), weighed by the walk; with
+      int w = c == G.exit ? 2 : (hi >= 0 && heap_ok(&G.heaps[hi])) || (m >= 0 && ally(m) && BIT_GET(G.fov, c)) ? 3 :   // nothing that way,
+              t == T_DOOR || t == T_OPEN_DOOR || t == T_LOCKED_DOOR || t == T_WELL || t == T_ALCHEMY || c == G.entrance || unseen_by(c) ? 4 : 0;   // the way
+      if (w && sd * w < ns) { ns = sd * w; nt = c; }   // itself (the farthest cell on screen along it, walked about straight)
+      if (sd > bd && sd <= distance(c, hp) + 4 && on_screen(c) && open_cell(c) && !char_at(c) && c != G.exit && c != G.entrance) { bd = sd; best = c; } }
+    if (nt >= 0) best = nt;
+    if (best >= 0) { s_zero = true; t_put(best, heap_at(best) >= 0 ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(best); g_ovr.c = MAP_LEN; } }
+  struct Tgm *T = &G.tgm;                               // 0.73 (owner: "the 'proceed to last click' button ... I want it to live in the middle
+  if (g_assist && G.last_action && G.last_action != HA_ATTACK && G.last_action != HA_TALK && (unsigned)G.last_cell < MAP_LEN && XENV("RESUME", 1)) {   // button zone"):
+    T->ra = G.last_action; T->rc = G.last_cell; T->rt = G.now + 30 * TICK; G.last_action = 0; }   // the interrupted walk taken over (no top-left button):
+  if (T->ra && (T->rc == hp || G.now > T->rt || T->rt - 30 * TICK < G.level_t0 || s_dist[T->rc] >= 255)) T->ra = 0;   // Select goes on with it (a tap there), Down: the rest
+  if (T->ra) { s_zero = true; t_put(T->rc, T->ra == HA_PICKUP ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(T->rc); }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos) && m->type == MT_PIRANHA) s_fish = true; }
   { int pk = G.hero.weapon.kind == IK_PICKAXE ? -1 : game_bag_find(IK_PICKAXE); s_pick = (pk >= 0 || G.hero.weapon.kind == IK_PICKAXE) && G.depth >= 11 && G.depth <= 15; }
   // 0.47 (owner: "cycle through its plan B, C..."): the alternatives are objectives, best first by kind then walk:
