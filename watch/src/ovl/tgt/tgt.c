@@ -321,7 +321,7 @@ again:
     if (!heap_ok(h) || G.map[c] == T_ALCHEMY || (c != hp && char_at(c)) || (s_fish && IS_WATER(G.map[c]))) continue;   // (0.48: not junk you know of)
     if (h->item.kind == IK_DEW && G.hero.HP >= G.hero.HT && (G.dew >= 10 || !has(IK_DEW_VIAL))) continue;   // 0.41 (user): Dewdrop.doPickUp would do nothing
     int d = c == hp ? 0 : walk(c);
-    if (d < bk && (ahead(c) || d <= 4 || precious(h->item.kind))) { bk = d; best = c; }   // (0.63: the player's way: still what's close, and upgrades)
+    if (d < bk && (ahead(c) || precious(h->item.kind) || (!XENV("OBEY", 1) && d <= 4))) { bk = d; best = c; }   // (0.63: the player's way: still upgrades; 0.65 (owner: "if I want to explore a hallway but left a dewdrop behind, it shouldn't turn me around"): nothing else behind)
   }
   if (best >= 0) DBG_RET(best);
   *kind = TK_GO;
@@ -561,19 +561,24 @@ static int hands(void) {
     bool cw = false; int unid = 0;                     // Identify with something to learn, Enchantment, Magic Mapping a while into a floor with no way down yet
     for (int sl = -4; sl < BAG_SIZE; sl++) { Item *it = game_slot(sl); int c = item_cat(it->kind); if (c != CAT_WEAPON && c != CAT_ARMOR && c != CAT_RING && c != CAT_WAND) continue;
       if (sl < 0 && (it->flags & (IF_CURSED | IF_CURSED_KNOWN)) == (IF_CURSED | IF_CURSED_KNOWN)) cw = true;
-      if (!unid && ((it->flags & (IF_LEVEL_KNOWN | IF_CURSED_KNOWN)) != (IF_LEVEL_KNOWN | IF_CURSED_KNOWN) || (c >= CAT_WAND && !item_known(it->kind)))) unid = sl + 8; }
+      bool u = (it->flags & (IF_LEVEL_KNOWN | IF_CURSED_KNOWN)) != (IF_LEVEL_KNOWN | IF_CURSED_KNOWN) || (c >= CAT_WAND && !item_known(it->kind));
+      if (u && !unid) unid = 1;                        // 0.65 (owner): Identify opens on a better weapon / armour a point of STR short (an
+      if (u && sl >= 0 && c <= CAT_ARMOR && !(it->flags & IF_LEVEL_KNOWN) && item_str(it) + it->lvl <= hero_str() + 1 &&   // upgrade on it would make it wearable),
+          item_tier(it->kind) > item_tier((c == CAT_WEAPON ? &h->weapon : &h->armor)->kind)) unid = sl + 8; }   // else on nothing: the player chooses
     for (int k = IK_SCR_REMOVE_CURSE; k; k = k == IK_SCR_REMOVE_CURSE ? IK_SCR_IDENTIFY : k == IK_SCR_IDENTIFY ? IK_SCR_ENCHANT : k == IK_SCR_ENCHANT ? IK_SCR_MAPPING : 0) {
       if ((s = game_bag_find(k)) < 0 || !item_known(k) || DECL(k, ACN_READ)) continue;
       if ((k == IK_SCR_REMOVE_CURSE && cw) || (k == IK_SCR_IDENTIFY && unid) || k == IK_SCR_ENCHANT || (k == IK_SCR_MAPPING && !BIT_GET(G.visited, G.exit) && G.now - G.level_t0 > 250 * TICK)) {
-        G.tgm.pk = k == IK_SCR_IDENTIFY ? unid : 6; g_ovr.hs = s; g_ovr.ha = ACN_READ; return TK_BAG; } } }
+        G.tgm.pk = k == IK_SCR_IDENTIFY ? (unid > 1 ? unid : 0) : 6; g_ovr.hs = s; g_ovr.ha = ACN_READ; return TK_BAG; } } }
   if (!h->b.blind && h->HP * 5 >= h->HT * 4 && !game_starving()) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_SCROLL && !item_known(k) && !DECL(k, ACN_READ)) { G.tgm.pk = 6; g_ovr.hs = i; g_ovr.ha = ACN_READ; return TK_BAG; } }   // 0.50: read to learn it, nothing about (0.64: an Upgrade: the armour)
   if (h->HP * 5 < h->HT * 3 && G.health_pos != hp && plant_at(hp) < 0 && heap_at(hp) < 0 && hp != G.entrance && hp != G.exit && !DECL(IK_SEED_SUNGRASS, ACN_PLANT) && XENV("SUNGRASS", 1))
     for (int sl = 0; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) if (game_slot(sl)->kind == IK_SEED_SUNGRASS) { g_ovr.hs = sl; g_ovr.ha = ACN_PLANT; return TK_BAG; }   // 0.64: hurt, nothing about: Sungrass underfoot, then rest on it
   // 0.64: drink unknown potions to learn them while it's safe (PD players do it early: then healing is known when it
   // matters): healthy, nothing in sight, not on what burns; Liquid Flame not yet known: only in water or with no scrolls to lose
-  if (XENV("TESTDRINK", 1) && h->HP * 10 >= h->HT * 9 && !STARVING && !(TFLAGS(G.map[hp]) & F_FLAMABLE)) {
-    bool scr = false; for (int i = 0; i < BAG_SIZE; i++) scr |= item_cat(h->bag[i].kind) == CAT_SCROLL;
-    if (item_known(IK_POT_FLAME) || IS_WATER(G.map[hp]) || !scr) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind;
+  if (XENV("TESTDRINK", 1) && h->HP * 10 >= h->HT * 9 && !STARVING) {
+    bool scr = false, burn = false; for (int i = 0; i < BAG_SIZE; i++) scr |= item_cat(h->bag[i].kind) == CAT_SCROLL;
+    for (int k = -1; k < 8; k++) { int n = k < 0 ? hp : hp + N8[k]; if (k < 0 || nb_ok(hp, n)) burn |= (TFLAGS(G.map[n]) & F_FLAMABLE) != 0; }   // (owner: doors burn too; Liquid Flame catches what's beside you)
+    if (!XENV("FLAMEAROUND", 1)) burn = TFLAGS(G.map[hp]) & F_FLAMABLE;
+    if (item_known(IK_POT_FLAME) || ((IS_WATER(G.map[hp]) || !scr) && !burn)) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind;
       if (item_cat(k) == CAT_POTION && !item_known(k) && !DECL(k, ACN_DRINK)) { g_ovr.hs = i; g_ovr.ha = ACN_DRINK; return TK_BAG; } } }
   for (int i = 0; i < BAG_SIZE; i++) {
     Item *it = &h->bag[i]; int c = item_cat(it->kind); Item *cur = c == CAT_WEAPON ? &h->weapon : &h->armor;
@@ -581,7 +586,7 @@ static int hands(void) {
     // 0.64 (the Assist alone died in cloth armour: found gear was never worn unidentified): an unknown piece a tier or more
     // better is worth wearing (PD's odds: mostly +0, a cursed one now and then; wearing it is how you learn it)
     bool lk = it->flags & IF_LEVEL_KNOWN, ck = it->flags & IF_CURSED_KNOWN;
-    if ((!(lk && ck) && !XENV("UNKGEAR", 1)) || (ck && (it->flags & IF_CURSED)) || (lk && it->lvl < 0) || item_str(it) > hero_str()) continue;
+    if ((!(lk && ck) && !XENV("UNKGEAR", 1)) || (ck && (it->flags & IF_CURSED)) || (lk && it->lvl < 0) || item_str(it) + (lk || !XENV("STRHONEST", 1) ? 0 : it->lvl) > hero_str()) continue;   // (0.65: an unknown level's STR: the plain one, no peeking)
     int a = 2 * item_tier(it->kind) + (lk ? it->lvl : -1), b = cur->kind ? 2 * (CLASS_ARMOR(cur->kind) ? 6 : item_tier(cur->kind)) + ((cur->flags & IF_LEVEL_KNOWN) ? cur->lvl : 0) : -1;
     if (a > b && !DECL(it->kind, ACN_EQUIP)) { g_ovr.hs = i; g_ovr.ha = ACN_EQUIP; return TK_BAG; }
   }
