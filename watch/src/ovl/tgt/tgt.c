@@ -52,6 +52,7 @@ __attribute__((noinline))                              // (tgt2: shared by t_add
 static void t_del(int j) {                             // 0.61: entry j out
   while (++j < s_tn) { s_tc[j - 1] = s_tc[j]; s_tk[j - 1] = s_tk[j]; s_tkey[j - 1] = s_tkey[j]; g_tgobj[j - 1] = g_tgobj[j]; } s_tn--; }
 static void t_add(int c, int kind, int key) {
+  if ((G.map[c] == T_WALL || G.map[c] == T_WALL_DECO) && kind != TK_VEIN && kind != TK_MINE) return;   // 0.74 (owner: "it still points me into wall tiles"): never a wall
   key = t_key(c, key);
   for (int j = s_h0; j < s_tn; j++) if (s_tc[j] == c) { if (key >= s_tkey[j]) return; t_del(j); break; }   // once, at its best
   int i = s_tn;
@@ -373,9 +374,9 @@ again:
   if (!amulet || !BIT_GET(G.visited, st) || walk(st) >= 255) {   // (with the Amulet: only to find the way up)
   //                                    // explore: the nearest spot beside the unknown; the one chosen before
     int g = g_goal;                                    // while it still is one and can be reached (no dithering between two;
-    if (g >= 0 && g < MAP_LEN && s_dist[g] < 255 && s_dist[g] > 0 && unseen_by(g) && ahead(g) && direct(g)) best = g;   // 0.45: those on
-    else for (int p = 0; p < 2 && best < 0; p++)      // screen came first, look); the player's way: first those the walk doesn't double back to
+    for (int p = 0; p < 2 && best < 0; p++)          // screen came first, look); the player's way: first those the walk doesn't double back to
       for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < bk && s_dist[c] > 0 && unseen_by(c) && ahead(c) && (p || direct(c))) { bk = s_dist[c]; best = c; }
+    if (g >= 0 && g < MAP_LEN && s_dist[g] <= bk + 3 && s_dist[g] > 0 && unseen_by(g) && ahead(g) && direct(g)) best = g;   // 0.45: those on   // (0.74 (owner: "turn me around to cross the whole map to explore an unexplored door"): only while no other is 3 nearer)
     if (best >= 0) { g_goal = best; DBG_RET(best); }
   }
   for (int c = 0; c < MAP_LEN; c++) {                  // a known trap the only way on (a corridor): over it, the nearest
@@ -416,7 +417,7 @@ static __attribute__((noinline)) int mind(int hp) {
   }
   return pr;
 }
-#if TGT_PART == 1
+#if TGT_PART == 2                                       // (0.74: escape and tactics moved to tgt3: room)
 static int escape(void) {                              // 0.64 (moved from first(): room): the hero in gas or fire, or eaten by Goo's ooze
   int hp = G.hero.pos, best = -1, bk = 0x7FFF;
   if (XENV("FOUL", 1) && (foul(hp) || G.hero.b.burning)) {   // 0.64 (the Assist alone died in the gas of a potion it had drunk to learn it):
@@ -432,7 +433,7 @@ static int escape(void) {                              // 0.64 (moved from first
   return -1;
 }
 #endif
-#if TGT_PART == 1
+#if TGT_PART == 2
 // 0.50 (the night of 10-13: the solver bot's lessons, for the feet): where to stand. -1: nothing special.
 // The rotting fist mends 4 a turn in water: meet it on dry ground. The burning fist sets all round it alight: fight it
 // from the water beside it. Evil eyes and scorpios shoot along a line (Tengu's arena has no corner: no use): out of it, round a corner, and they come
@@ -461,7 +462,7 @@ static int tactics(void) {
     if (t == MT_BURNING_FIST) bf = m; else if (t == MT_ROTTING_FIST) rf = m; else if (t == MT_DM300) dm = m;
     else if ((t == MT_EYE || t == MT_SCORPIO || t == MT_ACIDIC || t == MT_SHAMAN || t == MT_WARLOCK) && m->state == ST_HUNTING) { if (!sh || d < distance(sh->pos, hp)) sh = m; }   // (0.63 (owner): shamans and warlocks too)
     else if (m->state == ST_HUNTING && !(MOB_DEFS[t].flags & (MD_BOSS | MD_IMMOVABLE | MD_WATER | MD_NPC)) && MOB_DEFS[t].move_cost * 2 > hero_move_cost() && t != MT_SHAMAN && t != MT_WARLOCK && t != MT_MIMIC && t != MT_STATUE && d < kd) { kd = d; ki = m; }
-    else if (m->state != ST_HUNTING && m->state != ST_PASSIVE && !(MOB_DEFS[t].flags & MD_NPC)) kd = -1;   // (another one about: no tricks)
+    else if (m->state == ST_WANDERING && d <= 6 && !(MOB_DEFS[t].flags & MD_NPC)) kd = -1;   // (another one about, awake and near: no tricks; 0.74: a sleeper doesn't count)
   }
   int best = -1, bk = 0x7FFF;
 #ifdef OVL_HOST
@@ -481,7 +482,7 @@ static int tactics(void) {
     if (!dead_trap_near(hp)) return hp;                // (hold: let it come)
     for (int c = 0; c < MAP_LEN; c++) if (c != hp && stand_ok(c, hp) && !dead_trap_near(c) && walk(c) < bk) { bk = walk(c); best = c; }
     return best; }
-  if (ki && kd >= 3) {                                 // the door trick
+  if (ki && kd >= 2) {                                 // the door trick (0.74 (owner: "the #1 priority"): from 2 steps off too)
     struct Tgm *M = &G.tgm;
     for (int D = 0; D < MAP_LEN; D++) { int t = G.map[D]; if ((t != T_DOOR && t != T_OPEN_DOOR) || walk(D) > 5 || walk(D) >= distance(ki->pos, D)) continue;
       for (int k = 0; k < 8; k++) { int A = D + N8[k]; if (!nb_ok(D, A) || !stand_ok(A, hp) || G.map[A] == T_DOOR || G.map[A] == T_OPEN_DOOR || IS_WATER(G.map[A]) || distance(A, ki->pos) <= distance(D, ki->pos) || ballistica(ki->pos, A, &hit) == A) continue;
@@ -694,6 +695,15 @@ static void hl_rank(int hk) {                          // 0.54 (owner): Back wal
 static int targets(int16_t *cell, uint8_t *kind, int n0) {   // 0.63: tgt3: the hands, pinned in front of tgt2's list (main.c game_targets)
   s_tn = n0; s_tc = cell; s_tk = kind; s_h0 = 0;
   if (g_assist >= 2) { s_aim = -1; int hk = hands(); if (hk >= 0) { t_front(hk == TK_BAG && s_aim >= 0 ? s_aim : G.hero.pos, hk); G.tgm.src0 = 3; } hl_rank(hk); }   // 0.51 (owner): plan A, and Down still offers the rest
+  int hp = G.hero.pos;                                   // (0.74: from tgt2, room) after the hands:
+  bool vo = G.now < G.tgm.vt && XENV("VETO", 1), veto = vo && G.tgm.vs == 2;   // 0.66: the player overrode where we'd have them stand (or get out
+  int esc = vo && G.tgm.vs == 4 && G.now + 10 * TICK < G.tgm.vt ? -1 : escape();   // of gas: only 5 turns): not again a while
+  if (esc >= 0) { t_front(esc, TK_GO); G.tgm.src0 = 4; }   // 0.64: out of gas / fire / ooze first (Assist Low too)
+  else if (!veto)
+#ifdef OVL_HOST
+  if (getenv("PRESS") && !getenv("NOTACT"))           // (the solver bot keeps its own: only when it plays by the buttons)
+#endif
+  if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
   return s_tn;
 }
 #else
@@ -705,14 +715,6 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
     if (a >= 0 && s_tn > 0 && s_tc[0] == hp) { t_del(0); int n1 = s_tn; s_zero = true; t_put(a, TK_GO, 0); s_zero = false;
       if (s_tn > n1) { int c = s_tc[n1], k = s_tk[n1], o = g_tgobj[n1]; for (int j = n1; j > 0; j--) { s_tc[j] = s_tc[j - 1]; s_tk[j] = s_tk[j - 1]; g_tgobj[j] = g_tgobj[j - 1]; } s_tc[0] = c; s_tk[0] = k; g_tgobj[0] = o; }
       else t_front(hp, TK_GO); } }                      // (nowhere on screen: search here, as before)
-  bool vo = G.now < G.tgm.vt && XENV("VETO", 1), veto = vo && G.tgm.vs == 2;   // 0.66: the player overrode where we'd have them stand (or get out
-  int esc = vo && G.tgm.vs == 4 && G.now + 10 * TICK < G.tgm.vt ? -1 : escape();   // of gas: only 5 turns): not again a while
-  if (esc >= 0) { t_front(esc, TK_GO); G.tgm.src0 = 4; }   // 0.64: out of gas / fire / ooze first (Assist Low too)
-  else if (!veto)
-#ifdef OVL_HOST
-  if (getenv("PRESS") && !getenv("NOTACT"))           // (the solver bot keeps its own: only when it plays by the buttons)
-#endif
-  if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
   int wd = G.tgm.wo ? G.tgm.wo - 1 : g_ovr.c == MAP_LEN ? g_ovr.d & 63 : -1;   // 0.72 (owner: "go to the opposite corner ... The assist should
   if (wd >= 0 && G.tgm.src0 == 1 && (!s_tn || (s_tk[0] != TK_ENEMY && s_tc[0] != hp)) && XENV("WAYON", 1)) {   // assist with THAT"); 0.73 (owner:
     int best = -1, bd = 1, nt = -1, ns = 0x7FFF;         // "proceed toward highly often clicked things in the direction I selected, then
