@@ -5,6 +5,7 @@
  */
 #include "pd.h"
 #include "items_int.h"
+#include "ovl.h"
 
 const char *ACTION_NAMES[ACN_COUNT] = { "Eat", "Drink", "Read", "Equip", "Unequip", "Throw", "Quickslot", "Drop", "Reforge", "Zap",
   "Plant", "Light", "Apply", "Set", "Return", "End the game", "Mine", "Special", "Disenchant", "Shatter" };
@@ -108,8 +109,6 @@ Item item_make(int k, int qty) {
   return it;
 }
 
-static const char *const WE_WORDS[WE_COUNT] = { "", "blazing", "venomous", "grim", "stunning", "vampiric", "chilling", "shocking",
-  "unstable", "eldritch", "lucky", "tempered" };
 static const char *const AG_WORDS[AG_COUNT] = { "", "bounce", "affection", "anti-entropy", "multiplicity", "potential", "metabolism",
   "stench", "viscosity", "displacement", "entanglement", "auto-repair" };
 const char *ench_glyph_name(int g) { return g > 0 && g < AG_COUNT ? AG_WORDS[g] : ""; }
@@ -135,34 +134,12 @@ uint8_t item_glow(const Item *it) {
   if (DEFS[it->kind].cat != CAT_WAND && it->ench < WE_COUNT) return WE_GLOW[it->ench];   // a weapon or the boomerang (a wand's ench: its charges)
   return 0;
 }
-static const char *base_name(const Item *it, char *tmp, int len) {
-  int k = it->kind;
-  if (DEFS[k].cat == CAT_POTION && !item_known(k)) { snprintf(tmp, len, "%s potion", POTION_COLORS[G.potion_flavor[k - IK_FIRST_POTION]]); return tmp; }
-  if (DEFS[k].cat == CAT_SCROLL && !item_known(k)) { snprintf(tmp, len, "scroll \"%s\"", SCROLL_RUNES[G.scroll_flavor[k - IK_FIRST_SCROLL]]); return tmp; }
-  if (DEFS[k].cat == CAT_WAND && !item_known(k)) { snprintf(tmp, len, "%s wand", WAND_WOODS[G.wand_flavor[k - IK_FIRST_WAND]]); return tmp; }
-  if (DEFS[k].cat == CAT_RING && !item_known(k)) { snprintf(tmp, len, "%s ring", RING_GEMS[G.ring_flavor[k - IK_FIRST_RING]]); return tmp; }
-  return txt(DEFS[k].name);
-}
-// Item.toString without the quantity (PD shows that on the slot): name, +level, and " :STR" once known (missiles: always)
+// Item.toString (0.75: the "name" overlay, room)
 void item_name(const Item *it, char *buf, int len) {
-  char tmp[40];
-  const char *n = base_name(it, tmp, sizeof tmp);
-  bool lk = it->flags & IF_LEVEL_KNOWN;
-  char lvl[8] = "";
-  if (lk && it->lvl) snprintf(lvl, sizeof lvl, "%+d", it->lvl);
-  char en[40];                                        // Weapon.name / Armor.name: the enchantment's words
-  if (it->ench && DEFS[it->kind].cat == CAT_ARMOR && it->ench < AG_COUNT) { snprintf(en, sizeof en, "%s of %s", n, AG_WORDS[it->ench]); n = en; }
-  else if (it->ench && DEFS[it->kind].cat != CAT_WAND && it->ench < WE_COUNT) { snprintf(en, sizeof en, "%s %s", WE_WORDS[it->ench], n); n = en; }   // weapons, the boomerang
-  bool br = lk && item_broken(it);
-  if (lk && (gear(it->kind) || DEFS[it->kind].cat == CAT_MISSILE)) snprintf(buf, len, "%s%s%s :%d", br ? "broken " : "", n, lvl, item_str(it));
-  else if (lk && DEFS[it->kind].cat == CAT_WAND) {                 // Wand.toString: " (charges/max)"
-    char c[4]; snprintf(c, sizeof c, "%d", it->ench);
-    snprintf(buf, len, "%s%s%s (%s/%d)", br ? "broken " : "", n, lvl, it->flags & IF_CHARGE_KNOWN ? c : "?", wand_max(it));
-  } else if (it->kind == IK_DEW_VIAL) snprintf(buf, len, "%s (%d/10)", n, G.dew);   // DewVial.toString: its status
-  else snprintf(buf, len, "%s%s%s", br ? "broken " : "", n, lvl);
+  const OvlHeader *o = ovl_load(RESOURCE_ID_OVL_NAME);
+  if (!o) { snprintf(buf, len, "%s", txt(DEFS[it->kind].name)); return; }
+  ((void (*)(const Item *, char *, int))o->fn[0])(it, buf, len); ovl_free(o);
 }
-
-
 
 // Item.price > 0 (0.14: the prices themselves live in the hero overlay, with the shops)
 bool item_sellable(int k) {

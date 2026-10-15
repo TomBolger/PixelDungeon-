@@ -294,6 +294,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   s_now = G.now; s_pos = G.hero.pos; s_z = s_zoom;
   if (s_walking && !dir) { s_now = -1; return; }     // 0.43 (audio): not on every step of a walk (Select/taps stop it first): when it ends
   memcpy(g_view, VIEW[s_zoom], 4);                   // 0.36: only what's on screen
+  if (g_assist == AS_MAX) memset(g_view, 0, 4);     // 0.75: Max: anywhere
   int16_t c[TARGETS_MAX]; uint8_t k[TARGETS_MAX];
   int n = G.hero.HP > 0 ? game_targets(c, k) : 0, cur = -1;
   if (n < 0) { s_now = -1; return; }                 // 0.36: no room for the overlay now: the list as it was, tried again next time
@@ -304,6 +305,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   int i = 0;                                         // 0.40: after each step the first one (what a good player would do next)
   if (dir && cur >= 0) i = (cur + dir + n) % n;      // Down / long Down: the next / the one before
   else if (dir < 0) i = n - 1;
+  else if (cur >= 0 && g_assist == AS_OFF) i = cur;  // 0.75 Off: the enemy chosen stays chosen (PD's last target)
   s_tgn = n; s_tgi = i; s_tg = n ? c[i] : -1; s_tgk = n ? k[i] : 0; s_tgk0 = n ? k[0] : 0; s_tg0 = n ? c[0] : -1;
   if (n && s_tgk == TK_ENEMY) { s_tgu = G.mobs[mob_at(s_tg)].uid; G.last_target = s_tg; }
 }
@@ -693,7 +695,7 @@ static void menu_select(int a) {                   // the game menu's buttons (u
     case A_CATALOG: case A_JOURNAL: s_scene = SC_CATALOG; s_sheet_tab = a == A_JOURNAL ? 2 : 0; s_sel = 0; break;   // WndCatalogus / WndJournal
     case A_MUSIC: snd_set(g_sound ^ SOUND_MUSIC); break; case A_SOUND: snd_cycle(); break;   // stays open
     case A_DIAG: ui_win(-1, NULL); s_scene = SC_DIAG; break;
-    case A_ASSIST: g_assist = (g_assist + 1) % 3; zoom_save(); break;   // stays open
+    case A_ASSIST: g_assist = (g_assist + 1) % 5; zoom_save(); break;   // stays open
     case A_NEW: start_game(false); return;
     case A_RANKINGS: case A_MAIN: to_title(); if (a == A_MAIN) return; s_scene = SC_RANKINGS; break;
     default: s_scene = SC_GAME;
@@ -887,7 +889,7 @@ static void combat_cycle(int dir) {                // Down: the next target (0.2
     for (int k = 2; dir < 0 && k < n; k++) i = game_target(i, true, NULL);   // back: forward all the way round but one
     if (i < 0) return;
     s_aim_mob = i; G.quick_uid = G.mobs[i].uid; c = G.mobs[i].pos;
-  } else { tg_refresh(dir); cam_center(); busy(); return; }   // 0.36: the targets are on screen: the camera stays on the hero
+  } else { tg_refresh(dir); c = s_tg; if (g_assist != AS_MAX || c < 0) { cam_center(); busy(); return; } }   // 0.36: the targets are on screen: the camera stays on the hero (0.75 Max: it swoops there)
   cam_glide();
   pan_to((c % MAP_W - G.hero.pos % MAP_W) * TS, (c / MAP_W - G.hero.pos / MAP_W) * TS);
   busy();
@@ -1037,11 +1039,11 @@ static void button(ButtonId id) { woke();
   }
   if (s_walking) { s_walking = false; return; }
   if (s_hl >= 0) {                                   // 0.42: Select presses it, Up the one before (or none), Down: none
-    if (id == BUTTON_ID_SELECT) hl_press(false); else { s_hl = id != BUTTON_ID_UP ? -1 : g_assist >= 2 ? (s_hlp ? g_hl_order[--s_hlp] : -1) : s_hl - 1; redraw(); }
+    if (id == BUTTON_ID_SELECT) hl_press(false); else { s_hl = id != BUTTON_ID_UP ? (g_assist == AS_OFF && s_hl < 7 ? s_hl + 1 : -1) : AS_HIGH ? (s_hlp ? g_hl_order[--s_hlp] : -1) : s_hl - 1; redraw(); }
     return;
   }
   if (id == BUTTON_ID_UP) zoom_cycle();              // 0.23: Up zooms, Down picks the next target, Select acts on it
-  else if (id == BUTTON_ID_DOWN) combat_cycle(1);
+  else if (id == BUTTON_ID_DOWN) { if (g_assist == AS_OFF && !s_tgn) { s_hl = 0; redraw(); } else combat_cycle(1); }   // 0.75 Off: no enemy: the buttons
   else if (s_tg >= 0) { ActResult r = tg_do(); if (r == ACT_NONE) { tg_refresh(1); s_tgi = 0; } act(r); }   // nothing came of it: the next one (0.36: rooted: wait it out)
   else if (cam_free()) { cam_center(); redraw(); }
   else act(G.hero.pos == G.exit || heap_at(G.hero.pos) >= 0 ? game_tap_cell(G.hero.pos) : game_search());   // nothing in view: the stairs or things underfoot, else search (a closed room hides a door)
@@ -1060,7 +1062,7 @@ static void click_back(ClickRecognizerRef r, void *c) { woke();
     case SC_TARGET: case SC_INSPECT: case SC_INFO: s_scene = SC_GAME; s_aim_q = s_aim_mob = -1; redraw(); return;
     case SC_DEAD: to_title(); return;
     case SC_GAME: s_walking = false; if (s_tgi) tg_refresh(-s_tgi);
-      if (g_assist >= 2) { s_hlp = s_hl < 0 ? 0 : s_hlp + 1; s_hl = s_hlp < 8 ? g_hl_order[s_hlp] : -1; } else s_hl = s_hl == 7 ? -1 : s_hl + 1;   // 0.54 (owner): High: in the bot's order
+      if (AS_HIGH) { s_hlp = s_hl < 0 ? 0 : s_hlp + 1; s_hl = s_hlp < 8 ? g_hl_order[s_hlp] : -1; } else s_hl = s_hl == 7 ? -1 : s_hl + 1;   // 0.54 (owner): High: in the bot's order
       redraw(); return;   // 0.42: the buttons, one by one (0.47 (owner): and the plan back to A)
     default: break;
   }
@@ -1729,7 +1731,7 @@ static void init(void) {
 #ifdef WHATIF
   int floor_op(int, int, void *); if (!persist_exists(1)) floor_op(9, 0, NULL);   // FO_WHATIF (game_int.h)   // 0.51 what-if build: no save: the frozen bot game (0.70: in the save overlay)
 #endif
-  if (persist_exists(KEY_ZOOM)) { int v = persist_read_int(KEY_ZOOM); s_zoom = v & 15; g_assist = ((v >> 4) & 3) ^ ASSIST_DEF; if (s_zoom > 2) s_zoom = 1; }
+  if (persist_exists(KEY_ZOOM)) { int v = persist_read_int(KEY_ZOOM); s_zoom = v & 15; g_assist = ((v >> 4) & 7) ^ ASSIST_DEF; if (g_assist > AS_OFF) g_assist = ASSIST_DEF; if (s_zoom > 2) s_zoom = 1; }
   sheet_load(&s_chrome, RESOURCE_ID_IMAGE_CHROME);
   s_font_tiny = fonts_get_system_font(FONT_KEY_GOTHIC_09);
   s_font_hud = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);

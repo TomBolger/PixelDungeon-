@@ -287,7 +287,7 @@ static int first(int *kind) {                          // the cell (on the map, 
   int fd = food_near();
   if (fd >= 0 && bk >= 1000 && (best < 0 || walk(fd) <= 3) && ahead(fd)) { *kind = TK_ITEM; DBG_RET(fd); }   // 0.61: hungry: food first (a few steps off: before an enemy not yet beside you)
   if (best >= 0) {
-    if (!g_assist) { *kind = TK_ENEMY; DBG_RET(best); }   // 0.51 Assist Low: just the fight
+    if (!g_assist || g_assist == AS_OFF) { *kind = TK_ENEMY; DBG_RET(best); }   // 0.51 Assist Low: just the fight
     // 0.41 (user: doorway fighting): Select waits a turn (main.c tg_do; entry 0 stays the enemy) for one a step short of
     // you that is coming at you; and once just after the hero stepped back from beside it (whatever it does: then on to it)
     Mob *m = &G.mobs[bi]; int t = m->type, w = walk(best);
@@ -694,7 +694,8 @@ static void hl_rank(int hk) {                          // 0.54 (owner): Back wal
 }
 static int targets(int16_t *cell, uint8_t *kind, int n0) {   // 0.63: tgt3: the hands, pinned in front of tgt2's list (main.c game_targets)
   s_tn = n0; s_tc = cell; s_tk = kind; s_h0 = 0;
-  if (g_assist >= 2) { s_aim = -1; int hk = hands(); if (hk >= 0) { t_front(hk == TK_BAG && s_aim >= 0 ? s_aim : G.hero.pos, hk); G.tgm.src0 = 3; } hl_rank(hk); }   // 0.51 (owner): plan A, and Down still offers the rest
+  if (g_assist == AS_OFF) return s_tn;                   // 0.75 Off: the enemies only (tgt2)
+  if (AS_HIGH) { s_aim = -1; int hk = hands(); if (hk >= 0) { t_front(hk == TK_BAG && s_aim >= 0 ? s_aim : G.hero.pos, hk); G.tgm.src0 = 3; } hl_rank(hk); }   // 0.51 (owner): plan A, and Down still offers the rest
   int hp = G.hero.pos;                                   // (0.74: from tgt2, room) after the hands:
   bool vo = G.now < G.tgm.vt && XENV("VETO", 1), veto = vo && G.tgm.vs == 2;   // 0.66: the player overrode where we'd have them stand (or get out
   int esc = vo && G.tgm.vs == 4 && G.now + 10 * TICK < G.tgm.vt ? -1 : escape();   // of gas: only 5 turns): not again a while
@@ -728,7 +729,7 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
     if (nt >= 0) best = nt;
     if (best >= 0) { s_zero = true; t_put(best, heap_at(best) >= 0 ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(best); g_ovr.c = MAP_LEN; } }
   struct Tgm *T = &G.tgm;                               // 0.73 (owner: "the 'proceed to last click' button ... I want it to live in the middle
-  if (g_assist && G.last_action && G.last_action != HA_ATTACK && G.last_action != HA_TALK && (unsigned)G.last_cell < MAP_LEN && XENV("RESUME", 1)) {   // button zone"):
+  if (g_assist && g_assist != AS_OFF && G.last_action && G.last_action != HA_ATTACK && G.last_action != HA_TALK && (unsigned)G.last_cell < MAP_LEN && XENV("RESUME", 1)) {   // button zone"):
     T->ra = G.last_action; T->rc = G.last_cell; T->rt = G.now + 30 * TICK; G.last_action = 0; }   // the interrupted walk taken over (no top-left button):
   if (T->ra && (T->rc == hp || G.now > T->rt || T->rt - 30 * TICK < G.level_t0 || s_dist[T->rc] >= 255)) T->ra = 0;   // Select goes on with it (a tap there), Down: the rest
   if (T->ra) { s_zero = true; t_put(T->rc, T->ra == HA_PICKUP ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(T->rc); }
@@ -797,6 +798,9 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
     }
     if (best >= 0) { s_obj = best; t_add(best, TK_GO, 2 << 10); }
   }
+  if (g_assist == AS_OFF) {                             // 0.75 (owner): Off: Down cycles the enemies, Select hits (or walks at) the one chosen
+    int n = 0; for (int i = 0; i < s_tn; i++) if (s_tk[i] == TK_ENEMY) { s_tc[n] = s_tc[i]; s_tk[n] = TK_ENEMY; g_tgobj[n++] = g_tgobj[i]; }
+    g_ovr.d &= ~128; return s_tn = n; }                  // (never a wait: Select attacks)
   int pr = mind(hp);
   if (pr >= 0) { g_ovr.c = pr | 0x4000; g_ovr.t = hp - 65536; return -100; }   // (game_targets: both parts again)
   return s_tn;

@@ -193,8 +193,8 @@ static void draw_menu(GContext *ctx) {
   for (int i = 0; i < n; i++) {
     GRect b = m_tile(i); int a = m_act(i);
     static const char *const VOL[3] = { "Loud", "Medium", "Quiet" };
-    static const char *const AS[3] = { "Low", "Medium", "High" };
-    char buf[20]; snprintf(buf, sizeof buf, LABEL[a], a == A_ASSIST ? AS[g_assist % 3] : a == A_SOUND ? (g_sound & SOUND_FX ? VOL[SOUND_VOL(g_sound) % 3] : "Off") : g_sound & SOUND_MUSIC ? "On" : "Off");
+    static const char *const AS[5] = { "Low", "Medium", "High", "Max", "Off" };
+    char buf[20]; snprintf(buf, sizeof buf, LABEL[a], a == A_ASSIST ? AS[g_assist % 5] : a == A_SOUND ? (g_sound & SOUND_FX ? VOL[SOUND_VOL(g_sound) % 3] : "Off") : g_sound & SOUND_MUSIC ? "On" : "Off");
     big_label(ctx, buf, GRect(b.origin.x, b.origin.y + 35, b.size.w, 28), GColorWhite);
   }
 }

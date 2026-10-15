@@ -359,6 +359,9 @@ enum { SOUND_MUSIC = 1, SOUND_FX = 2 };            // 0.40: SOUND_FX = sound on 
 void snd_cycle(void);                               // Loud -> Medium -> Quiet -> Off -> Loud
 extern uint8_t g_sound;
 extern uint8_t g_assist;                    // 0.51 (owner): the suggestions' help: 0 low (fight, explore, pick up), 1 medium (where to stand), 2 high (the bot's hands too)
+#define AS_MAX 3                            // 0.75 (owner): High, from anywhere on the map (Down: the camera swoops to each)
+#define AS_OFF 4                            // 0.75 (owner): no predictor: taps move; Down: the enemies in sight, else the buttons
+#define AS_HIGH (g_assist == 2 || g_assist == AS_MAX)
 #ifdef TEST_BUILD
 #define ASSIST_DEF 2
 #else
