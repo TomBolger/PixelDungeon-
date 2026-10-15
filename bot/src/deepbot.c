@@ -923,6 +923,15 @@ static bool emergency(void) {                           // badly hurt
   if ((s = find_kind(IK_WIPE_OUT)) >= 0 && !G.hero.b.blind && (getenv("OLDALTAR2") || G.depth >= 22 || G.hero.HP * 4 < G.hero.HT)) { st_wipe++; do_item(s, ACN_READ); return true; }   // 0.51: the altar's gift: every lesser creature here dies
   static const uint8_t ESC[] = { IK_SCR_TELEPORT, IK_SCR_TERROR, IK_SCR_LULLABY, IK_SCR_MIRROR, IK_POT_INVIS };
   for (unsigned k = 0; k < sizeof ESC; k++) if ((s = find_kind(ESC[k])) >= 0 && item_known(ESC[k]) && !(G.hero.b.blind && item_cat(ESC[k]) == CAT_SCROLL)) { do_item(s, item_cat(ESC[k]) == CAT_SCROLL ? ACN_READ : ACN_DRINK); return true; }
+  if (getenv("LASTSTAND")) {                            // 0.73 X: dying with the kit unspent: every charge, scroll and missile at it first
+    Mob *am = &G.mobs[adjm]; bool boss = MOB_DEFS[am->type].flags & MD_BOSS;
+    for (int sl = -1; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl); int k = it->kind;
+      if (item_cat(k) != CAT_WAND || it->ench <= 0) continue;
+      if (item_known(k) && (k == IK_WND_BLINK || k == IK_WND_REGROWTH || k == IK_WND_REACH || (boss && (k == IK_WND_TELEPORT || k == IK_WND_AMOK)))) continue;
+      s_did[0] = 0; DID("last stand: zap it"); walk(game_zap(sl, am->pos)); return true; }
+    if (!h->b.blind) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_SCROLL && !item_known(k)) { s_did[0] = 0; DID("last stand: an unknown scroll"); do_item(i, ACN_READ); return true; } }
+    for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_MISSILE || k == IK_BOMB) { s_did[0] = 0; DID("last stand: throw"); walk(game_throw(i, am->pos)); return true; } }
+  }
   { int bi = -1, bq = 0;                               // a gamble: an unknown potion, the likeliest healing: 0.73 (GAMBLE2=1): the
     for (int i = 0; i < BAG_SIZE; i++) {               // biggest stack (Healing is the commonest colour by far, 45 of 201)
       int k = h->bag[i].kind; if (item_cat(k) == CAT_POTION && !item_known(k)) { int q = getenv("GAMBLE2") ? h->bag[i].qty : 1; if (q > bq) { bq = q; bi = i; } } }
@@ -2743,7 +2752,11 @@ static bool decide(void) {
       if (!up && !getenv("OLDDOWNREST") && (getenv("THRIFT") && !boss_depth(G.depth + 1) ? h->HP < thrift_need() : h->HP * 10 < h->HT * (boss_depth(G.depth + 1) && !getenv("OLDBOSSPREP") ? 10 : (getenv("EARLYREST") && G.depth <= 4) ? 9 : 7)) && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) { DID("rest before going down%s", boss_depth(G.depth + 1) ? " (a boss below: full health)" : ""); walk(game_rest(false)); return true; }
       if (!up && !getenv("OLDBOSSPREP") && boss_depth(G.depth + 1) && game_hungry() && threat_count() == 0) { int fs = -1; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) fs = i; if (fs >= 0) { DID("eat before the boss"); do_item(fs, ACN_EAT); return true; } }
       if (getenv("STAIRDBG")) { printf("  STAIRS from %d,%d to %d,%d bdist %d trapstep %d\n", cx(h->pos), cy(h->pos), cx(stairs), cy(stairs), b_dist[stairs], trap_step(stairs)); if (b_dist[stairs] < 0x7FFF) { int c = stairs; printf("   path:"); for (int g = 0; g < 80 && c != h->pos; g++) { int nb = -1; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && b_dist[n] == b_dist[c] - 1) nb = n; } if (nb < 0) break; printf(" %d,%d:t%d%s", cx(nb), cy(nb), G.map[nb], char_at(nb) ? "M" : ""); c = nb; } printf("\n"); } }
-      if (b_dist[stairs] < 0x7FFF || getenv("OLDSTAIRS")) { choice = stairs; why = "stairs"; }
+      if (b_dist[stairs] < 0x7FFF || getenv("OLDSTAIRS")) { choice = stairs; why = "stairs";
+        if (getenv("FOODHUNT") && !s_ev_food && !boss_depth(G.depth) && G.depth != 21 && s_floor_searches < atoi(getenv("FOODHUNT")) && h->hunger < 330 && enemy_count() == 0) {   // 0.73 X: every floor but the bosses' holds a ration: not seen yet, it's behind a secret door
+          int sp = search_spot();
+          if (sp == h->pos) { for (int k = 0; k < 8; k++) { int c = h->pos + N8[k]; if (nb_ok(h->pos, c)) BIT_SET(s_searched, c); } BIT_SET(s_searched, h->pos); s_floor_searches++; st_search++; DID("this floor's ration is hidden: search"); walk(bot_search()); return true; }
+          if (sp >= 0) { choice = sp; why = "this floor's ration: search there"; } } }
       else { int st = trap_step(stairs); if (st >= 0) { choice = st; why = "over a trap: the only way to the stairs"; }
         else if (!getenv("OLDENCL") && (st = enclosed_search()) >= 0) {
           if (st == h->pos) { for (int k = 0; k < 8; k++) { int c = h->pos + N8[k]; if (nb_ok(h->pos, c)) BIT_SET(s_searched, c); } s_floor_searches++; st_search++; DID("walled in: search the walls toward the stairs"); walk(bot_search()); return true; }
@@ -3125,9 +3138,11 @@ static int cands(Cand *c) {
       int d = b_dist[q];
       for (int z = 0; z < 3; z++) if (d < bd[z]) { for (int y = 2; y > z; y--) { bd[y] = bd[y - 1]; best[y] = best[y - 1]; } bd[z] = d; best[z] = q; break; }
     }
-    for (int z = 0; z < 3; z++) if (best[z] >= 0) c[n++] = (Cand){ C_TAP, 1, best[z], 0 };
+    bool fastfoe = foe >= 0 && getenv("NOFASTRET") && MOB_DEFS[G.mobs[foe].type].move_cost * 2 <= hero_move_cost() && distance(fp, hp) <= 2;   // 0.73 X: a crab or a bat outruns you: a retreat is free hits
+    if (!fastfoe) for (int z = 0; z < 3; z++) if (best[z] >= 0) c[n++] = (Cand){ C_TAP, 1, best[z], 0 };
     if (G.entrance >= 0 && BIT_GET(G.visited, G.entrance) && b_dist[G.entrance] <= 10 && b_dist[G.entrance] > 0 && G.depth > 1 && G.now - s_last_up > 300 * TICK) c[n++] = (Cand){ C_TAP, 2, G.entrance, 0 };   // up the stairs: they don't follow
   }
+  if (getenv("NOFASTRET") && foe >= 0 && MOB_DEFS[G.mobs[foe].type].move_cost * 2 <= hero_move_cost() && adjacent(fp, hp)) { int m = 0; for (int i = 0; i < n; i++) if (!(c[i].t == C_TAP && c[i].a != hp && mob_at(c[i].a) < 0 && distance(c[i].a, fp) > 1)) c[m++] = c[i]; n = m; }   // (nor a step away from it)
   if (!getenv("OLDDMHOLD") && (G.hero.HP * 4 >= G.hero.HT || dm_hold()) && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && adjacent(G.mobs[i].pos, G.hero.pos)) dm = true; dm; })) { int m = 0; for (int i = 0; i < n; i++) if (c[i].t != C_TAP) c[m++] = c[i]; n = m; }   // 0.50 (review g6): toe to toe with DM-300, no stepping about: it follows over the dead traps and repairs itself
   if (!getenv("OLDPING") && s_bot_steps - s_prev_arrive < 30) { int m = 0; for (int i = 0; i < n; i++) if (!(c[i].t == C_TAP && (c[i].a == G.entrance || c[i].a == G.hero.pos))) c[m++] = c[i]; n = m; }   // 0.49: two floor changes in 30 steps: not straight back up again (a ping-pong where no time passed)
   int seen[IK_COUNT / 8 + 1]; memset(seen, 0, sizeof seen);
@@ -3888,7 +3903,11 @@ int main(int argc, char **argv) {
       if (snap_on || snap_death) snapb = snap_state(g, steps);
       int32_t tbefore = G.now;
       if (!getenv("NIGHTOK")) G.night = 0;   // 0.54 (owner): daytime only for now
+      int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       sp_stat(); bool did = decide();
+      if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }
+        long dt = G.now - tbefore; int k = tfoe0 || enemy_count() ? 1 : G.hero.pos != tpos0 ? 0 : strstr(s_did, "search") ? 2 : 3; ts[k] += dt;
+        if (G.hero.HP <= 0) { printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = -1; } }
       snprintf(s_ring[s_ring_n++ & 63], 96, "s%d d%d t%d @%d,%d hp%d/%d h%d: %s", steps, G.depth, G.now / TICK, G.hero.pos % MAP_W, G.hero.pos / MAP_W, G.hero.HP, G.hero.HT, G.hero.hunger, s_did[0] ? s_did : "-");
       { static const char *CAT[] = { "fight", "walk to", "rest to heal", "Drink", "Read", "Eat", "out of", "search", "grave", "on fire", "to water" }; static long tot[12]; static int last_g = -1;
         int k = 11; for (int i = 0; i < 11; i++) if (!strncmp(s_did[0] ? s_did : "rest", CAT[i], strlen(CAT[i]))) { k = i; break; }
