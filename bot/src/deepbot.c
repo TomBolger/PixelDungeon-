@@ -3113,8 +3113,31 @@ static bool la_step(void) {                             // one decision as the m
   return decide();
 }
 static int hostile_near(int r, int *adj) { int n = 0; if (adj) *adj = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE) continue; int d = distance(m->pos, G.hero.pos); if (d <= r && (m->state == ST_HUNTING || d <= 1)) { n++; if (adj && d <= 1) (*adj)++; } } return n; }
+// EARLYLA=1 (experiment): ask the tactical simulator before a fast enemy has
+// already removed a quarter of our HP. The ordinary danger gate starts at <75%
+// health with one hunter, too late for a low-HP hero facing a crab or bat.
+// Only use visible, awake, non-passive enemies; no map or identity peeking.
+static bool early_la_threat(void) {
+  if (!getenv("EARLYLA")) return false;
+  Hero *h = &G.hero;
+  for (int i = 0; i < G.n_mobs; i++) {
+    Mob *m = &G.mobs[i];
+    if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) ||
+        m->state == ST_PASSIVE || m->state == ST_SLEEPING) continue;
+    const MobDef *def = &MOB_DEFS[m->type];
+    if (def->flags & (MD_NPC | MD_WATER)) continue;
+    int d = distance(h->pos, m->pos);
+    bool fast = def->move_cost * 2 <= hero_move_cost();
+    if (d > (fast ? 3 : 2)) continue;
+    double incoming = foe_dpt(m);
+    if ((fast && incoming * 5 + 5 >= h->HP) ||
+        (d <= 2 && incoming * 3 + 5 >= h->HP)) return true;
+  }
+  return false;
+}
 static bool danger(void) {
   Hero *h = &G.hero; int adj, n = hostile_near(5, &adj);
+  if (early_la_threat()) return true;
   if (h->b.burning && !IS_WATER(G.map[h->pos]) && h->HP < 3 * h->b.burning + 3 && !getenv("OLDFIRE")) return true;   // 0.47n: the flames may finish you: what can save you?
   if (!n) { if (h->HP >= h->HT / 2) return false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && BIT_GET(G.fov, G.mobs[i].pos) && G.mobs[i].state != ST_PASSIVE) return true; return false; }
   return h->HP < h->HT * 3 / 4 || n >= 2;
@@ -3207,6 +3230,45 @@ static void resample_unknowns(uint32_t seed) {
     for (int s2 = -1; s2 < PACK0 + 32; s2 = s2 == BAG_SIZE - 1 ? PACK0 : s2 + 1) { Item *it = game_slot(s2); for (int j = 0; j < nh; j++) if (it->kind == held[j]) { it->kind = map[j]; break; } }
   }
 }
+// LA_RESOURCE=1: a lookahead should not trade tomorrow's resources for a few
+// HP right now. The first early-lookahead experiment changed decisions and lost
+// more floors; gate-only was identical to baseline on all 12 initial seeds.
+// These are deliberately *observable-category* prices: do not value an unknown
+// potion or scroll according to its hidden true type. Relative values are in
+// the same arbitrary score units as score_now (~40 points/HP at 25 max HP).
+static int la_resource_value(void) {
+  int value = 0;
+  for (int s = -4; s < BAG_SIZE; s++) {
+    Item *it = game_slot(s); int k = it->kind; if (!k) continue;
+    int cat = item_cat(k), v = 0;
+    if (cat == CAT_POTION) {
+      v = !item_known(k) ? 120 :
+        k == IK_POT_HEALING ? 500 :
+        k == IK_POT_STRENGTH || k == IK_POT_EXPERIENCE || k == IK_POT_MIGHT ? 700 :
+        k == IK_POT_INVIS ? 240 : 150;
+    } else if (cat == CAT_SCROLL) {
+      v = !item_known(k) ? 120 :
+        k == IK_SCR_UPGRADE || k == IK_SCR_ENCHANT ? 650 :
+        k == IK_SCR_TELEPORT ? 300 :
+        k == IK_SCR_IDENTIFY || k == IK_SCR_MAPPING ? 250 : 180;
+    } else if (is_food(k)) {
+      v = k == IK_PASTY ? 240 : k == IK_RATION ? 170 : 70;
+    } else if (cat == CAT_SEED) {
+      v = k == IK_SEED_SUNGRASS ? 160 : 65;
+    } else if (cat == CAT_MISSILE && k != IK_BOOMERANG) {
+      v = k == IK_CURARE_DART ? 110 : 12;
+    } else if (cat == CAT_WAND && item_known(k)) {
+      // A charged attack wand replenishes naturally. Charges should be
+      // conserved, but at a much smaller cost than a permanent consumable.
+      v = 20 * (it->ench > 0 ? it->ench : 0);
+      value += v; continue;
+    }
+    int qty = it->qty > 0 ? it->qty : 1;
+    if (qty > 20) qty = 20;
+    value += v * qty;
+  }
+  return value;
+}
 static int playout(Cand c, uint32_t seed) {
   int fds[2]; if (pipe(fds)) return -1000000;
   st_la_forks++;
@@ -3215,11 +3277,13 @@ static int playout(Cand c, uint32_t seed) {
     close(fds[0]); s_rollout = 1; V = 0;
     g_rng ^= seed * 2654435761u; srand(seed); resample_unknowns(seed);
     Hero *h = &G.hero; int hp0 = h->HP, ht0 = h->HT, exp0 = h->exp, lvl0 = h->lvl; int32_t now0 = G.now; s_la_boss0 = boss_hp();
+    int resources0 = getenv("LA_RESOURCE") ? la_resource_value() : 0;
     int sc;
     if (!apply_cand(c)) sc = -1000000;
     else {
       for (int k = 0, calm = 0; k < LA_K && h->HP > 0 && !s_pend_depth && calm < 3; k++) { if (!la_step()) break; calm = hostile_near(8, NULL) ? 0 : calm + 1; }   // (until the fight is over)
       sc = score_now(hp0, ht0, exp0, lvl0, now0);
+      if (getenv("LA_RESOURCE") && h->HP > 0) sc += la_resource_value() - resources0;
     }
     if (write(fds[1], &sc, sizeof sc) != sizeof sc) {}
     _exit(0);
@@ -3288,11 +3352,14 @@ static bool lookahead(void) {
   Cand c[80]; int n = cands(c); if (n <= 1) return false;
   static long tot[80]; static int cnt[80];
   uint32_t base = (uint32_t)(cur_game * 1000003 + s_bot_steps * 7919);
-  // 1: are the ordinary rules safe here? (6 playouts: nobody dies, half the health or more kept: no search)
+  // 1: are the ordinary rules safe here? When an imminent fast threat
+  // triggered this experiment, demand much more HP after the skirmish.
+  bool early = early_la_threat();
+  bool strict_early = early && !getenv("EARLYLA_GATE_ONLY"); // ablation: separate early trigger from aggressive score cutoffs
   tot[0] = 0; cnt[0] = 0; int deaths = 0;
   int LM = getenv("LAMULT") ? atoi(getenv("LAMULT")) : 1; if (LM < 1) LM = 1;   // 0.57: heavier look-ahead (the PC is fast)
   for (int r = 0; r < 6 * LM; r++) { int sc = playout(c[0], base + r * 104729); tot[0] += sc; cnt[0]++; if (sc < -50000) deaths++; }
-  if (!deaths && tot[0] / cnt[0] >= 2000 + 500 - 300) return false;   // (2000 + health*1000/HT ... : about half the health or more)
+  if (!deaths && tot[0] / cnt[0] >= (strict_early ? 2800 : 2000 + 500 - 300)) return false;   // EARLYLA: don't accept large HP losses just because the short fight was survived
   st_la_points++;
   if (getenv("LADBG")) { printf("  LA game %d step %d hero %d hp %d/%d deaths %d/6 foes:", cur_game, s_bot_steps, G.hero.pos, G.hero.HP, G.hero.HT, deaths); for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && BIT_GET(G.fov, G.mobs[i].pos)) printf(" %s@%d(hp%d,st%d)", mob_name(G.mobs[i].type), G.mobs[i].pos, G.mobs[i].HP, G.mobs[i].state); printf("\n"); }
   // 2: every option, 3 times
@@ -3304,7 +3371,7 @@ static bool lookahead(void) {
   int bi = 0; long bm = tot[0] / cnt[0];
   for (int i = 1; i < n; i++) if (cnt[i] >= 12 * LM && tot[i] / cnt[i] > bm) { bm = tot[i] / cnt[i]; bi = i; }
   if (getenv("LADBG")) for (int i = 0; i < n; i++) { char nm[64] = ""; if (c[i].t >= C_ITEM) item_name(game_slot(c[i].a), nm, sizeof nm); printf("    cand %-7s %-24s %4d -> %ld (%d)%s\n", CNAME[c[i].t], nm, c[i].t == C_TAP ? c[i].a : c[i].b, tot[i] / cnt[i], cnt[i], i == bi ? " <==" : ""); }
-  if (bi == 0 || bm < tot[0] / cnt[0] + 150) return false;   // not clearly better: the rules
+  if (bi == 0 || bm < tot[0] / cnt[0] + (strict_early ? 80 : 150)) return false;   // EARLYLA: accept a smaller, but sampled, HP saving
   st_la_changed++;
   { char nm[64] = ""; if (c[bi].t >= C_ITEM) item_name(game_slot(c[bi].a), nm, sizeof nm); DID("look-ahead: %s %s%s%d (%ld vs %ld)", CNAME[c[bi].t], nm, nm[0] ? " " : "", c[bi].t == C_TAP ? c[bi].a : c[bi].b, bm, tot[0] / cnt[0]); }
   apply_cand(c[bi]);

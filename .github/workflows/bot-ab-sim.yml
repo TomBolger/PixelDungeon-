@@ -1,0 +1,66 @@
+name: Pixel Dungeon bot A/B simulation
+
+on:
+  push:
+    branches:
+      - experiment/bot-early-fast-threat-lookahead
+    paths:
+      - 'bot/**'
+      - '.github/workflows/bot-ab-sim.yml'
+  workflow_dispatch:
+    inputs:
+      games:
+        description: 'Number of paired seeds (same seeds for baseline and experiment)'
+        required: false
+        default: '12'
+      first:
+        description: 'First seed/game index'
+        required: false
+        default: '0'
+
+permissions:
+  contents: read
+
+jobs:
+  bot-ab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUN_GAMES: ${{ inputs.games || '12' }}
+      RUN_FIRST: ${{ inputs.first || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host toolchain
+        run: |
+          gcc --version | head -1
+          python3 --version
+      - name: Build simulator from watch game sources
+        working-directory: bot
+        run: ./build.sh
+      - name: Paired real-game runs (HS=0)
+        working-directory: bot
+        shell: bash
+        run: |
+          set -euo pipefail
+          N=$((RUN_FIRST + RUN_GAMES))
+          echo "Paired seeds [${RUN_FIRST},${N})"
+          echo "Baseline:"
+          timeout --signal=TERM --kill-after=10s 1500s env HS=0 RT=0 FK=0 D=1 START="$RUN_FIRST" ./build/deepbot "$N" > baseline.log
+          echo "THROWFIRST=1: ranged damage while enemies approach, without activating early lookahead"
+          timeout --signal=TERM --kill-after=10s 1500s env THROWFIRST=1 HS=0 RT=0 FK=0 D=1 START="$RUN_FIRST" ./build/deepbot "$N" > earlyla.log
+      - name: Compare seeds, classes, and failure modes
+        if: always()
+        working-directory: bot
+        run: |
+          python3 tools/ci_compare.py "$RUN_GAMES" baseline.log earlyla.log | tee summary.md
+      - name: Save simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: earlyla-paired-seeds-${{ github.run_number }}
+          path: |
+            bot/baseline.log
+            bot/earlyla.log
+            bot/summary.md
+          if-no-files-found: warn
+          retention-days: 30
