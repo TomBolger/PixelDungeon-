@@ -3230,6 +3230,45 @@ static void resample_unknowns(uint32_t seed) {
     for (int s2 = -1; s2 < PACK0 + 32; s2 = s2 == BAG_SIZE - 1 ? PACK0 : s2 + 1) { Item *it = game_slot(s2); for (int j = 0; j < nh; j++) if (it->kind == held[j]) { it->kind = map[j]; break; } }
   }
 }
+// LA_RESOURCE=1: a lookahead should not trade tomorrow's resources for a few
+// HP right now. The first early-lookahead experiment changed decisions and lost
+// more floors; gate-only was identical to baseline on all 12 initial seeds.
+// These are deliberately *observable-category* prices: do not value an unknown
+// potion or scroll according to its hidden true type. Relative values are in
+// the same arbitrary score units as score_now (~40 points/HP at 25 max HP).
+static int la_resource_value(void) {
+  int value = 0;
+  for (int s = -4; s < BAG_SIZE; s++) {
+    Item *it = game_slot(s); int k = it->kind; if (!k) continue;
+    int cat = item_cat(k), v = 0;
+    if (cat == CAT_POTION) {
+      v = !item_known(k) ? 120 :
+        k == IK_POT_HEALING ? 500 :
+        k == IK_POT_STRENGTH || k == IK_POT_EXPERIENCE || k == IK_POT_MIGHT ? 700 :
+        k == IK_POT_INVIS ? 240 : 150;
+    } else if (cat == CAT_SCROLL) {
+      v = !item_known(k) ? 120 :
+        k == IK_SCR_UPGRADE || k == IK_SCR_ENCHANT ? 650 :
+        k == IK_SCR_TELEPORT ? 300 :
+        k == IK_SCR_IDENTIFY || k == IK_SCR_MAPPING ? 250 : 180;
+    } else if (is_food(k)) {
+      v = k == IK_PASTY ? 240 : k == IK_RATION ? 170 : 70;
+    } else if (cat == CAT_SEED) {
+      v = k == IK_SEED_SUNGRASS ? 160 : 65;
+    } else if (cat == CAT_MISSILE && k != IK_BOOMERANG) {
+      v = k == IK_CURARE_DART ? 110 : 12;
+    } else if (cat == CAT_WAND && item_known(k)) {
+      // A charged attack wand replenishes naturally. Charges should be
+      // conserved, but at a much smaller cost than a permanent consumable.
+      v = 20 * (it->ench > 0 ? it->ench : 0);
+      value += v; continue;
+    }
+    int qty = it->qty > 0 ? it->qty : 1;
+    if (qty > 20) qty = 20;
+    value += v * qty;
+  }
+  return value;
+}
 static int playout(Cand c, uint32_t seed) {
   int fds[2]; if (pipe(fds)) return -1000000;
   st_la_forks++;
@@ -3238,11 +3277,13 @@ static int playout(Cand c, uint32_t seed) {
     close(fds[0]); s_rollout = 1; V = 0;
     g_rng ^= seed * 2654435761u; srand(seed); resample_unknowns(seed);
     Hero *h = &G.hero; int hp0 = h->HP, ht0 = h->HT, exp0 = h->exp, lvl0 = h->lvl; int32_t now0 = G.now; s_la_boss0 = boss_hp();
+    int resources0 = getenv("LA_RESOURCE") ? la_resource_value() : 0;
     int sc;
     if (!apply_cand(c)) sc = -1000000;
     else {
       for (int k = 0, calm = 0; k < LA_K && h->HP > 0 && !s_pend_depth && calm < 3; k++) { if (!la_step()) break; calm = hostile_near(8, NULL) ? 0 : calm + 1; }   // (until the fight is over)
       sc = score_now(hp0, ht0, exp0, lvl0, now0);
+      if (getenv("LA_RESOURCE") && h->HP > 0) sc += la_resource_value() - resources0;
     }
     if (write(fds[1], &sc, sizeof sc) != sizeof sc) {}
     _exit(0);
