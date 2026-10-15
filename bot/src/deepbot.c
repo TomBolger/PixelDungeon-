@@ -3314,10 +3314,11 @@ static bool lookahead(void) {
   // 1: are the ordinary rules safe here? When an imminent fast threat
   // triggered this experiment, demand much more HP after the skirmish.
   bool early = early_la_threat();
+  bool strict_early = early && !getenv("EARLYLA_GATE_ONLY"); // ablation: separate early trigger from aggressive score cutoffs
   tot[0] = 0; cnt[0] = 0; int deaths = 0;
   int LM = getenv("LAMULT") ? atoi(getenv("LAMULT")) : 1; if (LM < 1) LM = 1;   // 0.57: heavier look-ahead (the PC is fast)
   for (int r = 0; r < 6 * LM; r++) { int sc = playout(c[0], base + r * 104729); tot[0] += sc; cnt[0]++; if (sc < -50000) deaths++; }
-  if (!deaths && tot[0] / cnt[0] >= (early ? 2800 : 2000 + 500 - 300)) return false;   // EARLYLA: don't accept large HP losses just because the short fight was survived
+  if (!deaths && tot[0] / cnt[0] >= (strict_early ? 2800 : 2000 + 500 - 300)) return false;   // EARLYLA: don't accept large HP losses just because the short fight was survived
   st_la_points++;
   if (getenv("LADBG")) { printf("  LA game %d step %d hero %d hp %d/%d deaths %d/6 foes:", cur_game, s_bot_steps, G.hero.pos, G.hero.HP, G.hero.HT, deaths); for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && BIT_GET(G.fov, G.mobs[i].pos)) printf(" %s@%d(hp%d,st%d)", mob_name(G.mobs[i].type), G.mobs[i].pos, G.mobs[i].HP, G.mobs[i].state); printf("\n"); }
   // 2: every option, 3 times
@@ -3329,7 +3330,7 @@ static bool lookahead(void) {
   int bi = 0; long bm = tot[0] / cnt[0];
   for (int i = 1; i < n; i++) if (cnt[i] >= 12 * LM && tot[i] / cnt[i] > bm) { bm = tot[i] / cnt[i]; bi = i; }
   if (getenv("LADBG")) for (int i = 0; i < n; i++) { char nm[64] = ""; if (c[i].t >= C_ITEM) item_name(game_slot(c[i].a), nm, sizeof nm); printf("    cand %-7s %-24s %4d -> %ld (%d)%s\n", CNAME[c[i].t], nm, c[i].t == C_TAP ? c[i].a : c[i].b, tot[i] / cnt[i], cnt[i], i == bi ? " <==" : ""); }
-  if (bi == 0 || bm < tot[0] / cnt[0] + (early ? 80 : 150)) return false;   // EARLYLA: accept a smaller, but sampled, HP saving
+  if (bi == 0 || bm < tot[0] / cnt[0] + (strict_early ? 80 : 150)) return false;   // EARLYLA: accept a smaller, but sampled, HP saving
   st_la_changed++;
   { char nm[64] = ""; if (c[bi].t >= C_ITEM) item_name(game_slot(c[bi].a), nm, sizeof nm); DID("look-ahead: %s %s%s%d (%ld vs %ld)", CNAME[c[bi].t], nm, nm[0] ? " " : "", c[bi].t == C_TAP ? c[bi].a : c[bi].b, bm, tot[0] / cnt[0]); }
   apply_cand(c[bi]);
