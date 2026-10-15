@@ -3113,8 +3113,31 @@ static bool la_step(void) {                             // one decision as the m
   return decide();
 }
 static int hostile_near(int r, int *adj) { int n = 0; if (adj) *adj = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE) continue; int d = distance(m->pos, G.hero.pos); if (d <= r && (m->state == ST_HUNTING || d <= 1)) { n++; if (adj && d <= 1) (*adj)++; } } return n; }
+// EARLYLA=1 (experiment): ask the tactical simulator before a fast enemy has
+// already removed a quarter of our HP. The ordinary danger gate starts at <75%
+// health with one hunter, too late for a low-HP hero facing a crab or bat.
+// Only use visible, awake, non-passive enemies; no map or identity peeking.
+static bool early_la_threat(void) {
+  if (!getenv("EARLYLA")) return false;
+  Hero *h = &G.hero;
+  for (int i = 0; i < G.n_mobs; i++) {
+    Mob *m = &G.mobs[i];
+    if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) ||
+        m->state == ST_PASSIVE || m->state == ST_SLEEPING) continue;
+    const MobDef *def = &MOB_DEFS[m->type];
+    if (def->flags & (MD_NPC | MD_WATER)) continue;
+    int d = distance(h->pos, m->pos);
+    bool fast = def->move_cost * 2 <= hero_move_cost();
+    if (d > (fast ? 3 : 2)) continue;
+    double incoming = foe_dpt(m);
+    if ((fast && incoming * 5 + 5 >= h->HP) ||
+        (d <= 2 && incoming * 3 + 5 >= h->HP)) return true;
+  }
+  return false;
+}
 static bool danger(void) {
   Hero *h = &G.hero; int adj, n = hostile_near(5, &adj);
+  if (early_la_threat()) return true;
   if (h->b.burning && !IS_WATER(G.map[h->pos]) && h->HP < 3 * h->b.burning + 3 && !getenv("OLDFIRE")) return true;   // 0.47n: the flames may finish you: what can save you?
   if (!n) { if (h->HP >= h->HT / 2) return false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && BIT_GET(G.fov, G.mobs[i].pos) && G.mobs[i].state != ST_PASSIVE) return true; return false; }
   return h->HP < h->HT * 3 / 4 || n >= 2;
@@ -3288,11 +3311,13 @@ static bool lookahead(void) {
   Cand c[80]; int n = cands(c); if (n <= 1) return false;
   static long tot[80]; static int cnt[80];
   uint32_t base = (uint32_t)(cur_game * 1000003 + s_bot_steps * 7919);
-  // 1: are the ordinary rules safe here? (6 playouts: nobody dies, half the health or more kept: no search)
+  // 1: are the ordinary rules safe here? When an imminent fast threat
+  // triggered this experiment, demand much more HP after the skirmish.
+  bool early = early_la_threat();
   tot[0] = 0; cnt[0] = 0; int deaths = 0;
   int LM = getenv("LAMULT") ? atoi(getenv("LAMULT")) : 1; if (LM < 1) LM = 1;   // 0.57: heavier look-ahead (the PC is fast)
   for (int r = 0; r < 6 * LM; r++) { int sc = playout(c[0], base + r * 104729); tot[0] += sc; cnt[0]++; if (sc < -50000) deaths++; }
-  if (!deaths && tot[0] / cnt[0] >= 2000 + 500 - 300) return false;   // (2000 + health*1000/HT ... : about half the health or more)
+  if (!deaths && tot[0] / cnt[0] >= (early ? 2800 : 2000 + 500 - 300)) return false;   // EARLYLA: don't accept large HP losses just because the short fight was survived
   st_la_points++;
   if (getenv("LADBG")) { printf("  LA game %d step %d hero %d hp %d/%d deaths %d/6 foes:", cur_game, s_bot_steps, G.hero.pos, G.hero.HP, G.hero.HT, deaths); for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && BIT_GET(G.fov, G.mobs[i].pos)) printf(" %s@%d(hp%d,st%d)", mob_name(G.mobs[i].type), G.mobs[i].pos, G.mobs[i].HP, G.mobs[i].state); printf("\n"); }
   // 2: every option, 3 times
@@ -3304,7 +3329,7 @@ static bool lookahead(void) {
   int bi = 0; long bm = tot[0] / cnt[0];
   for (int i = 1; i < n; i++) if (cnt[i] >= 12 * LM && tot[i] / cnt[i] > bm) { bm = tot[i] / cnt[i]; bi = i; }
   if (getenv("LADBG")) for (int i = 0; i < n; i++) { char nm[64] = ""; if (c[i].t >= C_ITEM) item_name(game_slot(c[i].a), nm, sizeof nm); printf("    cand %-7s %-24s %4d -> %ld (%d)%s\n", CNAME[c[i].t], nm, c[i].t == C_TAP ? c[i].a : c[i].b, tot[i] / cnt[i], cnt[i], i == bi ? " <==" : ""); }
-  if (bi == 0 || bm < tot[0] / cnt[0] + 150) return false;   // not clearly better: the rules
+  if (bi == 0 || bm < tot[0] / cnt[0] + (early ? 80 : 150)) return false;   // EARLYLA: accept a smaller, but sampled, HP saving
   st_la_changed++;
   { char nm[64] = ""; if (c[bi].t >= C_ITEM) item_name(game_slot(c[bi].a), nm, sizeof nm); DID("look-ahead: %s %s%s%d (%ld vs %ld)", CNAME[c[bi].t], nm, nm[0] ? " " : "", c[bi].t == C_TAP ? c[bi].a : c[bi].b, bm, tot[0] / cnt[0]); }
   apply_cand(c[bi]);
