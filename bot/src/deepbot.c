@@ -2214,6 +2214,7 @@ static const char *evidence_hidden(void) {
   return NULL;
 }
 // PRESS=1: "just press the middle button": every move is the game's target list entry 0 (the next one if nothing came of it)
+static int st_near_n, st_near_skip, st_near_any;
 static int st_dither, st_turnback, st_turnback_foe, st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left;
 static bool s_pure;                                       // 0.64 PURE=1: the Assist alone
 static int P, st_press, st_press_off, st_osc, st_press_n, st_floors, s_pp[3];
@@ -2346,6 +2347,10 @@ static bool press(void) {
     }
   }
   if (!s_rollout && !s_is_child) { bool foe = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) foe = true; }   // 0.61 (owner): the Assist audit
+    if (n > 0 && !foe && kind[0] == TK_GO && getenv("NEAR")) {   // 0.76 (owner: "won't suggest an unexplored door or area right next to me"): an unexplored spot within 3, entry 0 far off
+      bfs(p0, false); int f = -1; for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] > 0 && b_dist[c] <= 3 && frontier(c) && (f < 0 || b_dist[c] < b_dist[f])) f = c;
+      if (f >= 0) { st_near_n++; int d0 = b_dist[cell[0]]; bool any = false; for (int j = 0; j < n; j++) any |= distance(cell[j], f) <= 2;
+        if (d0 > b_dist[f] + 5 && distance(cell[0], f) > 3) { st_near_skip++; st_near_any += !any; if (getenv("AUDV")) printf("  NEAR g%d d%d hero %d,%d unexplored %d,%d (%d) entry0 %d,%d (%d) src %d line %d way %d listed %d n %d\n", cur_game, G.depth, cx(p0), cy(p0), cx(f), cy(f), b_dist[f], cx(cell[0]), cy(cell[0]), d0, G.tgm.src0, s_tline, g_ovr.c >= 0 ? g_ovr.d & 63 : -1, any, n); if (getenv("AUDMAP")) aud_dump(cell[0], f); } } }
     if (n > 0 && cell[0] == p0 && kind[0] == TK_GO && !(g_ovr.d & 128)) { st_srch++; if (foe) { st_srch_foe++; if (getenv("AUDV") && !s_rollout && !s_is_child) printf("  AUDIT search with a foe g%d d%d hero %d\n", cur_game, G.depth, p0); }
       if (G.exit >= 0 && BIT_GET(G.visited, G.exit)) { bfs(p0, false); if (b_dist[G.exit] < 0x7FFF) { st_srch_exit++; if (getenv("AUDV") && !s_rollout && !s_is_child) printf("  AUDIT search, exit known g%d d%d hero %d\n", cur_game, G.depth, p0); } } }
     if (game_hungry()) { bool inbag = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(G.hero.bag[i].kind) || G.hero.bag[i].kind == IK_MYSTERY_MEAT) inbag = true;
@@ -4039,6 +4044,7 @@ int main(int argc, char **argv) {
     static const char *MN[4] = { "far explored cell", "back to the way up", "the way down early", "another unexplored part" };
     for (int m = 0; m < 4; m++) { long t = 0; for (int i = 0; i < 12; i++) t += ct_mn[m][i]; if (t) printf("  %s: %d trips, %ld hops: with %.1f%% beside %.1f%% AGAINST %.1f%% item against %.1f%% stand %.1f%% hands %.1f%%\n", MN[m], ct_mtrips[m], t, 100.0 * ct_mn[m][0] / t, 100.0 * ct_mn[m][1] / t, 100.0 * ct_mn[m][2] / t, 100.0 * ct_mn[m][5] / t, 100.0 * ct_mn[m][6] / t, 100.0 * ct_mn[m][7] / t); } }
   if (P) printf("assist audit: steps straight back %d (an enemy in sight %d); dithering (a cell a third time in 24 moves, nothing new seen, no enemy) %d\n", st_turnback, st_turnback_foe, st_dither);
+  if (P && getenv("NEAR")) printf("near audit: %d presses with an unexplored spot within 3, entry 0 elsewhere far: %d (that spot not in the list at all: %d)\n", st_near_n, st_near_skip, st_near_any);
   if (P) printf("assist audit: searches %d (with a foe hunting %d, with the way down known %d); hungry, no food, food within 3: %d presses, not entry 0: %d\n", st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left);
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);
   ledger_print();

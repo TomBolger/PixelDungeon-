@@ -193,7 +193,7 @@ static uint32_t *s_alert_until;            // EmoIcon.Alert over a mob that just
 static int16_t s_cam_dx, s_cam_dy;
 static bool s_panning; static int16_t s_pan_dx0, s_pan_dy0;
 // 0.25: a new offset is reached by a swoop (speeding up, then slowing into it) rather than a jump
-#define GLIDE_MS 400
+#define GLIDE_MS 300
 static int16_t s_glide_x, s_glide_y; static uint32_t s_glide_t0;   // the offset the swoop started from, and when
 static int glide_f(void) {                          // 0..256 along the swoop (smoothstep)
   int32_t e = (int32_t)(s_fms - s_glide_t0);       // (0.34: per frame, else rows drawn later saw a later camera: torn strips)
@@ -209,6 +209,12 @@ static int cam_y(void) { return s_vis_hero.y + cam_oy(); }
 static bool cam_free(void) { return s_cam_dx || s_cam_dy; }
 static void cam_glide(void) { s_glide_x = cam_ox(); s_glide_y = cam_oy(); s_glide_t0 = now_ms() | 1; }
 static void cam_center(void) { if (cam_free()) cam_glide(); s_cam_dx = s_cam_dy = 0; }
+static void pan_to(int dx, int dy);
+static void cam_to(int c) {                        // 0.76 (owner): Assist Max: a quick swoop that puts the target mid-screen (same zoom)
+  int x = s_cam_dx, y = s_cam_dy; s_cam_dx = s_cam_dy = 0;
+  if (c >= 0) pan_to((c % MAP_W - G.hero.pos % MAP_W) * TS, (c / MAP_W - G.hero.pos / MAP_W) * TS);
+  if (s_cam_dx != x || s_cam_dy != y) { int nx = s_cam_dx, ny = s_cam_dy; s_cam_dx = x; s_cam_dy = y; cam_glide(); s_cam_dx = nx; s_cam_dy = ny; }
+}
 typedef struct { int16_t cell; uint32_t t0; GColor color; char text[12]; } Floater;   // t0: when it appeared
 #define MAX_FLOAT 6
 #define FLOAT_MS 460                               // how long damage numbers rise
@@ -308,6 +314,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   else if (cur >= 0 && g_assist == AS_OFF) i = cur;  // 0.75 Off: the enemy chosen stays chosen (PD's last target)
   s_tgn = n; s_tgi = i; s_tg = n ? c[i] : -1; s_tgk = n ? k[i] : 0; s_tgk0 = n ? k[0] : 0; s_tg0 = n ? c[0] : -1;
   if (n && s_tgk == TK_ENEMY) { s_tgu = G.mobs[mob_at(s_tg)].uid; G.last_target = s_tg; }
+  if (g_assist == AS_MAX) cam_to(s_tg);              // 0.76: Max: the camera on whatever is chosen, cycled to or not
 }
 void hero_spend(int t); void process(void);
 static void pass_hands(int c) {                   // the player chose otherwise than plan A (c: where): the hands' suggestion passed over (0.53), and
@@ -878,7 +885,6 @@ static int16_t screen_to_cell(int x, int y) {
   return cyy * MAP_W + cxx;
 }
 
-static void pan_to(int dx, int dy);
 uint8_t g_assist = ASSIST_DEF;
 static void zoom_save(void) { persist_write_int(KEY_ZOOM, s_zoom | (g_assist ^ ASSIST_DEF) << 4); }   // 0.51: the assist level rides along (0 = the build's own)
 static void zoom_cycle(void) { s_zoom = (s_zoom + 1) % 3; zoom_save(); redraw(); }   // combat: Up
@@ -889,7 +895,7 @@ static void combat_cycle(int dir) {                // Down: the next target (0.2
     for (int k = 2; dir < 0 && k < n; k++) i = game_target(i, true, NULL);   // back: forward all the way round but one
     if (i < 0) return;
     s_aim_mob = i; G.quick_uid = G.mobs[i].uid; c = G.mobs[i].pos;
-  } else { tg_refresh(dir); c = s_tg; if (g_assist != AS_MAX || c < 0) { cam_center(); busy(); return; } }   // 0.36: the targets are on screen: the camera stays on the hero (0.75 Max: it swoops there)
+  } else { tg_refresh(dir); if (g_assist != AS_MAX) cam_center(); busy(); return; }   // 0.36: the targets are on screen: the camera stays on the hero (Max: tg_refresh swoops it there)
   cam_glide();
   pan_to((c % MAP_W - G.hero.pos % MAP_W) * TS, (c / MAP_W - G.hero.pos / MAP_W) * TS);
   busy();

@@ -236,7 +236,10 @@ static int s_od;                                       // the player's way (pang
 static int off(int c, int a) {                         // how far off the way a (pang) c lies, seen from the hero: 0..32
   int hp = G.hero.pos; return abs(((pang((c & 31) - (hp & 31), (c >> 5) - (hp >> 5)) - a + 32) & 63) - 32);
 }
-static bool ahead(int c) { return s_od < 0 || c == G.hero.pos || off(c, s_od) <= CONE; }
+#ifndef NEAR_AH
+#define NEAR_AH 3
+#endif
+static bool ahead(int c) { return s_od < 0 || c == G.hero.pos || off(c, s_od) <= CONE || s_dist[c] <= XENV("NEARAH", NEAR_AH); }   // 0.76 (owner: "won't suggest an unexplored door or area right next to me"): within 3 steps, any way
 static bool direct(int c) {                            // no long way round, and shown (t_put: on screen) the player's way
   if (s_od < 0) return true;
   if (s_dist[c] > 2 * distance(c, G.hero.pos) + 2) return false;
@@ -255,7 +258,7 @@ static int look(bool all) {
     bool k = c == g_goal;                              // 0.61 (owner: "constantly doubling back and forth"): the one chosen before, even
     bool g = gr && G.map[c] == T_HIGH_GRASS && (all || on_screen(c) || k) && !char_at(c) && heap_at(c) < 0;   // (a tap on a heap opens / picks it up)
     if (!g && !((on_screen(c) || k) && unseen_by(c))) continue;   // once the way there takes it off screen (else the plan out of sight, back, and again)
-    if (k) d = 0;
+    if (k) d = d > XENV("STICKY", 3) ? d - XENV("STICKY", 3) : 0;   // (0.76: kept only while no other is 3 nearer, as in first())
     else { if (s_od < 0 && s_head >= 0 && off(c, s_head) > 16) d += 256;   // (behind: after those ahead; off screen: after all on it)
       if (!on_screen(c)) d += 512; }
     if (d < bk) { bk = d; best = c; gb = g; }
@@ -276,7 +279,7 @@ static int first(int *kind) {                          // the cell (on the map, 
     Mob *m = &G.mobs[i]; int fl = MOB_DEFS[m->type].flags;
     if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos)) continue;
     bool adj = adjacent(m->pos, hp);
-    if (!adj && G.tgm.vs == 1 && G.tgm.vu == m->uid && G.now < G.tgm.vt && XENV("VETO", 1)) continue;   // 0.66: the player went another way than at it: not plan A a while
+    if (!adj && G.tgm.vs == 1 && G.tgm.vu == m->uid && G.now < G.tgm.vt && !(m->state == ST_HUNTING && walk(m->pos) <= 4) && XENV("VETO", 1)) continue;   // (0.76 (owner): not one coming at you / shooting you)   // 0.66: the player went another way than at it: not plan A a while
     if (adj) g_ovr.d &= ~64;                           // (beside one: a step back may hold again)
     if ((m->state == ST_PASSIVE && (!adj || m->type == MT_STATUE)) || ((fl & MD_WATER) && !adj)) continue;
     if (!adj && walk(m->pos) > 2 * distance(m->pos, hp) + 4) continue;   // 0.41: sensed through a wall (the Huntress): a long way round
@@ -720,7 +723,7 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
   if (wd >= 0 && G.tgm.src0 == 1 && (!s_tn || (s_tk[0] != TK_ENEMY && s_tc[0] != hp)) && XENV("WAYON", 1)) {   // assist with THAT"); 0.73 (owner:
     int best = -1, bd = 1, nt = -1, ns = 0x7FFF;         // "proceed toward highly often clicked things in the direction I selected, then
     for (int c = 0; c < MAP_LEN; c++) {                // suggest those", "the predictor"): the player's way: the next click that way, the
-      int sd = s_dist[c]; if (sd < 1 || sd >= 255 || off(c, wd) > CONE) continue;   // nearest thing a player clicks (the stairs first, then
+      int sd = s_dist[c]; if (sd < 1 || sd >= 255 || (off(c, wd) > CONE && sd > NEAR_AH)) continue;   // nearest thing a player clicks (the stairs first, then
       int t = G.map[c], m = mob_at(c), hi = heap_at(c);   // things and people, then doors and the unknown), weighed by the walk; with
       int w = c == G.exit ? 2 : (hi >= 0 && heap_ok(&G.heaps[hi])) || (m >= 0 && ally(m) && BIT_GET(G.fov, c)) ? 3 :   // nothing that way,
               t == T_DOOR || t == T_OPEN_DOOR || t == T_LOCKED_DOOR || t == T_WELL || t == T_ALCHEMY || c == G.entrance || unseen_by(c) ? 4 : 0;   // the way
@@ -732,7 +735,8 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
   if (g_assist && g_assist != AS_OFF && G.last_action && G.last_action != HA_ATTACK && G.last_action != HA_TALK && (unsigned)G.last_cell < MAP_LEN && XENV("RESUME", 1)) {   // button zone"):
     T->ra = G.last_action; T->rc = G.last_cell; T->rt = G.now + 30 * TICK; G.last_action = 0; }   // the interrupted walk taken over (no top-left button):
   if (T->ra && (T->rc == hp || G.now > T->rt || T->rt - 30 * TICK < G.level_t0 || s_dist[T->rc] >= 255)) T->ra = 0;   // Select goes on with it (a tap there), Down: the rest
-  if (T->ra) { s_zero = true; t_put(T->rc, T->ra == HA_PICKUP ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(T->rc); }
+  if (T->ra && !(s_tn && s_tk[0] == TK_ENEMY)) { s_zero = true;   // 0.76 (owner: "keeps trying to go there even as I'm being hit"): the fight first, the walk after
+    t_put(T->rc, T->ra == HA_PICKUP ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(T->rc); }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos) && m->type == MT_PIRANHA) s_fish = true; }
   { int pk = G.hero.weapon.kind == IK_PICKAXE ? -1 : game_bag_find(IK_PICKAXE); s_pick = (pk >= 0 || G.hero.weapon.kind == IK_PICKAXE) && G.depth >= 11 && G.depth <= 15; }
   // 0.47 (owner: "cycle through its plan B, C..."): the alternatives are objectives, best first by kind then walk:
