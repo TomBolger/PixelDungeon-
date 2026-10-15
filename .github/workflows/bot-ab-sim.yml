@@ -46,8 +46,8 @@ jobs:
           echo "Paired seeds [${RUN_FIRST},${N})"
           echo "Baseline:"
           timeout --signal=TERM --kill-after=10s 1500s env HS=0 RT=0 FK=0 D=1 START="$RUN_FIRST" ./build/deepbot "$N" > baseline.log
-          echo "EARLYLA=1:"
-          timeout --signal=TERM --kill-after=10s 1500s env EARLYLA=1 HS=0 RT=0 FK=0 D=1 START="$RUN_FIRST" ./build/deepbot "$N" > earlyla.log
+          echo "EARLYLA=1 GATE-ONLY ABLATION (original scoring thresholds)"
+          timeout --signal=TERM --kill-after=10s 1500s env EARLYLA=1 EARLYLA_GATE_ONLY=1 HS=0 RT=0 FK=0 D=1 START="$RUN_FIRST" ./build/deepbot "$N" > earlyla.log
       - name: Compare seeds, classes, and failure modes
         if: always()
         working-directory: bot
