@@ -126,10 +126,10 @@ void potion_shatter(int k, int cell) {
 }
 
 int game_targets(int16_t *cell, uint8_t *kind) {   // 0.23: the button target cycle (0.36: its own overlay; -1: no room now)
-  static const uint32_t R[3] = { RESOURCE_ID_OVL_TGT, RESOURCE_ID_OVL_TGT2, RESOURCE_ID_OVL_TGT3 };   // 0.48: tgt (the distances, plan A),
+  static const uint32_t R[4] = { RESOURCE_ID_OVL_TGT, RESOURCE_ID_OVL_TGT2, RESOURCE_ID_OVL_TGT3, RESOURCE_ID_OVL_TGT4 };   // 0.48: tgt (the distances, plan A),
   int n = -100;                                      // tgt2 (plans B, C...), (0.63) tgt3 (the hands, in front)
   for (int pass = 0; pass < 2 && n == -100; pass++)   // (-100: tgt2 read the player's mind: a new plan A, all again)
-    for (int i = 0; i < 3 && (!i || n != -100); i++) {
+    for (int i = 0; i < 4 && (!i || n != -100); i++) {   // (0.78: tgt4, escape and tactics)
       const OvlHeader *o = ovl_load(R[i]);
       if (!o) return i ? (n < 0 ? 0 : n) : -1;        // (no room: what there is so far)
       n = ((int (*)(int16_t *, uint8_t *, int))o->fn[0])(cell, kind, n);

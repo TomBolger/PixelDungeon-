@@ -2347,6 +2347,13 @@ static bool press(void) {
     }
   }
   if (!s_rollout && !s_is_child) { bool foe = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) foe = true; }   // 0.61 (owner): the Assist audit
+    if (getenv("DOORCHK")) {                             // 0.78 (owner: "it doesn't step back into doors on its own, it's always the second suggestion")
+      static long dn, dt; Mob *ki = 0; int kd = 99;
+      for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; int d = distance(m->pos, p0); if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & (MD_BOSS | MD_NPC | MD_IMMOVABLE)) && MOB_DEFS[m->type].move_cost * 2 > hero_move_cost() && d >= 2 && d <= 6 && d < kd) { kd = d; ki = m; } }
+      if (ki) { bfs(p0, false); int D = -1; for (int c = 0; c < MAP_LEN; c++) if ((G.map[c] == T_DOOR || G.map[c] == T_OPEN_DOOR) && b_dist[c] <= 3 && distance(c, ki->pos) > distance(c, p0)) D = c;
+        if (D >= 0) { dn++; bool tr = n > 0 && kind[0] == TK_GO && G.tgm.src0 == 2; dt += tr;
+          if (!tr && getenv("AUDV")) { printf("  DOOR g%d d%d hero %d,%d mob %d (%d,%d) d%d door %d,%d entry0 %d/%d src %d n %d\n", cur_game, G.depth, cx(p0), cy(p0), ki->type, cx(ki->pos), cy(ki->pos), kd, cx(D), cy(D), n > 0 ? cell[0] : -1, n > 0 ? kind[0] : -1, G.tgm.src0, n); if (getenv("AUDMAP")) aud_dump(ki->pos, D); } }
+        if (dn && dn % 200 == 0) printf("DOORCHK %ld chances (a slow one coming 2-6 off, a door within 3 on my side), door trick plan A %ld\n", dn, dt); } }
     if (getenv("ADJCHK")) { static long ao, ad, ax, nn; nn++;   // 0.77: cells beside the hero left unknown (blind excluded)
       if (!G.hero.b.blind) for (int k = 0; k < 8; k++) { int q = p0 + N8[k]; if (!nb_ok(p0, q) || BIT_GET(G.visited, q)) continue;
         if (k < 4) ao++; else { int a1 = (q & 31) | (p0 & ~31), b1 = (p0 & 31) | (q & ~31); if (!PASSABLE(G.map[a1]) && !PASSABLE(G.map[b1])) ad++; else { ax++; if (getenv("AUDV")) { printf("  ADJ diag open g%d d%d hero %d,%d cell %d,%d t%d\n", cur_game, G.depth, cx(p0), cy(p0), cx(q), cy(q), G.map[q]); aud_dump(q, q); } } } }

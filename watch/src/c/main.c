@@ -318,9 +318,11 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   if (g_assist == AS_MAX) cam_to(s_tg);              // 0.76: Max: the camera on whatever is chosen, cycled to or not
 }
 void hero_spend(int t); void process(void);
+static int cheb(int a, int b) { int dx = abs((a & 31) - (b & 31)), dy = abs((a >> 5) - (b >> 5)); return dx > dy ? dx : dy; }
 static void pass_hands(int c) {                   // the player chose otherwise than plan A (c: where): the hands' suggestion passed over (0.53), and
   G.tgm.ra = 0;                                      // (0.77: the interrupted walk isn't taken up again over the player's choice)
   if (s_tgk0 == TK_BAG || s_tgk0 == TK_REST) { int i = G.tgm.dn++ & 7; G.tgm.dk[i] = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; G.tgm.da[i] = s_tgk0 == TK_REST ? 255 : g_ovr.ha; G.tgm.dd = G.depth; }   // (0.67: 8 remembered, not just the last)
+  if (s_tgk0 == TK_ITEM && (unsigned)g_tgobj[0] < MAP_LEN && cheb(c, g_tgobj[0]) >= cheb(G.hero.pos, g_tgobj[0])) g_drop[g_drop_i++ & 3] = g_tgobj[0];   // 0.78 (owner): a thing passed over (not walked towards): not offered again
   if (s_tgk0 == TK_ENEMY && abs((c & 31) - (G.hero.pos & 31)) <= 1 && abs((c >> 5) - (G.hero.pos >> 5)) <= 1) return;   // (a step back from an enemy: the doorway fight, still on)
   int m = s_tgk0 == TK_ENEMY && s_tg0 >= 0 ? mob_at(s_tg0) : -1;   // 0.66 (owner: "I cannot be fighting the assist"): what made plan A
   G.tgm.vs = G.tgm.src0; G.tgm.vu = m >= 0 ? G.mobs[m].uid : 255; G.tgm.vt = G.now + 15 * TICK;   // (an enemy: that one) is vetoed 15 turns (ovl/tgt)
