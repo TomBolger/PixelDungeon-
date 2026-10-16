@@ -116,18 +116,20 @@ static int jump_input(int ev, int x, int y) {
 #define M_BODY 130                                 // two rows of 64 px buttons
 #define M_TAB_W 61
 #define M_TAB_H 42                                 // room for the pictures at 2x
-static const uint8_t PAGE0[4] = { A_RETURN, A_CATALOG, A_SOUND, A_NEW };   // the pages: game, records, settings
-static const uint8_t ICON[11] = { 9, 0, 12, 11, 4, 0, 0, 0, 6, 7, 8 };   // menu_icons.png, by A_* (0.80: Assist: Icons.TARGET, Items: the toolbar's bag, Off-screen: its magnifier)
-static bool m_off(int a) { return (a == A_ITEMS || a == A_OFFCAM) && !AS_ON; }   // 0.80: the Assist's switches, while it's off: greyed, passed over
+#define M_AS 20                                    // 0.81 (owner): the settings page: the Assistant's own frame and row, under a title
+static const uint8_t PAGE0[4] = { A_RETURN, A_CATALOG, A_MUSIC, A_NEW };   // the pages: game, records, settings
+static const uint8_t ICON[11] = { 9, 0, 12, 11, 3, 4, 0, 0, 6, 7, 8 };   // menu_icons.png, by A_* (the Assistant's: drawn below)
+static bool m_off(int a) { return a == A_ITEMS && !AS_ON; }   // 0.80: item assist, while the Assist is off: greyed, passed over
 static bool dead(void) { return G.hero.HP <= 0; }   // then one page: new game, rankings, main menu
-static int m_page(void) { return dead() ? 0 : s_sel >= A_SOUND ? 2 : s_sel >= A_CATALOG; }   // s_sel: the selected button, which picks the page
+static int m_page(void) { return dead() ? 0 : s_sel >= A_MUSIC ? 2 : s_sel >= A_CATALOG; }
+static int m_as(void) { return !dead() && m_page() == 2 ? M_AS : 0; }   // s_sel: the selected button, which picks the page
 static int m_first(void) { return dead() ? 0 : PAGE0[m_page()]; }
 static int m_count(void) { return dead() ? 3 : PAGE0[m_page() + 1] - PAGE0[m_page()]; }
 static int m_act(int i) { return (dead() ? A_NEW : 0) + m_first() + i; }
-static GRect m_win(void) { int h = M_HEAD + M_BODY, t = dead() ? 0 : M_TAB_H; return GRect((s_w - BIG_W) / 2, (s_h - h - t) / 2 + 2, BIG_W, h); }
+static GRect m_win(void) { int h = M_HEAD + M_BODY + m_as(), t = dead() ? 0 : M_TAB_H; return GRect((s_w - BIG_W) / 2, (s_h - h - t) / 2 + 2, BIG_W, h); }
 static GRect m_tab(int t) { GRect r = m_win(); return GRect(PBL_IF_ROUND_ELSE(s_w / 2 - 76 + t * 51, r.origin.x - 4 + t * (M_TAB_W + 1)), r.origin.y + r.size.h, PBL_IF_ROUND_ELSE(50, M_TAB_W), M_TAB_H); }   // Gabbro: narrower, inside the curve
 static GRect m_tile(int i) {                       // two buttons: one per row; three: two, then one across
-  GRect r = m_win(); int n = m_count(), y = r.origin.y + M_HEAD;
+  GRect r = m_win(); int n = m_count(), y = r.origin.y + M_HEAD + (i >= 2 ? m_as() : 0);
 #ifdef PBL_ROUND
   bool wide = (n & 1) && i == n - 1;
   return rfit(n == 2 ? GRect(r.origin.x, y + i * 66, BIG_W, 64) : GRect(r.origin.x + (wide ? 0 : (i & 1) * 90), y + (i / 2) * 66, wide ? BIG_W : 89, 64));
@@ -142,7 +144,10 @@ static void draw_menu(GContext *ctx) {
   int n = m_count(), pg = m_page();
   blit_begin(ctx);
   tab_panel(r);
-  WELL(r.origin.x, r.origin.y + M_HEAD - 2, r.size.w, r.size.h - M_HEAD + 2);
+  int as = m_as();
+  WELL(r.origin.x, r.origin.y + M_HEAD - 2, r.size.w, as ? 68 : r.size.h - M_HEAD + 2);
+  if (as) { int ay = r.origin.y + M_HEAD + 66; WELL(r.origin.x, ay + as - 2, r.size.w, r.size.h - (ay + as - 2 - r.origin.y));   // the Assistant's frame
+    blit_box(r.origin.x - 2, ay + 2, r.size.w + 4, r.origin.y + r.size.h - ay - 2, 1, ARGB(GColorChromeYellow)); }
   if (!dead()) for (int t = 0; t < 3; t++) {        // floppy disk, quill and paper, gear
     GRect tr = m_tab(t); bool sel = t == pg;
     tab_art(tr, sel);
@@ -151,31 +156,34 @@ static void draw_menu(GContext *ctx) {
   for (int i = 0; i < n; i++) {
     GRect b = m_tile(i); int a = m_act(i), ix = b.origin.x + (b.size.w - 32) / 2, iy = b.origin.y + 3;
     red_button(b, m_first() + i == s_sel);
-    if (a == A_ASSIST) blit(&s_icons, 67, 0, 16, 16, ix, iy, 2);
-    else if (a == A_ITEMS) blit(&s_toolbar, 65, 5, 14, 15, ix + 2, iy + 1, 2);
-    else if (a == A_OFFCAM) blit(&s_toolbar, 24, 7, 12, 12, ix + 4, iy + 4, 2);
-    else blit(&s_micons, (a == A_SOUND && (g_sound & 3) == 3 ? 3 : ICON[a]) * 16, 0, 16, 16, ix, iy, 2);   // (Sound: the music's note with music on, else the speaker)
-    if ((a == A_SOUND && !(g_sound & SOUND_FX)) || (a == A_ASSIST && !AS_ON) || (a == A_ITEMS && !(g_assist & 2)) || (a == A_OFFCAM && !(g_assist & 4)) || m_off(a)) {
+    if (a == A_ASSIST) {                           // 0.81 (owner): near: the reticle on the hero (his own sheet, the armour worn); far: on the
+      if (AS_OFFCAM) blit(&s_status, 87, 5, 8, 8, ix + 8, iy + 8, 2);   // stairs down (the status pane's); off: crossed out
+      else if (AS_ON) blit(&s_hero, 0, 0, 12, 15, ix + 4, iy + 1, 2);
+      blit(&s_icons, 67, 0, 16, 16, ix, iy, 2); }
+    else if (a == A_ITEMS) blit(&s_icons, 17, 0, 10, 10, ix + 6, iy + 6, 2);   // the backpack (BagTab's)
+    else blit(&s_micons, ICON[a] * 16, 0, 16, 16, ix, iy, 2);
+    if ((a == A_MUSIC && !(g_sound & SOUND_MUSIC)) || (a == A_SOUND && !(g_sound & SOUND_FX)) || (a == A_ASSIST && !AS_ON) || (a == A_ITEMS && !(g_assist & 2)) || m_off(a)) {
       blit_fog(ix, iy, 32); blit(&s_micons, 10 * 16, 0, 16, 16, ix, iy, 2); }   // switched off: dimmed and crossed out
   }
   blit_end(ctx);
   static const char *const TITLE[3] = { "Pixel Dungeon", "Catalogue & Journal", "Settings" };
   text(ctx, TITLE[pg], s_font_hud, GColorIcterine, r.origin.x, r.origin.y - 4, r.size.w, GTextAlignmentCenter);
-  static const char *const LABEL[11] = { "Return to Game", "Save & Main Menu", "Catalogue", "Journal", "%s", "Assist: %s", "Items: %s", "Off-screen: %s", "New Game", "Rankings", "Main Menu" };
+  if (m_as()) text(ctx, "Assistant", s_font_hud, GColorIcterine, r.origin.x, r.origin.y + M_HEAD + 64, r.size.w, GTextAlignmentCenter);
+  static const char *const LABEL[11] = { "Return to Game", "Save & Main Menu", "Catalogue", "Journal", "Music: %s", "Sound: %s", "Assist: %s", "Item assist: %s", "New Game", "Rankings", "Main Menu" };
   for (int i = 0; i < n; i++) {
     GRect b = m_tile(i); int a = m_act(i);
-    int bit = a == A_ASSIST ? 1 : a == A_ITEMS ? 2 : 4, m = g_sound & 3;
-    char buf[20]; snprintf(buf, sizeof buf, LABEL[a], a == A_SOUND ? (m == 3 ? "Sound: On" : m == SOUND_FX ? "SFX Only" : "Muted") : g_assist & bit ? "On" : "Off");
+    static const char *const VOL[3] = { "Loud", "Medium", "Quiet" };
+    char buf[24]; snprintf(buf, sizeof buf, LABEL[a], a == A_SOUND ? (g_sound & SOUND_FX ? VOL[SOUND_VOL(g_sound) % 3] : "Off") : a == A_MUSIC ? (g_sound & SOUND_MUSIC ? "On" : "Off")
+      : a == A_ASSIST ? (!AS_ON ? "Off" : AS_OFFCAM ? "Far" : "Near") : g_assist & 2 ? "On" : "Off");
     big_label(ctx, buf, GRect(b.origin.x, b.origin.y + 35, b.size.w, 28), m_off(a) ? GColorDarkGray : GColorWhite);
   }
 }
 static int menu_input(int ev, int x, int y) {
   int n = dead() ? 3 : A_NEW;
-  if (ev == -3) return !dead() && s_sel == A_SOUND ? CMD(C_MENU, A_VOL) : 0;   // 0.80: a long Select on Sound: the volume
   if (ev == BUTTON_ID_SELECT) return m_off(m_act(s_sel - m_first())) ? 0 : CMD(C_MENU, m_act(s_sel - m_first()));
   if (ev >= 0 && ev != BUTTON_ID_BACK) { do s_sel = (s_sel + (ev == BUTTON_ID_DOWN ? 1 : -1) + n) % n; while (!dead() && m_off(s_sel)); redraw(); return 0; }   // through every page
   if (ev < 0) {
-    for (int i = 0; i < m_count(); i++) if (hit(m_tile(i), x, y)) { s_sel = m_first() + i; return m_off(m_act(i)) ? 0 : CMD(C_MENU, ev == -2 && m_act(i) == A_SOUND ? A_VOL : m_act(i)); }
+    for (int i = 0; i < m_count(); i++) if (hit(m_tile(i), x, y)) { s_sel = m_first() + i; return m_off(m_act(i)) ? 0 : CMD(C_MENU, m_act(i)); }
     for (int t = 0; !dead() && t < 3; t++) if (tab_hit(m_tab(t), x, y)) { s_sel = PAGE0[t]; redraw(); return 0; }
     GRect r = m_win();
     if (hit(GRect(r.origin.x - 6, r.origin.y - 6, r.size.w + 12, r.size.h + 12), x, y)) return 0;

@@ -19,10 +19,8 @@ static const char *CLASS_NAMES[4] = { "WARRIOR", "MAGE", "ROGUE", "HUNTRESS" };
 
 static GRect sheet_rect(void) { int w = PBL_IF_ROUND_ELSE(166, 172), h = 150; return GRect((s_w - w) / 2, (s_h - h - 26) / 2, w, h); }
 #ifdef PBL_ROUND                                      // 0.35 Gabbro: buttons inside the curve, the tabs centred under it
-static GRect sheet_button(int b) { GRect r = sheet_rect(); int w = r.size.w / 2 - 2; return rfit(GRect(r.origin.x + b * (w + 4), r.origin.y + 18, w, 28)); }
 static GRect sheet_tab_rect(int t) { GRect r = sheet_rect(); return GRect(s_w / 2 - SHEET_TAB_W - 1 + t * (SHEET_TAB_W + 1), r.origin.y + r.size.h, SHEET_TAB_W, SHEET_TAB_H); }
 #else
-static GRect sheet_button(int b) { GRect r = sheet_rect(); int w = r.size.w / 2 - 2; return GRect(r.origin.x + b * (w + 4), r.origin.y + 18, w, 28); }   // WndHero: Catalogue, Journal
 static GRect sheet_tab_rect(int t) { GRect r = sheet_rect(); return GRect(r.origin.x - 4 + t * (SHEET_TAB_W + 1), r.origin.y + r.size.h, SHEET_TAB_W, SHEET_TAB_H); }
 #endif
 static void draw_sheet(GContext *ctx) {           // PD WndHero: Stats and Buffs tabs
@@ -38,7 +36,6 @@ static void draw_sheet(GContext *ctx) {           // PD WndHero: Stats and Buffs
   tab_panel(r);
   WELL(r.origin.x, r.origin.y + (s_sheet_tab ? 0 : 14), r.size.w, r.size.h - (s_sheet_tab ? 0 : 14));   // stats: under the title
   for (int t = 0; t < 2; t++) tab_art(sheet_tab_rect(t), t == s_sheet_tab);
-  if (!s_sheet_tab) for (int i = 0; i < 2; i++) red_button(sheet_button(i), false);   // WndHero: Catalogus, Journal
   if (s_sheet_tab == 1)
     for (int i = 0; i < nb; i++) blit(&s_buffs, b[i] * 7, 0, 7, 7, BUFF_X(i) + 1, BUFF_Y(i) + 1, 2);   // 0.20: the status bar's icons at 2x (the 16 px sheet took 7.5 KB)
   blit_end(ctx);
@@ -57,7 +54,6 @@ static void draw_sheet(GContext *ctx) {           // PD WndHero: Stats and Buffs
   static const char *const SUB[9] = { NULL, "GLADIATOR", "BERSERKER", "WARLOCK", "BATTLEMAGE", "ASSASSIN", "FREERUNNER", "SNIPER", "WARDEN" };
   snprintf(buf, sizeof buf, "LEVEL %d %s", h->lvl, h->subclass && h->subclass < 9 ? SUB[h->subclass] : CLASS_NAMES[h->hclass & 3]);   // WndHero: hero.className()
   text(ctx, buf, s_font_hud, GColorIcterine, r.origin.x, r.origin.y - 3, r.size.w, PBL_IF_ROUND_ELSE(GTextAlignmentCenter, GTextAlignmentLeft));
-  for (int i = 0; i < 2; i++) { GRect bb = sheet_button(i); text(ctx, i ? "Journal" : "Catalogue", s_font_hud, GColorWhite, bb.origin.x, bb.origin.y + 4, bb.size.w, GTextAlignmentCenter); }
   const char *labels[5] = { "Strength", "Health", "Experience", "Gold Collected", "Maximum Depth" };
   char vals[5][16];
   snprintf(vals[0], 16, "%d", h->weakness ? h->STR - 2 : h->STR);   // hero.STR(): Weakness takes 2
@@ -66,10 +62,11 @@ static void draw_sheet(GContext *ctx) {           // PD WndHero: Stats and Buffs
   uint32_t gc; memcpy(&gc, h->spare + 2, 4);       // Statistics.goldCollected
   snprintf(vals[3], 16, "%d", (int)gc);
   snprintf(vals[4], 16, "%d", G.max_depth);
-  for (int i = 0; i < 5; i++) {
-    int yy = r.origin.y + 52 + i * 18 + (i >= 3 ? 6 : 0);
-    text(ctx, labels[i], s_font_log, GColorWhite, r.origin.x, yy, r.size.w * 65 / 100, GTextAlignmentLeft);
-    text(ctx, vals[i], s_font_log, GColorWhite, r.origin.x + r.size.w * 65 / 100, yy, r.size.w * 35 / 100, GTextAlignmentLeft);
+  GFont f = fonts_get_system_font(FONT_KEY_GOTHIC_18), fb = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);   // 0.81 (owner): bigger, easier to read
+  for (int i = 0; i < 5; i++) {                  // (0.81: the Catalogue and Journal are in the menu only)
+    int yy = r.origin.y + 18 + i * 24 + (i >= 3 ? 6 : 0);
+    text(ctx, labels[i], f, GColorWhite, r.origin.x + 2, yy, r.size.w * 64 / 100, GTextAlignmentLeft);
+    text(ctx, vals[i], fb, GColorWhite, r.origin.x + r.size.w * 64 / 100, yy, r.size.w * 36 / 100 - 2, GTextAlignmentRight);
   }
 }
 
@@ -146,7 +143,6 @@ static void draw_catalog(GContext *ctx) {
 static int sheet_input(int ev, int x, int y) {      // WndHero (0.29: its input out of the app)
   if (ev < 0) {
     for (int t = 0; t < 2; t++) if (tab_hit(sheet_tab_rect(t), x, y)) { s_sheet_tab = t; redraw(); return 0; }
-    for (int b = 0; b < 2 && !s_sheet_tab; b++) if (hit(sheet_button(b), x, y)) { s_scene = SC_CATALOG; s_sheet_tab = b * 2; s_sel = 0; redraw(); return 0; }
   } else if (ev != BUTTON_ID_SELECT && ev != BUTTON_ID_BACK) { s_sheet_tab ^= 1; redraw(); return 0; }
   s_scene = SC_GAME; redraw(); return 0;
 }

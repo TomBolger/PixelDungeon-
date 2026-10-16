@@ -704,9 +704,9 @@ static void menu_select(int a) {                   // the game menu's buttons (u
   switch (a) {
     case A_SAVE: ui_win_free(); game_save(); to_title(); return;   // the window's code out of the way of the save's
     case A_CATALOG: case A_JOURNAL: s_scene = SC_CATALOG; s_sheet_tab = a == A_JOURNAL ? 2 : 0; s_sel = 0; break;   // WndCatalogus / WndJournal
-    case A_SOUND: { int m = g_sound & 3; snd_set((g_sound & ~3) | (m == 3 ? SOUND_FX : m == SOUND_FX ? 0 : 3)); break; }   // 0.80 (owner): on, effects only, mute (stays open)
-    case A_VOL: snd_set((g_sound & 3) | ((SOUND_VOL(g_sound) + 1) % 3) << 2); ui_sound(SND_CLICK); break;   // (a long press: loud, medium, quiet)
-    case A_ASSIST: g_assist ^= 1; zoom_save(); break; case A_ITEMS: g_assist ^= 2; zoom_save(); break; case A_OFFCAM: g_assist ^= 4; zoom_save(); break;
+    case A_MUSIC: snd_set(g_sound ^ SOUND_MUSIC); break; case A_SOUND: snd_cycle(); break;   // stays open
+    case A_ASSIST: g_assist = !AS_ON ? (g_assist & 2) | 1 : !(g_assist & 4) ? g_assist | 4 : g_assist & ~5; zoom_save(); break;   // 0.81 (owner): near, far, off
+    case A_ITEMS: g_assist ^= 2; zoom_save(); break;
     case A_NEW: start_game(false); return;
     case A_RANKINGS: case A_MAIN: to_title(); if (a == A_MAIN) return; s_scene = SC_RANKINGS; break;
     default: s_scene = SC_GAME;
@@ -1059,7 +1059,7 @@ static void button(ButtonId id) { woke();
 static void click_up(ClickRecognizerRef r, void *c) { button(BUTTON_ID_UP); }
 static void click_sel(ClickRecognizerRef r, void *c) { button(BUTTON_ID_SELECT); }
 static void click_down(ClickRecognizerRef r, void *c) { button(BUTTON_ID_DOWN); }
-static void long_sel(ClickRecognizerRef r, void *c) { woke(); if (s_scene == SC_GAME && s_hl >= 0) hl_press(true); else if (s_scene == SC_GAME) { s_walking = false; open_bag(-1); } else if (s_scene == SC_BAG || s_scene == SC_MENU) ui_input(-3, 0, 0); }   // the bag: move an item (0.80: the menu: Sound's volume)
+static void long_sel(ClickRecognizerRef r, void *c) { woke(); if (s_scene == SC_GAME && s_hl >= 0) hl_press(true); else if (s_scene == SC_GAME) { s_walking = false; open_bag(-1); } else if (s_scene == SC_BAG) ui_input(-3, 0, 0); }   // the bag: move an item
 static void long_down(ClickRecognizerRef r, void *c) { woke(); if (s_scene == SC_GAME || s_scene == SC_TARGET) { s_walking = false; combat_cycle(-1); } }   // 0.26: the target before
 static void long_up(ClickRecognizerRef r, void *c) { woke(); if (s_scene == SC_GAME) { s_walking = false; mreg_spare(); s_scene = SC_MENU; s_sel = 0; redraw(); } }
 static void click_back(ClickRecognizerRef r, void *c) { woke();
