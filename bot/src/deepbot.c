@@ -2214,12 +2214,12 @@ static const char *evidence_hidden(void) {
   return NULL;
 }
 // PRESS=1: "just press the middle button": every move is the game's target list entry 0 (the next one if nothing came of it)
-static int st_near_n, st_near_skip, st_near_any;
+static int st_near_n, st_near_skip, st_near_any, st_far_n, st_far, st_eatst_n, st_eatst, st_flip, st_explore_n;
 static int st_dither, st_turnback, st_turnback_foe, st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left;
 static bool s_pure;                                       // 0.64 PURE=1: the Assist alone
 static int P, st_press, st_press_off, st_osc, st_press_n, st_floors, s_pp[3];
 static const uint8_t PVIEW[3][4] = { { 12, 8, 8, 9 }, { 6, 4, 4, 4 }, { 3, 2, 2, 2 } };   // Emery's g_view per zoom (main.c VIEW)
-static bool p_onscreen(int c) { int dx = cx(c) - cx(G.hero.pos), dy = cy(c) - cy(G.hero.pos); return dx >= -g_view[0] && dy >= -g_view[1] && dy <= g_view[2] && dx <= g_view[3]; }
+static bool p_onscreen(int c) { if (!g_view[0]) return true; int dx = cx(c) - cx(G.hero.pos), dy = cy(c) - cy(G.hero.pos); return dx >= -g_view[0] && dy >= -g_view[1] && dy <= g_view[2] && dx <= g_view[3]; }
 // PRESS=2: now and then the player overrides like a human (at a fork, a target the other way from entry 0), then just
 // presses Select again; counted: the overrides, and entry 0 pointing back (> 90 degrees off the chosen way) in the next
 // presses while that way is still on (g_ovr.c) and in the next 8 presses regardless
@@ -2347,6 +2347,21 @@ static bool press(void) {
     }
   }
   if (!s_rollout && !s_is_child) { bool foe = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) foe = true; }   // 0.61 (owner): the Assist audit
+    if (getenv("ADJCHK")) { static long ao, ad, ax, nn; nn++;   // 0.77: cells beside the hero left unknown (blind excluded)
+      if (!G.hero.b.blind) for (int k = 0; k < 8; k++) { int q = p0 + N8[k]; if (!nb_ok(p0, q) || BIT_GET(G.visited, q)) continue;
+        if (k < 4) ao++; else { int a1 = (q & 31) | (p0 & ~31), b1 = (p0 & 31) | (q & ~31); if (!PASSABLE(G.map[a1]) && !PASSABLE(G.map[b1])) ad++; else { ax++; if (getenv("AUDV")) { printf("  ADJ diag open g%d d%d hero %d,%d cell %d,%d t%d\n", cur_game, G.depth, cx(p0), cy(p0), cx(q), cy(q), G.map[q]); aud_dump(q, q); } } } }
+      if (nn % 2000 == 0) printf("ADJCHK presses %ld: unknown beside the hero: straight %ld, diagonal between walls %ld, diagonal other %ld\n", nn, ao, ad, ax); }
+    if (n > 0 && !foe && getenv("NEAR")) {             // 0.77 audit: FAR: entry 0 a place much farther than the nearest unexplored spot (any distance);
+      bfs(p0, false); int f = -1, nv = 0; for (int c = 0; c < MAP_LEN; c++) { nv += BIT_GET(G.visited, c); if (b_dist[c] > 0 && b_dist[c] < 0x7FFF && frontier(c) && (f < 0 || b_dist[c] < b_dist[f])) f = c; }
+      int o0 = g_tgobj[0], d0 = (unsigned)o0 < MAP_LEN ? b_dist[o0] : 0x7FFF;   // (the objective, not its on-screen stand-in)
+      if (f >= 0 && kind[0] == TK_GO && cell[0] != p0) { st_far_n++; if (d0 < 0x7FFF && d0 > 2 * b_dist[f] + 6 && distance(o0, f) > 3) { st_far++; if (getenv("AUDV")) printf("  FAR g%d d%d hero %d,%d unexplored %d,%d (%d) obj %d,%d (%d) t%d src %d line %d way %d\n", cur_game, G.depth, cx(p0), cy(p0), cx(f), cy(f), b_dist[f], cx(o0), cy(o0), d0, G.map[o0], G.tgm.src0, s_tline, g_ovr.c >= 0 ? g_ovr.d & 63 : -1); if (getenv("AUDMAP")) aud_dump(o0, f); } }
+      if (f >= 0) st_explore_n++;
+      // EATST: a meal suggested while starving, the floor done (entry 0 would be the stairs), health at half or more: the stairs first are free (PD: no hunger on stairs while starving)
+      if (kind[0] == TK_BAG && g_ovr.ha == ACN_EAT && game_starving()) { st_eatst_n++; if (f < 0 && G.exit >= 0 && BIT_GET(G.visited, G.exit) && b_dist[G.exit] < 0x7FFF && G.hero.HP * 2 >= G.hero.HT) { st_eatst++; if (getenv("AUDV")) printf("  EATST g%d d%d hp %d/%d\n", cur_game, G.depth, G.hero.HP, G.hero.HT); } }
+      // FLIP: entry 0's objective back to one it had two changes ago, nothing new seen since (the A, B, A loop)
+      { static int16_t ob[3] = { -1, -1, -1 }; static int nvb[3]; static int dd = -1; if (dd != G.depth) { ob[0] = ob[1] = ob[2] = -1; dd = G.depth; }
+        if (kind[0] == TK_GO && o0 != ob[0]) { if (o0 == ob[1] && nvb[1] == nv) { st_flip++; if (getenv("AUDV")) printf("  FLIP g%d d%d hero %d,%d obj %d,%d <-> %d,%d src %d line %d\n", cur_game, G.depth, cx(p0), cy(p0), cx(o0), cy(o0), cx(ob[0]), cy(ob[0]), G.tgm.src0, s_tline); if (getenv("AUDMAP")) aud_dump(o0, ob[0]); }
+          ob[2] = ob[1]; nvb[2] = nvb[1]; ob[1] = ob[0]; nvb[1] = nvb[0]; ob[0] = o0; nvb[0] = nv; } } }
     if (n > 0 && !foe && kind[0] == TK_GO && getenv("NEAR")) {   // 0.76 (owner: "won't suggest an unexplored door or area right next to me"): an unexplored spot within 3, entry 0 far off
       bfs(p0, false); int f = -1; for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] > 0 && b_dist[c] <= 3 && frontier(c) && (f < 0 || b_dist[c] < b_dist[f])) f = c;
       if (f >= 0) { st_near_n++; int d0 = b_dist[cell[0]]; bool any = false; for (int j = 0; j < n; j++) any |= distance(cell[j], f) <= 2;
@@ -2360,6 +2375,7 @@ static bool press(void) {
   if (n <= 0) { st_press++; walk(G.hero.pos == G.exit || heap_at(G.hero.pos) >= 0 ? tap_safe(G.hero.pos) : bot_search()); return true; }
   if (!p_onscreen(cell[0])) { st_press_off++; if (V) printf("  OFFSCREEN entry 0 %d hero %d\n", cell[0], G.hero.pos); }
   if (V) { printf("  press: hero %d (t0 %d) list", G.hero.pos, G.map[cell[0]]); for (int i = 0; i < n; i++) printf(" %d/%d", cell[i], kind[i]); printf("\n"); }
+  if (V) for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos)) printf("   mob %d type %d state %d hp %d ally %d\n", m->pos, m->type, m->state, m->HP, ally(i)); }
   for (int i = i0; i < n; i++) {
     st_press++;
     int c = cell[i]; int32_t t = G.hero.time;
@@ -2371,7 +2387,7 @@ static bool press(void) {
     if (mine) st_mine++; if (kind[i] == TK_VEIN) st_mine_walk++;
     if (kind[i] == TK_BAG && !s_pure && g_ovr.ha != ACN_EAT && g_ovr.ha != ACN_DRINK && g_ovr.ha != ACN_THROW && g_ovr.ha != ACN_ZAP) continue;
     if (i && (kind[0] == TK_BAG || kind[0] == TK_REST)) { int j = G.tgm.dn++ & 7; G.tgm.dk[j] = kind[0] == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; G.tgm.da[j] = kind[0] == TK_REST ? 255 : g_ovr.ha; G.tgm.dd = G.depth; }   // (main.c tg_do: the hands passed over)   // 0.61: the hands (main.c tg_do), those with no aiming or choosing (gear: the bot's own)
-    ActResult r = mine ? game_item_do(g_ovr.ms, ACN_MINE) : kind[i] == TK_BAG ? do_item(g_ovr.hs, (ItemAction)g_ovr.ha) : kind[i] == TK_REST ? game_rest(true) : hold ? game_rest(false) : (G.hero.b.roots || c == G.hero.pos) && kind[i] == TK_GO ? bot_search() : tap_safe(c);
+    ActResult r = mine ? game_item_do(g_ovr.ms, ACN_MINE) : kind[i] == TK_BAG ? do_item(g_ovr.hs, (ItemAction)g_ovr.ha) : kind[i] == TK_REST ? game_rest(true) : hold ? game_rest(false) : (G.hero.b.roots || c == G.hero.pos) && kind[i] == TK_GO ? bot_search() : getenv("RAWTAP") ? game_tap_cell(c) : tap_safe(c);   // (0.77: RAWTAP: the watch's Select, no bot route-around)
     if (G.hero.pos != p0 && !getenv("NOHEAD")) g_from = p0;
     if (kind[i] == TK_VEIN && r == ACT_NONE && G.hero.time == t) { st_mine_none++; if (V) printf("  MINE-WALK did nothing: vein %d hero %d\n", c, G.hero.pos); }
     if (r != ACT_NONE || G.hero.time != t) {
@@ -3741,7 +3757,7 @@ int main(int argc, char **argv) {
   if (getenv("STOP")) sscanf(getenv("STOP"), "%d:%d", &stop_game, &stop_step);
   V = getenv("V") != NULL;
   P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0; s_pure = getenv("PURE") != NULL; s_toe = getenv("TOE") != NULL;
-  if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); }
+  if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); if (g_assist == 3) memset(g_view, 0, 4); }   // 0.77: Assist Max: the whole map
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
     cur_game = g; srand(g + 1); st_games++; lg_maxleft = 0;
     if (!getenv("OLDLEAK")) { g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; g_goal = -1; g_from = -1; memset(g_drop, 0, sizeof g_drop); g_drop_i = 0; }   // 0.64: no Assist state carried from game to game (a game replays alone the same)
@@ -4044,6 +4060,7 @@ int main(int argc, char **argv) {
     static const char *MN[4] = { "far explored cell", "back to the way up", "the way down early", "another unexplored part" };
     for (int m = 0; m < 4; m++) { long t = 0; for (int i = 0; i < 12; i++) t += ct_mn[m][i]; if (t) printf("  %s: %d trips, %ld hops: with %.1f%% beside %.1f%% AGAINST %.1f%% item against %.1f%% stand %.1f%% hands %.1f%%\n", MN[m], ct_mtrips[m], t, 100.0 * ct_mn[m][0] / t, 100.0 * ct_mn[m][1] / t, 100.0 * ct_mn[m][2] / t, 100.0 * ct_mn[m][5] / t, 100.0 * ct_mn[m][6] / t, 100.0 * ct_mn[m][7] / t); } }
   if (P) printf("assist audit: steps straight back %d (an enemy in sight %d); dithering (a cell a third time in 24 moves, nothing new seen, no enemy) %d\n", st_turnback, st_turnback_foe, st_dither);
+  if (P && getenv("NEAR")) printf("far audit: %d presses going somewhere with something unexplored reachable, objective far beyond the nearest: %d; flips (A, B, A, nothing new seen): %d; meals while starving %d, of them with the floor done at half health or more: %d\n", st_far_n, st_far, st_flip, st_eatst_n, st_eatst);
   if (P && getenv("NEAR")) printf("near audit: %d presses with an unexplored spot within 3, entry 0 elsewhere far: %d (that spot not in the list at all: %d)\n", st_near_n, st_near_skip, st_near_any);
   if (P) printf("assist audit: searches %d (with a foe hunting %d, with the way down known %d); hungry, no food, food within 3: %d presses, not entry 0: %d\n", st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left);
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);

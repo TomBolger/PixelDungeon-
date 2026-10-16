@@ -111,10 +111,14 @@ static void t_put(int c, int kind, int key) {
 static bool s_fish; __attribute__((unused)) static bool s_foe;                           // a piranha in sight: keep out of the water; (0.45) an enemy in sight
 static bool s_pick;                                    // 0.41: a pickaxe, and dark gold veins about (depths 11-15)
 static bool has(int k) { return game_bag_find(k) >= 0; }
+static bool seeds(void) { for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_SEED) return true; return false; }   // 0.77: the alchemy pot is something to do
 static int qty(int k) { int s = game_bag_find(k); return s < 0 ? 0 : G.hero.bag[s].qty; }
 static bool unseen_by(int c) {                         // c is beside the unknown (not just beside the hero: that stays unseen)
   if (!BIT_GET(G.visited, c) || !open_cell(c) || G.map[c] == T_ALCHEMY || c == G.entrance || c == G.exit || (s_fish && IS_WATER(G.map[c]))) return false;
-  for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && !BIT_GET(G.visited, n) && distance(n, G.hero.pos) > 1) return true; }
+  for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (!nb_ok(c, n) || BIT_GET(G.visited, n) || distance(n, G.hero.pos) <= 1) continue;
+    if (k >= 4 && XENV("CORNER", 1)) { int a = (n & 31) | (c & ~31), b = (c & 31) | (n & ~31);   // 0.77: a diagonal unknown between two known walls
+      if (BIT_GET(G.visited, a) && !PASSABLE(G.map[a]) && BIT_GET(G.visited, b) && !PASSABLE(G.map[b])) continue; }   // (a room's corner: nothing there)
+    return true; }
   return false;
 }
 static bool opening(int c) {                           // 0.47: beside the unknown straight on (a door, a hallway going on): a region to explore
@@ -256,10 +260,10 @@ static int look(bool all) {
     int d = s_dist[c];
     if (d >= 255 || !d || !ahead(c)) continue;
     bool k = c == g_goal;                              // 0.61 (owner: "constantly doubling back and forth"): the one chosen before, even
-    bool g = gr && G.map[c] == T_HIGH_GRASS && (all || on_screen(c) || k) && !char_at(c) && heap_at(c) < 0;   // (a tap on a heap opens / picks it up)
+    bool g = gr && G.map[c] == T_HIGH_GRASS && (all || k || (on_screen(c) && d <= XENV("GRASSR", 8))) && !char_at(c) && heap_at(c) < 0;   // (0.77: within 8: Max has no screen)   // (a tap on a heap opens / picks it up)
     if (!g && !((on_screen(c) || k) && unseen_by(c))) continue;   // once the way there takes it off screen (else the plan out of sight, back, and again)
     if (k) d = d > XENV("STICKY", 3) ? d - XENV("STICKY", 3) : 0;   // (0.76: kept only while no other is 3 nearer, as in first())
-    else { if (s_od < 0 && s_head >= 0 && off(c, s_head) > 16) d += 256;   // (behind: after those ahead; off screen: after all on it)
+    else { if (s_od < 0 && s_head >= 0 && off(c, s_head) > 16) d += XENV("BEHIND", 1) ? d / 4 + 2 : 256;   // (0.77: a quarter more, not after all ahead)   // (behind: after those ahead; off screen: after all on it)
       if (!on_screen(c)) d += 512; }
     if (d < bk) { bk = d; best = c; gb = g; }
   }
@@ -282,7 +286,8 @@ static int first(int *kind) {                          // the cell (on the map, 
     if (!adj && G.tgm.vs == 1 && G.tgm.vu == m->uid && G.now < G.tgm.vt && !(m->state == ST_HUNTING && walk(m->pos) <= 4) && XENV("VETO", 1)) continue;   // (0.76 (owner): not one coming at you / shooting you)   // 0.66: the player went another way than at it: not plan A a while
     if (adj) g_ovr.d &= ~64;                           // (beside one: a step back may hold again)
     if ((m->state == ST_PASSIVE && (!adj || m->type == MT_STATUE)) || ((fl & MD_WATER) && !adj)) continue;
-    if (!adj && walk(m->pos) > 2 * distance(m->pos, hp) + 4) continue;   // 0.41: sensed through a wall (the Huntress): a long way round
+    if (!adj && walk(m->pos) > 2 * distance(m->pos, hp) + 4) continue;
+    if (!adj && m->state != ST_HUNTING && walk(m->pos) > distance(m->pos, hp) + XENV("SLEEPWAY", 1)) continue;   // 0.77: one not coming for you the long way round: not plan A (out of sight from there: back and forth)   // 0.41: sensed through a wall (the Huntress): a long way round
     if (m->state == ST_SLEEPING && !adj && !(fl & MD_BOSS) && floor_left() && distance(m->pos, hp) > 2) continue;   // 0.48 (owner): sleepers once the floor is explored (0.50: one close by: the sure first hit)
     int k = adj ? ((fl & MD_BOSS) ? 0 : 1 + m->HP) : walk(m->pos) < 255 ? 1000 + walk(m->pos) * 64 + m->HP : 0x7FFF;
     if (k < bk) { bk = k; best = m->pos; bi = i; }
@@ -294,14 +299,7 @@ static int first(int *kind) {                          // the cell (on the map, 
     // 0.41 (user: doorway fighting): Select waits a turn (main.c tg_do; entry 0 stays the enemy) for one a step short of
     // you that is coming at you; and once just after the hero stepped back from beside it (whatever it does: then on to it)
     Mob *m = &G.mobs[bi]; int t = m->type, w = walk(best);
-    { int adj = 0, os = 0, bc = -1, bo = 9;               // 0.50 (owner): two or more beside you in the open: back into a narrow spot none touches
-      for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, hp)) adj++;
-      for (int k = 0; k < 4; k++) os += nb_ok(hp, hp + N8[k]) && open_cell(hp + N8[k]);
-      if (adj >= 2 && os > 2) for (int k = 0; k < 8; k++) { int c = hp + N8[k], o = 0; if (!nb_ok(hp, c) || !open_cell(c) || char_at(c) || IS_WATER(G.map[c])) continue;
-        bool touch = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, c)) touch = true;
-        for (int j = 0; j < 4; j++) o += nb_ok(c, c + N8[j]) && open_cell(c + N8[j]);
-        if (!touch && o <= 2 && o < bo) { bo = o; bc = c; } }
-      if (bc >= 0) { *kind = TK_GO; DBG_RET(bc); } }
+    // (0.77: two or more beside you in the open: tgt3 tactics(), room)
     bool fast = MOB_DEFS[t].move_cost * 2 <= hero_move_cost() && !G.hero.b.roots;   // 0.49 (owner): twice your pace (crabs, bats)
     if (bk >= 1000 && (w == 2 || (fast && w == 3)) && m->state == ST_HUNTING && !m->b.paralysis && !m->b.roots && !m->b.frost && !m->b.terror &&
         t != MT_SHAMAN && t != MT_WARLOCK && t != MT_EYE && t != MT_SCORPIO && t != MT_TENGU && t != MT_BURNING_FIST &&
@@ -333,13 +331,17 @@ again:
     if (!heap_ok(h) || G.map[c] == T_ALCHEMY || (c != hp && char_at(c)) || (s_fish && IS_WATER(G.map[c]))) continue;   // (0.48: not junk you know of)
     if (h->item.kind == IK_DEW && G.hero.HP >= G.hero.HT && (G.dew >= 10 || !has(IK_DEW_VIAL))) continue;   // 0.41 (user): Dewdrop.doPickUp would do nothing
     int d = c == hp ? 0 : walk(c);
-    if (d < bk && ((direct(c) && (s_od < 0 || (d <= 4 && off(c, s_od) <= 6))) || precious(h->item.kind) || (!XENV("OBEY", 1) && d <= 4))) { bk = d; best = c; }   // (0.63: the player's way: still upgrades; 0.65 (owner: "if I want to explore a hallway but left a dewdrop behind, it shouldn't turn me around"): nothing else behind)
+    if (d < bk && (!d || (direct(c) && (s_od < 0 || (d <= 4 && off(c, s_od) <= 6))) || precious(h->item.kind) || (!XENV("OBEY", 1) && d <= 4))) { bk = d; best = c; }   // (0.77: underfoot always)   // (0.63: the player's way: still upgrades; 0.65 (owner: "if I want to explore a hallway but left a dewdrop behind, it shouldn't turn me around"): nothing else behind)
   }
   if (best >= 0) DBG_RET(best);
   *kind = TK_GO;
   if (g_ovr.c >= 0 && g_ovr.c < MAP_LEN) {             // the cell the player chose
     int c = g_ovr.c, t = G.map[c];                      // 0.47: an objective from the list: plan A till met, then the plan again
-    if ((g_ovr.on & 8) && !unseen_by(c) && heap_at(c) < 0 && mob_at(c) < 0 && c != G.exit && c != G.entrance && t != T_WELL && t != T_ALCHEMY && t != T_LOCKED_DOOR && t != T_WALL_DECO) { g_ovr.c = MAP_LEN; g_ovr.on &= ~8; goto again; }   // (0.72: met: on that way, not the plan again)
+    bool use = t == T_ALCHEMY || !PASSABLE(t);           // (0.77: the pot is passable in PD's flags, never stood on: Hero.handle cooks beside it)
+    if ((g_ovr.on & 8) && ((g_ovr.on & 16) ? !unseen_by(c) : use) && heap_at(c) < 0 && mob_at(c) < 0 && c != G.exit && c != G.entrance && t != T_WELL && !(t == T_ALCHEMY && seeds()) && !(t == T_LOCKED_DOOR && (G.keys[G.depth] & 15)) && t != T_WALL_DECO) { g_ovr.c = MAP_LEN; g_ovr.on &= ~8; goto again; }   // (0.77: seen if it was unseen; else done once it can't be stood on: a well drunk, a pot with no seeds)   // (0.72: met: on that way, not the plan again)
+    if ((g_ovr.on & 8) && use && t != T_WALL_DECO && (walk(c) <= 1 || (t == T_ALCHEMY && BIT_GET(G.fov, c)))) { g_ovr.c = MAP_LEN; g_ovr.on &= ~8; goto again; }   // (the pot: Hero.actCook works once it's in sight)   // 0.77: a well / the pot / a locked door: done once beside it (the tap there did it, or the player chose not to)
+    if (t == T_WALL_DECO) *kind = walk(c) == 1 ? TK_MINE : TK_VEIN;   // 0.77: a vein chosen (t_add takes no wall as a walk)
+    else if (!PASSABLE(t) && t != T_WELL && t != T_ALCHEMY && t != T_LOCKED_DOOR && heap_at(c) < 0 && mob_at(c) < 0) { g_ovr.c = MAP_LEN; goto again; }   // 0.77: a wall tapped: its way, not the cell
     if (walk(c) < 255) DBG_RET(c);
     g_ovr.c = MAP_LEN; }
 
@@ -411,6 +413,7 @@ static __attribute__((noinline)) int mind(int hp) {
   if (M->t0 == G.level_t0 && M->hp != hp)
     for (int j = 0; j < M->n; j++) {
       int c = M->c[j], g = M->d[j] - ((unsigned)c < MAP_LEN ? walk(c) : 255);
+      if (!j && (unsigned)c >= MAP_LEN) break;           // 0.77: plan A an enemy: a dodge isn't a choice
       if (g > 0) { if (!j) break; up = 1; if (g >= TGT_MIND && (od < 0 || off(c, od) <= 8)) { pr = c; up = 0; break; } }   // (0.72 (owner: "I cannot be fighting the assist"): only one along the way tapped)
     }
   if (!up) {                                           // the list as it is now
@@ -452,6 +455,14 @@ static bool stand_ok(int c, int hp) { return c == hp || (open_cell(c) && !char_a
 static int tactics(void) {
   Hero *h = &G.hero; int hp = h->pos; bool hit;
   if (h->b.roots) return -1;
+    { int adj = 0, os = 0, bc = -1, bo = 9;               // 0.50 (owner): two or more beside you in the open: back into a narrow spot none touches
+      for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, hp)) adj++;
+      for (int k = 0; k < 8; k++) os += nb_ok(hp, hp + N8[k]) && open_cell(hp + N8[k]);   // (0.77: all 8: PD has no corner rule)
+      if (adj >= 2 && os > 2) for (int k = 0; k < 8; k++) { int c = hp + N8[k], o = 0; if (!nb_ok(hp, c) || !open_cell(c) || char_at(c) || IS_WATER(G.map[c])) continue;
+        bool touch = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, c)) touch = true;
+        for (int j = 0; j < 8; j++) o += nb_ok(c, c + N8[j]) && open_cell(c + N8[j]);
+        if (!touch && o <= 2 && o < bo) { bo = o; bc = c; } }
+      if (bc >= 0) return bc; }
   Mob *bf = 0, *rf = 0, *dm = 0, *sh = 0, *ki = 0; int kd = 99;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->type == MT_GOO && m->HP > 0 && m->aux2 && BIT_GET(G.fov, m->pos) && XENV("GOOPUMP", 1)) {
       // 0.64 (the Assist alone's first killer once past floor 4): Goo pumped up hits 3x, and reaches 2 cells: out of its reach
@@ -520,10 +531,12 @@ static int hands(void) {
   // regeneration): eat only once starving and under 80% health (EATHP), or to go into a hard fight fed; never with one within 3
   // 0.64: the PC tested it (food2, 1,152 games each): eating only under 80% cost half a floor (-0.51 +/- 0.09: starving,
   // there's no regeneration, and the fights go worse); eating as soon as Starving is as good as eating Hungry (+0.02)
-  bool eat = STARVING && !near && (XENV("EATHP", 101) * h->HT > 100 * h->HP || hard >= 2);
+  int st = has(IK_AMULET) ? G.entrance : G.exit;   // 0.77 (owner): starving, the stairs next: down first, then eat (Hero.actDescend: stairs cost 36 unless starving)
+  bool down = XENV("EATDOWN", 1) && s_tn > 0 && (g_tgobj[0] == st || s_tc[0] == st) && h->HP * 2 >= h->HT && !seen;
+  bool eat = STARVING && !near && !down && (XENV("EATHP", 101) * h->HT > 100 * h->HP || hard >= 2);
   // (owner) a warrior near death in a fight, no potion of healing known and none beside him: a meal is 5 HP (3 turns)
   int s = game_bag_find(IK_POT_HEALING); bool pot = s >= 0 && item_known(IK_POT_HEALING);
-  bool war = seen && !adj && (h->hclass & 3) == 0 && h->HP * 4 < h->HT && !pot;
+  bool war = seen && !near && (h->hclass & 3) == 0 && h->HP * 4 < h->HT && !pot;
   // 0.64 (owner: "I don't want to starve to death because I ignored food suggestion once"): a meal passed over comes
   // back once health falls under half, and again under a quarter (two nudges; past that the player has a reason)
   int band = h->HP * 4 < h->HT ? 2 : h->HP * 2 < h->HT;
@@ -539,6 +552,7 @@ static int hands(void) {
   if (seen && h->HP * 4 < h->HT && pot) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
   // 0.64 (the Assist alone died carrying 2.4 unknown potions, a healing one among them every other time): beside one,
   // under a quarter, no known healing: drink an unknown potion (healing is the likeliest), else read an unknown scroll
+  if (adj && h->HP * 4 < h->HT && !pot && G.dew >= 3 && G.dew < 10 && (s = game_bag_find(IK_DEW_VIAL)) >= 0 && XENV("VIAL", 1)) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }   // 0.77: the dew vial (full: it revives you)
   if (XENV("ESCAPE", 1) && adj && h->HP * 4 < h->HT && !pot) {   // 0.64: dying beside one, a known way out first (before the gamble)
     static const uint8_t ESC[6] = { IK_SCR_TELEPORT, IK_POT_INVIS, IK_SCR_TERROR, IK_SCR_LULLABY, IK_SCR_MIRROR, IK_SCR_PSIONIC };
     for (int j = 0; j < 6; j++) { int k = ESC[j]; if ((s = game_bag_find(k)) >= 0 && item_known(k) && (item_cat(k) == CAT_POTION || !h->b.blind)) { g_ovr.hs = s; g_ovr.ha = item_cat(k) == CAT_POTION ? ACN_DRINK : ACN_READ; return TK_BAG; } } }
@@ -566,7 +580,7 @@ static int hands(void) {
       if ((k == IK_WND_LIGHTNING || k == IK_WND_AVALANCHE) && ed < 3) continue;   // (owner: never point blank)
       if (k == IK_WND_FIREBOLT && (TFLAGS(G.map[hp]) & F_FLAMABLE)) continue;
       if (it->ench >= wand_max(it) || h->HP * 2 < h->HT) { g_ovr.hs = sl; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }
-    if (XENV("UNKWAND", 1)) for (int sl = 0; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl);   // 0.64: an unknown wand
+    if (XENV("UNKWAND", 1) && ed >= 3) for (int sl = 0; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl);   // 0.64: an unknown wand
       if (item_cat(it->kind) == CAT_WAND && !item_known(it->kind) && (!(it->flags & (IF_LEVEL_KNOWN | IF_CHARGE_KNOWN)) || it->ench > 0)) { g_ovr.hs = sl; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }   // at it: that's how it's learnt
     for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind;   // 0.64: a known harmful potion at one coming from afar (gas: 4+ away)
       if (!XENV("HARMTHROW", 1)) break;
@@ -600,7 +614,7 @@ static int hands(void) {
       if ((s = game_bag_find(k)) < 0 || !item_known(k) || DECL(k, ACN_READ)) continue;
       if ((k == IK_SCR_REMOVE_CURSE && cw) || (k == IK_SCR_IDENTIFY && unid) || k == IK_SCR_ENCHANT || (k == IK_SCR_MAPPING && !BIT_GET(G.visited, G.exit) && G.now - G.level_t0 > 250 * TICK)) {
         G.tgm.pk = k == IK_SCR_IDENTIFY ? (unid > 1 ? unid : 0) : 6; g_ovr.hs = s; g_ovr.ha = ACN_READ; return TK_BAG; } } }
-  if (!h->b.blind && h->HP * 5 >= h->HT * 4 && !game_starving()) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_SCROLL && !item_known(k) && !DECL(k, ACN_READ)) { G.tgm.pk = 6; g_ovr.hs = i; g_ovr.ha = ACN_READ; return TK_BAG; } }   // 0.50: read to learn it, nothing about (0.64: an Upgrade: the armour)
+  if (!h->b.blind && h->HP * 5 >= h->HT * 4 && !game_starving() && (!BIT_GET(G.visited, G.exit) || !XENV("SCRFRESH", 1))) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_SCROLL && !item_known(k) && !DECL(k, ACN_READ)) { G.tgm.pk = 6; g_ovr.hs = i; g_ovr.ha = ACN_READ; return TK_BAG; } }   // 0.50: read to learn it, nothing about (0.64: an Upgrade: the armour)
   if (h->HP * 5 < h->HT * 3 && G.health_pos != hp && plant_at(hp) < 0 && heap_at(hp) < 0 && hp != G.entrance && hp != G.exit && !DECL(IK_SEED_SUNGRASS, ACN_PLANT) && XENV("SUNGRASS", 1))
     for (int sl = 0; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) if (game_slot(sl)->kind == IK_SEED_SUNGRASS) { g_ovr.hs = sl; g_ovr.ha = ACN_PLANT; return TK_BAG; }   // 0.64: hurt, nothing about: Sungrass underfoot, then rest on it
   // 0.64: drink unknown potions to learn them while it's safe (PD players do it early: then healing is known when it
@@ -647,18 +661,18 @@ static int targets(int16_t *cell, uint8_t *kind) {
   }
   if (G.tgm.fish == G.level_t0 && XENV("FISHMEM", 1)) s_fish = true;   // 0.64: (seen on this floor: they're still in there; the Assist alone went back in, out, in...)
   distance_map(hp, -1); walk_map();
-  if (g_ovr.c >= 0 && (g_ovr.c & 0x4000)) { g_ovr.c &= 0x3FF; g_ovr.on |= 8; }   // 0.47: chosen from the list: an objective (main.c tg_do)
+  if (g_ovr.c >= 0 && (g_ovr.c & 0x4000)) { g_ovr.c &= 0x3FF; g_ovr.on = (g_ovr.on & ~16) | 8 | (unseen_by(g_ovr.c) ? 16 : 0); }   // (0.77, bit 16: unseen when chosen: met once seen; else on arrival)   // 0.47: chosen from the list: an objective (main.c tg_do)
   else if (g_ovr.c >= 0 && g_ovr.t < -9999) g_ovr.on &= ~8;   // (a tap on the screen: a place)
   if (g_ovr.c >= 0 && g_ovr.t < -9999) {                 // just chosen: the way from where it was chosen; on this floor
     int o = g_ovr.t + 65536, dx = (g_ovr.c & 31) - (o & 31), dy = (g_ovr.c >> 5) - (o >> 5);
     g_ovr.t = G.level_t0;
     if (g_ovr.on & 2) { g_ovr.on |= 4; g_ovr.gk = G.hero.exp + G.hero.lvl * 101; }   // the grass was the first: skipped
     g_goal = -1;                                       // 0.43: a step is the player's way too, unless it's away from an enemy
-    if ((s_foe || !(dx | dy)) && abs(dx) < 2 && abs(dy) < 2) g_ovr.c = g_ovr.on ? MAP_LEN : -1;   // (a step back: no way; the one before, if any, goes on)
+    if ((s_foe || !(dx | dy)) && abs(dx) < 2 && abs(dy) < 2) g_ovr.c = (g_ovr.on & 1) ? MAP_LEN : -1;   // (a step back: no way; the one before, if any, goes on)
     else g_ovr.d = (g_ovr.d & 64) | pang(dx, dy);
   }
   if (g_ovr.t != G.level_t0) g_ovr.c = -1; else if (g_ovr.c == hp) g_ovr.c = (g_ovr.on & 8) ? -1 : MAP_LEN;   // reached: on that way (an objective: done)
-  g_ovr.on = (g_ovr.on & 12) | (g_ovr.c >= 0); if (g_ovr.c < 0) g_ovr.on &= ~8; g_ovr.d &= 127; s_od = g_ovr.c >= 0 ? g_ovr.d & 63 : -1;   // (bit 7: entry 0 is an enemy to wait for; 6: waited after a step back)
+  g_ovr.on = (g_ovr.on & 28) | (g_ovr.c >= 0); if (g_ovr.c < 0) g_ovr.on &= ~24; g_ovr.d &= 127; s_od = g_ovr.c >= 0 ? g_ovr.d & 63 : -1;   // (bit 7: entry 0 is an enemy to wait for; 6: waited after a step back)
   { int pk = G.hero.weapon.kind == IK_PICKAXE ? -1 : game_bag_find(IK_PICKAXE); g_ovr.ms = pk;
     s_pick = (pk >= 0 || G.hero.weapon.kind == IK_PICKAXE) && G.depth >= 11 && G.depth <= 15; }
   G.tgm.src0 = 1; G.tgm.wo = 0;
@@ -702,12 +716,12 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // 0.63: tgt3: the 
   int hp = G.hero.pos;                                   // (0.74: from tgt2, room) after the hands:
   bool vo = G.now < G.tgm.vt && XENV("VETO", 1), veto = vo && G.tgm.vs == 2;   // 0.66: the player overrode where we'd have them stand (or get out
   int esc = vo && G.tgm.vs == 4 && G.now + 10 * TICK < G.tgm.vt ? -1 : escape();   // of gas: only 5 turns): not again a while
-  if (esc >= 0) { t_front(esc, TK_GO); G.tgm.src0 = 4; }   // 0.64: out of gas / fire / ooze first (Assist Low too)
+  if (esc >= 0) { t_front(esc, TK_GO); G.tgm.src0 = 4; g_ovr.d &= ~128; }   // (0.77: out of the gas, no wait in it)   // 0.64: out of gas / fire / ooze first (Assist Low too)
   else if (!veto)
 #ifdef OVL_HOST
   if (getenv("PRESS") && !getenv("NOTACT"))           // (the solver bot keeps its own: only when it plays by the buttons)
 #endif
-  if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
+  if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; else g_ovr.d &= ~128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
   return s_tn;
 }
 #else
@@ -719,23 +733,30 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
     if (a >= 0 && s_tn > 0 && s_tc[0] == hp) { t_del(0); int n1 = s_tn; s_zero = true; t_put(a, TK_GO, 0); s_zero = false;
       if (s_tn > n1) { int c = s_tc[n1], k = s_tk[n1], o = g_tgobj[n1]; for (int j = n1; j > 0; j--) { s_tc[j] = s_tc[j - 1]; s_tk[j] = s_tk[j - 1]; g_tgobj[j] = g_tgobj[j - 1]; } s_tc[0] = c; s_tk[0] = k; g_tgobj[0] = o; }
       else t_front(hp, TK_GO); } }                      // (nowhere on screen: search here, as before)
-  int wd = G.tgm.wo ? G.tgm.wo - 1 : g_ovr.c == MAP_LEN ? g_ovr.d & 63 : -1;   // 0.72 (owner: "go to the opposite corner ... The assist should
+  bool hunt = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) hunt = true; }   // 0.77: the fight's moves first
+  if (G.tgm.fish == G.level_t0 && XENV("FISHMEM", 1)) s_fish = true;   // (0.77: as in tgt)
+  int wd = hunt ? -1 : G.tgm.wo ? G.tgm.wo - 1 : g_ovr.c == MAP_LEN ? g_ovr.d & 63 : -1;   // 0.72 (owner: "go to the opposite corner ... The assist should
   if (wd >= 0 && G.tgm.src0 == 1 && (!s_tn || (s_tk[0] != TK_ENEMY && s_tc[0] != hp)) && XENV("WAYON", 1)) {   // assist with THAT"); 0.73 (owner:
-    int best = -1, bd = 1, nt = -1, ns = 0x7FFF;         // "proceed toward highly often clicked things in the direction I selected, then
+    int nt = -1, ns = 0x7FFF;         // "proceed toward highly often clicked things in the direction I selected, then
     for (int c = 0; c < MAP_LEN; c++) {                // suggest those", "the predictor"): the player's way: the next click that way, the
-      int sd = s_dist[c]; if (sd < 1 || sd >= 255 || (off(c, wd) > CONE && sd > NEAR_AH)) continue;   // nearest thing a player clicks (the stairs first, then
+      int sd = s_dist[c]; if (sd < 1 || sd >= 255 || off(c, wd) > CONE) continue;   // (0.77: the cone only)   // nearest thing a player clicks (the stairs first, then
       int t = G.map[c], m = mob_at(c), hi = heap_at(c);   // things and people, then doors and the unknown), weighed by the walk; with
-      int w = c == G.exit ? 2 : (hi >= 0 && heap_ok(&G.heaps[hi])) || (m >= 0 && ally(m) && BIT_GET(G.fov, c)) ? 3 :   // nothing that way,
-              t == T_DOOR || t == T_OPEN_DOOR || t == T_LOCKED_DOOR || t == T_WELL || t == T_ALCHEMY || c == G.entrance || unseen_by(c) ? 4 : 0;   // the way
-      if (w && sd * w < ns) { ns = sd * w; nt = c; }   // itself (the farthest cell on screen along it, walked about straight)
-      if (sd > bd && sd <= distance(c, hp) + 4 && on_screen(c) && open_cell(c) && !char_at(c) && c != G.exit && c != G.entrance) { bd = sd; best = c; } }
-    if (nt >= 0) best = nt;
-    if (best >= 0) { s_zero = true; t_put(best, heap_at(best) >= 0 ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(best); g_ovr.c = MAP_LEN; } }
+      int w = (hi >= 0 && heap_ok(&G.heaps[hi])) || (m >= 0 && ally(m) && BIT_GET(G.fov, c)) ? 3 :   // (0.77: a door only with the unknown beyond
+              c == G.exit || unseen_by(c) || (t == T_LOCKED_DOOR && (G.keys[G.depth] & 15)) ? 4 : 0;   // it: one passed through looped; the stairs as near as the unknown)
+      if (w && sd * w < ns) { ns = sd * w; nt = c; } }   // (0.77 (owner: "the far corner of an empty dead end room, leave, turn around,
+#ifdef OVL_HOST
+    if (getenv("TDBG")) printf("  way: wd %d nt %d wo %d ovr %d\n", wd, nt, G.tgm.wo, g_ovr.c);
+#endif
+    if (nt >= 0) { s_zero = true; t_put(nt, heap_at(nt) >= 0 ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(nt); g_ovr.c = MAP_LEN; }   // looping"): no more
+    else G.tgm.wo = 0; }                                // "the farthest cell along the way": nothing that way, the way ends
   struct Tgm *T = &G.tgm;                               // 0.73 (owner: "the 'proceed to last click' button ... I want it to live in the middle
   if (g_assist && g_assist != AS_OFF && G.last_action && G.last_action != HA_ATTACK && G.last_action != HA_TALK && (unsigned)G.last_cell < MAP_LEN && XENV("RESUME", 1)) {   // button zone"):
     T->ra = G.last_action; T->rc = G.last_cell; T->rt = G.now + 30 * TICK; G.last_action = 0; }   // the interrupted walk taken over (no top-left button):
   if (T->ra && (T->rc == hp || G.now > T->rt || T->rt - 30 * TICK < G.level_t0 || s_dist[T->rc] >= 255)) T->ra = 0;   // Select goes on with it (a tap there), Down: the rest
-  if (T->ra && !(s_tn && s_tk[0] == TK_ENEMY)) { s_zero = true;   // 0.76 (owner: "keeps trying to go there even as I'm being hit"): the fight first, the walk after
+#ifdef OVL_HOST
+  if (getenv("TDBG") && T->ra) printf("  resume: %d to %d\n", T->ra, T->rc);
+#endif
+  if (T->ra && !hunt && !(s_tn && s_tk[0] == TK_ENEMY)) { s_zero = true;   // 0.76 (owner: "keeps trying to go there even as I'm being hit"): the fight first, the walk after
     t_put(T->rc, T->ra == HA_PICKUP ? TK_ITEM : TK_GO, 0); s_zero = false; t_first(T->rc); }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos) && m->type == MT_PIRANHA) s_fish = true; }
   { int pk = G.hero.weapon.kind == IK_PICKAXE ? -1 : game_bag_find(IK_PICKAXE); s_pick = (pk >= 0 || G.hero.weapon.kind == IK_PICKAXE) && G.depth >= 11 && G.depth <= 15; }
@@ -762,7 +783,7 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
   for (int c = 0; c < MAP_LEN; c++) {
     int t = G.map[c], d = walk(c);
     if (d >= 255 || c == hp) continue;
-    if ((t == T_WELL && c == G.well_pos) || t == T_ALCHEMY || (t == T_LOCKED_DOOR && (keys & 15))) t_put(c, TK_GO, 4 << 10 | d);
+    if ((t == T_WELL && c == G.well_pos) || (t == T_ALCHEMY && seeds()) || (t == T_LOCKED_DOOR && (keys & 15))) t_put(c, TK_GO, 4 << 10 | d);   // (0.77: the pot: with a seed to throw in)
     else if (t == T_WALL_DECO && s_pick && on_screen(c) && G.q.smith_depth == G.depth && G.q.smith == QS_GIVEN && !G.q.smith_alt) { s_obj = c; t_add(c, d == 1 ? TK_MINE : TK_VEIN, 4 << 10 | d); }   // 0.41: a gold vein (0.67: only while the smith wants the gold)
     else if (dead_end(c)) t_put(c, TK_GO, 4 << 10 | d);   // 0.48: a dead end: search there
     else if (c == G.exit && (t != T_LOCKED_EXIT || (keys & 64))) t_put(c, TK_GO, 6 << 10 | d);
@@ -806,6 +827,9 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
     int n = 0; for (int i = 0; i < s_tn; i++) if (s_tk[i] == TK_ENEMY) { s_tc[n] = s_tc[i]; s_tk[n] = TK_ENEMY; g_tgobj[n++] = g_tgobj[i]; }
     g_ovr.d &= ~128; return s_tn = n; }                  // (never a wait: Select attacks)
   int pr = mind(hp);
+#ifdef OVL_HOST
+  if (getenv("TDBG") && pr >= 0) printf("  mind: %d\n", pr);
+#endif
   if (pr >= 0) { g_ovr.c = pr | 0x4000; g_ovr.t = hp - 65536; return -100; }   // (game_targets: both parts again)
   return s_tn;
 }

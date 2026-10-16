@@ -296,6 +296,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   static int32_t s_now = -1, s_t0; static int16_t s_pos; static int8_t s_z;   // the list only changes when time passes, the hero moves or the zoom changes
   if (!dir && G.now == s_now && G.hero.pos == s_pos && s_zoom == s_z) return;
   if (G.hero.pos != s_pos) g_from = s_t0 == G.level_t0 ? s_pos : -1;   // 0.39: the way the hero went: the targets ahead first, then clockwise (0.47: not from the last floor)
+  if (s_t0 != G.level_t0) { g_goal = -1; memset(g_drop, 0xFF, sizeof g_drop); g_ovr.on &= ~4; }   // 0.77: a new floor: no goal, drops or skipped grass from the last
   s_t0 = G.level_t0;
   s_now = G.now; s_pos = G.hero.pos; s_z = s_zoom;
   if (s_walking && !dir) { s_now = -1; return; }     // 0.43 (audio): not on every step of a walk (Select/taps stop it first): when it ends
@@ -318,6 +319,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
 }
 void hero_spend(int t); void process(void);
 static void pass_hands(int c) {                   // the player chose otherwise than plan A (c: where): the hands' suggestion passed over (0.53), and
+  G.tgm.ra = 0;                                      // (0.77: the interrupted walk isn't taken up again over the player's choice)
   if (s_tgk0 == TK_BAG || s_tgk0 == TK_REST) { int i = G.tgm.dn++ & 7; G.tgm.dk[i] = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; G.tgm.da[i] = s_tgk0 == TK_REST ? 255 : g_ovr.ha; G.tgm.dd = G.depth; }   // (0.67: 8 remembered, not just the last)
   if (s_tgk0 == TK_ENEMY && abs((c & 31) - (G.hero.pos & 31)) <= 1 && abs((c >> 5) - (G.hero.pos >> 5)) <= 1) return;   // (a step back from an enemy: the doorway fight, still on)
   int m = s_tgk0 == TK_ENEMY && s_tg0 >= 0 ? mob_at(s_tg0) : -1;   // 0.66 (owner: "I cannot be fighting the assist"): what made plan A
