@@ -127,8 +127,13 @@ static int m_as(void) { return !dead() && m_page() == 2 ? M_AS : 0; }   // s_sel
 static int m_first(void) { return dead() ? 0 : PAGE0[m_page()]; }
 static int m_count(void) { return dead() ? 3 : PAGE0[m_page() + 1] - PAGE0[m_page()]; }
 static int m_act(int i) { return (dead() ? A_NEW : 0) + m_first() + i; }
+#ifdef PBL_ROUND                                      // 0.83 (owner: lean into the round screen): the window in the middle, the tabs
+static GRect m_win(void) { int h = M_HEAD + M_BODY + m_as(); return GRect((s_w - BIG_W) / 2, (s_h - h) / 2 - 6, BIG_W, h); }   // bubbles at the rim under it
+static GRect m_tab(int t) { return GRect(t * 50 + 60, (t & 1) * 14 + 204, 40, 40); }
+#else
 static GRect m_win(void) { int h = M_HEAD + M_BODY + m_as(), t = dead() ? 0 : M_TAB_H; return GRect((s_w - BIG_W) / 2, (s_h - h - t) / 2 + 2, BIG_W, h); }
-static GRect m_tab(int t) { GRect r = m_win(); return GRect(PBL_IF_ROUND_ELSE(s_w / 2 - 76 + t * 51, r.origin.x - 4 + t * (M_TAB_W + 1)), r.origin.y + r.size.h, PBL_IF_ROUND_ELSE(50, M_TAB_W), M_TAB_H); }   // Gabbro: narrower, inside the curve
+static GRect m_tab(int t) { GRect r = m_win(); return GRect(r.origin.x - 4 + t * (M_TAB_W + 1), r.origin.y + r.size.h, M_TAB_W, M_TAB_H); }
+#endif
 static GRect m_tile(int i) {                       // two buttons: one per row; three: two, then one across
   GRect r = m_win(); int n = m_count(), y = r.origin.y + M_HEAD + (i >= 2 ? m_as() : 0);
 #ifdef PBL_ROUND
@@ -151,8 +156,13 @@ static void draw_menu(GContext *ctx) {
     blit_box(r.origin.x - 2, ay, r.size.w + 4, r.origin.y + r.size.h - ay, 1, ARGB(GColorChromeYellow)); }
   if (!dead()) for (int t = 0; t < 3; t++) {        // floppy disk, quill and paper, gear
     GRect tr = m_tab(t); bool sel = t == pg;
+#ifdef PBL_ROUND
+    bubble(tr, sel ? ARGB(GColorDarkCandyAppleRed) : ARGB(GColorDarkGray), sel ? ARGB(GColorIcterine) : ARGB(GColorLightGray));   // the page's: red, as its buttons
+    blit(&s_micons, t * 16, 0, 16, 16, tr.origin.x + 4, tr.origin.y + 4, 2);
+#else
     tab_art(tr, sel);
     blit(&s_micons, t * 16, 0, 16, 16, tr.origin.x + (tr.size.w - 32) / 2, tr.origin.y + (sel ? 3 : 5), 2);
+#endif
   }
   for (int i = 0; i < n; i++) {
     GRect b = m_tile(i); int a = m_act(i), ix = b.origin.x + (b.size.w - 32) / 2, iy = b.origin.y + 3;

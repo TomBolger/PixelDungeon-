@@ -53,7 +53,7 @@ static void draw_title(GContext *ctx) {                // TitleScene: the dashbo
     if (s_sel == i) { graphics_context_set_fill_color(ctx, GColorWhite); graphics_fill_rect(ctx, GRect(p.origin.x + 12, p.origin.y + 84, p.size.w - 24, 2), 0, 0); }
   }
   draw_mute(ctx);
-  text(ctx, "v0.82", s_font_hud, GColorLightGray, 0, s_h - PBL_IF_ROUND_ELSE(40, 18), PBL_IF_ROUND_ELSE(s_w / 2 + 20, s_w - 4), GTextAlignmentRight);
+  text(ctx, "v0.83", s_font_hud, GColorLightGray, 0, s_h - PBL_IF_ROUND_ELSE(40, 18), PBL_IF_ROUND_ELSE(s_w / 2 + 20, s_w - 4), GTextAlignmentRight);
 }
 
 // RankingsScene: the top six games (Rankings.Record rows: a tomb or the amulet with the place, the result, the hero)
