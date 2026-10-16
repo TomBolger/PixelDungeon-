@@ -68,5 +68,4 @@ void snd_hold(bool off) {                                 // the engine out of t
   if (off) { if (s_snd) { cmd(SNDC_STOP, 0); ovl_free(s_snd); s_snd = NULL; } if (s_tm) { app_timer_cancel(s_tm); s_tm = NULL; } }
   else if ((g_sound & SOUND_FX) && !s_snd) load();
 }
-int snd_stat(int k) { return s_snd ? ((int (*)(int))s_snd->fn[2])(k) : -1; }   // the engine's speaker buffer, corrections, rate
 void snd_deinit(void) { if (s_snd) cmd(SNDC_STOP, 0); }

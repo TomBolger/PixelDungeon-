@@ -1,5 +1,5 @@
 /*
- * Pixel Dungeon for Pebble - the small in-game windows: game menu, diagnostics, info, options, game over (an overlay, loaded while one is open).
+ * Pixel Dungeon for Pebble - the small in-game windows: game menu, info, options, game over (an overlay, loaded while one is open).
  * 0.14: the in-game windows are three overlays (uiw, bag, sheet) so each fits a fragmented heap.
  * 0.18: the game menu is tabbed pages of big picture buttons, and the options windows have big buttons; their layout and
  * input live here (what frees this overlay is done by the app: CMD in ui_int.h).
@@ -11,39 +11,6 @@
 #include "ui_tabs.h"
 
 static const char *OPT_TITLE[7] = { "Chasm", "Harmful potion!", "Beneficial potion", "Unequip one ring", "Quickslot", "", "Missile weapon" };
-static char s_diag[9][40]; static GColor s_diag_color[9]; static int s_n_diag;
-
-static void run_diagnostics(void) {
-  int n = 0;
-  #define LINE(c, ...) do { snprintf(s_diag[n], sizeof s_diag[n], __VA_ARGS__); s_diag_color[n++] = (c); } while (0)
-  LINE(GColorLightGray, "%s %dx%d%s", PBL_IF_ROUND_ELSE("Gabbro", "Emery"), s_w, s_h, touch_service_is_enabled() ? " +touch" : "");
-  int free_b = (int)heap_bytes_free(), used_b = (int)heap_bytes_used();
-  LINE(free_b > 32768 ? GColorGreen : GColorRajah, "RAM free %d.%d KB", free_b / 1024, (free_b % 1024) * 10 / 1024);
-  int big = 0; for (int step = 16384; step >= 128; step /= 2) { void *t = malloc(big + step); if (t) { free(t); big += step; } }   // the largest free block
-  LINE(GColorWhite, "Largest %d.%d KB, used %d KB", big / 1024, (big % 1024) * 10 / 1024, used_b / 1024);
-  LINE(GColorWhite, "Overlay space %d B free", ovl_arena_free());
-  LINE(GColorWhite, "Game state %d B", (int)sizeof(Game));
-  uint32_t t0 = now_ms();
-  game_save();
-  uint32_t t1 = now_ms();
-  uint8_t d;
-  bool ok = game_has_save(&d) && d == G.depth;
-  LINE(ok ? GColorGreen : GColorSunsetOrange, "Save %d B in %d ms %s", game_save_size(), (int)(t1 - t0), ok ? "OK" : "FAIL");
-  LINE(GColorLightGray, "Music %s, sound %s", g_sound & SOUND_MUSIC ? "on" : "off", g_sound & SOUND_FX ? (const char *[]){ "loud", "medium", "quiet" }[SOUND_VOL(g_sound) % 3] : "off");
-  LINE(GColorLightGray, "Audio %d ms, %d Hz, fixed %d", snd_stat(0), snd_stat(2), snd_stat(1));
-  LINE(GColorLightGray, "tap or press to close");
-  #undef LINE
-  s_n_diag = n;
-}
-
-static void draw_diag(GContext *ctx) {
-  int w = PBL_IF_ROUND_ELSE(196, 192), h = 24 + s_n_diag * 18;
-  GRect r = GRect((s_w - w) / 2, (s_h - h) / 2, w, h);
-  blit_begin(ctx); panel(r); WELL(r.origin.x, r.origin.y + 20, w, h - 20); blit_end(ctx);
-  text(ctx, "Diagnostics", s_font_hud, GColorPastelYellow, r.origin.x, r.origin.y + 2, w, GTextAlignmentCenter);
-  for (int i = 0; i < s_n_diag; i++) text(ctx, s_diag[i], s_font_log, s_diag_color[i], r.origin.x + 6, r.origin.y + 22 + i * 18, w - 10, PBL_IF_ROUND_ELSE(GTextAlignmentCenter, GTextAlignmentLeft));   // Gabbro: clear of the curve
-}
-
 #ifdef PBL_ROUND
 // 0.35 Gabbro: as wide as the screen (the circle trims it), as tall as its text flowed along the curve
 static const char *r_desc(void) { return s_text_buf[0] ? s_text_buf : "Nothing special."; }
@@ -149,10 +116,11 @@ static int jump_input(int ev, int x, int y) {
 #define M_BODY 130                                 // two rows of 64 px buttons
 #define M_TAB_W 61
 #define M_TAB_H 42                                 // room for the pictures at 2x
-static const uint8_t PAGE0[4] = { A_RETURN, A_CATALOG, A_MUSIC, A_NEW };   // the pages: game, records, settings
-static const uint8_t ICON[11] = { 9, 0, 12, 11, 3, 4, 5, 0, 6, 7, 8 };   // (A_ASSIST: Icons.TARGET instead, below)        // menu_icons.png, by A_*
+static const uint8_t PAGE0[4] = { A_RETURN, A_CATALOG, A_SOUND, A_NEW };   // the pages: game, records, settings
+static const uint8_t ICON[11] = { 9, 0, 12, 11, 4, 0, 0, 0, 6, 7, 8 };   // menu_icons.png, by A_* (0.80: Assist: Icons.TARGET, Items: the toolbar's bag, Off-screen: its magnifier)
+static bool m_off(int a) { return (a == A_ITEMS || a == A_OFFCAM) && !AS_ON; }   // 0.80: the Assist's switches, while it's off: greyed, passed over
 static bool dead(void) { return G.hero.HP <= 0; }   // then one page: new game, rankings, main menu
-static int m_page(void) { return dead() ? 0 : s_sel >= A_MUSIC ? 2 : s_sel >= A_CATALOG; }   // s_sel: the selected button, which picks the page
+static int m_page(void) { return dead() ? 0 : s_sel >= A_SOUND ? 2 : s_sel >= A_CATALOG; }   // s_sel: the selected button, which picks the page
 static int m_first(void) { return dead() ? 0 : PAGE0[m_page()]; }
 static int m_count(void) { return dead() ? 3 : PAGE0[m_page() + 1] - PAGE0[m_page()]; }
 static int m_act(int i) { return (dead() ? A_NEW : 0) + m_first() + i; }
@@ -183,27 +151,31 @@ static void draw_menu(GContext *ctx) {
   for (int i = 0; i < n; i++) {
     GRect b = m_tile(i); int a = m_act(i), ix = b.origin.x + (b.size.w - 32) / 2, iy = b.origin.y + 3;
     red_button(b, m_first() + i == s_sel);
-    if (a == A_ASSIST) blit(&s_icons, 67, 0, 16, 16, ix, iy, 2); else blit(&s_micons, ICON[a] * 16, 0, 16, 16, ix, iy, 2);
-    if ((a == A_MUSIC && !(g_sound & SOUND_MUSIC)) || (a == A_SOUND && !(g_sound & SOUND_FX))) { blit_fog(ix, iy, 32); blit(&s_micons, 10 * 16, 0, 16, 16, ix, iy, 2); }   // switched off: dimmed and crossed out
+    if (a == A_ASSIST) blit(&s_icons, 67, 0, 16, 16, ix, iy, 2);
+    else if (a == A_ITEMS) blit(&s_toolbar, 65, 5, 14, 15, ix + 2, iy + 1, 2);
+    else if (a == A_OFFCAM) blit(&s_toolbar, 24, 7, 12, 12, ix + 4, iy + 4, 2);
+    else blit(&s_micons, (a == A_SOUND && (g_sound & 3) == 3 ? 3 : ICON[a]) * 16, 0, 16, 16, ix, iy, 2);   // (Sound: the music's note with music on, else the speaker)
+    if ((a == A_SOUND && !(g_sound & SOUND_FX)) || (a == A_ASSIST && !AS_ON) || (a == A_ITEMS && !(g_assist & 2)) || (a == A_OFFCAM && !(g_assist & 4)) || m_off(a)) {
+      blit_fog(ix, iy, 32); blit(&s_micons, 10 * 16, 0, 16, 16, ix, iy, 2); }   // switched off: dimmed and crossed out
   }
   blit_end(ctx);
   static const char *const TITLE[3] = { "Pixel Dungeon", "Catalogue & Journal", "Settings" };
   text(ctx, TITLE[pg], s_font_hud, GColorIcterine, r.origin.x, r.origin.y - 4, r.size.w, GTextAlignmentCenter);
-  static const char *const LABEL[11] = { "Return to Game", "Save & Main Menu", "Catalogue", "Journal", "Music: %s", "Sound: %s", "Diagnostics", "Assist: %s", "New Game", "Rankings", "Main Menu" };
+  static const char *const LABEL[11] = { "Return to Game", "Save & Main Menu", "Catalogue", "Journal", "%s", "Assist: %s", "Items: %s", "Off-screen: %s", "New Game", "Rankings", "Main Menu" };
   for (int i = 0; i < n; i++) {
     GRect b = m_tile(i); int a = m_act(i);
-    static const char *const VOL[3] = { "Loud", "Medium", "Quiet" };
-    static const char *const AS[5] = { "Low", "Medium", "High", "Max", "Off" };
-    char buf[20]; snprintf(buf, sizeof buf, LABEL[a], a == A_ASSIST ? AS[g_assist % 5] : a == A_SOUND ? (g_sound & SOUND_FX ? VOL[SOUND_VOL(g_sound) % 3] : "Off") : g_sound & SOUND_MUSIC ? "On" : "Off");
-    big_label(ctx, buf, GRect(b.origin.x, b.origin.y + 35, b.size.w, 28), GColorWhite);
+    int bit = a == A_ASSIST ? 1 : a == A_ITEMS ? 2 : 4, m = g_sound & 3;
+    char buf[20]; snprintf(buf, sizeof buf, LABEL[a], a == A_SOUND ? (m == 3 ? "Sound: On" : m == SOUND_FX ? "SFX Only" : "Muted") : g_assist & bit ? "On" : "Off");
+    big_label(ctx, buf, GRect(b.origin.x, b.origin.y + 35, b.size.w, 28), m_off(a) ? GColorDarkGray : GColorWhite);
   }
 }
 static int menu_input(int ev, int x, int y) {
   int n = dead() ? 3 : A_NEW;
-  if (ev == BUTTON_ID_SELECT) return CMD(C_MENU, m_act(s_sel - m_first()));
-  if (ev >= 0 && ev != BUTTON_ID_BACK) { s_sel = (s_sel + (ev == BUTTON_ID_DOWN ? 1 : -1) + n) % n; redraw(); return 0; }   // through every page
+  if (ev == -3) return !dead() && s_sel == A_SOUND ? CMD(C_MENU, A_VOL) : 0;   // 0.80: a long Select on Sound: the volume
+  if (ev == BUTTON_ID_SELECT) return m_off(m_act(s_sel - m_first())) ? 0 : CMD(C_MENU, m_act(s_sel - m_first()));
+  if (ev >= 0 && ev != BUTTON_ID_BACK) { do s_sel = (s_sel + (ev == BUTTON_ID_DOWN ? 1 : -1) + n) % n; while (!dead() && m_off(s_sel)); redraw(); return 0; }   // through every page
   if (ev < 0) {
-    for (int i = 0; i < m_count(); i++) if (hit(m_tile(i), x, y)) { s_sel = m_first() + i; return CMD(C_MENU, m_act(i)); }
+    for (int i = 0; i < m_count(); i++) if (hit(m_tile(i), x, y)) { s_sel = m_first() + i; return m_off(m_act(i)) ? 0 : CMD(C_MENU, ev == -2 && m_act(i) == A_SOUND ? A_VOL : m_act(i)); }
     for (int t = 0; !dead() && t < 3; t++) if (tab_hit(m_tab(t), x, y)) { s_sel = PAGE0[t]; redraw(); return 0; }
     GRect r = m_win();
     if (hit(GRect(r.origin.x - 6, r.origin.y - 6, r.size.w + 12, r.size.h + 12), x, y)) return 0;
@@ -220,9 +192,7 @@ static void draw_dead(GContext *ctx) {            // GameScene.gameOver: the GAM
 
 static void ui_draw(int sc, GContext *ctx) {
   switch (sc) {
-    case -1: run_diagnostics(); break;
     case SC_MENU: draw_menu(ctx); break;
-    case SC_DIAG: draw_diag(ctx); break;
     case SC_DEAD: draw_dead(ctx); break;
     case SC_INFO: draw_info(ctx); break;
     case SC_OPTIONS: draw_jump(ctx); break;

@@ -54,7 +54,7 @@ int item_rows(void);                               // the item window's action b
 // the windows' input (0.18): an overlay returns CMD(c, arg) for the app to finish once it is out of the way
 #define CMD(c, a) ((c) << 8 | (a))
 enum { C_NONE, C_START, C_ITEM, C_BAG_CLOSE, C_DO, C_PAGE, C_MENU, C_JUMP };
-enum { A_RETURN, A_SAVE, A_CATALOG, A_JOURNAL, A_MUSIC, A_SOUND, A_DIAG, A_ASSIST, A_NEW, A_RANKINGS, A_MAIN };   // the game menu's buttons
+enum { A_RETURN, A_SAVE, A_CATALOG, A_JOURNAL, A_SOUND, A_ASSIST, A_ITEMS, A_OFFCAM, A_NEW, A_RANKINGS, A_MAIN, A_VOL };   // the game menu's buttons (0.80: A_VOL: a long press on Sound)
 extern Sheet s_micons;                             // menu_icons.png: the big buttons' pictures
 int map_center_y(void);
 const Sheet *mob_sheet(int type);

@@ -358,12 +358,13 @@ enum { SOUND_MUSIC = 1, SOUND_FX = 2 };            // 0.40: SOUND_FX = sound on 
 #define SOUND_VOL(m) (((m) >> 2) & 3)
 void snd_cycle(void);                               // Loud -> Medium -> Quiet -> Off -> Loud
 extern uint8_t g_sound;
-extern uint8_t g_assist;                    // 0.51 (owner): the suggestions' help: 0 low (fight, explore, pick up), 1 medium (where to stand), 2 high (the bot's hands too)
-#define AS_MAX 3                            // 0.75 (owner): High, from anywhere on the map (Down: the camera swoops to each)
-#define AS_OFF 4                            // 0.75 (owner): no predictor: taps move; Down: the enemies in sight, else the buttons
-#define AS_HIGH (g_assist == 2 || g_assist == AS_MAX)
+extern uint8_t g_assist;                    // 0.80 (owner): one Assist with switches: bit 0 on (else Off: taps move, Down the enemies, else the
+#define AS_ON (g_assist & 1)                // buttons), bit 1 use items (the bot's hands), bit 2 off-screen targets (the camera swoops to them)
+#define AS_ITEMS ((g_assist & 3) == 3)
+#define AS_OFFCAM ((g_assist & 5) == 5)
+#define ASSIST_NEW 3                        // a new player's: on, with items, on screen
 #ifdef TEST_BUILD
-#define ASSIST_DEF 2
+#define ASSIST_DEF 2                        // (the 0.51-0.79 levels' default, for reading an old setting)
 #else
 #define ASSIST_DEF 1
 #endif
@@ -372,7 +373,7 @@ void snd_set(uint8_t mask);
 void snd_poll(void);                             // feed the speaker now (once a frame)
 void snd_music(int track);
 void snd_hold(bool off);
-int snd_stat(int k);                        // MUS_THEME / MUS_GAME (snd.h)
+//                        // MUS_THEME / MUS_GAME (snd.h)
 
 // ---- game.c ----
 typedef enum { ACT_NONE, ACT_TURN, ACT_WALK, ACT_LEVEL } ActResult;

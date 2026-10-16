@@ -19,7 +19,7 @@ Pixel Dungeon is about 61,000 lines of Java written for phones. A Pebble Time 2 
 | Resource pack | 1 MB per platform | art, overlays, text, music, about 560 KB |
 | Persistent storage | the watch's key/value store | the save, rankings and settings |
 
-`pebble build` prints the app size and free heap. The Diagnostics screen in the game's menu shows live heap use on the watch.
+`pebble build` prints the app size and free heap. (The in-game Diagnostics screen was removed in 0.80; a DEBUG_TOOLS build logs heap use.)
 
 ## Code overlays
 
