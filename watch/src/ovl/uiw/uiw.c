@@ -28,7 +28,8 @@ static void draw_info(GContext *ctx) {            // PD WndInfoCell / WndInfoMob
 #ifdef PBL_ROUND
   r_text_place(GRect(r.origin.x, r.origin.y + r_head() - 2, w, r.size.h - r_head() + 2), r_desc());
 #endif
-  blit_begin(ctx); panel(r);
+  blit_begin(ctx); blit_fog(0, 0, s_w > s_h ? s_w : s_h);   // 0.82 (owner): the game behind in the backpack's shadow
+  panel(r);
   WELL(r.origin.x, r.origin.y + (s_info_mob >= 0 ? 36 : titled ? 18 : 0), w, r.size.h - (s_info_mob >= 0 ? 36 : titled ? 18 : 0));
   int tx = PBL_IF_ROUND_ELSE(rleft(r), r.origin.x);
 #ifdef PBL_ROUND
@@ -73,7 +74,7 @@ static GRect o_btn(int i) {
 }
 static void draw_jump(GContext *ctx) {
   int th; bool row; GRect r = o_win(&th, &row);
-  blit_begin(ctx);
+  blit_begin(ctx); blit_fog(0, 0, s_w > s_h ? s_w : s_h);   // 0.82 (owner): the game behind in the backpack's shadow
   tab_panel(r);
   WELL(r.origin.x, r.origin.y + 16, r.size.w, r.size.h - 16);
   for (int i = 0; i < o_n(); i++) red_button(o_btn(i), s_sel == i);
@@ -142,12 +143,12 @@ static GRect m_tile(int i) {                       // two buttons: one per row; 
 static void draw_menu(GContext *ctx) {
   GRect r = m_win();
   int n = m_count(), pg = m_page();
-  blit_begin(ctx);
+  blit_begin(ctx); blit_fog(0, 0, s_w > s_h ? s_w : s_h);   // 0.82 (owner): the game behind in the backpack's shadow
   tab_panel(r);
   int as = m_as();
   WELL(r.origin.x, r.origin.y + M_HEAD - 2, r.size.w, as ? 68 : r.size.h - M_HEAD + 2);
   if (as) { int ay = r.origin.y + M_HEAD + 66; WELL(r.origin.x, ay + as - 2, r.size.w, r.size.h - (ay + as - 2 - r.origin.y));   // the Assistant's frame
-    blit_box(r.origin.x - 2, ay + 2, r.size.w + 4, r.origin.y + r.size.h - ay - 2, 1, ARGB(GColorChromeYellow)); }
+    blit_box(r.origin.x - 2, ay, r.size.w + 4, r.origin.y + r.size.h - ay, 1, ARGB(GColorChromeYellow)); }
   if (!dead()) for (int t = 0; t < 3; t++) {        // floppy disk, quill and paper, gear
     GRect tr = m_tab(t); bool sel = t == pg;
     tab_art(tr, sel);
@@ -161,14 +162,19 @@ static void draw_menu(GContext *ctx) {
       else if (AS_ON) blit(&s_hero, 0, 0, 12, 15, ix + 4, iy + 1, 2);
       blit(&s_icons, 67, 0, 16, 16, ix, iy, 2); }
     else if (a == A_ITEMS) blit(&s_icons, 17, 0, 10, 10, ix + 6, iy + 6, 2);   // the backpack (BagTab's)
+    else if (a == A_RETURN) {                     // 0.82 (owner: "undersized and too high ... make it punchier"): a big white arrow, outlined,
+      int cx = b.origin.x + b.size.w / 2, cy = b.origin.y + 18;   // in the middle of the room over the label
+      for (int o = 1; o >= 0; o--) { uint8_t c = o ? ARGB(GColorBlack) : ARGB(GColorWhite); int H = 12 + 3 * o;
+        blit_fill(cx - 18 - 2 * o, cy - 4 - 2 * o, 22 + 2 * o, 9 + 4 * o, c);
+        for (int k = 0; k <= H; k++) blit_fill(cx + 2 - 2 * o + k, cy - H + k, 1, 2 * (H - k) + 1, c); } }
     else blit(&s_micons, ICON[a] * 16, 0, 16, 16, ix, iy, 2);
     if ((a == A_MUSIC && !(g_sound & SOUND_MUSIC)) || (a == A_SOUND && !(g_sound & SOUND_FX)) || (a == A_ASSIST && !AS_ON) || (a == A_ITEMS && !(g_assist & 2)) || m_off(a)) {
       blit_fog(ix, iy, 32); blit(&s_micons, 10 * 16, 0, 16, 16, ix, iy, 2); }   // switched off: dimmed and crossed out
   }
   blit_end(ctx);
-  static const char *const TITLE[3] = { "Pixel Dungeon", "Catalogue & Journal", "Settings" };
-  text(ctx, TITLE[pg], s_font_hud, GColorIcterine, r.origin.x, r.origin.y - 4, r.size.w, GTextAlignmentCenter);
-  if (m_as()) text(ctx, "Assistant", s_font_hud, GColorIcterine, r.origin.x, r.origin.y + M_HEAD + 64, r.size.w, GTextAlignmentCenter);
+  static const char *const TITLE[3] = { "Pixel Dungeon", "Catalogue & Journal", "Audio" };   // (0.82 (owner): the gear says settings)
+  text(ctx, TITLE[pg], s_font_hud, GColorIcterine, r.origin.x, r.origin.y - 2, r.size.w, GTextAlignmentCenter);   // (0.82: centred in their bands)
+  if (m_as()) text(ctx, "Assistant", s_font_hud, GColorIcterine, r.origin.x, r.origin.y + M_HEAD + 67, r.size.w, GTextAlignmentCenter);
   static const char *const LABEL[11] = { "Return to Game", "Save & Main Menu", "Catalogue", "Journal", "Music: %s", "Sound: %s", "Assist: %s", "Item assist: %s", "New Game", "Rankings", "Main Menu" };
   for (int i = 0; i < n; i++) {
     GRect b = m_tile(i); int a = m_act(i);

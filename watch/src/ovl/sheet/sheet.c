@@ -32,7 +32,7 @@ static void draw_sheet(GContext *ctx) {           // PD WndHero: Stats and Buffs
   #define BUFF_X(i) (r.origin.x + 2 + (nb > 5 ? ((i) / 5) * col_w : 0))
   #define BUFF_Y(i) (r.origin.y + 4 + ((i) % 5) * 20)
   if (nb > 10) nb = 10;
-  blit_begin(ctx);
+  blit_begin(ctx); blit_fog(0, 0, s_w > s_h ? s_w : s_h);   // 0.82 (owner): the game behind in the backpack's shadow
   tab_panel(r);
   WELL(r.origin.x, r.origin.y + (s_sheet_tab ? 0 : 14), r.size.w, r.size.h - (s_sheet_tab ? 0 : 14));   // stats: under the title
   for (int t = 0; t < 2; t++) tab_art(sheet_tab_rect(t), t == s_sheet_tab);
@@ -103,7 +103,7 @@ static void draw_catalog(GContext *ctx) {
   bool jr = s_sheet_tab == 2;
   int kinds[12]; int8_t jf[32], jd[32]; int n = jr ? journal_rows(jf, jd) : cat_kinds(kinds);
   if (s_sel > n - J_ROWS) s_sel = n > J_ROWS ? n - J_ROWS : 0;
-  blit_begin(ctx);
+  blit_begin(ctx); blit_fog(0, 0, s_w > s_h ? s_w : s_h);   // 0.82 (owner): the game behind in the backpack's shadow
   if (jr) panel(r); else tab_panel(r);
   WELL(r.origin.x, r.origin.y + 18, r.size.w, r.size.h - 18);
   if (!jr) {

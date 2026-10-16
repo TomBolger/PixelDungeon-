@@ -274,7 +274,7 @@ static void draw_item(GContext *ctx) {
 #ifdef PBL_ROUND
   r_text_place(GRect(r.origin.x + 5, r.origin.y + s_item_head, r.size.w - 10, s_item_text_h), s_text_buf);
 #endif
-  blit_begin(ctx);
+  blit_begin(ctx); blit_fog(0, 0, s_w > s_h ? s_w : s_h);   // 0.82 (owner): the game behind in the backpack's shadow
   panel(r);
   WELL(r.origin.x, r.origin.y + s_item_head - 2, r.size.w, r.size.h - s_item_head + 2);   // the text and the buttons
 #ifdef PBL_ROUND
