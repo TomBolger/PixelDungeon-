@@ -737,7 +737,7 @@ int bag_tab_kind(int t) {
   return 0;
 }
 // the backpack covers the toolbar now
-static bool toolbar_hidden(void) { return s_scene == SC_BAG; }
+static bool toolbar_hidden(void) { return PBL_IF_ROUND_ELSE(false, s_scene == SC_BAG); }   // (0.85 Gabbro: it shows round the backpack, shaded)
 int bag_ui_to_slot(int i) {                 // game slot (-1 weapon, -2 armour, -3 / -4 rings), or SL_KEY / SL_GOLD / SL_EXIT / SL_NONE
   int k = bag_tab_kind(s_bag_tab);
   static const uint8_t O[4] = { 0, 8, 20, 32 };     // the bags' sizes: 8, 12, 12

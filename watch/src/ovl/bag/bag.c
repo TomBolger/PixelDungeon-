@@ -84,8 +84,18 @@ static void draw_bag(GContext *ctx) {
   Sheet ii = { gbitmap_create_with_resource(RESOURCE_ID_IMAGE_ITEM_ICONS) };   // 1.5 KB, only while the bag draws
   blit_begin(ctx);
 #ifdef PBL_ROUND
-  blit_fill(0, 0, s_w, s_h, ARGB(GColorBlack));
-  for (int y = 0; y < s_h; y++) { rrow(0, s_w, y, 129, ARGB(GColorDarkGray)); rrow(0, s_w, y, 127, ARGB(GColorBlack)); }   // a rim
+  blit_fog(0, 0, s_w);                             // 0.85 (owner: "the same look" as Emery): the game behind in the shadow, PD's frame
+  { int tw = s_pick >= 0 ? 150 : graphics_text_layout_get_content_size(title, s_font_hud, GRect(0, 0, 160, 20), GTextOverflowModeWordWrap, GTextAlignmentCenter).w + 16,
+      ty = s_pick >= 0 ? ROW_Y(0) - 2 : ROW_Y(0) + 9;   // round the rows of cells: each row's box grown by 6 (light), 5 (grey), 1 (black: the gaps),
+    for (int g = 6; g > 0; g = g == 6 ? 5 : 0) {        // so the frame follows their steps; the title's tab on top, open into it (no black)
+      uint8_t c = g == 6 ? ARGB(GColorLightGray) : ARGB(GColorDarkGray);
+      blit_fill(s_w / 2 - tw / 2 + 6 - g, ty + 6 - g, tw - 12 + 2 * g, ROW_Y(1) - ty, c);
+      for (int row = 1; row <= 6; row++) { int n = row == 5 ? (ntabs ? ntabs : 1) : row == 6 ? 1 : row == 2 || row == 3 ? 7 : 5; GRect q = rcell(row, 0, n);
+        blit_fill(q.origin.x - g, q.origin.y - g, n * 33 - 1 + 2 * g, CH + 2 * g, c); }
+    }
+    for (int row = 1; row <= 6; row++) { int n = row == 5 ? ntabs : row == 6 ? 1 : row == 2 || row == 3 ? 7 : 5; GRect q = rcell(row, 0, n);
+      if (n) blit_fill(q.origin.x - 1, q.origin.y - 1, n * 33 + 1, CH + 2, ARGB(GColorBlack)); }
+  }
   for (int t = 0; t < ntabs; t++) { GRect q = bag_tab(t); bool sel = t == s_bag_tab; blit_fill(q.origin.x, q.origin.y, CW, CH, sel ? ARGB(GColorLightGray) : ARGB(GColorDarkGray)); if (sel) blit_box(q.origin.x + 2, q.origin.y + 2, CW - 4, CH - 4, 1, ARGB(GColorDarkGray)); }
 #else
   blit_fog(0, 0, s_w > s_h ? s_w : s_h);           // 0.70 (owner): the game behind the window in the unexplored-cells shadow

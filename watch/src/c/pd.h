@@ -5,7 +5,6 @@
 #pragma once
 #include <pebble.h>
 #include "text_ids.h"
-#define WHATIF
 #include "snd.h"
 #if defined(PERF_PROBE) && defined(PBL_ROUND)
 #undef PERF_PROBE                   // (Emery only: Gabbro has no room)
