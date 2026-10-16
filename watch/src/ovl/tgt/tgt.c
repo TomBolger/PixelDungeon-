@@ -756,7 +756,7 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // 0.63: tgt3: the 
   if (esc >= 0) { t_front(esc, TK_GO); G.tgm.src0 = 4; g_ovr.d &= ~128; }   // (0.77: out of the gas, no wait in it)   // 0.64: out of gas / fire / ooze first (Assist Low too)
   else if (!veto)
 #ifdef OVL_HOST
-  if (getenv("PRESS") && !getenv("NOTACT"))           // (the solver bot keeps its own: only when it plays by the buttons)
+  if ((getenv("PRESS") || getenv("TACTBOT")) && !getenv("NOTACT"))   // (the solver bot keeps its own: only when it plays by the buttons; 0.78: or asks)
 #endif
   if (g_assist >= 1) { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; else g_ovr.d &= ~128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
   return s_tn;

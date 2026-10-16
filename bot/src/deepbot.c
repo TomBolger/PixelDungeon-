@@ -1330,6 +1330,7 @@ static bool heap_wanted(int hp) {
   if ((c == G.entrance || c == G.exit) && !getenv("OLDQBUG")) return false;   // 0.54 (night ping-pong): a tap on the stairs takes them
   if ((ty == HEAP_LOCKED_CHEST || ty == HEAP_CRYSTAL_CHEST) && !(G.keys[G.depth] & 0x30)) return false;
   if (deferred_heap(hp)) return false;
+  if (getenv("DEWLEAVE") && G.heaps[hp].item.kind == IK_DEW && find_kind(IK_DEW_VIAL) < 0 && h->HP * 3 > h->HT) return false;   // 0.78 (owner): no vial yet: leave the dew for it
   if (!getenv("OLDDEW") && G.heaps[hp].item.kind == IK_DEW && find_kind(IK_DEW_VIAL) >= 0 && G.dew < 10 && h->HP < h->HT && h->HP > h->HT / 3) return false;   // 0.52 (audit): hurt, a drop heals a point; at full health it fills the vial (a second life at 10)
   if (c == s_stash && stash_ready() && (bag_used() < BAG_SIZE || item_cat(G.heaps[hp].item.kind) == CAT_SCROLL)) return true;   // the scrolls put down for a potion test: back in the bag
   if (ty == HEAP_PLAIN && BIT_GET(s_dropped, c) && G.heaps[hp].item.kind != IK_GOLD) return false;
@@ -1707,6 +1708,29 @@ static int goo2(Mob *m) {
   }
   return -1;                                             // (asleep or wandering: the usual)
 }
+// 0.78 (owner: "if a sleeping mob is near grass, sneak up on it to get a free surprise attack. Don't just run up"):
+// Mob.Sleeping wakes with 1/(distance + stealth) a turn while it can see you; tall grass, walls and doors hide you. The
+// way to a cell beside it that it sees least of (each step it could see costs SNEAKW/distance); returns the first step
+static int s_sneak_expo; static int st_sneak, st_door, st_dewrest;
+static int sneak_step(const Mob *m) {
+  static int cost[MAP_LEN]; static int16_t from[MAP_LEN]; static uint8_t done[MAP_LEN];
+  int hp = G.hero.pos, W = getenv("SNEAKW") ? atoi(getenv("SNEAKW")) : 40, tgt = -1; bool hit;
+  for (int c = 0; c < MAP_LEN; c++) { cost[c] = 1 << 28; done[c] = 0; }
+  cost[hp] = 0; from[hp] = -1;
+  for (;;) {
+    int c = -1; for (int q = 0; q < MAP_LEN; q++) if (!done[q] && cost[q] < (1 << 28) && (c < 0 || cost[q] < cost[c])) c = q;
+    if (c < 0 || cost[c] > 400) break;
+    done[c] = 1;
+    if (c != hp && adjacent(c, m->pos)) { tgt = c; break; }
+    for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (!nb_ok(c, n) || done[n] || !BIT_GET(G.visited, n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID) || char_at(n)) continue;
+      int d = distance(n, m->pos), st = 10 + (!adjacent(n, m->pos) && d <= 8 && ballistica(m->pos, n, &hit) == n ? W * 10 / d : 0);
+      if (cost[c] + st < cost[n]) { cost[n] = cost[c] + st; from[n] = c; } }
+  }
+  if (tgt < 0) return -1;
+  int steps = 0, c = tgt; while (from[c] != hp && from[c] >= 0) { c = from[c]; steps++; }
+  s_sneak_expo = cost[tgt] - (steps + 1) * 10;
+  return c;
+}
 static bool fight(void) {
   Hero *h = &G.hero;
   int best = -1, bk = 1 << 30;
@@ -1725,7 +1749,7 @@ static bool fight(void) {
     if ((MOB_DEFS[m->type].flags & MD_WATER) && !adjacent(m->pos, h->pos)) continue;   // piranhas: only when they come close
     if ((MOB_DEFS[m->type].flags & MD_WATER) && h->b.invis && !getenv("OLDINVIS")) continue;   // bot3: invisible in the pool: they can't see you; a blow would show you
     if (m->state != ST_HUNTING && !adjacent(m->pos, h->pos) && h->HP * 100 < h->HT * (getenv("OLDENGAGE") ? PRM[P_ENGAGE] : getenv("ENGAGEHP") ? atoi(getenv("ENGAGEHP")) : 60)) continue;   // (0.50 review g6: below 60%, let a wanderer pass; was tuned to 0)   // bot3: hurt: let it wander by
-    if (m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !s_oldsleep && floor_left() && (getenv("OLDSLEEP2") || distance(m->pos, h->pos) > 2)) continue;   // 0.49 (owner): one close by gets the sure first hit (asleep, it can't dodge) before walking past wakes it   // 0.48 (owner): sleepers after exploring (what's in the next room may be worth the health)
+    if (m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !s_oldsleep && floor_left() && (getenv("OLDSLEEP2") || distance(m->pos, h->pos) > (getenv("SNEAKR") ? atoi(getenv("SNEAKR")) : 2))) continue;   // 0.49 (owner): one close by gets the sure first hit (asleep, it can't dodge) before walking past wakes it   // 0.48 (owner): sleepers after exploring (what's in the next room may be worth the health)
     if ((MOB_DEFS[m->type].flags & MD_BOSS) && m->state != ST_HUNTING && PRM[P_BOSSLAST] && (h->HP < h->HT || ({ bool fr = false; for (int q = 0; q < MAP_LEN && !fr; q++) if (frontier(q) && !boss_zone(q)) fr = true; fr; }))) continue;   // bot3: a sleeping boss: last, at full health
     if (key < bk) { bk = key; best = i; }
   }
@@ -1742,6 +1766,13 @@ static bool fight(void) {
   if (V) printf("  fight: %s at %d (st %d, hp %d) dist %d\n", mob_name(m->type), m->pos, m->state, m->HP, distance(m->pos, h->pos));
   DID("fight %s (its HP %d/%d, %s) %d away", mob_name(m->type), m->HP, m->HT, m->state == ST_HUNTING ? "hunting me" : m->state == ST_SLEEPING ? "asleep" : "wandering", distance(m->pos, h->pos));
   if (emergency()) return true;
+  if (getenv("SNEAK") && m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !h->b.roots) {
+    int c = sneak_step(m);
+    if (c >= 0) { int32_t t0 = h->time; ActResult rr = game_tap_cell(c); if (rr != ACT_NONE || h->time != t0) { st_sneak++; s_did[0] = 0; DID("sneak up on the sleeping %s (seen %d)", mob_name(m->type), s_sneak_expo); walk(rr); return true; } } }
+  if (getenv("TACTBOT") && m->state == ST_HUNTING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && G.depth <= (getenv("TACTD") ? atoi(getenv("TACTD")) : 99)) {   // 0.78 (owner): the door trick (ovl/tgt tactics())
+    int16_t tc[TARGETS_MAX]; uint8_t tk[TARGETS_MAX]; int tn = game_targets(tc, tk);
+    if (tn > 0 && G.tgm.src0 == 2 && tk[0] == TK_GO && !(getenv("TACTNOWAIT") && tc[0] == h->pos)) { int32_t t0 = h->time; ActResult rr = tc[0] == h->pos ? game_rest(false) : game_tap_cell(tc[0]);
+      if (rr != ACT_NONE || h->time != t0) { st_door++; s_did[0] = 0; DID(tc[0] == h->pos ? "door trick: wait out of its sight" : "door trick: through the door, out of its sight"); walk(rr); return true; } } }
   if (!getenv("OLDYOG") && G.depth == 25 && !h->b.roots) {   // 0.54 (hs3: 105-137 deaths a round to the fists): the rotting fist mends 4 a turn in water: fight it dry; the burning fist's bolt needs a line: keep out of it
     int bf = -1, rf = -1; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP <= 0) continue; if (o->type == MT_BURNING_FIST) bf = i; if (o->type == MT_ROTTING_FIST) rf = i; }
     bool hit; bool bf_line = getenv("YOGLINE") && bf >= 0 && BIT_GET(G.fov, G.mobs[bf].pos) && !adjacent(G.mobs[bf].pos, h->pos) && ballistica(G.mobs[bf].pos, h->pos, &hit) == h->pos;
@@ -2576,6 +2607,9 @@ static bool decide(void) {
     if (gm->HP <= 0 || gm->type != MT_GOO || gm->state != ST_HUNTING || distance(gm->pos, h->pos) > 5 || !(BIT_GET(G.fov, gm->pos) || G.now - s_goo2_last <= 4 * TICK)) continue;
     int r = goo2(gm); if (r == 1) return true; if (r == 0) { walk(game_tap_cell(gm->pos)); return true; } break; }
   if (fight()) return true;
+  if (getenv("DEWREST") && find_kind(IK_DEW_VIAL) >= 0 && G.dew < 10 && h->HP < h->HT && h->HP * 5 >= h->HT * 4 && h->hunger < 260 && enemy_count() == 0 && !gas_at(h->pos)) {   // 0.78 (owner): fed, nearly full,
+    bool dew = false; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW && G.heaps[i].type == HEAP_PLAIN && BIT_GET(G.visited, G.heaps[i].pos)) dew = true;   // dew about: rest to full first, so it fills the vial
+    if (dew) { st_dewrest++; DID("rest to full: the dew then fills the vial"); walk(game_rest(false)); return true; } }
   if (!getenv("OLDMOBS") && s_thief_uid >= 0) {        // the thief out of sight with my item: to where it was last seen
     int ti = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].uid == s_thief_uid) ti = i;
     if (ti < 0 || h->pos == s_thief_cell || s_thief_cell < 0) s_thief_uid = -1;
@@ -4072,6 +4106,7 @@ int main(int argc, char **argv) {
   if (P) printf("assist audit: searches %d (with a foe hunting %d, with the way down known %d); hungry, no food, food within 3: %d presses, not entry 0: %d\n", st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left);
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);
   ledger_print();
+  if (getenv("SNEAK") || getenv("TACTBOT") || getenv("DEWREST")) printf("owner ideas: sneak steps %d, door trick moves %d, dew rests %d\n", st_sneak, st_door, st_dewrest);
   printf("food: energy eaten %ld (%.1f rations), wasted %ld; warrior emergency meals %d\n", st_eat_energy, st_eat_energy / 260.0, st_eat_waste, st_warreat);
   printf("floors cleared %d (%.1f a game); decisions %d, presses %d (%.1f a floor), entry 0 off screen %d, oscillations %d\n", st_floors, st_floors / (double)(st_games ? st_games : 1), st_press_n, st_press, st_press / (double)(st_floors ? st_floors : 1), st_press_off, st_osc);
   printf("veins: mined %d, walks to one %d (did nothing %d)\n", st_mine, st_mine_walk, st_mine_none);
