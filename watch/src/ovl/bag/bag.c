@@ -28,13 +28,26 @@ static int key_at(int k, int *depth) {
 #define CW 32
 #define CH 32
 #define ROW_Y(r) (s_h / 2 - 115 + (r) * 33)
+#define EXIT_CY 238                                  // 0.87: Exit, a round button at the bottom
 static GRect rcell(int row, int col, int n) { return GRect(s_w / 2 - (n * 33 - 1) / 2 + col * 33, ROW_Y(row), CW, CH); }
 static GRect bag_cell(int i) {
   if (i < 5) return rcell(1, i, 5);
   if (i < 19) return rcell(i < 12 ? 2 : 3, (i - 5) % 7, 7);
-  return i < 24 ? rcell(4, i - 19, 5) : rcell(6, 0, 1);
+  return i < 24 ? rcell(4, i - 19, 5) : GRect(s_w / 2 - 16, EXIT_CY - 16, 32, 32);
 }
-static GRect bag_tab(int t) { return rcell(5, t, bag_ntabs()); }
+// 0.87 (owner): the window's round sides end level with the last row of slots and it cuts across; the bags' tabs hang from
+// it as round bubbles, the way Emery's tabs do (the chosen one open into the window), and Exit is a round button at the bottom
+#define WB (ROW_Y(4) + CH + 9)                        // the window's bottom edge (below it: the tabs)
+#define TAB_CY (WB + 12)
+static GRect bag_tab(int t) { return GRect(s_w / 2 - (bag_ntabs() - 1) * 18 + t * 36 - 16, TAB_CY - 16, 32, 32); }
+static int isq(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
+// a bubble round (cx, cy), radius r: black edge, a ring, the face; its rows from ytop, as wide as at row `hold` above it (a stem)
+static void hang(int cx, int cy, int r, int ytop, int hold, uint8_t face, uint8_t ring) {
+  for (int y = ytop; y <= cy + r + 1; y++) {
+    int dy = (y < hold ? hold : y) - cy, d2 = dy * dy, R[3] = { r + 1, r, r - 2 }; uint8_t C[3] = { ARGB(GColorBlack), ring, face };
+    for (int k = 0; k < 3; k++) if (d2 <= R[k] * R[k]) { int w = isq(R[k] * R[k] - d2); blit_fill(cx - w, y, 2 * w + 1, 1, C[k]); }
+  }
+}
 #define tab_hit hit
 #else
 #define CW SLOT_W
@@ -86,7 +99,7 @@ static void draw_bag(GContext *ctx) {
 #ifdef PBL_ROUND
   blit_fog(0, 0, s_w);                             // 0.85 (owner: "the same look" as Emery): the game behind in the shadow
   {                                                  // 0.86 (owner: "follow the overall shape of the display ... the same vibe as the settings
-    int y0 = ROW_Y(0) + (s_pick >= 0 ? -4 : 4), y1 = ROW_Y(6) + CH + 7;   // screens"): their round window (rpanel) out to the rim, so
+    int y0 = ROW_Y(0) + (s_pick >= 0 ? -4 : 4), y1 = WB;   // screens"): their round window (rpanel) out to the rim, so
     for (int y = y0; y < y1; y++) {                  // the widest rows' corners stay inside: light edge, grey, a black line, the grey body
       bool edge = y == y0 || y == y1 - 1;
       rrow(0, s_w, y, 130, ARGB(GColorLightGray));
@@ -94,10 +107,13 @@ static void draw_bag(GContext *ctx) {
       if (y >= y0 + 5 && y < y1 - 5) rrow(0, s_w, y, 125, ARGB(GColorBlack));
       if (y >= y0 + 6 && y < y1 - 6) rrow(0, s_w, y, 124, ARGB(GColorDarkGray));
     }
-    for (int row = 1; row <= 6; row++) { int n = row == 5 ? ntabs : row == 6 ? 1 : row == 2 || row == 3 ? 7 : 5; GRect q = rcell(row, 0, n);
-      if (n) blit_fill(q.origin.x - 2, q.origin.y - 2, n * 33 + 3, CH + 4, ARGB(GColorBlack)); }
+    for (int row = 1; row <= 4; row++) { int n = row == 2 || row == 3 ? 7 : 5; GRect q = rcell(row, 0, n);
+      blit_fill(q.origin.x - 2, q.origin.y - 2, n * 33 + 3, CH + 4, ARGB(GColorBlack)); }
   }
-  for (int t = 0; t < ntabs; t++) { GRect q = bag_tab(t); bool sel = t == s_bag_tab; blit_fill(q.origin.x, q.origin.y, CW, CH, sel ? ARGB(GColorLightGray) : ARGB(GColorDarkGray)); if (sel) blit_box(q.origin.x + 2, q.origin.y + 2, CW - 4, CH - 4, 1, ARGB(GColorDarkGray)); }
+  for (int t = 0; t < ntabs; t++) { GRect q = bag_tab(t); bool sel = t == s_bag_tab;   // (the buttons' choice: a yellow ring)
+    hang(q.origin.x + 16, TAB_CY, 17, sel ? WB - 6 : WB, WB, ARGB(GColorDarkGray), s_sel == BAG_UI_TAB0 + t ? ARGB(GColorChromeYellow) : ARGB(GColorLightGray)); }
+  hang(s_w / 2, EXIT_CY, 17, 0, 0, ARGB(GColorDarkCandyAppleRed), s_sel == BAG_EXIT ? ARGB(GColorChromeYellow) : ARGB(GColorLightGray));
+  blit(&s_micons, 8 * 16, 0, 16, 16, s_w / 2 - 16, EXIT_CY - 16, 2);   // Icons.EXIT
 #else
   blit_fog(0, 0, s_w > s_h ? s_w : s_h);           // 0.70 (owner): the game behind the window in the unexplored-cells shadow
   tab_panel(GRect(r.origin.x, r.origin.y + HEAD, r.size.w, r.size.h - HEAD));   // 0.69 (owner): the frame round the cells only, the title on a tab above it
@@ -110,7 +126,6 @@ static void draw_bag(GContext *ctx) {
     static const uint8_t ICON[5] = { 0, 2, 3, 4, 1 };   // backpack, pouch, holder, holster, keyring in icons.png
 #ifdef PBL_ROUND
     blit(&s_icons, 17 + ICON[bag_tab_kind(t)] * 10, 0, 10, 10, tr.origin.x + 6, tr.origin.y + 6, 2);
-    if (s_sel == BAG_UI_TAB0 + t) blit_box(tr.origin.x, tr.origin.y, CW, CH, 2, ARGB(GColorChromeYellow));
     (void)sel;
   }
 #else
@@ -122,6 +137,9 @@ static void draw_bag(GContext *ctx) {
   for (int i = 0; i < BAG_UI_TAB0; i++) {
     int sl = bag_ui_to_slot(i);
     GRect q = bag_cell(i);
+#ifdef PBL_ROUND
+    if (sl == SL_EXIT) continue;                   // (a bubble, above)
+#endif
     if (sl == SL_NONE) { blit_fill(q.origin.x, q.origin.y, q.size.w, q.size.h, ARGB(GColorDarkGray)); blit_fog(q.origin.x, q.origin.y, CW); continue; }
     Item *it = bag_item(i);
     bool has = it && it->kind != IK_NONE;
