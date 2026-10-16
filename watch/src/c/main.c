@@ -940,8 +940,9 @@ static void on_tap(int x, int y) {
   void game_debug_map(void);                         // test kit (0.26: was long press Down): a tap on the depth counter
   if (y < 20 && x >= 110 && x < 165) { game_debug_map(); if (game_level_pending()) act(ACT_LEVEL); else redraw(); return; }
 #endif
+  GRect hp; if (hero_pointer(&hp) && in_rect(GRect(hp.origin.x - 6, hp.origin.y - 6, hp.size.w + 12, hp.size.h + 12), x, y)) { cam_center(); redraw(); return; }   // 0.79 (owner): the portrait at the edge first, a finger's width round it
   GRect mb = menu_button_rect();
-  if (in_rect(GRect(mb.origin.x - 8, mb.origin.y - 4, mb.size.w + 12, mb.size.h + 12), x, y)) { s_walking = false; s_scene = SC_MENU; s_sel = 0; redraw(); return; }
+  if (in_rect(GRect(mb.origin.x - 8, mb.origin.y - 4, mb.size.w + 12, mb.size.h + 12), x, y)) { s_walking = false; mreg_spare(); s_scene = SC_MENU; s_sel = 0; redraw(); return; }   // (0.79: room for its pictures, as long Up)
   if (in_rect(GRect(status_x(), status_y(), SC(35), SC(35)), x, y)) { s_walking = false; s_scene = SC_SHEET; s_sheet_tab = 0; redraw(); return; }   // portrait: character sheet
   if (y < PBL_IF_ROUND_ELSE(CAP_H, status_y() + SC(10))) return;               // the health bar strip; below it (beside the portrait) is map
   if (TB_ROW(x, y)) {
@@ -959,7 +960,6 @@ static void on_tap(int x, int y) {
       default: return;
     }
   }
-  GRect hp; if (hero_pointer(&hp) && in_rect(hp, x, y)) { cam_center(); redraw(); return; }
   if (loot_shown() && in_rect(tag_rect(1), x, y)) { act(game_tap_cell(G.hero.pos)); return; }   // LootIndicator: hero.handle(hero.pos), even with an enemy beside
   if (resume_shown() && in_rect(tag_rect(2), x, y)) { act(game_resume()); return; }
   if (combat_tap(x, y)) return;
@@ -1682,6 +1682,7 @@ static void update_proc(Layer *layer, GContext *ctx) {
   s_fms = now_ms();
   cam_frame();
   sheet_need(&s_micons, RESOURCE_ID_IMAGE_MENU_ICONS, s_scene == SC_MENU || s_scene == SC_BAG);
+  if (!s_micons.bmp && (s_scene == SC_MENU || s_scene == SC_BAG)) { ui_free_cache(s_scene == SC_MENU); sheet_load(&s_micons, RESOURCE_ID_IMAGE_MENU_ICONS); }   // 0.79 (owner: "the menu icons were all missing"): a full heap: the caches go first
   static uint32_t s_go_res;                                   // the end banner, the amulet or the surface
   bool boss = now_ms() < s_boss_until && s_scene == SC_GAME;
   uint32_t go = s_scene == SC_AMULET ? (s_amulet == 2 ? RESOURCE_ID_IMAGE_SURFACE : RESOURCE_ID_IMAGE_AMULET) : boss ? RESOURCE_ID_IMAGE_BANNER_BOSS : RESOURCE_ID_IMAGE_BANNER_GAMEOVER;
