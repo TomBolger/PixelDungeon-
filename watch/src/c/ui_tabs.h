@@ -47,6 +47,18 @@ static void tab_panel(GRect r) { rpanel(r, ARGB(GColorDarkGray)); }
 static void tab_panel(GRect r) { blit_nine(&s_chrome, 64, 0, 22, 22, 7, r.origin.x - 6, r.origin.y - 6, r.size.w + 12, r.size.h + 12); }
 #endif
 
+#ifdef PBL_ROUND
+// 0.83 (owner: "flat against the menu in a row ... their frames merge into the menu frame"): the round frame's bottom is
+// black (cb), dark (cb+1..4), light (cb+5, outermost). A tab hangs from it with the same lines, 4 px: the chosen one opens
+// into the window (its black and light cut), the others start under the frame, its light line their top
+static void tab_art(GRect t, bool selected) {
+  int x = t.origin.x, w = t.size.w, cb = t.origin.y, bot = cb + t.size.h, top = selected ? cb : cb + 6;
+  uint8_t L = ARGB(GColorLightGray), D = ARGB(GColorDarkGray), K = ARGB(GColorBlack);
+  blit_fill(x, top, w, bot - top, D);
+  blit_fill(x, cb + 5, 1, bot - cb - 5, L); blit_fill(x + w - 1, cb + 5, 1, bot - cb - 5, L); blit_fill(x, bot - 1, w, 1, L);
+  blit_fill(x + 3, top, 1, bot - 4 - top, K); blit_fill(x + w - 4, top, 1, bot - 4 - top, K); blit_fill(x + 3, bot - 4, w - 6, 1, K);
+}
+#else
 static void tab_art(GRect t, bool selected) {
   int x = t.origin.x, w = t.size.w, cb = t.origin.y, bot = cb + t.size.h - (selected ? 0 : 1);
   int top = selected ? cb : cb + 4;                  // the window's bottom edge: cb black, cb+1 light, cb+2..3 dark
@@ -62,6 +74,7 @@ static void tab_art(GRect t, bool selected) {
   blit_fill(x + 3, bot - 4, w - 6, 1, K); blit_fill(x + 3, bot - 3, w - 5, 1, L); blit_fill(x + 1, bot - 2, w - 4, 2, D);
 }
 
+#endif
 static bool hit(GRect r, int x, int y) { return x >= r.origin.x && y >= r.origin.y && x < r.origin.x + r.size.w && y < r.origin.y + r.size.h; }
 static bool tab_hit(GRect t, int x, int y) { return x >= t.origin.x && x < t.origin.x + t.size.w && y >= t.origin.y && y < t.origin.y + t.size.h + 8; }
 // a label that fits its button: 18 bold, else 14 bold over two lines

@@ -263,7 +263,9 @@ static int status_bottom(void) { return CAP_H; }
 #define TB_R 17                                          // the toolbar's bubbles
 static int tb_w(void) { return 2 * TB_R; }
 static int toolbar_y(void) { return 190; }               // the log ends above it
-static const uint8_t TBX[TB_N] = { 45, 75, 110, 150, 185, 215 }, TBY[TB_N] = { 206, 230, 242, 242, 230, 206 };   // centres, bearings 228..132
+// (0.83 owner: the backpack and the quickslots a cluster with the quickslot by it at the bottom, a gap, the other three up the left:
+// bearings 264, 244, 224 | 200, 180, 160, clear of the tags on the right)
+static const uint8_t TBX[TB_N] = { 19, 29, 52, 92, 130, 168 }, TBY[TB_N] = { 142, 179, 211, 235, 242, 235 };
 static int tb_x(int i) { return TBX[i] - TB_R; }
 static int tb_in(int x, int y) { for (int i = 0; i < TB_N; i++) { int dx = x - TBX[i], dy = y - TBY[i]; if (dx * dx + dy * dy <= (TB_R + 4) * (TB_R + 4)) return i; } return -1; }
 #define TB_ROW(x, y) (tb_in(x, y) >= 0)
@@ -364,7 +366,8 @@ static bool resume_shown(void) { return G.last_action && G.hero.HP > 0 && s_scen
 // under the status pane (0.17); 0.23: at the left edge, the right one holds the buttons' tags
 static GRect tag_rect(int which) {
 #ifdef PBL_ROUND
-  return which == 1 ? BUB(22, 91, 15) : BUB(15, 138, 15);   // 0.83: bubbles at the left rim
+  // 0.83: bubbles at the rim, after the buttons' tags (the left rim holds the buffs): resume there, or inside it when both are up
+  return which == 1 || !loot_shown() ? BUB(206, 212, 14) : BUB(180, 184, 14);
 #endif
   int y = PBL_IF_ROUND_ELSE(92, status_bottom() + 2);
   if (which > 1 && loot_shown()) y += 38;
@@ -1388,16 +1391,20 @@ int hero_buffs(uint8_t *out) {
 #ifdef PBL_ROUND
 static int isq(int v) { int r = 0, b = 1 << 14; while (b > v) b >>= 2; while (b) { if (v >= r + b) { v -= r + b; r = (r >> 1) + b; } else r >>= 1; b >>= 2; } return r; }
 static void disc(int cx, int cy, int r, uint8_t c) { for (int dy = -r; dy <= r; dy++) { int w = isq(r * r - dy * dy); blit_fill(cx - w, cy + dy, 2 * w + 1, 1, c); } }
-void bubble(GRect b, uint8_t fill, uint8_t ring) {   // 0.83: a round frame (PD's chrome: light ring, black edge) round b,
-  int r = b.size.w / 2, cx = b.origin.x + r, cy = b.origin.y + r, dx = cx - 130, dy = cy - 130, d = isq(dx * dx + dy * dy), o = r / 3;   // grown
-  if (d > 40) { cx += dx * o / d; cy += dy * o / d; r += o; }   // outward past the rim: about three quarters of it on screen
+// 0.83: a round frame (PD's chrome: light ring, black edge) round b, grown outward past the rim by a third of its radius (about
+// three quarters on screen); returns where its picture goes: b moved most of the way it grew
+static GRect bubble(GRect b, uint8_t fill, uint8_t ring) {
+  int r = b.size.w / 2, cx = b.origin.x + r, cy = b.origin.y + r, dx = cx - 130, dy = cy - 130, d = isq(dx * dx + dy * dy), o = r / 3;
+  if (d > 40) { cx += dx * o / d; cy += dy * o / d; o -= 2; b.origin.x += dx * o / d; b.origin.y += dy * o / d; r += r / 3; }
   disc(cx, cy, r + 1, ARGB(GColorBlack)); disc(cx, cy, r, ring); disc(cx, cy, r - 2, fill);
+  return b;
 }
+#define BPIC(b, pw, ph) (b).origin.x + ((b).size.w - (pw)) / 2, (b).origin.y + ((b).size.h - (ph)) / 2   // a picture w x h in its middle
 // the band over the top: radii rin..rout from the centre, between the bearings whose tangents (x 256) are t0 and t1
 static void arc(int rin, int rout, int t0, int t1, uint8_t c) {
-  for (int dy = -rout; dy < 0; dy++) {
-    int xo = isq(rout * rout - dy * dy), xi = -dy < rin ? isq(rin * rin - dy * dy) : 0, a = -dy * t0 / 256, b = -dy * t1 / 256;
-    for (int s = 0; s < 2; s++) { int lo = s ? xi : -xo, hi = s ? xo : -xi; if (lo < a) lo = a; if (hi > b) hi = b; if (hi >= lo) blit_fill(130 + lo, 130 + dy, hi - lo + 1, 1, c); }
+  for (int y = 1; y <= rout; y++) {                      // y rows up from the centre: the ring's two spans, cut to the bearings
+    int xo = isq(rout * rout - y * y), xi = y < rin ? isq(rin * rin - y * y) : 0, a = y * t0 >> 8, b = y * t1 >> 8;
+    for (int s = 0; s < 2; s++) { int lo = s ? xi : -xo, hi = s ? xo : -xi; if (lo < a) lo = a; if (hi > b) hi = b; if (hi >= lo) blit_fill(130 + lo, 130 - y, hi - lo + 1, 1, c); }
   }
 }
 static int tg(int d10) { int32_t a = (int32_t)TRIG_MAX_ANGLE * d10 / 3600; return sin_lookup(a) * 256 / cos_lookup(a); }   // tan (x 256) of tenths of a degree
@@ -1409,55 +1416,52 @@ static int tg(int d10) { int32_t a = (int32_t)TRIG_MAX_ANGLE * d10 / 3600; retur
 #define HBE 55                                         // its full end (inner edge)
 #define HSE 60                                         // the shelf's end at its inner edge, 117
 static void slant(int r0, int r1, int e0, uint8_t c) {   // radii r0..r1, from HS0 to a bearing e0 at r0 leaning 0.5 degree per px out
-  for (int r = r0; r < r1; r++) arc(r, r + 1, tg(HS0), tg(e0 + (r - r0) * 5), c);
+  for (int r = r0; r < r1; r++) arc(r, r + 1, -365, tg(e0 + (r - r0) * 5), c);
 }
-static void tag_bg(GRect a, const Sheet *s) {            // a tag: Emery PD's at the edge; Gabbro a bubble (red, pale, blue)
-  bubble(a, s == &s_tag ? ARGB(GColorDarkCandyAppleRed) : s == &s_tag_blue ? ARGB(GColorCobaltBlue) : ARGB(GColorLightGray), s == &s_tag ? ARGB(GColorOrange) : ARGB(GColorWhite));
+static GRect tag_bg(GRect a, const Sheet *s) {           // a tag: Emery PD's at the edge; Gabbro a bubble (red, pale, blue): where its picture goes
+  return bubble(a, s == &s_tag ? ARGB(GColorDarkCandyAppleRed) : s == &s_tag_blue ? ARGB(GColorCobaltBlue) : ARGB(GColorLightGray), s == &s_tag ? ARGB(GColorOrange) : ARGB(GColorWhite));
 }
 #else
-static void tag_bg(GRect a, const Sheet *s) { blit_nine(s, 0, 0, 16, 14, 3, a.origin.x, a.origin.y, a.size.w + 4, a.size.h); }
+static GRect tag_bg(GRect a, const Sheet *s) { blit_nine(s, 0, 0, 16, 14, 3, a.origin.x, a.origin.y, a.size.w + 4, a.size.h); return a; }
 #endif
 static void draw_hud_art(void) {
   Hero *h = &G.hero;
   int x = status_x(), y = status_y(), w = status_w(), H = SC(SP_H);
 #ifdef PBL_ROUND
   (void)x; (void)y; (void)w; (void)H;
-  arc(125, 131, tg(HS0), tg(HS1), ARGB(GColorDarkGray));       // the strip
+  arc(125, 131, -365, 305, ARGB(GColorDarkGray));       // the strip
   slant(115, 125, HSE - 10, ARGB(GColorLightGray));      // the shelf: its light slanted edge, then grey inside it
   slant(115, 125, HSE - 20, ARGB(GColorDarkGray));
-  arc(115, 117, tg(HS0), tg(HSE - 20), ARGB(GColorDarkGray)); arc(117, 118, tg(HS0), tg(HSE - 5), ARGB(GColorLightGray));
+  arc(115, 117, -365, 17, ARGB(GColorDarkGray)); arc(117, 118, -365, 24, ARGB(GColorLightGray));
   int hp = h->HP > 0 ? h->HP : 0;
   if (hp) {                                              // hp_bar.png, squeezed to health: its rows outside in, its slanted end kept
     int f = HB0 + (HBE - HB0) * hp / h->HT;
     static const uint8_t HC[3] = { GColorBulgarianRoseARGB8, GColorDarkCandyAppleRedARGB8, GColorRoseValeARGB8 };
-    for (int r = 119; r < 125; r++) arc(r, r + 1, tg(HB0 - 40), tg(f + (r - 119) * 5), HC[r < 120 ? 0 : r < 124 ? 1 : 2]);
+    for (int r = 119; r < 125; r++) arc(r, r + 1, -166, tg(f + (r - 119) * 5), HC[r < 120 ? 0 : r < 124 ? 1 : 2]);
   }
-  if (h->exp > 0) arc(113, 115, tg(HB0 - 40), tg(HB0 + (HSE - HB0) * h->exp / hero_max_exp()), ARGB(GColorIcterine));   // experience, under it
-  { int A[2] = { 185, 295 }; for (int i = 0; i < 2; i++) {   // the stairs and the key, after the shelf (1.5x, as on Emery)
-      int32_t t = (int32_t)TRIG_MAX_ANGLE * A[i] / 3600; int cx = 130 + 106 * sin_lookup(t) / TRIG_MAX_RATIO, cy = 130 - 106 * cos_lookup(t) / TRIG_MAX_RATIO;
-      blit_scaled(&s_status, i ? 103 : 87, 5, i ? 7 : 8, 8, cx - 6, cy - 6, i ? 11 : 12, 12); } }
-  uint8_t b[BI_COUNT]; int nb = hero_buffs(b);           // the buffs: a row along the arc under the health
-  for (int i = 0; i < nb && i < 5; i++) {
-    int32_t t = (int32_t)TRIG_MAX_ANGLE * (-220 + 120 * i) / 3600;
-    blit(&s_buffs, b[i] * 7, 0, 7, 7, 123 + 82 * sin_lookup(t) / TRIG_MAX_RATIO, 123 - 82 * cos_lookup(t) / TRIG_MAX_RATIO, 2);
-  }
-  bubble(hl_rect(7), ARGB(GColorDarkGray), ARGB(GColorLightGray));   // the portrait, the level under it
-  blit(&s_hero, 0, 0, HERO_ART.fw, HERO_ART.fh, 52 - HERO_ART.fw, 49 - HERO_ART.fh, 2);
+  if (h->exp > 0) arc(113, 115, -166, tg(HB0 + (HSE - HB0) * h->exp / hero_max_exp()), ARGB(GColorIcterine));   // experience, under it
+  blit_scaled(&s_status, 87, 5, 8, 8, 158, 24, 12, 12);   // the stairs and the key, after the shelf (1.5x, as on Emery; bearings 18.5, 29.5 at 106)
+  blit_scaled(&s_status, 103, 5, 7, 8, 177, 32, 11, 12);
+  uint8_t b[BI_COUNT]; int nb = hero_buffs(b);           // the buffs (0.83, owner): from the portrait's edge down the left rim, a second row inside it
+  static const uint8_t BX[6] = { 29, 24, 20, 45, 39, 36 }, BY[6] = { 83, 98, 113, 88, 102, 117 };   // bearings 295, 287, 279 at 111; 296, 287, 278 at 95
+  for (int i = 0; i < nb && i < 6; i++) blit(&s_buffs, b[i] * 7, 0, 7, 7, BX[i] - 7, BY[i] - 7, 2);
+  { GRect pb = bubble(hl_rect(7), ARGB(GColorDarkGray), ARGB(GColorLightGray));   // the portrait, the level under it
+    blit(&s_hero, 0, 0, HERO_ART.fw, HERO_ART.fh, BPIC(pb, 2 * HERO_ART.fw, 2 * HERO_ART.fh), 2); }
   bubble(BUB(72, 70, 9), ARGB(GColorDarkGray), ARGB(GColorLightGray));
-  { GRect mb = menu_button_rect(); bubble(mb, ARGB(GColorDarkCandyAppleRed), ARGB(GColorOrange));
-    for (int i = 0; i < 3; i++) blit_fill(198, 41 + i * 6, 20, 3, ARGB(GColorWhite)); }
+  { GRect mb = bubble(menu_button_rect(), ARGB(GColorDarkCandyAppleRed), ARGB(GColorOrange));
+    for (int i = 0; i < 3; i++) blit_fill(mb.origin.x + 10, mb.origin.y + 12 + i * 6, 20, 3, ARGB(GColorWhite)); }
   int bw = tb_w();
   if (toolbar_hidden()) goto after_toolbar;
-  for (int i = 0; i < TB_N; i++) bubble(hl_rect(i), ARGB(GColorDarkGray), ARGB(GColorLightGray));
-  blit(&s_toolbar, 5, 8, 10, 10, TBX[TB_WAIT] - 10, TBY[TB_WAIT] - 10, 2);
-  blit(&s_toolbar, 24, 7, 12, 12, TBX[TB_SEARCH] - 12, TBY[TB_SEARCH] - 12, 2);
-  blit(&s_toolbar, 46, 7, 8, 12, TBX[TB_INFO] - 8, TBY[TB_INFO] - 12, 2);
-  blit(&s_toolbar, 65, 5, 14, 15, TBX[TB_BAG] - 14, TBY[TB_BAG] - 15, 2);
+  GRect tc[TB_N];                                         // (the bubbles' pictures' places)
+  for (int i = 0; i < TB_N; i++) tc[i] = bubble(hl_rect(i), ARGB(GColorDarkGray), ARGB(GColorLightGray));
+  { static const uint8_t I[4][4] = { { 5, 8, 10, 10 }, { 24, 7, 12, 12 }, { 46, 7, 8, 12 }, { 65, 5, 14, 15 } };   // wait, search, inspect, backpack
+    for (int i = 0; i < 4; i++) { GRect c = tc[i]; blit(&s_toolbar, I[i][0], I[i][1], I[i][2], I[i][3], BPIC(c, 2 * I[i][2], 2 * I[i][3]), 2); } }
   for (int q = 0; q < 2; q++) {
-    int kind = h->quick[q], t = q == 0 ? TB_Q1 : TB_Q2;
+    int kind = h->quick[q]; GRect c = tc[q == 0 ? TB_Q1 : TB_Q2];
     if (kind == IK_NONE) continue;
-    ITEM_SPR(item_sprite(kind), TBX[t] - 16, TBY[t] - 16, 2);
-    if (game_bag_find(kind) < 0) blit_fog(TBX[t] - 16, TBY[t] - 16, 32);
+    int px = c.origin.x + (c.size.w - 32) / 2, py = c.origin.y + (c.size.h - 32) / 2;
+    ITEM_SPR(item_sprite(kind), px, py, 2);
+    if (game_bag_find(kind) < 0) blit_fog(px, py, 32);
   }
 #else
   // Emery: PD StatusPane at 1.5x, whole: left 80 px and right 48 px of status_pane.png, column 80 repeated between
@@ -1495,31 +1499,35 @@ after_toolbar:;
   GRect hpr;
   if (hero_pointer(&hpr)) {                        // off-screen hero: framed portrait at the edge
 #ifdef PBL_ROUND
-    bubble(hpr, ARGB(GColorDarkGray), ARGB(GColorLightGray));
+    hpr = bubble(hpr, ARGB(GColorDarkGray), ARGB(GColorLightGray));
 #else
     blit_nine(&s_chrome, 22, 0, 18, 18, 5, hpr.origin.x, hpr.origin.y, hpr.size.w, hpr.size.h);
 #endif
     g_blit_flip = G.hero.facing_left; blit(&s_hero, 0, 0, HERO_ART.fw, HERO_ART.fh, hpr.origin.x + 8, hpr.origin.y + 7, 1); g_blit_flip = false;
   }
   if (s_scene == SC_TARGET && s_aim_q >= 0 && s_aim_mob >= 0) {   // QuickSlot crossB over the aiming slot
+#ifdef PBL_ROUND
+    GRect c = tc[s_aim_q == 0 ? TB_Q1 : TB_Q2]; blit(&s_icons, 67, 0, 16, 16, BPIC(c, 32, 32), 2);
+#else
     int bx = tb_x(s_aim_q == 0 ? TB_Q1 : TB_Q2);
     blit(&s_icons, 67, 0, 16, 16, bx + (bw - 32) / 2, TB_Y(5 - s_aim_q) + 3, 2);
+#endif
   }
   if (resume_shown()) {                             // PD ResumeButton
     GRect a = tag_rect(2);
-    tag_bg(a, &s_tag_white);
+    a = tag_bg(a, &s_tag_white);
     blit(&s_icons, 83, 0, 12, 11, a.origin.x + (a.size.w - 24) / 2 + 2, a.origin.y + (a.size.h - 22) / 2, 2);
   }
   if (loot_shown()) {                               // PD LootIndicator: blue tag with the heap's picture
     GRect a = tag_rect(1);
     Heap *hp = &G.heaps[heap_at(G.hero.pos)];
     int sp = heap_sprite(heap_at(G.hero.pos)); (void)hp;
-    tag_bg(a, &s_tag_blue);
+    a = tag_bg(a, &s_tag_blue);
     ITEM_SPR(sp, a.origin.x + (a.size.w - 32) / 2 + 2, a.origin.y + (a.size.h - 32) / 2, 2);
   }
   if (combat()) {                                   // the buttons' tags (0.24: slim, pictures at 1x), beside the buttons that work them
     GRect a = ctag(0);                                // zoom: the search glass and a pip per level
-    tag_bg(a, &s_tag);
+    a = tag_bg(a, &s_tag);
     blit(&s_tag, 16, 1, 12, 12, a.origin.x + 3, a.origin.y + 6, 1);   // 0.60: the glass without the button face (tag_red.png)
     for (int i = 0; i <= s_zoom; i++) blit_fill(a.origin.x + 17, a.origin.y + 17 - i * 5, 3, 3, ARGB(GColorIcterine));
   }
@@ -1529,20 +1537,20 @@ after_toolbar:;
   int at = combat_target();
   if (cycle_shown()) {                              // the next target: Icons.TARGET
     GRect a = ctag(2);
-    tag_bg(a, &s_tag);
+    a = tag_bg(a, &s_tag);
     blit(&s_icons, 67, 0, 16, 16, AT1(a, 16), 1);
   }
   if (s_scene == SC_GAME && s_tg >= 0 && s_tgk != TK_ENEMY) {   // 0.23: go there (pale, the walk arrow) / pick it up (blue, the thing)
     GRect a = ctag(1);
     bool item = s_tgk == TK_ITEM && heap_at(s_tg) >= 0;
-    tag_bg(a, item ? &s_tag_blue : &s_tag_white);
+    a = tag_bg(a, item ? &s_tag_blue : &s_tag_white);
     if (item) item_spr(heap_sprite(heap_at(s_tg)), AT1(a, 16), 1);
     else if (s_tgk >= TK_MINE) item_spr(item_sprite(IK_PICKAXE), AT1(a, 16), 1);   // 0.41: a gold vein: the pickaxe
     else blit(&s_icons, 83, 0, 12, 11, AT1(a, 12), 1);
   }
   if (at >= 0) {                                    // PD AttackIndicator, with the weapon (or what is aimed) instead of the target
     GRect a = ctag(1);
-    tag_bg(a, &s_tag);
+    a = tag_bg(a, &s_tag);
     const Item *it = s_scene != SC_TARGET ? &G.hero.weapon : s_zap == 2 ? &G.hero.armor : game_slot(s_item_slot);
     if (it && it->kind) { g_blit_glow = item_glow(it); item_spr(item_sprite(it->kind), AT1(a, 16), 1); g_blit_glow = 0; }
     else {                                          // bare hands: the target, as in PD
@@ -1554,7 +1562,7 @@ after_toolbar:;
   if (hl < 0 && s_tg >= 0) hl = s_tgk == TK_BAG ? hand_btn() : s_tgk == TK_REST ? TB_WAIT : s_tgk == TK_GO && s_tg == G.hero.pos ? (g_ovr.d & 128 ? TB_WAIT : TB_SEARCH) : -1;   // (0.61: a hold: Select waits)   // 0.48 test kit: the bot's hands: that button's reticle
   if (hl >= 0 && s_scene == SC_GAME) {             // 0.42: the highlighted button, and a half-size copy of it on the middle tag
     GRect a = ctag(1), r = hl_rect(hl);
-    tag_bg(a, &s_tag_white);
+    a = tag_bg(a, &s_tag_white);
     if (s_hl < 0 && s_tgk == TK_BAG) {               // (the bag: the item it's for) 0.51 (owner): a new one flies out of the backpack first (0.61: onto an empty tag, not over the button)
       int key = g_ovr.hs << 4 | g_ovr.ha, x = AT1X(a, 16), y = AT1Y(a, 16); uint32_t e = now_ms() - s_hand_t0;
       if (key != s_hand_key) { s_hand_key = key; s_hand_t0 = now_ms(); e = 0; }

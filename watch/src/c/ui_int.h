@@ -61,9 +61,6 @@ const Sheet *mob_sheet(int type);
 uint32_t now_ms(void);
 void panel(GRect r);
 void red_button(GRect r, bool selected);
-#ifdef PBL_ROUND
-void bubble(GRect b, uint8_t fill, uint8_t ring);   // 0.83: a round frame, three quarters on screen at the rim
-#endif
 void text(GContext *ctx, const char *s, GFont f, GColor c, int x, int y, int w, GTextAlignment a);
 void text_outlined(GContext *ctx, const char *s, GFont f, GColor c, int x, int y, int w, GTextAlignment a);
 void text_outlined_rect(GContext *ctx, const char *s, GFont f, GColor c, GRect r, GTextAlignment a);
