@@ -3323,6 +3323,7 @@ static int cands(Cand *c) {
     if (!k || (seen[k >> 3] >> (k & 7) & 1)) continue;
     seen[k >> 3] |= 1 << (k & 7);
     if (s < 0 && cat != CAT_WAND) continue;
+    if (cat == CAT_POTION && s_pztest && item_known(k) && ((k == IK_POT_INVIS && pool_puzzle_pending()) || (k == IK_POT_LEVITATION && trap_puzzle_pending())) && h->HP * 4 >= h->HT) continue;   // 0.92 (seed 84 d3: the pool's invisibility spent getting away from a crab at 2/3 health): kept for its room unless near death
     if (cat == CAT_POTION) { if (getenv("OLDLADRINK") || !item_known(k) || !(k == IK_POT_LEVITATION || k == IK_POT_MIND || harmful_potion(k) || (k == IK_POT_PURITY && !bad_air(G.hero.pos)))) c[n++] = (Cand){ C_ITEM, ACN_DRINK, s, 0 };   /* (0.53: no Levitation or Mind Vision mid-fight: the look-ahead drank three at Tengu) */ if (fp >= 0 && ((!item_known(k) && !(MOB_DEFS[G.mobs[foe].type].flags & MD_BOSS)) || harmful_potion(k)) && (getenv("OLDLAGAS") || distance(fp, G.hero.pos) >= ((k == IK_POT_TOXIC || k == IK_POT_PARALYTIC || !item_known(k)) ? 4 : 3))) c[n++] = (Cand){ C_THROW, 0, s, fp }; }   /* 0.54: a gas thrown 2 away comes back over you (a Tengu death) */
     else if (cat == CAT_SCROLL && !h->b.blind && !(k == IK_SCR_TERROR && item_known(k) && !getenv("OLDDMTERROR") && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300) dm = true; dm; }))) c[n++] = (Cand){ C_ITEM, ACN_READ, s, 0 };   // (0.50 review g6: not Terror at DM-300: it flees over the dead traps and repairs itself to full)
     else if (cat == CAT_SEED && k != IK_SEED_ROTBERRY && plant_at(hp) < 0 && heap_at(hp) < 0 && hp != G.exit && hp != G.entrance) c[n++] = (Cand){ C_ITEM, ACN_PLANT, s, 0 };
@@ -3538,10 +3539,10 @@ static bool curse_go(void) {
   Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.depth) * 4096 + h->lvl * 128 + h->STR * 4 + (h->HP * 4 / (h->HT ? h->HT : 1));
   k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind;
   if (k == key) return ans;
-  key = k; int wins = 0, hp = 0, n = 10; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
-  char rs[64] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
+  key = k; int wins = 0, hp = 0, n = 20; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
+  char rs[160] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
   if (getenv("CURSEDBG")) printf("  playouts: %s\n", rs);
-  ans = wins >= 8;
+  ans = wins >= n * 9 / 10;   // (0.92: 8 in 10 still lost the real fight: 1 death in 10 at most)
   if (getenv("CURSEDBG")) printf("CURSE d%d step %d lvl %d hp %d/%d wpn %d: %d/%d won (avg hp left %d%%) -> %s\n", G.depth, s_bot_steps, h->lvl, h->HP, h->HT, h->weapon.kind, wins, n, wins ? hp / wins : 0, ans ? "go" : "not yet");
   return ans;
 }
