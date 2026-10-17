@@ -2639,7 +2639,7 @@ static bool decide(void) {
     int hi = heap_at(h->pos); if (hi >= 0 && G.heaps[hi].type == HEAP_PLAIN && item_cat(G.heaps[hi].item.kind) == CAT_WEAPON && bag_used() < BAG_SIZE) { int32_t t0 = h->time; ActResult rr = game_tap_cell(h->pos); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("pick my weapon back up"); walk(rr); return true; } }
     int bw = -1; double bs = 0; for (int i = 0; i < BAG_SIZE; i++) { double sc = weapon_score(&h->bag[i]); if (sc > bs) { bs = sc; bw = i; } }
     if (bw >= 0) { s_did[0] = 0; DID("back in hand: a weapon"); do_item(bw, ACN_EQUIP); return true; } }
-  if (lookahead()) return true;
+  if (!(s_pztest && ({ bool cu = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_WRAITH && G.mobs[i].aux2 == 1 && BIT_GET(G.fov, G.mobs[i].pos)) cu = true; cu; })) && lookahead()) return true;   // 0.92 (seed 84: the curse fight was judged winnable played straight, then the look-ahead fled up the stairs and it healed): play it as judged
   if (P) {                                              // the player's own decisions stay: eat (above), heal, items, rest
     if (!h->weapon.kind && enemy_count()) for (int i = 0; i < BAG_SIZE; i++) if (weapon_score(&h->bag[i]) > 0) { do_item(i, ACN_EQUIP); return true; }
     if (emergency()) return true;
