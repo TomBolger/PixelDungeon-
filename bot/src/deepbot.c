@@ -74,7 +74,7 @@ static bool lookahead(void);
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
 static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 2500 };
 static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static bool attack_wand_ready(void); static bool room_seen(int r);
-static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force;
+static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force; static bool curse_sim_ok(void); static int s_curse_trip;
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
 static double s_hp_cut; static bool s_toe; static int toe_upgrade(int scroll); static int toe_choose(bool *hold); static bool toe_keep(int slot); static bool toe_buy(int hh);
@@ -1642,6 +1642,7 @@ static bool prep_retreat(void) {
   if (s_prep_steps > 500 || h->hunger >= 250) return false;   // (a floor's worth, and not hungry: then on as before)
   int w = -1; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; int d = distance(m->pos, h->pos);
     if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || (m->state != ST_WANDERING && m->state != ST_SLEEPING) || d < 2 || d > 8 || (MOB_DEFS[m->type].flags & (MD_BOSS | MD_WATER))) continue;
+    if (s_pztest && m->type == MT_WRAITH && m->aux2 == 1) continue;   // (0.92: not from the ghost's curse: it mends faster than I rest)
     if (losing_fight(i)) { w = i; break; } }
   if (w < 0) return false;
   Mob *m = &G.mobs[w];
@@ -1881,6 +1882,11 @@ static bool fight(void) {
         bool tr = false; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && G.map[n] == T_INACTIVE_TRAP) tr = true; } if (tr) continue; bd = b_dist[c]; bc = c; }
       if (bc >= 0 && bc != h->pos) { int32_t t0 = h->time; ActResult rr = tap_safe(bc); if (rr != ACT_NONE || h->time != t0) { st_dmcell++; s_did[0] = 0; DID("DM-300: to a cell with no dead trap near (it repairs on them)"); walk(rr); return true; } }
       if (bc == h->pos && !ranged_try(best)) { s_did[0] = 0; DID("DM-300: hold the trap-free cell, let it come"); walk(game_rest(false)); return true; } } }
+  if (s_pztest && !getenv("NOCURSEWALL") && m->type == MT_WRAITH && m->aux2 == 1 && adjacent(m->pos, h->pos)) {   // 0.92: the ghost's curse shoves you back on each hit (then mends while it closes): stand with a wall behind, so it can't
+    int bh = h->pos + (h->pos - m->pos); bool free_behind = nb_ok(h->pos, bh) && (PASSABLE(G.map[bh]) || (TFLAGS(G.map[bh]) & F_AVOID)) && !char_at(bh);
+    if (free_behind) { int pick = -1; for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (!nb_ok(h->pos, n) || !adjacent(n, m->pos) || n == m->pos || char_at(n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID)) continue;
+        int b2 = n + (n - m->pos); if (nb_ok(n, b2) && (PASSABLE(G.map[b2]) || (TFLAGS(G.map[b2]) & F_AVOID)) && !char_at(b2)) continue; pick = n; break; }
+      if (pick >= 0) { s_did[0] = 0; DID("the curse shoves: a wall at my back"); walk(game_tap_cell(pick)); return true; } } }
   s_losing = m->type != MT_GOO && losing_fight(best);
   if (!(MOB_DEFS[m->type].flags & MD_WATER) && seed_tactic(best)) { s_losing = false; return true; }
   if (altar_lure(best)) { s_losing = false; return true; }
@@ -2864,12 +2870,16 @@ static bool decide(void) {
   if (choice < 0 && !going && (!floor_left() || (!getenv("OLDBOOKS") && storage_barr() >= 0 && ({ bool pn = false; for (int sl = 0; sl < BAG_SIZE; sl++) if (pot_new(sl)) pn = true; pn; }))) && barricade_task()) return true;
   if (choice < 0 && !going) { const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { DID("%s", pw); return true; } if (pt >= 0) { choice = pt; why = pw; } }
   if (getenv("CURSEDBG") && !s_rollout && G.q.ghost_depth == G.depth && G.q.ghost < QS_GIVEN) { static int ls = -1; if (ls != s_bot_steps / 5) { ls = s_bot_steps / 5; int gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i; printf("CURSECHK step %d choice %d going %d left %d ghost %d alt %d hungry %d gi %d fov %d\n", s_bot_steps, choice, going, floor_left(), G.q.ghost, G.q.ghost_alt, game_hungry(), gi, gi >= 0 ? BIT_GET(G.fov, G.mobs[gi].pos) : -1); } }
-  static int gd = -1, gp = -1, gi = -1, gsw = 0, gsw_t = -1; if (gd != G.depth) { gd = G.depth; gp = -1; gsw = 0; gsw_t = -1; }
+  static int gd = -1, gp = -1, gi = -1, gsw = 0, gsw_t = -1, gpd[32], gpg = -1; if (gpg != cur_game) { gpg = cur_game; for (int i = 0; i < 32; i++) gpd[i] = -1; }
+  if (gd != G.depth) { if (gd >= 0) gpd[gd & 31] = gp; gd = G.depth; gp = gpd[G.depth & 31]; gsw = 0; gsw_t = -1; }   // (where he was last seen, kept per floor)
+  if (s_curse_trip && (G.q.ghost >= QS_REWARDED || game_hungry() || (G.depth == G.q.ghost_depth && !floor_left() && G.q.ghost < QS_GIVEN && gp < 0 && gsw >= 5))) { s_curse_trip = 0; s_goal = 99; }   // (done, or no luck: on down again)
+  if (choice < 0 && !going && s_pztest && !s_curse_trip && G.depth == G.q.ghost_depth + 1 && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && !floor_left() && !game_hungry() && threat_count() == 0 && BIT_GET(G.visited, G.entrance) && curse_sim_ok()) {
+    s_curse_trip = 1; s_goal = G.depth - 1; DID("back up for the ghost's curse: I'd win it now"); walk(tap_safe(G.entrance)); return true; }
   gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i;   // (alive: the quest says so; where: only by sight)
   bool gvis = gi >= 0 && BIT_GET(G.fov, G.mobs[gi].pos);
   if (gvis) gp = G.mobs[gi].pos; else if (gp >= 0 && BIT_GET(G.fov, gp)) gp = -1;   // (where he was last seen; there and gone: lost)
   if (choice < 0 && !going && s_pztest && !floor_left() && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && gi >= 0 && !game_hungry()) {   // 0.92: the ghost's curse, at the floor's end (the pool's Strength first, the mace in hand): back to him if it's winnable now
-    if (h->HP < h->HT * 9 / 10 && threat_count() == 0) { if (curse_go_full()) { DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } }
+    if (h->HP < h->HT * 9 / 10 && threat_count() == 0) { if (curse_go_full()) { DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } else if (s_curse_trip) { s_curse_trip = 0; s_goal = 99; } }
     else if (curse_go()) { bfs(h->pos, false);
       if (gp >= 0 && b_dist[gp] < 0x7FFF && gp != h->pos) { choice = gp; why = gvis ? "the ghost: take on his curse" : "the ghost: where I last saw him"; }
       else if (gsw < 5) {                               // (he drifts about: look round the rooms for him, a few at most)
@@ -2877,7 +2887,8 @@ static bool decide(void) {
         if (gsw_t < 0 && gsw < 5) { int best = -1, bs = -1; for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r]; int c = (R->left + R->right) / 2 + (R->top + R->bottom) / 2 * MAP_W;
             if (!BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || BIT_GET(G.fov, c)) continue; int sc = b_dist[c] < 40 ? b_dist[c] : 0; if (sc > bs) { bs = sc; best = c; } }
           gsw_t = best; if (best < 0) gsw = 5; }
-        if (gsw_t >= 0) { choice = gsw_t; why = "the ghost: looking round for him"; } } } }
+        if (gsw_t >= 0) { choice = gsw_t; why = "the ghost: looking round for him"; } } }
+    else if (s_curse_trip && threat_count() == 0) { s_curse_trip = 0; s_goal = 99; } }   // (here, the real odds say no after all: on down)
   if (choice < 0 && !going && !floor_left() && s_goal > G.depth && pit_jump()) return true;
   if (choice < 0) {
     // explored: stairs, or the goal
@@ -3539,11 +3550,39 @@ static bool curse_go(void) {
   Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.depth) * 4096 + h->lvl * 128 + h->STR * 4 + (h->HP * 4 / (h->HT ? h->HT : 1));
   k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind;
   if (k == key) return ans;
-  key = k; int wins = 0, hp = 0, n = 20; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
-  char rs[160] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
+  key = k; int wins = 0, hp = 0, n = getenv("CURSEN") ? atoi(getenv("CURSEN")) : 20; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
+  char rs[1200] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
   if (getenv("CURSEDBG")) printf("  playouts: %s\n", rs);
   ans = wins >= n * 9 / 10;   // (0.92: 8 in 10 still lost the real fight: 1 death in 10 at most)
   if (getenv("CURSEDBG")) printf("CURSE d%d step %d lvl %d hp %d/%d wpn %d: %d/%d won (avg hp left %d%%) -> %s\n", G.depth, s_bot_steps, h->lvl, h->HP, h->HT, h->weapon.kind, wins, n, wins ? hp / wins : 0, ans ? "go" : "not yet");
+  return ans;
+}
+// 0.92: from a later floor, "would I beat the ghost's curse now?": the same fight played here (a curse of his floor's
+// strength beside me), my own play, a few times; then back up for it if so
+static int curse_sim1(uint32_t seed) {
+  int fds[2]; if (pipe(fds)) return 0;
+  pid_t pid = fork();
+  if (pid == 0) { signal(SIGALRM, SIG_DFL); alarm(300);
+    close(fds[0]); s_rollout = 2; V = 0; g_rng ^= seed * 2654435761u; srand(seed); resample_unknowns(seed);
+    int ok = 0, c = -1, d0 = G.depth; for (int k = 0; k < 8 && c < 0; k++) { int n = G.hero.pos + N8[k]; if (nb_ok(G.hero.pos, n) && PASSABLE(G.map[n]) && !char_at(n)) c = n; }
+    int mi = c >= 0 ? spawn_mob(MT_WRAITH, c, ST_HUNTING, 0) : -1;
+    if (mi >= 0) { int uid = G.mobs[mi].uid; G.mobs[mi].aux2 = 1; G.mobs[mi].HT = G.mobs[mi].HP = 10 + G.q.ghost_depth * 3;
+      for (int steps = 0; steps < 250 && G.hero.HP > 0 && G.depth == d0 && !s_pend_depth; steps++) { bool alive = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].uid == uid && G.mobs[i].HP > 0) alive = true; if (!alive) { ok = 1; break; } if (!la_step()) break; }
+      if (G.hero.HP <= 0) ok = 0; }
+    if (write(fds[1], &ok, sizeof ok) != sizeof ok) {}
+    _exit(0);
+  }
+  close(fds[1]); int ok = 0; if (read(fds[0], &ok, sizeof ok) != sizeof ok) ok = 0; close(fds[0]); int stt; waitpid(pid, &stt, 0);
+  return ok;
+}
+static bool curse_sim_ok(void) {
+  static long key = -1; static bool ans; Hero *h = &G.hero;
+  long k = ((long)cur_game * 64 + G.depth) * 4096 + h->lvl * 128 + h->STR * 4; k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind;
+  if (k == key) return ans;
+  key = k; int n = getenv("CURSEN") ? atoi(getenv("CURSEN")) : 20, w = 0; uint32_t base = (uint32_t)(cur_game * 5153 + s_bot_steps * 41);
+  int hp = h->HP; h->HP = h->HT; for (int r = 0; r < n; r++) w += curse_sim1(base + r * 104729); h->HP = hp;   /* (rested first, as it would be) */
+  ans = w >= n * 9 / 10;
+  if (getenv("CURSEDBG")) printf("CURSESIM d%d step %d lvl %d wpn %d arm %d: %d/%d -> %s\n", G.depth, s_bot_steps, h->lvl, h->weapon.kind, h->armor.kind, w, n, ans ? "back up for it" : "no");
   return ans;
 }
 static int strategic_upgrade(int scroll) {              // 1: read on the best target, 0: hold it, -1: no choice to make
@@ -3759,7 +3798,7 @@ static int lab_trial(const char *fn, uint32_t seed) {
     if (getenv("GEARDBG")) { Hero *h = &G.hero; Item a = h->armor; printf("hero STR %d lvl %d weapon kind %d +%d str %d\n", hero_str(), h->lvl, h->weapon.kind, h->weapon.lvl, item_str(&h->weapon));
       for (int i = -1; i < BAG_SIZE; i++) { Item w = i < 0 ? h->weapon : h->bag[i]; if (item_cat(w.kind) != CAT_WEAPON) continue; for (int up = 0; up <= 3; up++) { Item x = w; x.lvl = up; printf("  weapon %2d +%d (STR %d): gear_cost %.1f\n", x.kind, up, item_str(&x), gear_cost(&x, &a)); } } _exit(0); }
     g_rng ^= seed * 2654435761u; srand(seed); V = 0; s_pend_depth = 0;
-    s_goal = 99; s_last_depth = G.depth; s_goo_calm = -1; s_goo_spot = -1; s_goo_hold = 0; s_stash = -1; s_stash_drink = -1; s_last_up = -1000000; s_upg_hold_until = 0; s_test_walk = -1; s_resting = false; s_step_back = -1;
+    s_goal = 99; s_curse_trip = 0; s_last_depth = G.depth; s_goo_calm = -1; s_goo_spot = -1; s_goo_hold = 0; s_stash = -1; s_stash_drink = -1; s_last_up = -1000000; s_upg_hold_until = 0; s_test_walk = -1; s_resting = false; s_step_back = -1;
     memset(s_ign_until, 0, sizeof s_ign_until); on_new_floor(false);
     int res = 0, steps = 0, goal = getenv("LABGOAL") ? atoi(getenv("LABGOAL")) : 5, cap = getenv("LABSTEPS") ? atoi(getenv("LABSTEPS")) : 4000;   // (0.47n: any zone's boss: LABGOAL 10, ...)
     while (steps++ < cap) {
@@ -3892,7 +3931,7 @@ static int run_explab(void) {
       pid_t pid = fork();
       if (pid == 0) {
         close(fds[0]); V = 0; s_is_child = 1;
-        memset(s_ign_until, 0, sizeof s_ign_until); s_goal = 99; s_last_depth = G.depth; s_goo_calm = -1; s_goo_spot = -1; s_goo_hold = 0; s_stash = -1; s_stash_drink = -1; s_last_up = -1000000; s_upg_hold_until = 0; s_test_walk = -1; s_resting = false; s_step_back = -1; s_pick = -1; s_wnd_btn = 0; s_pend_depth = 0;
+        memset(s_ign_until, 0, sizeof s_ign_until); s_goal = 99; s_curse_trip = 0; s_last_depth = G.depth; s_goo_calm = -1; s_goo_spot = -1; s_goo_hold = 0; s_stash = -1; s_stash_drink = -1; s_last_up = -1000000; s_upg_hold_until = 0; s_test_walk = -1; s_resting = false; s_step_back = -1; s_pick = -1; s_wnd_btn = 0; s_pend_depth = 0;
         exp_clear_mobs(); on_new_floor(true);
         if (getenv("EXPH") && atoi(getenv("EXPH")) == g * 100 + d) for (int i = 0; i < G.n_heaps; i++) { char nm[64]; item_name(&G.heaps[i].item, nm, sizeof nm); printf("    HEAP %d at %d,%d type %d: %s\n", i, cx(G.heaps[i].pos), cy(G.heaps[i].pos), G.heaps[i].type, nm); }
         uint8_t tg[MAP_LEN]; int ncell; exp_target(tg, &ncell); int nit = exp_items(tg), orc = getenv("SEER") ? exp_seer(tg) : exp_oracle(tg);
@@ -3977,7 +4016,7 @@ int main(int argc, char **argv) {
       Item w = item_make(sd >= 15 ? IK_LONGSWORD : IK_SWORD, 1); w.lvl = sd / 4; w.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; w.dur = item_max_dur(&w); G.hero.weapon = w; }
     memset(s_ign_until, 0, sizeof s_ign_until);
     s_goo_calm = -1; s_goo_spot = -1; s_goo_hold = 0; s_stash = -1; s_stash_drink = -1; s_last_up = -1000000; s_upg_hold_until = 0; s_test_walk = -1; s_resting = false; s_step_back = -1;   // bot3: per-game state
-    s_am_depth = 0; s_won = 0; s_amulet_scene = 0; s_goal = 99; s_pick = -1; s_wnd_btn = 0; s_jump = false; s_last_depth = -1; s_nlog = 0; memset(s_last_log, 0, sizeof s_last_log);
+    s_am_depth = 0; s_won = 0; s_amulet_scene = 0; s_goal = 99; s_curse_trip = 0; s_pick = -1; s_wnd_btn = 0; s_jump = false; s_last_depth = -1; s_nlog = 0; memset(s_last_log, 0, sizeof s_last_log);
     int last_now = G.now, same_now = 0, saved_at = G.now, prev_max = 0, s_level_changes = 0;
     int steps;
     for (steps = s_camp_steps; steps < maxsteps && !s_won; steps++) {
