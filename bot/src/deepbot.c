@@ -3548,20 +3548,22 @@ static int curse_playout(uint32_t seed) {
 }
 static bool curse_go(void);
 static bool curse_go_full(void) { Hero *h = &G.hero; int hp = h->HP; h->HP = h->HT; bool r = curse_go(); h->HP = hp; return r; }   // (would it be, rested?)
-static bool curse_go(void) {
-  if (getenv("CURSEGO") || s_curse_force) return true;
-  if (!s_pztest || getenv("NOCURSESIM") || s_rollout || s_is_child) return false;
-  static long key = -1; static bool ans;
+static int curse_odds(void) {
+  if (getenv("CURSEGO") || s_curse_force) return 100;
+  if (!s_pztest || getenv("NOCURSESIM") || s_rollout || s_is_child) return 0;
+  static long key = -1; static int ans;
   Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.depth) * 4096 + h->lvl * 128 + h->STR * 4 + (h->HP * 4 / (h->HT ? h->HT : 1));
   k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind;
   if (k == key) return ans;
   key = k; int wins = 0, hp = 0, n = getenv("CURSEN") ? atoi(getenv("CURSEN")) : 20; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
   char rs[1200] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
   if (getenv("CURSEDBG")) printf("  playouts: %s\n", rs);
-  ans = wins >= n * (getenv("CURSEPCT") ? atoi(getenv("CURSEPCT")) : 80) / 100;   // (0.92: the armour it gives is the difference on floor 4 (crabs): 4 honest runs without it all died there; 1 in 5 risk is worth it)
-  if (getenv("CURSEDBG")) printf("CURSE d%d step %d lvl %d hp %d/%d wpn %d: %d/%d won (avg hp left %d%%) -> %s\n", G.depth, s_bot_steps, h->lvl, h->HP, h->HT, h->weapon.kind, wins, n, wins ? hp / wins : 0, ans ? "go" : "not yet");
+  ans = wins * 100 / n;   // (0.92: the armour it gives is the difference on floor 4 (crabs): 4 honest runs without it all died there; 1 in 5 risk is worth it)
+  if (getenv("CURSEDBG")) printf("CURSE d%d step %d lvl %d hp %d/%d wpn %d: %d/%d won (avg hp left %d%%) -> %s\n", G.depth, s_bot_steps, h->lvl, h->HP, h->HT, h->weapon.kind, wins, n, wins ? hp / wins : 0, ans >= 80 ? "80%+" : "low");
   return ans;
 }
+static bool curse_go(void) {   // 0.92: met mid-floor, only a near-sure thing (the floor may still hold Strength, a better weapon); at the floor's end, 4 in 5
+  int o = curse_odds(); return o >= (floor_left() ? 95 : (getenv("CURSEPCT") ? atoi(getenv("CURSEPCT")) : 80)); }
 // 0.92: from a later floor, "would I beat the ghost's curse now?": the same fight played here (a curse of his floor's
 // strength beside me), my own play, a few times; then back up for it if so
 static int curse_sim1(uint32_t seed) {
