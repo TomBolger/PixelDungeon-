@@ -3558,7 +3558,7 @@ static bool curse_go(void) {
   key = k; int wins = 0, hp = 0, n = getenv("CURSEN") ? atoi(getenv("CURSEN")) : 20; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
   char rs[1200] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
   if (getenv("CURSEDBG")) printf("  playouts: %s\n", rs);
-  ans = wins >= n * 9 / 10;   // (0.92: 8 in 10 still lost the real fight: 1 death in 10 at most)
+  ans = wins >= n * (getenv("CURSEPCT") ? atoi(getenv("CURSEPCT")) : 80) / 100;   // (0.92: the armour it gives is the difference on floor 4 (crabs): 4 honest runs without it all died there; 1 in 5 risk is worth it)
   if (getenv("CURSEDBG")) printf("CURSE d%d step %d lvl %d hp %d/%d wpn %d: %d/%d won (avg hp left %d%%) -> %s\n", G.depth, s_bot_steps, h->lvl, h->HP, h->HT, h->weapon.kind, wins, n, wins ? hp / wins : 0, ans ? "go" : "not yet");
   return ans;
 }
