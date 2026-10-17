@@ -325,7 +325,7 @@ static ActResult tap_safe(int c) {                       // 0.47n: every tap: ac
   if (st < 0) return game_tap_cell(c);
   return BURNT(st) ? bot_search() : game_tap_cell(st);
 }
-static bool s_piranhas, s_brave; static bool s_front_ortho, s_front_wall; static int s_exw_far; static int s_exw_diag, s_exw_unk, s_exw_item, s_exw_inear = 99; static bool s_exp_tsp; static int s_srch_dead; static int s_detour, s_grassw, st_detour; static bool s_kite2, s_scrhold, s_pztest; static int s_headb; static int s_expgain, s_expcommit, s_exp_tgt = -1;
+static bool s_piranhas, s_brave; static bool s_front_ortho, s_front_wall; static int s_exw_far; static int s_exw_diag, s_exw_unk, s_exw_item, s_exw_inear = 99; static bool s_exp_tsp; static int s_srch_dead; static int s_detour, s_grassw, st_detour; static bool s_kite2, s_scrhold, s_pztest; static int s_pocket; static int s_headb; static int s_expgain, s_expcommit, s_exp_tgt = -1;
 static bool known_wall(int c) { return (unsigned)c < MAP_LEN && BIT_GET(G.visited, c) && (G.map[c] == T_WALL || G.map[c] == T_WALL_DECO); }
 static bool likely_wall(int u) {                         // bot3: an unseen cell in line with known walls (left and right, or above and below): part of a wall
   return (known_wall(u - 1) && known_wall(u + 1) && cx(u) > 0 && cx(u) < MAP_W - 1) || (known_wall(u - MAP_W) && known_wall(u + MAP_W));
@@ -1475,7 +1475,7 @@ static int plan_next(bool going, const char **why) {
     // from where #1 leaves me, times how likely I'd make it. Doing it now costs only the detour. Take the best such
     // detour first when it's cheaper than its weighted trip back.
     static int s_dt = -1, s_dt_d = -1; static const char *s_dtw; if (s_dt_d != G.depth) { s_dt = -1; s_dt_d = G.depth; }
-    if (s_dt >= 0 && (s_dt == h->pos || b_dist[s_dt] >= 0x7FFF || b_dist[s_dt] > 10 || !(heap_at(s_dt) >= 0 ? heap_wanted(heap_at(s_dt)) : G.map[s_dt] == T_HIGH_GRASS))) s_dt = -1;
+    if (s_dt >= 0 && (s_dt == h->pos || b_dist[s_dt] >= 0x7FFF || b_dist[s_dt] > 10 || !(heap_at(s_dt) >= 0 ? heap_wanted(heap_at(s_dt)) : G.map[s_dt] == T_HIGH_GRASS || (s_pocket && frontier(s_dt))))) s_dt = -1;
     if (s_dt >= 0) { best = s_dt; bw = s_dtw; goto detour_done; }   // (a detour, once chosen, is kept till done: two things each behind the other made it walk to and fro)
     static int16_t dh[MAP_LEN]; memcpy(dh, b_dist, sizeof dh); bfs(best, false);
     int pick = -1, pg = 0; const char *pw = NULL;
@@ -1484,6 +1484,7 @@ static int plan_next(bool going, const char **why) {
       int wt = 0; const char *w = NULL; int hpi = heap_at(c);
       if (hpi >= 0 && heap_wanted(hpi)) { wt = 10; w = "item"; }
       else if (G.map[c] == T_HIGH_GRASS && BIT_GET(G.visited, c) && !boss_zone(c) && mob_at(c) < 0 && s_grassw) { wt = s_grassw; w = "grass"; }
+      else if (s_pocket && frontier(c) && !(s_piranhas && PREACH(c)) && !boss_zone(c) && (cx(c) <= 5 || cx(c) >= MAP_W - 6 || cy(c) <= 5 || cy(c) >= MAP_H - 6)) { wt = s_pocket; w = "explore"; }   // 0.92 (seed 84 d1: the west door by the stairs, left at turn 0, cost a 30-turn trip back): a corner pocket beside me is cheap now, dear later
       if (!w) continue;
       int detour = dh[c] + b_dist[c] - dh[best], back = 2 * b_dist[c] + 2, gain = back * wt - detour * 10;   // (tenths)
       if (detour <= s_detour && gain > pg) { pg = gain; pick = c; pw = w; } }
@@ -2863,17 +2864,20 @@ static bool decide(void) {
   if (choice < 0 && !going && (!floor_left() || (!getenv("OLDBOOKS") && storage_barr() >= 0 && ({ bool pn = false; for (int sl = 0; sl < BAG_SIZE; sl++) if (pot_new(sl)) pn = true; pn; }))) && barricade_task()) return true;
   if (choice < 0 && !going) { const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { DID("%s", pw); return true; } if (pt >= 0) { choice = pt; why = pw; } }
   if (getenv("CURSEDBG") && !s_rollout && G.q.ghost_depth == G.depth && G.q.ghost < QS_GIVEN) { static int ls = -1; if (ls != s_bot_steps / 5) { ls = s_bot_steps / 5; int gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i; printf("CURSECHK step %d choice %d going %d left %d ghost %d alt %d hungry %d gi %d fov %d\n", s_bot_steps, choice, going, floor_left(), G.q.ghost, G.q.ghost_alt, game_hungry(), gi, gi >= 0 ? BIT_GET(G.fov, G.mobs[gi].pos) : -1); } }
-  static int gd = -1, gp = -1, gi = -1; if (gd != G.depth) { gd = G.depth; gp = -1; }
-  gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i;
-  if (gi >= 0 && BIT_GET(G.fov, G.mobs[gi].pos)) gp = G.mobs[gi].pos;   // (where he was last seen)
-  if (choice < 0 && !going && s_pztest && !floor_left() && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && !game_hungry()) {   // 0.92: the ghost's curse, at the floor's end (the pool's Strength first, the mace in hand): back to him if it's winnable now
-    if (gp >= 0 && gi >= 0) {
-      if (h->HP < h->HT * 9 / 10 && threat_count() == 0) { if (curse_go_full()) { DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } }
-      else if (curse_go()) { bfs(h->pos, false); int t = G.mobs[gi].pos;   /* (he drifts about: where he is now; a player would look round for him) */ if (getenv("CURSEDBG") && s_curse_force) fprintf(stderr, "   ghost at %d,%d bdist %d\n", cx(t), cy(t), b_dist[t]); if (b_dist[t] >= 0x7FFF) { int bc = -1; for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] < 0x7FFF && (bc < 0 || distance(c, t) * 4 + b_dist[c] / 4 < distance(bc, t) * 4 + b_dist[bc] / 4)) bc = c; if (bc >= 0) t = bc; }   /* (out of the known map: as near as the known ways go) */
-        if (t == h->pos && !adjacent(t, G.mobs[gi].pos)) { static int sd = -1, sc = -1; if (sd != G.depth * MAP_LEN + h->pos) { sd = G.depth * MAP_LEN + h->pos; sc = 0; }
-          if (sc++ < 2) { for (int k = 0; k < 8; k++) { int c = h->pos + N8[k]; if (nb_ok(h->pos, c)) BIT_SET(s_searched, c); } DID("the ghost is past here, out of the known map: search"); walk(bot_search()); return true; }
-          gp = -1; }   /* (nothing found: leave him) */
-        else if (b_dist[t] < 0x7FFF && t != h->pos) { choice = t; why = "the ghost: take on his curse"; } } } }
+  static int gd = -1, gp = -1, gi = -1, gsw = 0, gsw_t = -1; if (gd != G.depth) { gd = G.depth; gp = -1; gsw = 0; gsw_t = -1; }
+  gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i;   // (alive: the quest says so; where: only by sight)
+  bool gvis = gi >= 0 && BIT_GET(G.fov, G.mobs[gi].pos);
+  if (gvis) gp = G.mobs[gi].pos; else if (gp >= 0 && BIT_GET(G.fov, gp)) gp = -1;   // (where he was last seen; there and gone: lost)
+  if (choice < 0 && !going && s_pztest && !floor_left() && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && gi >= 0 && !game_hungry()) {   // 0.92: the ghost's curse, at the floor's end (the pool's Strength first, the mace in hand): back to him if it's winnable now
+    if (h->HP < h->HT * 9 / 10 && threat_count() == 0) { if (curse_go_full()) { DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } }
+    else if (curse_go()) { bfs(h->pos, false);
+      if (gp >= 0 && b_dist[gp] < 0x7FFF && gp != h->pos) { choice = gp; why = gvis ? "the ghost: take on his curse" : "the ghost: where I last saw him"; }
+      else if (gsw < 5) {                               // (he drifts about: look round the rooms for him, a few at most)
+        if (gsw_t >= 0 && (h->pos == gsw_t || b_dist[gsw_t] >= 0x7FFF)) { gsw++; gsw_t = -1; }
+        if (gsw_t < 0 && gsw < 5) { int best = -1, bs = -1; for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r]; int c = (R->left + R->right) / 2 + (R->top + R->bottom) / 2 * MAP_W;
+            if (!BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || BIT_GET(G.fov, c)) continue; int sc = b_dist[c] < 40 ? b_dist[c] : 0; if (sc > bs) { bs = sc; best = c; } }
+          gsw_t = best; if (best < 0) gsw = 5; }
+        if (gsw_t >= 0) { choice = gsw_t; why = "the ghost: looking round for him"; } } } }
   if (choice < 0 && !going && !floor_left() && s_goal > G.depth && pit_jump()) return true;
   if (choice < 0) {
     // explored: stairs, or the goal
@@ -3368,11 +3372,14 @@ static void resample_unknowns(uint32_t seed) {
     int held[12], nh = 0; bool used[12] = { 0 };
     for (int s2 = -1; s2 < PACK0 + 32; s2 = s2 == BAG_SIZE - 1 ? PACK0 : s2 + 1) { int k = game_slot(s2)->kind; if (item_cat(k) != (pass ? CAT_SCROLL : CAT_POTION) || item_known(k)) continue;
       bool dup = false; for (int j = 0; j < nh; j++) dup |= held[j] == k; if (!dup && nh < 12) held[nh++] = k; }
+    if (s_pztest) for (int i = 0; i < G.n_heaps; i++) { int k = G.heaps[i].item.kind; if (item_cat(k) != (pass ? CAT_SCROLL : CAT_POTION) || item_known(k)) continue;   // 0.92: the floor's unknown ones too (same flavours)
+      bool dup = false; for (int j = 0; j < nh; j++) dup |= held[j] == k; if (!dup && nh < 12) held[nh++] = k; }
     int map[12];
     for (int j = 0; j < nh; j++) { int tot = 0; for (int i = 0; i < 12; i++) if (!used[i] && !item_known(K[i])) tot += W[i];
       map[j] = held[j]; if (tot <= 0) continue; r = r * 1664525u + 1013904223u; int x = (r >> 8) % tot;
       for (int i = 0; i < 12; i++) if (!used[i] && !item_known(K[i])) { if (x < W[i]) { used[i] = true; map[j] = K[i]; break; } x -= W[i]; } }
     for (int s2 = -1; s2 < PACK0 + 32; s2 = s2 == BAG_SIZE - 1 ? PACK0 : s2 + 1) { Item *it = game_slot(s2); for (int j = 0; j < nh; j++) if (it->kind == held[j]) { it->kind = map[j]; break; } }
+    if (s_pztest) for (int i = 0; i < G.n_heaps; i++) { Item *it = &G.heaps[i].item; for (int j = 0; j < nh; j++) if (it->kind == held[j]) { it->kind = map[j]; break; } }
   }
 }
 static int playout(Cand c, uint32_t seed) {
@@ -3490,7 +3497,7 @@ static int strat_playout(int scroll, int target, uint32_t seed) {
   int fds[2]; if (pipe(fds)) return -1;
   pid_t pid = fork();
   if (pid == 0) { signal(SIGALRM, SIG_DFL); alarm(900);
-    close(fds[0]); s_rollout = 2; V = 0; g_rng ^= seed * 2654435761u; srand(seed);
+    close(fds[0]); s_rollout = 2; V = 0; g_rng ^= seed * 2654435761u; srand(seed); if (s_pztest) resample_unknowns(seed);   /* 0.92 (owner: no peeking): unknown potions and scrolls are any of the unknown kinds */
     int d0 = G.depth, sc;
     if (target == -1000) s_upg_hold_until = G.now + 400 * TICK; else { s_force_pick = target; do_item(scroll, ACN_READ); if (s_pick >= 0) la_step(); }
     int steps = 0;
@@ -3512,7 +3519,7 @@ static int curse_playout(uint32_t seed) {
   int fds[2]; if (pipe(fds)) return 0;
   pid_t pid = fork();
   if (pid == 0) { signal(SIGALRM, SIG_DFL); alarm(300);
-    close(fds[0]); s_rollout = 2; s_curse_force = 1; V = 0; g_rng ^= seed * 2654435761u; srand(seed);
+    close(fds[0]); s_rollout = 2; s_curse_force = 1; V = 0; g_rng ^= seed * 2654435761u; srand(seed); if (s_pztest) resample_unknowns(seed);   /* 0.92 (owner: no peeking): unknown potions and scrolls are any of the unknown kinds */
     int d0 = G.depth, steps = 0, ok = 0;
     while (G.hero.HP > 0 && steps < 400 && G.depth == d0 && !s_pend_depth) { if (G.q.ghost >= QS_DONE) { ok = 1; break; } if (!la_step()) break; if (getenv("CURSEDBG") && steps < 4 && seed % 7 == 0) fprintf(stderr, "   child %d: %s\n", steps, s_did); steps++; }
     if (G.hero.HP <= 0) ok = 0; else if (G.q.ghost >= QS_DONE) ok = 1 + G.hero.HP * 100 / G.hero.HT; else ok = G.depth != d0 || s_pend_depth ? -2 : steps >= 400 ? -3 : -4;
@@ -3935,7 +3942,7 @@ int main(int argc, char **argv) {
   if (getenv("ARRLAB")) return run_lab(getenv("ARRLAB"));
   s_dring_on = getenv("DEATHRING") != NULL; if (getenv("STARVELEAVE")) s_starve_leave = atoi(getenv("STARVELEAVE"));
   if (getenv("ARM_SPEEDK")) s_arm_speedk = atof(getenv("ARM_SPEEDK"));
-  s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") != NULL; s_pztest = getenv("PZTEST") != NULL; s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
+  s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_pocket = getenv("POCKET") ? atoi(getenv("POCKET")) : 0; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") != NULL; s_pztest = getenv("PZTEST") != NULL; s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
   if (getenv("EXPLAB")) return run_explab();
   int N = argc > 1 ? atoi(argv[1]) : 100, hs = getenv("HS") ? atoi(getenv("HS")) : 3;
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;
