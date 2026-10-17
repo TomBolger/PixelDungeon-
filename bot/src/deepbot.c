@@ -74,6 +74,7 @@ static bool lookahead(void);
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
 static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 2500 };
 static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static bool attack_wand_ready(void); static bool room_seen(int r);
+static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force;
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
 static double s_hp_cut; static bool s_toe; static int toe_upgrade(int scroll); static int toe_choose(bool *hold); static bool toe_keep(int slot); static bool toe_buy(int hh);
@@ -618,7 +619,7 @@ static int wnd_for(void) {                              // a window with buttons
       if (x->kind && x->kind == y->kind && item_upgradable(x->kind) && item_identified(x) && item_identified(y) && !(x->flags & IF_CURSED) && !(y->flags & IF_CURSED) && x->lvl >= 0 && y->lvl >= 0) pa = 1; }
     return pa ? 0 : 1; }
   if (s_wnd_type == MT_GHOST && !getenv("OLDQBUG")) {   // 0.52 (audit): "Yes, I will do it" to the curse; the reward by the model, on the two items he shows
-    if (strncmp(s_wnd_b1, "Yes", 3) == 0) return attack_wand_ready() && G.hero.HP >= G.hero.HT * 9 / 10 ? 0 : 1;   // (review: the curse dodges 65 and regenerates: melee can't win it; a wand never misses)   // (the curse rises as a wraith of 10+3*depth HP beside you, hunting: only when ready)
+    if (strncmp(s_wnd_b1, "Yes", 3) == 0) return (attack_wand_ready() || curse_go()) && G.hero.HP >= G.hero.HT * 9 / 10 ? 0 : 1;   // (review: the curse dodges 65 and regenerates: melee can't win it; a wand never misses)   // (the curse rises as a wraith of 10+3*depth HP beside you, hunting: only when ready)
     Item bw = believed(&G.hero.weapon, 0), ba = believed(&G.hero.armor, 0);
     return gear_cost(&G.q.ghost_weapon, &ba) <= gear_cost(&bw, &G.q.ghost_armor) ? 0 : 1; }
   if (s_wnd_type == MT_GHOST) return G.hero.weapon.lvl > G.hero.armor.lvl ? 1 : 0;
@@ -648,9 +649,9 @@ static bool stash_ready(void) { return s_stash >= 0 && (item_known(IK_POT_FLAME)
 static int trap_room_kind_any(int r) { Room *R = &G.rooms[r]; for (int y = R->top + 1; y < R->bottom; y++) for (int x = R->left + 1; x < R->right; x++) if (TFLAGS(G.map[x + y * MAP_W]) & F_AVOID) return 1; return 0; }
 static bool gear_worth_upgrading(void) {                // 0.91: something better than the starting kit to put an Upgrade into
   Hero *h = &G.hero;
-  if ((h->armor.kind && item_str(&h->armor) >= 13) || (h->weapon.kind && item_str(&h->weapon) >= 14)) return true;
+  if ((h->armor.kind && item_str(&h->armor) >= 13) || (h->weapon.kind && item_str(&h->weapon) + h->weapon.lvl >= 14)) return true;
   for (int sl = -4; sl < BAG_SIZE; sl++) { Item *it = game_slot(sl); int c = item_cat(it->kind); if (c == CAT_WAND || c == CAT_RING) return true;
-    if (sl >= 0 && !cursed_known(it) && ((c == CAT_ARMOR && item_str(it) >= 13) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && item_str(it) >= 14))) return true; }
+    if (sl >= 0 && !cursed_known(it) && ((c == CAT_ARMOR && item_str(it) >= 13) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && item_str(it) + it->lvl >= 14))) return true; }
   return false;
 }
 static int room_at_door_in(int door) {                  // the trap room a door opens into (the room beside it that's RT_TRAPS), or -2
@@ -794,7 +795,8 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       int sl = i < BAG_SIZE ? i : PACK0 + i - BAG_SIZE; Item *it = game_slot(sl);
       if (!it->kind || item_known(it->kind)) continue;
       int c = item_cat(it->kind);
-      if (c == CAT_SCROLL && !getenv("OLDHERO") && s_floor_steps > 30 && bag_used() < BAG_SIZE - 2 && !cursed_known(&h->armor) && !cursed_known(&h->weapon) && floor_left() && !boss_depth(G.depth)) continue;   // 0.52 (audit): an unknown scroll waits for the next floor's start (Mapping then saves the walking)
+      if (c == CAT_SCROLL && getenv("SCRDBG") && !s_rollout) { static int ls = -1; if (ls != s_bot_steps) { ls = s_bot_steps; printf("SCR step %d d%d fsteps %d bag %d left %d gw %d\n", s_bot_steps, G.depth, s_floor_steps, bag_used(), floor_left(), gear_worth_upgrading()); } }
+      if (c == CAT_SCROLL && !getenv("OLDHERO") && s_floor_steps > 30 && bag_used() < BAG_SIZE - 2 && !cursed_known(&h->armor) && !cursed_known(&h->weapon) && (floor_left() || s_pztest) && !boss_depth(G.depth) && !(s_pztest && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && gear_worth_upgrading())) continue;   // (0.92: not with the ghost's curse to fight here: an Upgrade helps now)   // 0.52 (audit): an unknown scroll waits for the next floor's start (Mapping then saves the walking)
       if (c == CAT_SCROLL && s_scrhold && !gear_worth_upgrading() && bag_used() < BAG_SIZE - 3 && G.depth < 4 && !cursed_known(&h->armor) && !cursed_known(&h->weapon)) continue;   // 0.91 (owner): an Upgrade read now goes into the starting gear: hold them till something's worth it (or the Goo's near)
       if (c == CAT_SCROLL) { st_uses[ACN_READ]++; st_kinds[it->kind]++; do_item(sl, ACN_READ); return true; }
       if (c == CAT_POTION && getenv("HOLDPOT") && floor_left() && G.depth <= 2) continue;
@@ -2015,7 +2017,7 @@ static bool fight(void) {
     bool hit; if (ballistica(h->pos, m->pos, &hit) == m->pos) { st_boom++; st_uses[ACN_THROW]++; s_did[0] = 0; DID("boomerang at the %s, %d away", mob_name(m->type), distance(m->pos, h->pos)); walk(game_throw(boom_slot(), m->pos)); return true; } }
   if (!getenv("OLDKITE") && distance(m->pos, h->pos) >= 3 && ranged_try(best)) return true;   // (review: missiles first while it's far: the huntress's boomerang, darts)
   if (getenv("KITEDBG") && !s_rollout) printf("KITE s%d m%d st%d kfast %d adj %d seen %d roots %d\n", s_bot_steps, m->type, m->state, kfast, adjacent(m->pos, h->pos), (m->flags & MF_SEEN) != 0, h->b.roots);
-  if (!getenv("OLDKITE") && !kfast && m->state == ST_HUNTING && !h->b.roots && !(adjacent(m->pos, h->pos) && !(m->flags & MF_SEEN)) && !(MOB_DEFS[m->type].flags & (MD_BOSS | MD_WATER)) &&
+  if (!getenv("OLDKITE") && !kfast && m->state == ST_HUNTING && !h->b.roots && !(s_pztest && m->type == MT_WRAITH && m->aux2 == 1) &&   /* 0.92: not the ghost's curse: it mends a point a turn while it hunts for you */ !(adjacent(m->pos, h->pos) && !(m->flags & MF_SEEN)) && !(MOB_DEFS[m->type].flags & (MD_BOSS | MD_WATER)) &&
       (getenv("KITE_ALL") ? 1 : getenv("KITE_HARD") ? (m->type == MT_WRAITH || phit(hero_attack_skill(NULL, m->pos), mst(m, STAT_DEF, MOB_DEFS[m->type].def)) < 0.5) : 1) && !magic_shooter(m->type) && m->type != MT_SCORPIO && m->type != MT_ACIDIC && m->type != MT_MIMIC && m->type != MT_STATUE) {
     if (s_kite_uid == m->uid && h->pos == s_kite_cell && s_bot_steps - s_kite_t < 25 && !adjacent(m->pos, h->pos)) { s_did[0] = 0; DID("door kite: beside the door, out of its sight; it comes through blind"); walk(game_rest(false)); return true; }
     if (s_kite_uid != m->uid || s_bot_steps - s_kite_t >= 25) {
@@ -2112,7 +2114,7 @@ static bool fight(void) {
 static bool npc_wanted(int i) {
   Quests *q = &G.q; int t = G.mobs[i].type;
   switch (t) {
-    case MT_GHOST: return q->ghost == QS_SPAWNED || (q->ghost_alt == 2 && q->ghost != QS_GIVEN && (getenv("OLDQBUG") || q->ghost == QS_DONE || (attack_wand_ready() && G.hero.HP >= G.hero.HT * 9 / 10))) || (q->ghost == QS_GIVEN && find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0) || (q->ghost == QS_DONE && (q->ghost_alt == 2 || find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0));
+    case MT_GHOST: return q->ghost == QS_SPAWNED || (q->ghost_alt == 2 && q->ghost != QS_GIVEN && (getenv("OLDQBUG") || q->ghost == QS_DONE || ((attack_wand_ready() || curse_go()) && G.hero.HP >= G.hero.HT * 9 / 10))) || (q->ghost == QS_GIVEN && find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0) || (q->ghost == QS_DONE && (q->ghost_alt == 2 || find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0));
     case MT_WANDMAKER: { static const uint8_t W[3] = { IK_SEED_ROTBERRY, IK_CORPSE_DUST, IK_PHANTOM_FISH }; return q->wand == QS_SPAWNED || (q->wand == QS_GIVEN && find_kind(W[q->wand_alt % 3]) >= 0); }
     case MT_BLACKSMITH: {
       if (q->smith == QS_SPAWNED) return true;
@@ -2860,6 +2862,18 @@ static bool decide(void) {
   }
   if (choice < 0 && !going && (!floor_left() || (!getenv("OLDBOOKS") && storage_barr() >= 0 && ({ bool pn = false; for (int sl = 0; sl < BAG_SIZE; sl++) if (pot_new(sl)) pn = true; pn; }))) && barricade_task()) return true;
   if (choice < 0 && !going) { const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { DID("%s", pw); return true; } if (pt >= 0) { choice = pt; why = pw; } }
+  if (getenv("CURSEDBG") && !s_rollout && G.q.ghost_depth == G.depth && G.q.ghost < QS_GIVEN) { static int ls = -1; if (ls != s_bot_steps / 5) { ls = s_bot_steps / 5; int gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i; printf("CURSECHK step %d choice %d going %d left %d ghost %d alt %d hungry %d gi %d fov %d\n", s_bot_steps, choice, going, floor_left(), G.q.ghost, G.q.ghost_alt, game_hungry(), gi, gi >= 0 ? BIT_GET(G.fov, G.mobs[gi].pos) : -1); } }
+  static int gd = -1, gp = -1, gi = -1; if (gd != G.depth) { gd = G.depth; gp = -1; }
+  gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i;
+  if (gi >= 0 && BIT_GET(G.fov, G.mobs[gi].pos)) gp = G.mobs[gi].pos;   // (where he was last seen)
+  if (choice < 0 && !going && s_pztest && !floor_left() && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && !game_hungry()) {   // 0.92: the ghost's curse, at the floor's end (the pool's Strength first, the mace in hand): back to him if it's winnable now
+    if (gp >= 0 && gi >= 0) {
+      if (h->HP < h->HT * 9 / 10 && threat_count() == 0) { if (curse_go_full()) { DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } }
+      else if (curse_go()) { bfs(h->pos, false); int t = G.mobs[gi].pos;   /* (he drifts about: where he is now; a player would look round for him) */ if (getenv("CURSEDBG") && s_curse_force) fprintf(stderr, "   ghost at %d,%d bdist %d\n", cx(t), cy(t), b_dist[t]); if (b_dist[t] >= 0x7FFF) { int bc = -1; for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] < 0x7FFF && (bc < 0 || distance(c, t) * 4 + b_dist[c] / 4 < distance(bc, t) * 4 + b_dist[bc] / 4)) bc = c; if (bc >= 0) t = bc; }   /* (out of the known map: as near as the known ways go) */
+        if (t == h->pos && !adjacent(t, G.mobs[gi].pos)) { static int sd = -1, sc = -1; if (sd != G.depth * MAP_LEN + h->pos) { sd = G.depth * MAP_LEN + h->pos; sc = 0; }
+          if (sc++ < 2) { for (int k = 0; k < 8; k++) { int c = h->pos + N8[k]; if (nb_ok(h->pos, c)) BIT_SET(s_searched, c); } DID("the ghost is past here, out of the known map: search"); walk(bot_search()); return true; }
+          gp = -1; }   /* (nothing found: leave him) */
+        else if (b_dist[t] < 0x7FFF && t != h->pos) { choice = t; why = "the ghost: take on his curse"; } } } }
   if (choice < 0 && !going && !floor_left() && s_goal > G.depth && pit_jump()) return true;
   if (choice < 0) {
     // explored: stairs, or the goal
@@ -3491,11 +3505,45 @@ static int strat_playout(int scroll, int target, uint32_t seed) {
   close(fds[1]); int sc = -1; if (read(fds[0], &sc, sizeof sc) != sizeof sc) sc = -1; close(fds[0]); int stt; waitpid(pid, &stt, 0);
   return sc;
 }
+// 0.92 (owner, seed 84: beat the ghost's curse with the warrior, took his scale armour): take it on when the bot's own play wins it,
+// played forward from here (fight and all) a few times; the wand rule was a guess
+
+static int curse_playout(uint32_t seed) {
+  int fds[2]; if (pipe(fds)) return 0;
+  pid_t pid = fork();
+  if (pid == 0) { signal(SIGALRM, SIG_DFL); alarm(300);
+    close(fds[0]); s_rollout = 2; s_curse_force = 1; V = 0; g_rng ^= seed * 2654435761u; srand(seed);
+    int d0 = G.depth, steps = 0, ok = 0;
+    while (G.hero.HP > 0 && steps < 400 && G.depth == d0 && !s_pend_depth) { if (G.q.ghost >= QS_DONE) { ok = 1; break; } if (!la_step()) break; if (getenv("CURSEDBG") && steps < 4 && seed % 7 == 0) fprintf(stderr, "   child %d: %s\n", steps, s_did); steps++; }
+    if (G.hero.HP <= 0) ok = 0; else if (G.q.ghost >= QS_DONE) ok = 1 + G.hero.HP * 100 / G.hero.HT; else ok = G.depth != d0 || s_pend_depth ? -2 : steps >= 400 ? -3 : -4;
+    if (write(fds[1], &ok, sizeof ok) != sizeof ok) {}
+    _exit(0);
+  }
+  close(fds[1]); int ok = 0; if (read(fds[0], &ok, sizeof ok) != sizeof ok) ok = 0; close(fds[0]); int stt; waitpid(pid, &stt, 0);
+  return ok;
+}
+static bool curse_go(void);
+static bool curse_go_full(void) { Hero *h = &G.hero; int hp = h->HP; h->HP = h->HT; bool r = curse_go(); h->HP = hp; return r; }   // (would it be, rested?)
+static bool curse_go(void) {
+  if (getenv("CURSEGO") || s_curse_force) return true;
+  if (!s_pztest || getenv("NOCURSESIM") || s_rollout || s_is_child) return false;
+  static long key = -1; static bool ans;
+  Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.depth) * 4096 + h->lvl * 128 + h->STR * 4 + (h->HP * 4 / (h->HT ? h->HT : 1));
+  k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind;
+  if (k == key) return ans;
+  key = k; int wins = 0, hp = 0, n = 10; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
+  char rs[64] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
+  if (getenv("CURSEDBG")) printf("  playouts: %s\n", rs);
+  ans = wins >= 8;
+  if (getenv("CURSEDBG")) printf("CURSE d%d step %d lvl %d hp %d/%d wpn %d: %d/%d won (avg hp left %d%%) -> %s\n", G.depth, s_bot_steps, h->lvl, h->HP, h->HT, h->weapon.kind, wins, n, wins ? hp / wins : 0, ans ? "go" : "not yet");
+  return ans;
+}
 static int strategic_upgrade(int scroll) {              // 1: read on the best target, 0: hold it, -1: no choice to make
   int tg[24], nt = 0;
   for (int sl = -2; sl < BAG_SIZE && nt < 23; sl++) { if (sl == 0 && 0) continue; Item *it = game_slot(sl); int c = item_cat(it->kind);
     if (!it->kind || ((c != CAT_WEAPON && c != CAT_ARMOR && c != CAT_WAND) && !(it->kind == IK_BOOMERANG && hunt2())) || !game_pick_ok(PICK_UPGRADE, sl)) continue; if (hunt2() && c == CAT_WEAPON && item_tier(it->kind) <= 1) continue;
     if (c == CAT_WEAPON && it->kind == IK_PICKAXE) continue;
+    if (s_pztest && sl >= 0 && (c == CAT_WEAPON || c == CAT_ARMOR) && ({ Item *eq = c == CAT_WEAPON ? &G.hero.weapon : &G.hero.armor; c == CAT_WEAPON ? weapon_score(it) <= weapon_score(eq) : armor_score(it) <= armor_score(eq); })) continue;   // 0.92 (seed 84: the spare cloth armour upgraded, scale armour on): a spare that's worse than what's on isn't a target
     tg[nt++] = sl; }
   if (!nt) return -1;
   tg[nt++] = -1000;                                    // hold
@@ -3647,6 +3695,7 @@ static void floor_report(void) {
 static void toe_cal_log(void);
 static void on_new_floor(bool first) {
   if (getenv("ROOMDBG") && !s_rollout && !s_is_child) for (int r = 0; r < G.n_rooms; r++) printf("ROOM d%d %d type %d %d,%d-%d,%d\n", G.depth, r, G.rooms[r].type, G.rooms[r].left, G.rooms[r].top, G.rooms[r].right, G.rooms[r].bottom);
+  if (getenv("ROOMDBG") && !s_rollout && !s_is_child && G.q.ghost_depth == G.depth) { char a[64], b[64]; item_name(&G.q.ghost_weapon, a, sizeof a); item_name(&G.q.ghost_armor, b, sizeof b); printf("GHOST d%d state %d alt %d weapon %s armor %s\n", G.depth, G.q.ghost, G.q.ghost_alt, a, b); }
   if (first && getenv("TOECAL")) toe_cal_log();
   s_avoid_n = 0;
   pwater_map(); g_from = -1;                            // (0.47: the heading starts fresh on each floor, as on the watch)
