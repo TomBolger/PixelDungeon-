@@ -73,7 +73,7 @@ static bool lookahead(void);
 // bot3: tunable judgment calls (PRM=v0,v1,... overrides; tools/tune.py searches them)
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
 static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 2500 };
-static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static bool attack_wand_ready(void); static bool room_seen(int r);
+static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static bool attack_wand_ready(void); static bool room_seen(int r);
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
 static double s_hp_cut; static bool s_toe; static int toe_upgrade(int scroll); static int toe_choose(bool *hold); static bool toe_keep(int slot); static bool toe_buy(int hh);
@@ -324,7 +324,7 @@ static ActResult tap_safe(int c) {                       // 0.47n: every tap: ac
   if (st < 0) return game_tap_cell(c);
   return BURNT(st) ? bot_search() : game_tap_cell(st);
 }
-static bool s_piranhas, s_brave; static bool s_front_ortho, s_front_wall; static int s_exw_far; static int s_exw_diag, s_exw_unk, s_exw_item, s_exw_inear = 99; static bool s_exp_tsp; static int s_srch_dead; static int s_expgain, s_expcommit, s_exp_tgt = -1;
+static bool s_piranhas, s_brave; static bool s_front_ortho, s_front_wall; static int s_exw_far; static int s_exw_diag, s_exw_unk, s_exw_item, s_exw_inear = 99; static bool s_exp_tsp; static int s_srch_dead; static int s_detour, s_grassw, st_detour; static bool s_kite2, s_scrhold, s_pztest; static int s_headb; static int s_expgain, s_expcommit, s_exp_tgt = -1;
 static bool known_wall(int c) { return (unsigned)c < MAP_LEN && BIT_GET(G.visited, c) && (G.map[c] == T_WALL || G.map[c] == T_WALL_DECO); }
 static bool likely_wall(int u) {                         // bot3: an unseen cell in line with known walls (left and right, or above and below): part of a wall
   return (known_wall(u - 1) && known_wall(u + 1) && cx(u) > 0 && cx(u) < MAP_W - 1) || (known_wall(u - MAP_W) && known_wall(u + MAP_W));
@@ -632,33 +632,47 @@ static bool fire_safe(int c) {                          // bot2: no flammable gr
 static bool water_near(int c, int r) { bfs(c, false); for (int i = 0; i < MAP_LEN; i++) if (IS_WATER(G.map[i]) && b_dist[i] <= r) return true; return false; }   // bot2: a fire potion: water to jump into
 static void on_new_floor(bool first); static int strategic_upgrade(int scroll); static int32_t s_upg_hold_until; static bool la_step(void);
 static bool s_resting; static int s_test_walk = -1; static int room_at(int c);
-static int s_stash = -1, s_stash_t, s_stash_drink = -1, s_nw_n, s_nw_last;                         // bot3 (owner): scrolls put down while a potion that might be liquid flame is tested
+static int s_stash = -1, s_stash_t, s_stash_drink = -1, s_nw_n, s_nw_last; static uint8_t s_stashbit[MAP_LEN / 8 + 1];   // (0.91: every cell the stash's scrolls lie on: a second drop rolls to a cell beside the first)
+static bool in_stash(int c) { return s_stash >= 0 && (unsigned)c < MAP_LEN && BIT_GET(s_stashbit, c); }                         // bot3 (owner): scrolls put down while a potion that might be liquid flame is tested
 static bool scrolls_loose(void) { for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_SCROLL) return true; return false; }   // (the scroll holder keeps its own safe)
 static bool stash_for(int drink) {                       // true: acted (dropped a scroll stack, or walked to where they go)
   Hero *h = &G.hero; if (item_known(IK_POT_FLAME) || !scrolls_loose() || getenv("NOSTASH") || s_stash_drink == -2) return false;
   if (h->pos == s_stash || (distance(h->pos, drink) >= 3 && !(TFLAGS(G.map[h->pos]) & F_FLAMABLE) && heap_at(h->pos) < 0 && h->pos != G.exit && h->pos != G.entrance && G.map[h->pos] != T_WELL && G.map[h->pos] != T_ALCHEMY)) {
-    for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_SCROLL) { s_stash = h->pos; s_stash_t = s_bot_steps; BIT_SET(s_dropped, h->pos); if (!s_rollout) st_stash++; s_did[0] = 0; DID("put the scrolls down before testing a potion (liquid flame?)"); do_item(i, ACN_DROP); return true; } }
-  bfs(h->pos, false); int best = -1, bd = 20;
+    for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_SCROLL) { if (s_stash < 0) memset(s_stashbit, 0, sizeof s_stashbit); s_stash = h->pos; s_stash_t = s_bot_steps; BIT_SET(s_dropped, h->pos); if (!s_rollout) st_stash++; s_did[0] = 0; DID("put the scrolls down before testing a potion (liquid flame?)"); do_item(i, ACN_DROP); for (int k = 0; k < G.n_heaps; k++) if ((unsigned)G.heaps[k].pos < MAP_LEN && distance(G.heaps[k].pos, h->pos) <= 1 && item_cat(G.heaps[k].item.kind) == CAT_SCROLL) { BIT_SET(s_stashbit, G.heaps[k].pos); BIT_SET(s_dropped, G.heaps[k].pos); } return true; } }
+  bfs(s_pztest ? drink : h->pos, false); int best = -1, bd = 20;   // (0.91: beside where I'll drink, not where I am: it walked 37 turns between them)
   for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] < bd && distance(c, drink) >= 3 && !(TFLAGS(G.map[c]) & F_FLAMABLE) && heap_at(c) < 0 && c != G.exit && c != G.entrance && G.map[c] != T_WELL && G.map[c] != T_ALCHEMY && !(TFLAGS(G.map[c]) & F_AVOID)) { bd = b_dist[c]; best = c; }
   if (best < 0) return false;
   int16_t p0 = h->pos; s_did[0] = 0; DID("to a safe spot for the scrolls"); walk(tap_safe(best)); if (h->pos == p0) { s_stash_drink = -2; return false; } return true;
 }
 static bool stash_ready(void) { return s_stash >= 0 && (item_known(IK_POT_FLAME) || unknown_potion() < 0 || s_bot_steps > s_stash_t + 80); }
 static int trap_room_kind_any(int r) { Room *R = &G.rooms[r]; for (int y = R->top + 1; y < R->bottom; y++) for (int x = R->left + 1; x < R->right; x++) if (TFLAGS(G.map[x + y * MAP_W]) & F_AVOID) return 1; return 0; }
+static bool gear_worth_upgrading(void) {                // 0.91: something better than the starting kit to put an Upgrade into
+  Hero *h = &G.hero;
+  if ((h->armor.kind && item_str(&h->armor) >= 13) || (h->weapon.kind && item_str(&h->weapon) >= 14)) return true;
+  for (int sl = -4; sl < BAG_SIZE; sl++) { Item *it = game_slot(sl); int c = item_cat(it->kind); if (c == CAT_WAND || c == CAT_RING) return true;
+    if (sl >= 0 && !cursed_known(it) && ((c == CAT_ARMOR && item_str(it) >= 13) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && item_str(it) >= 14))) return true; }
+  return false;
+}
+static int room_at_door_in(int door) {                  // the trap room a door opens into (the room beside it that's RT_TRAPS), or -2
+  for (int k = 0; k < 8; k++) { int n = door + N8[k]; if (!nb_ok(door, n)) continue; int r = room_at(n); if (r >= 0 && G.rooms[r].type == RT_TRAPS) return r; }
+  return -2;
+}
 static int test_cell(void) {                             // bot2: drink-test standing in water (a fire potion goes out at once): the cell, or -1
   Hero *h = &G.hero;
   if (!getenv("OLDTESTSPOT")) {                          // 0.49 (owner): in water while Liquid Flame is unknown, beside a door while the gas
-    bool wet = !item_known(IK_POT_FLAME), dooq = !item_known(IK_POT_TOXIC) || !item_known(IK_POT_PARALYTIC);   // potions are (out of it and shut
+    bool wet = !item_known(IK_POT_FLAME), atpz = false, dooq = !item_known(IK_POT_TOXIC) || !item_known(IK_POT_PARALYTIC);   // potions are (out of it and shut
     int pz = -1;                                         // the door), and near a puzzle room still to do (levitation doesn't last)
     for (int i = 0; i < G.n_heaps && pz < 0; i++) { Heap *hp = &G.heaps[i]; if ((unsigned)hp->pos >= MAP_LEN || !BIT_GET(G.visited, hp->pos)) continue; int r = room_at(hp->pos);
-      if (r >= 0 && !s_room_skip[r] && G.rooms[r].type == RT_TRAPS && trap_room_kind_any(r)) pz = room_door(r); }
+      if (r >= 0 && !room_skipped(r) && G.rooms[r].type == RT_TRAPS && trap_room_kind_any(r)) pz = room_door(r); }
+    if (s_pztest && pz >= 0 && !item_known(IK_POT_LEVITATION)) { atpz = true; wet = false; }   // 0.91 (owner: "wait to test by the puzzle"): a trap room still to do: test at its door (levitation flies straight in), not in far water
     bfs(h->pos, false); int best = -1, bs = 1 << 30;
     for (int c = 0; c < MAP_LEN; c++) {
       if (b_dist[c] > 30 || s_black[c] > s_bot_steps || !PASSABLE(G.map[c]) || (TFLAGS(G.map[c]) & F_AVOID) || heap_at(c) >= 0 || (wet && !IS_WATER(G.map[c])) || (room_at(c) >= 0 && G.rooms[room_at(c)].type == RT_POOL) || (s_stash >= 0 && distance(c, s_stash) < 3) || c == G.entrance || c == G.exit) continue;
       if (!wet && (TFLAGS(G.map[c]) & F_FLAMABLE)) continue;
       int dd = 99; if (dooq) for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && (G.map[n] == T_DOOR || G.map[n] == T_OPEN_DOOR)) dd = 0; }
       if (dooq && dd) for (int y = cy(c) - 3; y <= cy(c) + 3; y++) for (int x = cx(c) - 3; x <= cx(c) + 3; x++) if ((unsigned)x < MAP_W && (unsigned)y < MAP_H && (G.map[x + y * MAP_W] == T_DOOR || G.map[x + y * MAP_W] == T_OPEN_DOOR)) { int d2 = distance(c, x + y * MAP_W); if (d2 < dd) dd = d2; }
-      int sc = b_dist[c] + (dooq ? 8 * (dd > 3 ? 4 : dd) : 0) + (pz >= 0 ? 3 * distance(c, pz) : 0);
+      if (atpz && (distance(c, pz) > 3 || room_at(c) == room_at_door_in(pz))) continue;
+      int sc = b_dist[c] + (dooq && !atpz ? 8 * (dd > 3 ? 4 : dd) : 0) + (pz >= 0 ? (atpz ? 10 : 3) * distance(c, pz) : 0) - (atpz && IS_WATER(G.map[c]) ? 6 : 0);
       if (sc < bs) { bs = sc; best = c; } }
     return best;
   }
@@ -700,6 +714,8 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
   if (!getenv("OLDGEARFIX") && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE)) {   // 0.52 (audit): worn gear about to break (1/6 left, its level known): upgrade it now: +1 and mended (broken, it would only be mended)
     for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl > 0 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur * 6 <= item_max_dur(it) && game_pick_ok(PICK_UPGRADE, w)) {
       s_force_pick = w; DID("upgrade the %s before it breaks", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
+  if (s_pztest && boss_depth(G.depth) && enemy_count() == 0 && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {   // 0.92 (seed 84: held from floor 4 into the Goo fight and beyond): the boss floor: no more holding
+    if (!s_rollout) DID("the boss floor: the held upgrade goes in now"); do_item(s, ACN_READ); return true; }
   if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && G.now >= s_upg_hold_until && !(getenv("UPGHOLDBOSS") && !boss_depth(G.depth) && !boss_depth(G.depth + 1)) &&   /* 0.58 test (owner: hold for better gear): read only on or just before a boss floor */ (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {
     if (!s_rollout && !getenv("NOSTRAT")) { int r = s_toe && !getenv("TOENOUP") ? toe_upgrade(s) : strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
     else { bool hold = false; if (PRM[P_GEARMODEL]) upg_plan(&hold); if (!hold) { do_item(s, ACN_READ); return true; } if (!s_rollout) st_upg_holds++; }
@@ -779,11 +795,13 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       if (!it->kind || item_known(it->kind)) continue;
       int c = item_cat(it->kind);
       if (c == CAT_SCROLL && !getenv("OLDHERO") && s_floor_steps > 30 && bag_used() < BAG_SIZE - 2 && !cursed_known(&h->armor) && !cursed_known(&h->weapon) && floor_left() && !boss_depth(G.depth)) continue;   // 0.52 (audit): an unknown scroll waits for the next floor's start (Mapping then saves the walking)
+      if (c == CAT_SCROLL && s_scrhold && !gear_worth_upgrading() && bag_used() < BAG_SIZE - 3 && G.depth < 4 && !cursed_known(&h->armor) && !cursed_known(&h->weapon)) continue;   // 0.91 (owner): an Upgrade read now goes into the starting gear: hold them till something's worth it (or the Goo's near)
       if (c == CAT_SCROLL) { st_uses[ACN_READ]++; st_kinds[it->kind]++; do_item(sl, ACN_READ); return true; }
       if (c == CAT_POTION && getenv("HOLDPOT") && floor_left() && G.depth <= 2) continue;
       if (c == CAT_POTION && !getenv("OLDBOOKS") && pot_new(sl) && storage_barr() >= 0 && s_barr_tries < 3) continue;   // 0.58 (owner: "test potions of flame against books"): one found on a storage room's floor is thrown at its door, not drunk   /* 0.51: off by default: ab50 +0.107, ab50b +0.097 without the hold */
-      if (c == CAT_POTION && G.hero.b.levitation > 0 && puzzle_pending()) continue;   // (levitating: to the prize first)   // (puzzles: tested in water once the floor is done; levitating then, it flies to the prize)   // 0.49 (owner): no tests till the floor is done and its puzzles tried (a levitation potion opens a trap room)
-      bool tdep = G.depth <= 2 || (!getenv("OLDHERO") && !floor_left() && enemy_count() == 0);
+      if (c == CAT_POTION && G.hero.b.levitation > 0 && puzzle_pending()) continue;
+      if (c == CAT_POTION && s_pztest && ((!item_known(IK_POT_LEVITATION) && trap_puzzle_pending()) || (!item_known(IK_POT_INVIS) && pool_puzzle_pending()))) continue;   // 0.92 (seed 84 d2: the bistre one was invisibility, drunk across the floor from the pool with the vault's key in it): pools too   // 0.91 (owner): tested at the trap room's door (puzzle_task), where levitation flies straight in   // (levitating: to the prize first)   // (puzzles: tested in water once the floor is done; levitating then, it flies to the prize)   // 0.49 (owner): no tests till the floor is done and its puzzles tried (a levitation potion opens a trap room)
+      bool tdep = (G.depth <= 2 && !s_pztest) || (!getenv("OLDHERO") && !floor_left() && enemy_count() == 0);   // (0.91 owner: "never drink unknown potions until the end of a stage")
       if (getenv("X_NOTEST") && boss_depth(G.depth) && ({ bool b = false; for (int j = 0; j < G.n_mobs; j++) if (G.mobs[j].HP > 0 && (MOB_DEFS[G.mobs[j].type].flags & MD_BOSS)) b = true; b; })) tdep = false;   // X: no drink-tests with the boss alive on its floor   // 0.52 (audit): Healing unknown at d3 in 38% of games: test on any floor once it's done
       if (c == CAT_POTION && tdep) { if (s_stash_drink != -2) { int w = s_stash_drink >= 0 && scrolls_loose() ? s_stash_drink : test_cell(); s_stash_drink = w; if (w >= 0 && stash_for(w)) return true; } }   // (the drinking spot stays put while the scrolls go down)
       if (c == CAT_POTION && tdep && test_spot()) { st_uses[ACN_DRINK]++; st_kinds[it->kind]++; do_item(sl, ACN_DRINK); return true; }   // bot2: drink-test on floors 1-2 only, nothing flammable near
@@ -1077,14 +1095,27 @@ static bool attack_wand_ready(void); static int dry_step(int target); static boo
 // ---- bot2: special rooms (STRATEGY.md): puzzle rooms and graves wait until the floor is explored
 static int room_at(int c) { for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r]; if (cx(c) > R->left && cx(c) < R->right && cy(c) > R->top && cy(c) < R->bottom) return r; } return -1; }
 static uint8_t s_room_skip[64];                        // rooms given up on this floor (cleared on a new floor)
+static uint8_t s_room_sig[64];                         // 0.92: 2 = given up for now: no potion that could open it (back on when the potions change)
+static int pz_sig(void) { int n = 0; for (int i = 0; i < BAG_SIZE; i++) { int k = G.hero.bag[i].kind; if (item_cat(k) == CAT_POTION && (!item_known(k) || k == IK_POT_INVIS || k == IK_POT_LEVITATION)) n += k == IK_POT_INVIS ? 16 : k == IK_POT_LEVITATION ? 32 : 1; } return n & 255; }
+static bool room_skipped(int r) { if (s_room_skip[r] == 2 && pz_sig() != s_room_sig[r]) s_room_skip[r] = 0; return s_room_skip[r] != 0; }
 static bool deferred_heap(int hi) {                    // left alone until the puzzle phase
   Heap *hp = &G.heaps[hi]; int r = room_at(hp->pos);
   if (hp->type == HEAP_TOMB || hp->type == HEAP_SKELETON) return true;
   return r >= 0 && (G.rooms[r].type == RT_POOL || G.rooms[r].type == RT_TRAPS);
 }
+static bool trap_puzzle_pending(void) {                // 0.91: a trap room's prize in sight, not given up on
+  for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if ((unsigned)hp->pos >= MAP_LEN || !BIT_GET(G.visited, hp->pos) || hp->type >= HEAP_CARRIED) continue;
+    int r = room_at(hp->pos); if (r >= 0 && !room_skipped(r) && G.rooms[r].type == RT_TRAPS) return true; }
+  return false;
+}
+static bool pool_puzzle_pending(void) {                // 0.92: a pool room's prize in sight, not given up on
+  for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if ((unsigned)hp->pos >= MAP_LEN || !BIT_GET(G.visited, hp->pos) || hp->type >= HEAP_CARRIED) continue;
+    int r = room_at(hp->pos); if (r >= 0 && !room_skipped(r) && G.rooms[r].type == RT_POOL) return true; }
+  return false;
+}
 static bool puzzle_pending(void) {                     // a puzzle room's prize in sight, not given up on
   for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if ((unsigned)hp->pos >= MAP_LEN || !BIT_GET(G.visited, hp->pos) || hp->type >= HEAP_CARRIED) continue;
-    int r = room_at(hp->pos); if (r >= 0 && !s_room_skip[r] && (G.rooms[r].type == RT_POOL || G.rooms[r].type == RT_TRAPS)) return true; }
+    int r = room_at(hp->pos); if (r >= 0 && !room_skipped(r) && (G.rooms[r].type == RT_POOL || G.rooms[r].type == RT_TRAPS)) return true; }
   return false;
 }
 static int room_door(int r) {                          // a known door of room r that can be reached
@@ -1172,19 +1203,20 @@ static int trap_task(int r, int prize, const char **why) {   // -1: not this way
   char nm[64]; item_name(&h->bag[s], nm, sizeof nm); static char wb[120]; snprintf(wb, sizeof wb, "traps: throw %s onto the trap at %d,%d", nm, cx(tgt), cy(tgt)); *why = wb;
   s_trap_throws_room[r]++; st_trap_throws++; st_uses[ACN_THROW]++; walk(game_throw(s, tgt)); return -2;
 }
+#define PZSKIP(r, tag) do { if (getenv("PZDBG") && !s_rollout) printf("PZDBG d%d step %d room %d skip: %s\n", G.depth, s_bot_steps, (r), (tag)); s_room_skip[r] = 1; } while (0)
 static int puzzle_task(const char **why) {             // after exploring: a cell to go to, -2 acted, -1 nothing left
   Hero *h = &G.hero; bfs(h->pos, false);
   for (int hi = 0; hi < G.n_heaps; hi++) {
     Heap *hp = &G.heaps[hi]; int c = hp->pos;
     if ((unsigned)c >= MAP_LEN || !BIT_GET(G.visited, c) || hp->type >= HEAP_CARRIED || !deferred_heap(hi) || s_black[c] > s_bot_steps) continue;
-    int r = room_at(c); if (r >= 0 && s_room_skip[r]) continue;
+    int r = room_at(c); if (r >= 0 && room_skipped(r)) continue;
     if (hp->type == HEAP_TOMB || hp->type == HEAP_SKELETON) {     // a grave / remains: open it from the side with the fewest open cells (wraiths rise there)
-      if (r >= 0 && s_room_skip[r]) continue;
+      if (r >= 0 && room_skipped(r)) continue;
       bool skel = hp->type == HEAP_SKELETON && !getenv("OLDDUNG");   // 0.52 (audit): remains raise one weak wraith at most (and only if cursed): not a crypt
       if (!skel && !attack_wand_ready() && h->lvl < G.depth + 3) { if (r >= 0 && getenv("OLDDUNG")) s_room_skip[r] = 1; else s_black[c] = s_bot_steps + 100000; continue; }   // wraiths: wands, or much stronger
       bool pitr = skel && r >= 0 && G.rooms[r].type == RT_PIT && !getenv("OLDDUNG2");   // 0.54 (audit): in the pit room the remains are the way out (its key): never skip them, 50% health will do
       if (skel && !pitr && h->HP < h->HT * 8 / 10 && game_hungry()) { s_black[c] = s_bot_steps + 100000; continue; }
-      if (h->HP < h->HT * (pitr ? 5 : 9) / 10) { if (pitr && !game_starving()) { walk(game_rest(true)); *why = "remains: heal first"; return -2; } if (game_hungry()) { if (r >= 0) s_room_skip[r] = 1; else s_black[c] = s_bot_steps + 100000; continue; } walk(game_rest(true)); *why = "grave: heal first"; return -2; }   // (hungry: no time for it)
+      if (h->HP < h->HT * (pitr ? 5 : 9) / 10) { if (pitr && !game_starving()) { walk(game_rest(true)); *why = "remains: heal first"; return -2; } if (game_hungry()) { if (r >= 0) s_room_skip[r] = 1; else s_black[c] = s_bot_steps + 100000; continue; } if (s_pztest) { static int gk = -1, gt; if (gk != G.depth * MAP_LEN + c) { gk = G.depth * MAP_LEN + c; gt = G.now; } if (G.now - gt > 50 * TICK) { s_black[c] = s_bot_steps + 100000; continue; } }   /* 0.92 (seed 84 d6: 191 turns of resting for one grave) */ walk(game_rest(true)); *why = "grave: heal first"; return -2; }   // (hungry: no time for it)
       int best = -1, bo = 9;
       for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && PASSABLE(G.map[n]) && b_dist[n] < 0x7FFF && mob_at(n) < 0 && !(TFLAGS(G.map[n]) & F_AVOID)) { int o = open_sides(n); if (o < bo || (o == bo && b_dist[n] < b_dist[best])) { bo = o; best = n; } } }
       if (best < 0) { if (r >= 0) s_room_skip[r] = 1; else s_black[c] = s_bot_steps + 100000; continue; }
@@ -1197,22 +1229,30 @@ static int puzzle_task(const char **why) {             // after exploring: a cel
       int16_t pth[64]; int dr = room_door(r); if (dr < 0) dr = s_trap_door[r] - 1; int np = dr >= 0 ? trap_path(r, dr, c, pth) : 0; bool live = false; for (int i = 0; i < np; i++) if (TFLAGS(G.map[pth[i]]) & F_AVOID) live = true;
       if (getenv("TRAPDBG") && !s_rollout && np) { printf("TRAPDBG clear? np %d gas %d bdist %d prize %d,%d map %d path:", np, gas_in_room(r), b_dist[c], cx(c), cy(c), G.map[c]); for (int i = 0; i < np; i++) printf(" %d,%d(%d)", cx(pth[i]), cy(pth[i]), G.map[pth[i]]); printf("\n"); }
       if (np && !live && !gas_in_room(r) && b_dist[c] < 0x7FFF) { if (!s_trap_done[r]) { s_trap_done[r] = 1; st_trap_rooms++; } *why = "traps: the way is clear, grab it"; return c; }
-      int tt = trap_task(r, c, why); if (tt != -1) return tt; }
+      int tt = s_pztest && unknown_potion() >= 0 && !item_known(IK_POT_LEVITATION) ? -1 : trap_task(r, c, why); if (tt != -1) return tt; }   // (0.91 owner: test the unknown potions at its door first: levitation flies straight in)
     int door = room_door(r), stand = -1;
-    if (door < 0) { s_room_skip[r] = 1; continue; }
-    for (int k = 0; k < 8; k++) { int n = door + N8[k]; if (nb_ok(door, n) && room_at(n) != r && PASSABLE(G.map[n]) && !IS_WATER(G.map[n]) && !PREACH(n) && !(TFLAGS(G.map[n]) & (F_FLAMABLE | F_AVOID)) && b_dist[n] < 0x7FFF && (stand < 0 || fire_safe(n) > fire_safe(stand))) stand = n; }
+    if (ty == RT_TRAPS) { if (door >= 0) s_trap_door[r] = door + 1; else if (s_trap_door[r]) door = s_trap_door[r] - 1; }   // 0.91: fire took the door (seed 84): its cell is still the way in
+    if (door < 0) { PZSKIP(r, "no door"); continue; }
+    if (ty == RT_TRAPS && s_pztest) {                  // 0.91 (owner: "find a safe spot to test very nearby"): 2 steps from the door is near enough for
+      int bs = 1 << 30;                                // levitation to fly in, and a step clear of the wooden door and the grass when it's liquid flame
+      for (int y = cy(door) - 3; y <= cy(door) + 3; y++) for (int x = cx(door) - 3; x <= cx(door) + 3; x++) { if ((unsigned)x >= MAP_W || (unsigned)y >= MAP_H) continue; int c = x + y * MAP_W;
+        if (c == door || room_at(c) == r || !PASSABLE(G.map[c]) || (TFLAGS(G.map[c]) & F_AVOID) || PWATER(c) || PREACH(c) || b_dist[c] >= 0x7FFF || c == G.entrance || c == G.exit || heap_at(c) >= 0) continue;
+        int d = distance(c, door), sc = d * 4 + (d == 1 ? 12 : 0) - (IS_WATER(G.map[c]) ? 6 : 0) + ((TFLAGS(G.map[c]) & F_FLAMABLE) ? 8 : 0);
+        for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && (TFLAGS(G.map[n]) & F_FLAMABLE)) sc += 3; }
+        if (sc < bs) { bs = sc; stand = c; } } }
+    if (stand < 0) for (int k = 0; k < 8; k++) { int n = door + N8[k]; if (nb_ok(door, n) && room_at(n) != r && PASSABLE(G.map[n]) && !IS_WATER(G.map[n]) && !PREACH(n) && !(TFLAGS(G.map[n]) & (F_FLAMABLE | F_AVOID)) && b_dist[n] < 0x7FFF && (stand < 0 || fire_safe(n) > fire_safe(stand))) stand = n; }
     if (stand < 0) for (int k = 0; k < 8; k++) { int n = door + N8[k]; if (nb_ok(door, n) && room_at(n) != r && PASSABLE(G.map[n]) && !PWATER(n) && !(TFLAGS(G.map[n]) & F_AVOID) && b_dist[n] < 0x7FFF) { bool wet = false; for (int j = 0; j < 8; j++) { int m2 = n + N8[j]; if (nb_ok(n, m2) && PWATER(m2)) wet = true; } if (!wet) stand = n; } }   // bot3: (flammable or not) out of the piranhas' reach
-    if (stand < 0) { bool wet = false; for (int j = 0; j < 8; j++) { int m2 = door + N8[j]; if (nb_ok(door, m2) && PWATER(m2)) wet = true; } if (wet) { s_room_skip[r] = 1; continue; } stand = door; }
-    bool doortest = getenv("OLDDOORTEST") || (ty == RT_POOL && !getenv("OLDPOOLTEST"));   // 0.54 (owner): the pool's painter leaves a Potion of Invisibility on the floor: guess the unknown ones at the door
+    if (stand < 0) { bool wet = false; for (int j = 0; j < 8; j++) { int m2 = door + N8[j]; if (nb_ok(door, m2) && PWATER(m2)) wet = true; } if (wet) { PZSKIP(r, "wet door"); continue; } stand = door; }
+    bool doortest = getenv("OLDDOORTEST") || (ty == RT_POOL && !getenv("OLDPOOLTEST")) || (ty == RT_TRAPS && s_pztest);   // 0.54 (owner): the pool's painter leaves a Potion of Invisibility on the floor: guess the unknown ones at the door
     if (doortest && !(find_kind(need) >= 0 && item_known(need)) && unknown_potion() >= 0 && h->HP >= h->HT * 9 / 10 && stash_for(stand)) { *why = "puzzle: scrolls out of harm's way first"; return -2; }
-    if (!getenv("OLDQBUG") && (s_black[stand] > s_bot_steps || (game_starving() && h->HP < h->HT / 2))) { s_room_skip[r] = 1; continue; }   // 0.54 (r10 lockout): can't get there, or no time
+    if (!getenv("OLDQBUG") && (s_black[stand] > s_bot_steps || (game_starving() && h->HP < h->HT / 2))) { PZSKIP(r, "stand blacked / starving"); continue; }   // 0.54 (r10 lockout): can't get there, or no time
     if (h->pos != stand) { *why = "puzzle: beside the door"; return stand; }
-    if (h->HP < h->HT * 9 / 10) { if (game_hungry()) { s_room_skip[r] = 1; continue; } walk(game_rest(true)); *why = "puzzle: heal first"; return -2; }   // (hungry: no time for it)
+    if (h->HP < h->HT * 9 / 10) { if (game_hungry()) { PZSKIP(r, "hungry, hurt"); continue; } walk(game_rest(true)); *why = "puzzle: heal first"; return -2; }   // (hungry: no time for it)
     int s = find_kind(need);
     if (s >= 0 && item_known(need)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); *why = "puzzle: drink the known potion"; return -2; }
     if (unknown_potion() >= 0 && !doortest) continue;   // 0.49: not tested at the door (liquid flame, toxic gas: the deaths it caused): tested the usual way, in water; levitating, it flies in (above)
     if ((s = unknown_potion()) >= 0) { st_uses[ACN_DRINK]++; st_kinds[h->bag[s].kind]++; do_item(s, ACN_DRINK); *why = "puzzle: test an unknown potion"; return -2; }
-    s_room_skip[r] = 1;                                // no way in: leave it
+    PZSKIP(r, "no way in"); if (s_pztest) { s_room_skip[r] = 2; s_room_sig[r] = pz_sig(); }   // no way in: leave it (0.92 seed 84 d2: given up at step 172, before the bistre potion turned up: till the potions change)
   }
   return -1;
 }
@@ -1323,6 +1363,12 @@ static bool boss_zone(int c) {
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && (MOB_DEFS[m->type].flags & MD_BOSS) && m->state != ST_HUNTING && BIT_GET(G.visited, m->pos)) { int r = room_at(m->pos); if ((r >= 0 && room_at(c) == r) || distance(c, m->pos) <= 4) return true; } }
   return false;
 }
+// 0.91 (owner: "ATE DEW AT FULL HP"): a dewdrop heals first (Dewdrop.doPickUp), so take it only when it does something: under
+// half health; into a vial that isn't full at full health; or hurt with the vial full. Else leave it for later (the Assist's rule)
+static bool dew_take(void) {
+  Hero *h = &G.hero; bool vial = find_kind(IK_DEW_VIAL) >= 0;
+  return h->HP * 2 < h->HT || (vial && (G.dew < 10 ? h->HP >= h->HT : h->HP < h->HT));
+}
 static bool heap_wanted(int hp) {
   Hero *h = &G.hero; int c = G.heaps[hp].pos, ty = G.heaps[hp].type;
   if ((unsigned)c >= MAP_LEN || !BIT_GET(G.visited, c) || c == h->pos || s_black[c] > s_bot_steps || ty >= HEAP_CARRIED || ty == HEAP_FOR_SALE) return false;
@@ -1330,9 +1376,10 @@ static bool heap_wanted(int hp) {
   if ((c == G.entrance || c == G.exit) && !getenv("OLDQBUG")) return false;   // 0.54 (night ping-pong): a tap on the stairs takes them
   if ((ty == HEAP_LOCKED_CHEST || ty == HEAP_CRYSTAL_CHEST) && !(G.keys[G.depth] & 0x30)) return false;
   if (deferred_heap(hp)) return false;
+  if (!getenv("OLDDEW2") && G.heaps[hp].item.kind == IK_DEW && !dew_take()) return false;
   if (getenv("DEWLEAVE") && G.heaps[hp].item.kind == IK_DEW && find_kind(IK_DEW_VIAL) < 0 && h->HP * 3 > h->HT) return false;   // 0.78 (owner): no vial yet: leave the dew for it
   if (!getenv("OLDDEW") && G.heaps[hp].item.kind == IK_DEW && find_kind(IK_DEW_VIAL) >= 0 && G.dew < 10 && h->HP < h->HT && h->HP > h->HT / 3) return false;   // 0.52 (audit): hurt, a drop heals a point; at full health it fills the vial (a second life at 10)
-  if (c == s_stash && stash_ready() && (bag_used() < BAG_SIZE || item_cat(G.heaps[hp].item.kind) == CAT_SCROLL)) return true;   // the scrolls put down for a potion test: back in the bag
+  if ((c == s_stash || in_stash(c)) && stash_ready() && (bag_used() < BAG_SIZE || item_cat(G.heaps[hp].item.kind) == CAT_SCROLL)) return true;
   if (ty == HEAP_PLAIN && BIT_GET(s_dropped, c) && G.heaps[hp].item.kind != IK_GOLD) return false;
   if (ty == HEAP_PLAIN && bag_used() >= BAG_SIZE && item_cat(G.heaps[hp].item.kind) != CAT_KEY && G.heaps[hp].item.kind != IK_GOLD && G.heaps[hp].item.kind != IK_DEW && !(item_stackable(G.heaps[hp].item.kind) && find_kind(G.heaps[hp].item.kind) >= 0)) return false;   // (bot3: a full bag takes only what stacks onto something there)
   return true;
@@ -1376,7 +1423,7 @@ static int plan_next(bool going, const char **why) {
   Hero *h = &G.hero; bfs(h->pos, false);
   int f = g_from, hx = cx(h->pos), hy = cy(h->pos), fx = f >= 0 ? hx - cx(f) : 0, fy = f >= 0 ? hy - cy(f) : 0;
   int best = -1, bc = 1 << 30; const char *bw = NULL;
-#define CONSIDER(cell, cost, w) do { int _c = (cell), _k = (cost); if (b_dist[_c] < 0x7FFF) { int dx = cx(_c) - hx, dy = cy(_c) - hy; _k = _k * 4 - ((dx * fx + dy * fy) > 0 ? 2 : 0); if (_k < bc) { bc = _k; best = _c; bw = (w); } } } while (0)
+#define CONSIDER(cell, cost, w) do { int _c = (cell), _k = (cost); if (b_dist[_c] < 0x7FFF) { int dx = cx(_c) - hx, dy = cy(_c) - hy; _k = _k * 4 - ((dx * fx + dy * fy) > 0 ? 2 + s_headb : (dx * fx + dy * fy) < 0 ? -s_headb : 0); if (_k < bc) { bc = _k; best = _c; bw = (w); } } } while (0)
   for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i)) { int c = G.heaps[i].pos; if (going && b_dist[c] > 4) continue; CONSIDER(c, b_dist[c] + (b_dist[c] > s_exw_inear ? s_exw_item : 0), "item"); }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos) && npc_wanted(i) && s_black[m->pos] <= s_bot_steps) CONSIDER(m->pos, b_dist[m->pos] > 0 ? b_dist[m->pos] : 1, "npc"); }
   int hunt = PRM[P_HUNT] ? PRM[P_HUNT] : (getenv("OLDHUNT") || getenv("THRIFT")) ? 0 : 70;   /* (0.58 THRIFT, owner: "under-levelled but at full HP and well fed") */   // 0.52 (audit): under-levelled at Goo (3-5 vs 6-7): respawns are the XP; hunt those that still give it and that I'd beat
@@ -1420,6 +1467,27 @@ static int plan_next(bool going, const char **why) {
     if (ng >= 2 && !npcw && strcmp(bw, "well")) { int endc = BIT_GET(G.visited, G.exit) ? G.exit : -1; int f = tour_first(goal, ng, endc);
       if (f >= 0) for (int i = 0; i < ng; i++) if (goal[i] == f) { best = f; bw = gw[i]; break; } }
   }
+  if (best >= 0 && !going && s_detour && bw && (!strcmp(bw, "explore") || !strcmp(bw, "item") || !strcmp(bw, "locked door"))) {
+    // 0.91 (owner: "the probability-weighted cost of NOT doing the things that are not #1 ... and reevaluate once"): each
+    // thing passed over (a wanted item, a key, tall grass hiding dew and seeds) costs a trip back later: about there and back
+    // from where #1 leaves me, times how likely I'd make it. Doing it now costs only the detour. Take the best such
+    // detour first when it's cheaper than its weighted trip back.
+    static int s_dt = -1, s_dt_d = -1; static const char *s_dtw; if (s_dt_d != G.depth) { s_dt = -1; s_dt_d = G.depth; }
+    if (s_dt >= 0 && (s_dt == h->pos || b_dist[s_dt] >= 0x7FFF || b_dist[s_dt] > 10 || !(heap_at(s_dt) >= 0 ? heap_wanted(heap_at(s_dt)) : G.map[s_dt] == T_HIGH_GRASS))) s_dt = -1;
+    if (s_dt >= 0) { best = s_dt; bw = s_dtw; goto detour_done; }   // (a detour, once chosen, is kept till done: two things each behind the other made it walk to and fro)
+    static int16_t dh[MAP_LEN]; memcpy(dh, b_dist, sizeof dh); bfs(best, false);
+    int pick = -1, pg = 0; const char *pw = NULL;
+    for (int c = 0; c < MAP_LEN; c++) {
+      if (c == best || dh[c] == 0 || dh[c] > 8 || b_dist[c] >= 0x7FFF || s_black[c] > s_bot_steps) continue;
+      int wt = 0; const char *w = NULL; int hpi = heap_at(c);
+      if (hpi >= 0 && heap_wanted(hpi)) { wt = 10; w = "item"; }
+      else if (G.map[c] == T_HIGH_GRASS && BIT_GET(G.visited, c) && !boss_zone(c) && mob_at(c) < 0 && s_grassw) { wt = s_grassw; w = "grass"; }
+      if (!w) continue;
+      int detour = dh[c] + b_dist[c] - dh[best], back = 2 * b_dist[c] + 2, gain = back * wt - detour * 10;   // (tenths)
+      if (detour <= s_detour && gain > pg) { pg = gain; pick = c; pw = w; } }
+    memcpy(b_dist, dh, sizeof dh);
+    if (pick >= 0) { best = pick; bw = pw; st_detour++; s_dt = pick; s_dtw = pw; }
+    detour_done:; }
   if (best >= 0 && getenv("FEAT") && bw && !strcmp(bw, "explore")) {   // bot3: features of the frontier chosen (stage 1 learning)
     int uo = 0, ud = 0, maxw = 0, maxf = 0, minw = 9; for (int k = 0; k < 8; k++) { int u = best + N8[k]; if (!nb_ok(best, u) || BIT_GET(G.visited, u)) continue; if (k < 4) uo++; else ud++;
       int w = 0, f = 0; for (int j = 0; j < 8; j++) { int v = u + N8[j]; if (!nb_ok(u, v) || !BIT_GET(G.visited, v)) continue; if (G.map[v] == T_WALL || G.map[v] == T_WALL_DECO) w++; else if (PASSABLE(G.map[v]) || G.map[v] == T_DOOR) f++; }
@@ -1946,18 +2014,19 @@ static bool fight(void) {
   if (hunt2() && distance(m->pos, h->pos) >= 2 && boom_slot() >= 0 && !(m->type == MT_TENGU || m->type == MT_EYE || m->type == MT_SCORPIO || m->type == MT_ACIDIC) && !h->b.blind) {   // 0.54: the boomerang every turn while it comes (it's back in the bag at once)
     bool hit; if (ballistica(h->pos, m->pos, &hit) == m->pos) { st_boom++; st_uses[ACN_THROW]++; s_did[0] = 0; DID("boomerang at the %s, %d away", mob_name(m->type), distance(m->pos, h->pos)); walk(game_throw(boom_slot(), m->pos)); return true; } }
   if (!getenv("OLDKITE") && distance(m->pos, h->pos) >= 3 && ranged_try(best)) return true;   // (review: missiles first while it's far: the huntress's boomerang, darts)
+  if (getenv("KITEDBG") && !s_rollout) printf("KITE s%d m%d st%d kfast %d adj %d seen %d roots %d\n", s_bot_steps, m->type, m->state, kfast, adjacent(m->pos, h->pos), (m->flags & MF_SEEN) != 0, h->b.roots);
   if (!getenv("OLDKITE") && !kfast && m->state == ST_HUNTING && !h->b.roots && !(adjacent(m->pos, h->pos) && !(m->flags & MF_SEEN)) && !(MOB_DEFS[m->type].flags & (MD_BOSS | MD_WATER)) &&
       (getenv("KITE_ALL") ? 1 : getenv("KITE_HARD") ? (m->type == MT_WRAITH || phit(hero_attack_skill(NULL, m->pos), mst(m, STAT_DEF, MOB_DEFS[m->type].def)) < 0.5) : 1) && !magic_shooter(m->type) && m->type != MT_SCORPIO && m->type != MT_ACIDIC && m->type != MT_MIMIC && m->type != MT_STATUE) {
     if (s_kite_uid == m->uid && h->pos == s_kite_cell && s_bot_steps - s_kite_t < 25 && !adjacent(m->pos, h->pos)) { s_did[0] = 0; DID("door kite: beside the door, out of its sight; it comes through blind"); walk(game_rest(false)); return true; }
     if (s_kite_uid != m->uid || s_bot_steps - s_kite_t >= 25) {
       bfs(h->pos, false); int bd = -1, ba = -1, bs = 99;
       for (int D = 0; D < MAP_LEN; D++) { if ((G.map[D] != T_DOOR && G.map[D] != T_OPEN_DOOR) || !BIT_GET(G.visited, D) || b_dist[D] > 6 || char_at(D)) continue;
-        int dm = distance(m->pos, D); if ((kfast ? 2 * b_dist[D] : b_dist[D]) > dm || (b_dist[D] == dm && !adjacent(m->pos, h->pos))) continue;   // (I'm through first: one at my heels only follows, it can't strike while it keeps up)
+        int dm = distance(m->pos, D); if (getenv("KITEDBG") && !s_rollout) printf("  door %d,%d bd %d dm %d\n", cx(D), cy(D), b_dist[D], dm); if ((kfast ? 2 * b_dist[D] : b_dist[D]) > dm || (b_dist[D] == dm && !adjacent(m->pos, h->pos))) continue;   // (I'm through first: one at my heels only follows, it can't strike while it keeps up)
         for (int k = 0; k < 8; k++) { int A = D + N8[k]; if (!nb_ok(D, A) || !PASSABLE(G.map[A]) || G.map[A] == T_DOOR || G.map[A] == T_OPEN_DOOR || (TFLAGS(G.map[A]) & F_AVOID) || char_at(A) || IS_WATER(G.map[A]) || b_dist[A] > 10) continue;
           if (distance(A, m->pos) <= dm) continue;          // the far side of the door from it
-          { bool unk = false, foe = false; for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) { int q = A + x + y * MAP_W; if (cx(A) + x < 0 || cx(A) + x >= MAP_W || q < 0 || q >= MAP_LEN) continue; if (!BIT_GET(G.visited, q)) unk = true; }   // (owner: not into the unexplored, nor where danger waits)
-            for (int j = 0; j < G.n_mobs; j++) { Mob *o = &G.mobs[j]; if (o->HP > 0 && !ally(j) && o->state != ST_PASSIVE && o != m && o->state != ST_HUNTING && distance(o->pos, A) <= 6) foe = true; }
-            if (unk || foe || (TFLAGS(G.map[A]) & F_AVOID)) continue; }
+          { bool unk = false, foe = false; int ur = s_kite2 ? 1 : 2; for (int y = -ur; y <= ur; y++) for (int x = -ur; x <= ur; x++) { int q = A + x + y * MAP_W; if (cx(A) + x < 0 || cx(A) + x >= MAP_W || q < 0 || q >= MAP_LEN) continue; if (!BIT_GET(G.visited, q)) unk = true; }   // (owner: not into the unexplored, nor where danger waits; 0.91 owner, "the safe door right there": only the cells round my spot)
+            for (int j = 0; j < G.n_mobs; j++) { Mob *o = &G.mobs[j]; if (o->HP > 0 && !ally(j) && o->state != ST_PASSIVE && o != m && o->state != ST_HUNTING && distance(o->pos, A) <= 6 && (!s_kite2 || distance(o->pos, A) < distance(o->pos, D) || distance(o->pos, A) <= 2)) { foe = true; if (getenv("KITEDBG") && !s_rollout) printf("      foe type %d st %d at %d,%d dA %d dD %d\n", o->type, o->state, cx(o->pos), cy(o->pos), distance(o->pos, A), distance(o->pos, D)); } }   // (0.91: only one on my side of the door, or right by my spot)
+            if (getenv("KITEDBG") && !s_rollout) printf("    A %d,%d unk %d foe %d\n", cx(A), cy(A), unk, foe); if (unk || foe || (TFLAGS(G.map[A]) & F_AVOID)) continue; }
           bool hit; if (ballistica(m->pos, A, &hit) == A) continue;   // (it mustn't see me there past the door frame)
           if (b_dist[A] < bs) { bs = b_dist[A]; bd = D; ba = A; } } }
       if (ba >= 0) { int32_t t0 = h->time; ActResult rr = tap_safe(ba); if (rr != ACT_NONE || h->time != t0) { s_kite_uid = m->uid; s_kite_cell = ba; s_kite_t = s_bot_steps; st_kite++; s_did[0] = 0; DID("door kite: through the door, to wait beside it"); walk(rr); return true; } } (void)bd; }
@@ -2222,17 +2291,31 @@ static bool room_seen(int r) { Room *R = &G.rooms[r]; for (int y = R->top; y <= 
 static bool room_prize(int r) { for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if (hp->pos < MAP_LEN && room_at(hp->pos) == r && hp->type != HEAP_CARRIED) return true; } return false; }
 static const char *evidence_hidden(void);
 static void evidence_track(void) {
-  if (s_ev_floor != G.depth) { s_ev_floor = G.depth; memset(s_ev_seen, 0, sizeof s_ev_seen); s_std_pots = 0; memset(s_ev_k, 0, sizeof s_ev_k); s_ev_searches = 0; s_ev_on = 0; s_ev_food = 0; }
+  if (s_ev_floor != G.depth) {                        // 0.92 (seed 84: back up to floor 3 for the stairs bounce, it hunted for the ration it had eaten there): what each floor showed is kept
+    static struct { int game, food, pots, k[5], searches; uint8_t seen[MAP_LEN / 8 + 1]; } m[32];
+    if (s_ev_floor >= 0 && s_pztest) { int d = s_ev_floor & 31; m[d].game = cur_game + 1; m[d].food = s_ev_food; m[d].pots = s_std_pots; memcpy(m[d].k, s_ev_k, sizeof s_ev_k); m[d].searches = s_ev_searches; memcpy(m[d].seen, s_ev_seen, sizeof s_ev_seen); }
+    s_ev_floor = G.depth; memset(s_ev_seen, 0, sizeof s_ev_seen); s_std_pots = 0; memset(s_ev_k, 0, sizeof s_ev_k); s_ev_searches = 0; s_ev_on = 0; s_ev_food = 0;
+    { int d = G.depth & 31; if (s_pztest && m[d].game == cur_game + 1) { s_ev_food = m[d].food; s_std_pots = m[d].pots; memcpy(s_ev_k, m[d].k, sizeof s_ev_k); s_ev_searches = m[d].searches; memcpy(s_ev_seen, m[d].seen, sizeof s_ev_seen); } } }
   for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].pos < MAP_LEN && BIT_GET(G.fov, G.heaps[i].pos) && is_food(G.heaps[i].item.kind)) s_ev_food = 1;
   for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos;
-    if (c >= MAP_LEN || !BIT_GET(G.fov, c) || BIT_GET(s_ev_seen, c) || !std_room(c)) continue;
+    if (c >= MAP_LEN || !BIT_GET(G.fov, c) || BIT_GET(s_ev_seen, c) || (!std_room(c) && !s_pztest)) continue;   // 0.92 (seed 84 d2): the key was the pool's prize (spawn_prize takes from the same list): seen anywhere counts
     BIT_SET(s_ev_seen, c); int k = hp->item.kind;
-    if (item_cat(k) == CAT_POTION) s_std_pots++;
+    if (item_cat(k) == CAT_POTION && std_room(c)) s_std_pots++;
     if (k == IK_POT_LEVITATION) s_ev_k[0]++; if (k == IK_POT_INVIS) s_ev_k[1]++; if (k == IK_POT_FLAME) s_ev_k[2]++; if (k == IK_IRON_KEY) s_ev_k[3]++; if (k == IK_GOLDEN_KEY) s_ev_k[4]++; }
   if (s_ev_on && !evidence_hidden()) { s_ev_on = 0; st_ev_found++; if (getenv("EVDBG")) printf("  EV game %d d%d step %d: resolved after %d\n", cur_game, G.depth, s_bot_steps, s_ev_searches); }
 }
+static bool rest_cap(void) {                             // 0.92 (seed 84 d4: 238 turns of "rest before going down", a respawn biting each time, into starving): 120 turns of it a floor at most
+  static int d = -1, g = -1; static int32_t t0; if (d != G.depth || g != cur_game) { d = G.depth; g = cur_game; t0 = G.now; }
+  return s_pztest && G.now - t0 > 120 * TICK && G.hero.HP * 10 >= G.hero.HT * 5;
+}
+static bool food_ev_ok(void) {                           // 0.92: hungry with no food, this floor's ration unseen: search for it here, not on down
+  Hero *h = &G.hero; if (!s_pztest || getenv("NOEV") || s_ev_food || boss_depth(G.depth) || G.depth == 1 || G.depth == 21 || s_ev_searches >= 60 || h->HP * 2 < h->HT || threat_count() || floor_left()) return false;
+  for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) return false;
+  return game_hungry();
+}
 static const char *evidence_hidden(void) {
   if (getenv("OLDEVID") || boss_depth(G.depth) || G.depth == 1) return NULL;
+  if (s_pztest && !s_ev_food && G.depth != 21) return "this floor's ration not seen: it's behind a secret door";   // 0.92 (seed 84 d3: went down starving beside the dead end that hid it): every floor but the bosses' has one
   bool ld = false, lc = false; for (int c = 0; c < MAP_LEN; c++) if (G.map[c] == T_LOCKED_DOOR && BIT_GET(G.visited, c)) ld = true;
   for (int i = 0; i < G.n_heaps; i++) if ((G.heaps[i].type == HEAP_LOCKED_CHEST || G.heaps[i].type == HEAP_CRYSTAL_CHEST) && G.heaps[i].pos < MAP_LEN && BIT_GET(G.visited, G.heaps[i].pos)) lc = true;
   if (ld && !(G.keys[G.depth] & 15) && !s_ev_k[3]) return "a locked door and no key seen: the key's in a room I haven't found";
@@ -2582,7 +2665,8 @@ static bool decide(void) {
     if (best >= 0 && (TFLAGS(G.map[h->pos]) & F_FLAMABLE || enemy_count() == 0)) { DID("on fire: step off the grass"); walk(tap_safe(best)); return true; }
   }
   { int hp0 = heap_at(h->pos);                         // something at your feet (knocked from your hands...): pick it up
-    if (hp0 >= 0 && G.heaps[hp0].type == HEAP_PLAIN && (!BIT_GET(s_dropped, h->pos) || (h->pos == s_stash && stash_ready())) && s_black[h->pos] <= s_bot_steps && G.map[h->pos] != T_ALCHEMY && (bag_used() < BAG_SIZE || (item_stackable(G.heaps[hp0].item.kind) && find_kind(G.heaps[hp0].item.kind) >= 0) || item_cat(G.heaps[hp0].item.kind) == CAT_KEY || G.heaps[hp0].item.kind == IK_GOLD || G.heaps[hp0].item.kind == IK_DEW)
+    if (hp0 >= 0 && G.heaps[hp0].type == HEAP_PLAIN && (!BIT_GET(s_dropped, h->pos) || ((h->pos == s_stash || in_stash(h->pos)) && stash_ready())) && s_black[h->pos] <= s_bot_steps && G.map[h->pos] != T_ALCHEMY && (bag_used() < BAG_SIZE || (item_stackable(G.heaps[hp0].item.kind) && find_kind(G.heaps[hp0].item.kind) >= 0) || item_cat(G.heaps[hp0].item.kind) == CAT_KEY || G.heaps[hp0].item.kind == IK_GOLD || G.heaps[hp0].item.kind == IK_DEW)
+        && (G.heaps[hp0].item.kind != IK_DEW || getenv("OLDDEW2") || dew_take())
         && (enemy_count() == 0 || item_cat(G.heaps[hp0].item.kind) == CAT_WEAPON || h->b.invis || !foe_near(3))) {   // (bot3: a piranha in its pool or a far foe: pick it up all the same)   // (bot3: invisible: take it, nobody sees)
       int32_t t = h->time; ActResult r = tap_safe(h->pos); if (r == ACT_NONE && h->time == t) s_black[h->pos] = s_bot_steps + 100; else { walk(r); return true; } } }
   if (!h->weapon.kind && enemy_count()) for (int i = 0; i < BAG_SIZE; i++) if (weapon_score(&h->bag[i]) > 0) { do_item(i, ACN_EQUIP); return true; }   // back in hand
@@ -2614,6 +2698,8 @@ static bool decide(void) {
     int ti = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].uid == s_thief_uid) ti = i;
     if (ti < 0 || h->pos == s_thief_cell || s_thief_cell < 0) s_thief_uid = -1;
     else { int32_t t0 = h->time; ActResult r = tap_safe(s_thief_cell); if (r != ACT_NONE || h->time != t0) { st_thief_chase++; DID("after the thief (it has my %s)", "item"); walk(r); return true; } s_thief_uid = -1; } }
+  if (s_kite2 && s_kite_uid >= 0 && h->pos != s_kite_cell && s_bot_steps - s_kite_t < 25 && distance(h->pos, s_kite_cell) <= 6 && enemy_count() == 0 && ({ bool al = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].uid == s_kite_uid && G.mobs[i].state == ST_HUNTING) al = true; al; })) {   // 0.91 (owner: "door trick was not done properly, this costs like 10 turns"): out of its sight it's still coming: back to the spot, not off to the item it guards
+    int32_t t0 = h->time; ActResult rr = tap_safe(s_kite_cell); if (rr != ACT_NONE || h->time != t0) { DID("door kite: back to my spot, it's still coming"); walk(rr); return true; } }
   if (!getenv("OLDKITE") && s_kite_uid >= 0 && h->pos == s_kite_cell && s_bot_steps - s_kite_t < 25 && ({ bool al = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].uid == s_kite_uid && G.mobs[i].state == ST_HUNTING) al = true; al; })) { DID("door kite: the door's shut, it's coming: wait"); walk(game_rest(false)); return true; }   // (review: it waited in 6 of 68 kites: once the door shut, the bot wandered off)
   if (!getenv("OLDMOBS") && s_lurk_until > s_bot_steps && enemy_count() == 0 && h->HP > h->HT / 3) { DID("wait round the corner for it"); walk(game_rest(false)); return true; }
   if (s_goo_spot == h->pos && !getenv("GOO_NOHOLD")) {   // bot3 (owner): at the spot by Goo's door, it's awake and coming: wait for it there
@@ -2680,10 +2766,11 @@ static bool decide(void) {
   }
   bool going = s_goal < G.depth && BIT_GET(G.visited, G.entrance);   // on the way up with the way known: no detours but items
   bool famished = game_hungry() && !({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; });
-  if (choice < 0 && famished && PRM[P_HUNGRYDOWN] && BIT_GET(G.visited, G.exit) && s_goal > G.depth && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; }) &&   /* (0.52: a way there: seen across a chasm or a trap field isn't one) */ (getenv("OLDHERO") || (s_ev_food && (getenv("OLDHUNGRY") || game_starving())) || !floor_left() || boss_depth(G.depth) || G.depth == 21 || (game_starving() && h->HP * 100 < h->HT * s_starve_leave)) &&   /* (owner: look for it even starving; under 30% health, just go) */   /* 0.52 (audit): every floor but the bosses' has a ration somewhere: find it first */ (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // bot3: no food, hungry: on down
+  if (choice < 0 && famished && PRM[P_HUNGRYDOWN] && !food_ev_ok() && BIT_GET(G.visited, G.exit) && s_goal > G.depth && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; }) &&   /* (0.52: a way there: seen across a chasm or a trap field isn't one) */ (getenv("OLDHERO") || (s_ev_food && (getenv("OLDHUNGRY") || game_starving())) || !floor_left() || boss_depth(G.depth) || G.depth == 21 || (game_starving() && h->HP * 100 < h->HT * s_starve_leave)) &&   /* (owner: look for it even starving; under 30% health, just go) */   /* 0.52 (audit): every floor but the bosses' has a ration somewhere: find it first */ (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // bot3: no food, hungry: on down
     bool food_here = false; for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && is_food(G.heaps[i].item.kind)) food_here = true;
+    if (!game_starving()) for (int i = 0; i < G.n_heaps; i++) { int r = (unsigned)G.heaps[i].pos < MAP_LEN ? room_at(G.heaps[i].pos) : -1; if (r >= 0 && !room_skipped(r) && G.rooms[r].type == RT_TRAPS && is_food(G.heaps[i].item.kind) && BIT_GET(G.visited, G.heaps[i].pos)) food_here = true; }   // 0.91: food in the trap room: solve it, don't leave it lying (seed 84 floor 1)
     bool grab = false; if (!getenv("OLDHUNGRY") && !(game_starving() && h->HP * 100 < h->HT * s_starve_leave)) for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && G.heaps[i].item.kind != IK_GOLD && G.heaps[i].item.kind != IK_DEW && b_dist[G.heaps[i].pos] < 0x7FFF) grab = true;   // 0.54 (SoU left lying on 1 floor in 3): what's in sight comes along first
-    if (!food_here && !grab) { if (!getenv("OLDDOWNREST") && (getenv("THRIFT") ? h->HP < thrift_need() : h->HP * 10 < h->HT * 7) && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) { DID("rest before going down"); walk(game_rest(false)); return true; } choice = G.exit; why = "hungry: down"; } }
+    if (!food_here && !grab) { if (!getenv("OLDDOWNREST") && !rest_cap() && (getenv("THRIFT") ? h->HP < thrift_need() : h->HP * 10 < h->HT * 7) && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) { DID("rest before going down"); walk(game_rest(false)); return true; } choice = G.exit; why = "hungry: down"; if (getenv("HUNGDBG") && !s_rollout) printf("HUNGDBG d%d step %d evfood %d starving %d floor_left %d hp %d/%d\n", G.depth, s_bot_steps, s_ev_food, game_starving(), floor_left(), h->HP, h->HT); } }
   if (s_ev_d != G.depth) { s_ev_d = G.depth; s_ev_sou0 = (int)st_sou_read + (find_kind(IK_SCR_UPGRADE) >= 0 ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0); s_ev_str0 = h->STR + (find_kind(IK_POT_STRENGTH) >= 0 ? game_slot(find_kind(IK_POT_STRENGTH))->qty : 0); }
   if (choice < 0 && !going && getenv("EVLEAVE") && s_ev_food && G.depth % 5 && BIT_GET(G.visited, G.exit) && s_goal > G.depth && (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64)) && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; })) {
     // 0.58 (owner: "use the game's odds: have I probably looted most of the valuables?"): what's likely still out there against
@@ -2704,6 +2791,7 @@ static bool decide(void) {
   if (choice < 0 && !going && s_rush && G.depth >= 22 && G.depth <= 24 && BIT_GET(G.visited, G.exit) && (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // 0.54 (owner): rush the bottom floors
     const char *pw = NULL; int c = plan_next(true, &pw); if (c >= 0 && pw && !strcmp(pw, "item")) { choice = c; why = "rush: an item on the way"; }
     else { bfs(h->pos, false); if (b_dist[G.exit] < 0x7FFF) { choice = G.exit; why = "rush: straight to the stairs"; st_rush++; } } }
+  if (choice < 0 && !going && (h->b.levitation > 2 || h->b.invis > 2) && s_pztest) { const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { DID("%s", pw); return true; } if (pt >= 0 && pw && (!strncmp(pw, "traps: levitating", 17) || !strncmp(pw, "pool: invisible", 15))) { choice = pt; why = pw; } }   // 0.91: floating: the trap room's prize before anything else (levitation doesn't last)
   if (choice < 0 && !going) { bfs(h->pos, false); int tp = trap_prize(); if (tp == -2) return true; if (tp >= 0 && tp != h->pos) { choice = tp; why = "to throw onto / step onto a trap with a prize"; } }
   if (choice < 0 && !getenv("NOPLAN")) { const char *pw = NULL; choice = plan_next(going, &pw); if (choice >= 0) why = pw; }
   if (getenv("SHOPDBG") && !s_rollout) { static int ls = -1; if (ls != s_bot_steps / 20) { ls = s_bot_steps / 20; int ns = 0, nw = 0; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE) { ns++; nw += want_buy(i); } if (ns) printf("SHOPDBG d%d gold %d sale %d want %d choice %d\n", G.depth, G.hero.gold, ns, nw, choice); } }
@@ -2726,6 +2814,7 @@ static bool decide(void) {
       if (s_piranhas && PREACH(c)) continue;
       if ((ty == HEAP_LOCKED_CHEST || ty == HEAP_CRYSTAL_CHEST) && !(G.keys[G.depth] & 0x30)) continue;
       if (deferred_heap(hp)) continue;                 // bot2: graves, remains, puzzle-room prizes: after exploring (puzzle_task)
+      if (G.heaps[hp].item.kind == IK_DEW && !getenv("OLDDEW2") && !dew_take()) continue;   // 0.91: the dew rule here too (it walked 60 turns across floor 1 for a drop at full health)
       if (ty == HEAP_PLAIN && BIT_GET(s_dropped, c) && G.heaps[hp].item.kind != IK_GOLD) continue;
       if (ty == HEAP_PLAIN && bag_used() >= BAG_SIZE && item_cat(G.heaps[hp].item.kind) != CAT_KEY && G.heaps[hp].item.kind != IK_GOLD && G.heaps[hp].item.kind != IK_DEW && !(item_stackable(G.heaps[hp].item.kind) && find_kind(G.heaps[hp].item.kind) >= 0)) continue;
       choice = c;
@@ -2777,11 +2866,12 @@ static bool decide(void) {
     bool up = s_goal < G.depth;
     int stairs = up ? G.entrance : G.exit;
     bool stay = !up && quest_on_floor() && s_floor_steps < PRM[P_QSTAY] && !game_starving();   // bot2: starving: food lies deeper
-    if (stay && !getenv("OLDQSTAY") && (!wait_quest() || s_floor_steps > 600 || game_hungry())) stay = false;   // 0.50 (review g6): wandering about only helps a quest that needs monsters to come, and not for long (food)
+    if (stay && !getenv("OLDQSTAY") && (!wait_quest() || s_floor_steps > 600 || game_hungry())) stay = false;
+    if (stay && s_pztest && !({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; })) stay = false;   // 0.92 (seed 84 d3: 223 turns wandering for the ghost on its last pasty, then down hungry to the Goo): only on food in the bag   // 0.50 (review g6): wandering about only helps a quest that needs monsters to come, and not for long (food)
     if (stay && !BIT_GET(G.visited, stairs) && !getenv("OLDSTAY")) stay = false;   // 0.49: the way down not found yet: search while waiting (what it waits for may be behind that door)
     static int s_bounce_wait;
     bool xpb = !getenv("OLDXPB") && !getenv("THRIFT") && !up && boss_depth(G.depth + 1) && h->lvl < G.depth + (getenv("XPBLVL") ? atoi(getenv("XPBLVL")) : 1) && !game_starving() && BIT_GET(G.visited, stairs) && h->HP * 10 >= h->HT * 7 &&
-      (h->hunger < 150 || ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; }));   // 0.52 (audit): under-levelled before a boss (Goo kills most at level 4): every arrival brings a monster: bounce for XP while the food lasts
+      ((h->hunger < 150 && !s_pztest) || ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind) && !(s_pztest && (h->bag[i].kind == IK_MYSTERY_MEAT || h->bag[i].kind == IK_OVERPRICED))) f = true; f; }));   // (0.92 seed 84: up and back on a lump of meat: 72 food for one monster)   // 0.52 (audit): under-levelled before a boss (Goo kills most at level 4): every arrival brings a monster: bounce for XP while the food lasts
     if (getenv("XPDBG") && !s_rollout && !s_is_child && boss_depth(G.depth + 1)) { static int ls = -1; if (ls != s_bot_steps / 10) { ls = s_bot_steps / 10; printf("  XPB d%d lvl %d up %d hungry %d hunger %d stairs %d hp %d/%d food %d stay %d xpb %d n %d\n", G.depth, h->lvl, up, game_hungry(), h->hunger, BIT_GET(G.visited, stairs), h->HP, h->HT, ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; }), stay, xpb, s_bounce_n[G.depth & 31]); } }
     if (xpb && s_bounce_n[G.depth & 31] >= (getenv("XPBN") ? atoi(getenv("XPBN")) : 4)) xpb = false;   // (review: each stair costs 36 food: 4 bounces at most)
     if (xpb && s_bounce_n[G.depth & 31] < 12) { stay = true; }
@@ -2797,7 +2887,8 @@ static bool decide(void) {
       why = "stay"; for (int k = 0; k < 40; k++) { int c = rand() % MAP_LEN; if (BIT_GET(G.visited, c) && PASSABLE(G.map[c]) && G.map[c] != T_ALCHEMY && heap_at(c) < 0 && c != G.entrance && c != G.exit) { choice = c; break; } }
       if (choice < 0) { walk(game_rest(false)); return true; }
     } else if (BIT_GET(G.visited, stairs) && (G.map[stairs] != T_LOCKED_EXIT || (G.keys[G.depth] & 64)) && s_black[stairs] <= s_bot_steps) {
-      const char *ev = !up && s_ev_searches < 60 && (h->hunger < 200 || ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; })) && !game_starving() && threat_count() == 0 ? evidence_hidden() : NULL;   /* (food in the bag: the hunger is paid for) */
+      const char *ev = !up && !getenv("NOEV") && s_ev_searches < 60 && (h->hunger < 200 || ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; })) && !game_starving() && threat_count() == 0 ? evidence_hidden() : NULL;
+      if (!ev && food_ev_ok()) ev = evidence_hidden();   // 0.92: the ration's the one worth looking for hungry (2 turns a search: a dead end beside me is a sure find)   /* (food in the bag: the hunger is paid for) */
       if (ev) {                                            // 0.51: the evidence says a room is hidden: search for it before going on
         if (!s_ev_on) { s_ev_on = 1; st_ev_floors++; if (getenv("EVDBG")) printf("  EV game %d d%d step %d: %s (std pots %d, keys %x, hunger %d)\n", cur_game, G.depth, s_bot_steps, ev, s_std_pots, G.keys[G.depth], h->hunger); for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_IRON_KEY || G.heaps[i].item.kind == IK_POT_LEVITATION) printf("    (truth: kind %d at %d,%d heap type %d visited %d room type %d)\n", G.heaps[i].item.kind, cx(G.heaps[i].pos), cy(G.heaps[i].pos), G.heaps[i].type, G.heaps[i].pos < MAP_LEN ? BIT_GET(G.visited, G.heaps[i].pos) : -1, G.heaps[i].pos < MAP_LEN && room_at(G.heaps[i].pos) >= 0 ? G.rooms[room_at(G.heaps[i].pos)].type : -1); fflush(stdout); }
         if (s_spot >= 0 && (s_black[s_spot] > s_bot_steps || mob_at(s_spot) >= 0)) s_spot = -1;
@@ -2811,7 +2902,8 @@ static bool decide(void) {
     else if (stay && 0) {}
     else if (BIT_GET(G.visited, stairs) && (G.map[stairs] != T_LOCKED_EXIT || (G.keys[G.depth] & 64)) && s_black[stairs] <= s_bot_steps) {
       bfs(h->pos, false);
-      if (!up && !getenv("OLDDOWNREST") && (getenv("THRIFT") && !boss_depth(G.depth + 1) ? h->HP < thrift_need() : h->HP * 10 < h->HT * (boss_depth(G.depth + 1) && !getenv("OLDBOSSPREP") ? 10 : (getenv("EARLYREST") && G.depth <= 4) ? 9 : 7)) && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) { DID("rest before going down%s", boss_depth(G.depth + 1) ? " (a boss below: full health)" : ""); walk(game_rest(false)); return true; }
+      bool brcap = rest_cap();
+      if (!up && !brcap && !getenv("OLDDOWNREST") && (getenv("THRIFT") && !boss_depth(G.depth + 1) ? h->HP < thrift_need() : h->HP * 10 < h->HT * (boss_depth(G.depth + 1) && !getenv("OLDBOSSPREP") ? 10 : (getenv("EARLYREST") && G.depth <= 4) ? 9 : 7)) && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) { DID("rest before going down%s", boss_depth(G.depth + 1) ? " (a boss below: full health)" : ""); walk(game_rest(false)); return true; }
       if (!up && !getenv("OLDBOSSPREP") && boss_depth(G.depth + 1) && game_hungry() && threat_count() == 0) { int fs = -1; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) fs = i; if (fs >= 0) { DID("eat before the boss"); do_item(fs, ACN_EAT); return true; } }
       if (getenv("STAIRDBG")) { printf("  STAIRS from %d,%d to %d,%d bdist %d trapstep %d\n", cx(h->pos), cy(h->pos), cx(stairs), cy(stairs), b_dist[stairs], trap_step(stairs)); if (b_dist[stairs] < 0x7FFF) { int c = stairs; printf("   path:"); for (int g = 0; g < 80 && c != h->pos; g++) { int nb = -1; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && b_dist[n] == b_dist[c] - 1) nb = n; } if (nb < 0) break; printf(" %d,%d:t%d%s", cx(nb), cy(nb), G.map[nb], char_at(nb) ? "M" : ""); c = nb; } printf("\n"); } }
       if (b_dist[stairs] < 0x7FFF || getenv("OLDSTAIRS")) { choice = stairs; why = "stairs";
@@ -2875,7 +2967,7 @@ static bool decide(void) {
     if (st >= 0 && st != choice && b_dist[h->pos] != 0x7FFF) choice = st;
   }
   s_last_choice_cell = choice;
-  if (!getenv("OLDTRAPTHROW") && why && strstr(why, "trap") && adjacent(h->pos, choice) && (TFLAGS(G.map[choice]) & F_AVOID) && !(TFLAGS(G.map[choice]) & F_PIT) && G.map[choice] != T_SUMMONING_TRAP && enemy_count() == 0) {
+  if (!getenv("OLDTRAPTHROW") && !h->b.levitation && why && strstr(why, "trap") && adjacent(h->pos, choice) && (TFLAGS(G.map[choice]) & F_AVOID) && !(TFLAGS(G.map[choice]) & F_PIT) && G.map[choice] != T_SUMMONING_TRAP && enemy_count() == 0) {
     int s = throwable(); bool hit;                       // 0.50 (review g6, owner's trap trick): a trap in the only way: spring it with a spare thing, not your feet
     if (s >= 0 && G.map[choice] == T_FIRE_TRAP && item_cat(G.hero.bag[s].kind) == CAT_SCROLL) s = -1;   // (not a scroll into fire)
     if (s >= 0 && ballistica(h->pos, choice, &hit) == choice) { char nm[64]; item_name(&h->bag[s], nm, sizeof nm); s_did[0] = 0; DID("throw %s onto the trap at %d,%d (spring it)", nm, cx(choice), cy(choice)); st_uses[ACN_THROW]++; st_trap_throws++; walk(game_throw(s, choice)); return true; }
@@ -2887,7 +2979,7 @@ static bool decide(void) {
     int nx = -1; for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (nb_ok(h->pos, n) && (n == choice || (distance(n, choice) < distance(h->pos, choice) && PASSABLE(G.map[n])))) { if (nx < 0 || n == choice) nx = n; } }
     if (nx >= 0 && gas_at(nx) && (distance(h->pos, choice) <= 1 || ({ bool all = true; for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (nb_ok(h->pos, n) && PASSABLE(G.map[n]) && distance(n, choice) < distance(h->pos, choice) && !gas_at(n)) all = false; } all; }))) {
       s_did[0] = 0; DID("wait for the gas ahead to clear"); walk(game_rest(false)); return true; } }
-  if (!getenv("OLDDOWNREST") && choice == G.exit && s_goal > G.depth && h->HP * 10 < h->HT * 7 && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) {   // 0.50 (review g6): not down the stairs hurt (a new floor can start with a fight); hungry is not starving
+  if (!getenv("OLDDOWNREST") && choice == G.exit && s_goal > G.depth && !rest_cap() && h->HP * 10 < h->HT * 7 && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) {   // 0.50 (review g6): not down the stairs hurt (a new floor can start with a fight); hungry is not starving
     s_did[0] = 0; DID("rest before going down"); walk(game_rest(false)); return true; }
   if (!getenv("OLDYOGREST") && G.depth == 25 && !(G.boss & 32) && h->pos == G.entrance && threat_count() == 0) {   // 0.54: off the stairs Yog wakes: fed and at full health first
     if (game_hungry()) for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind) && h->bag[i].kind != IK_MYSTERY_MEAT) { s_did[0] = 0; DID("eat before Yog wakes"); do_item(i, ACN_EAT); return true; }
@@ -3554,6 +3646,7 @@ static void floor_report(void) {
 }
 static void toe_cal_log(void);
 static void on_new_floor(bool first) {
+  if (getenv("ROOMDBG") && !s_rollout && !s_is_child) for (int r = 0; r < G.n_rooms; r++) printf("ROOM d%d %d type %d %d,%d-%d,%d\n", G.depth, r, G.rooms[r].type, G.rooms[r].left, G.rooms[r].top, G.rooms[r].right, G.rooms[r].bottom);
   if (first && getenv("TOECAL")) toe_cal_log();
   s_avoid_n = 0;
   pwater_map(); g_from = -1;                            // (0.47: the heading starts fresh on each floor, as on the watch)
@@ -3569,6 +3662,8 @@ static void on_new_floor(bool first) {
     srand(G.depth * 7919 + cur_game * 104729); game_save(); char fn[300]; snprintf(fn, sizeof fn, "%s/g%04d_d%02d.bin", getenv("CAMPDIR"), cur_game, G.depth);
     FILE *f = fopen(fn, "wb"); if (f) { fwrite(g_keys, sizeof g_keys, 1, f); fwrite(&g_rng, sizeof g_rng, 1, f); fwrite(&s_bot_steps, sizeof s_bot_steps, 1, f); fclose(f); }
     { static Game before; memcpy(&before, &G, sizeof G); game_load(); if (s_camp_reroll) { g_rng ^= (uint32_t)s_camp_reroll * 2654435761u; printf("CAMP reroll %d at depth %d\n", s_camp_reroll, G.depth); s_camp_reroll = 0; } if (getenv("CAMPDIFF")) { const uint8_t *a = (const uint8_t *)&before, *b = (const uint8_t *)&G; for (size_t i = 0; i < sizeof G; i++) if (a[i] != b[i]) { size_t j = i; while (j < sizeof G && a[j] != b[j]) j++; printf("CAMPDIFF d%d off %zu len %zu\n", G.depth, i, j - i); i = j; } } } }   // (the original goes on from the loaded state too: whatever a save leaves out, both runs leave out)
+  if (first && G.depth == 5 && !s_rollout && !s_is_child && !s_cf_child && !s_upg_child) { int pot = 0, scr = 0, fd = 0; for (int i = 0; i < BAG_SIZE; i++) { int c = item_cat(G.hero.bag[i].kind); if (c == CAT_POTION) pot += G.hero.bag[i].qty; if (c == CAT_SCROLL) scr += G.hero.bag[i].qty; if (c == CAT_FOOD) fd += G.hero.bag[i].qty; }   // 0.91: how the hero meets the Goo (owner: "I get to the goo well fed and strong")
+    printf("ARRIVE5 g%d lvl %d hp %d/%d hunger %d str %d arm %d+%d wpn %d+%d pot %d scr %d turn %d food %d\n", cur_game, G.hero.lvl, G.hero.HP, G.hero.HT, G.hero.hunger, hero_str(), G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl, pot, scr, G.now / TICK, fd); }
   if (getenv("ARRDUMP") && first && arr_at && !s_rollout && !s_is_child) {   // bot3: a real hero arriving at Goo's floor: keep it for the lab
     game_save(); char fn[300]; if (getenv("ARRDEPTH")) snprintf(fn, sizeof fn, "%s/d%d/arr_g%04d.bin", getenv("ARRDUMP"), G.depth, cur_game); else snprintf(fn, sizeof fn, "%s/arr_g%04d.bin", getenv("ARRDUMP"), cur_game); FILE *f = fopen(fn, "wb"); if (f) { fwrite(g_keys, sizeof g_keys, 1, f); fclose(f); } }
   s_idle = 0; s_fallback_search = 0; memset(s_black, 0, sizeof s_black); memset(s_searched, 0, sizeof s_searched); memset(s_dropped, 0, sizeof s_dropped); memset(s_used_feature, 0, sizeof s_used_feature); memset(s_verified, 0, sizeof s_verified);
@@ -3791,7 +3886,7 @@ int main(int argc, char **argv) {
   if (getenv("ARRLAB")) return run_lab(getenv("ARRLAB"));
   s_dring_on = getenv("DEATHRING") != NULL; if (getenv("STARVELEAVE")) s_starve_leave = atoi(getenv("STARVELEAVE"));
   if (getenv("ARM_SPEEDK")) s_arm_speedk = atof(getenv("ARM_SPEEDK"));
-  s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
+  s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") != NULL; s_pztest = getenv("PZTEST") != NULL; s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
   if (getenv("EXPLAB")) return run_explab();
   int N = argc > 1 ? atoi(argv[1]) : 100, hs = getenv("HS") ? atoi(getenv("HS")) : 3;
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;
@@ -4070,6 +4165,7 @@ int main(int argc, char **argv) {
     for (int d = 5; d <= 25; d += 5) if (G.max_depth > d) st_boss_kill[d]++;
     st_qs[0][G.q.ghost]++; st_qs[1][G.q.wand]++; st_qs[2][G.q.smith]++; st_qs[3][G.q.imp]++;
     if (G.hero.HP <= 0) ledger_death();
+    if (getenv("D")) { int fd = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_FOOD) fd += G.hero.bag[i].qty; printf("DEATHINFO g%d hunger %d food %d depth %d turn %d\n", g, G.hero.hunger, fd, G.depth, G.now / TICK); }
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
                            G.depth, G.max_depth, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl,
                            G.q.ghost, G.q.wand, G.q.smith, G.q.imp, G.hero.HP <= 0 ? ": " : "", G.hero.HP <= 0 ? G.death : "");
@@ -4088,7 +4184,7 @@ int main(int argc, char **argv) {
   printf("bosses passed: d5 %d d10 %d d15 %d d20 %d d25 %d\n", st_boss_kill[5], st_boss_kill[10], st_boss_kill[15], st_boss_kill[20], st_boss_kill[25]);
   static const char *QN[4] = { "ghost", "wandmaker", "blacksmith", "imp" };
   for (int q = 0; q < 4; q++) printf("%s: none %d spawned %d given %d done %d rewarded %d\n", QN[q], st_qs[q][0], st_qs[q][1], st_qs[q][2], st_qs[q][3], st_qs[q][4]);
-  printf("search walk steps %d; fast-enemy step backs %d; search phase turns %ld floors %d; trap rooms opened %d (throws %d); backed out of a crowd %d; quest bounces %d; evidence of a hidden room: floors %d, searches %d, resolved %d; altar: lure moves %d, completed %d, Wipe Out read %d; barricades lit %d; seeds thrown in fights %d; pit jumps %d; door kites %d; class specials %d; XP bounces before a boss %d; thief chase steps %d, corner waits %d; trap prizes %d; boomerang throws %d; rush steps %d\n", st_srch_w, st_fastback, st_sp_turns, st_sp_n, st_trap_rooms, st_trap_throws, st_surr, st_bounce, st_ev_floors, st_ev_search, st_ev_found, st_altar_moves, st_altar_done, st_wipe, st_barr, st_seedthrow, st_pitjump, st_kite, st_special, st_xpb, st_thief_chase, st_lurk, st_trapgrab, st_boom, st_rush); printf("explore: target list %d, own search %d, traps stepped on %d, searches %d; wells %d, pots %d, buys %d, sells %d, ankhs %d\n", st_explore_tgt, st_explore_bfs, st_traps, st_search, st_wells, st_pot, st_buys, st_sells, st_ankh);
+  printf("search walk steps %d; fast-enemy step backs %d; search phase turns %ld floors %d; trap rooms opened %d (throws %d); backed out of a crowd %d; quest bounces %d; evidence of a hidden room: floors %d, searches %d, resolved %d; altar: lure moves %d, completed %d, Wipe Out read %d; barricades lit %d; seeds thrown in fights %d; pit jumps %d; door kites %d; class specials %d; XP bounces before a boss %d; thief chase steps %d, corner waits %d; trap prizes %d; boomerang throws %d; rush steps %d\n", st_srch_w, st_fastback, st_sp_turns, st_sp_n, st_trap_rooms, st_trap_throws, st_surr, st_bounce, st_ev_floors, st_ev_search, st_ev_found, st_altar_moves, st_altar_done, st_wipe, st_barr, st_seedthrow, st_pitjump, st_kite, st_special, st_xpb, st_thief_chase, st_lurk, st_trapgrab, st_boom, st_rush); printf("explore: target list %d, own search %d, traps stepped on %d, searches %d; wells %d, pots %d, buys %d, sells %d, ankhs %d; detours %d\n", st_explore_tgt, st_explore_bfs, st_traps, st_search, st_wells, st_pot, st_buys, st_sells, st_ankh, st_detour);
   printf("actions:"); for (int a = 0; a < ACN_COUNT; a++) if (st_uses[a]) printf(" %s %d", ACTION_NAMES[a], st_uses[a]); printf("\n");
   printf("talks:"); for (int t = 0; t < MT_COUNT; t++) if (st_talks[t]) printf(" %s %d", mob_name(t), st_talks[t]); printf("; bad zaps %d\n", s_bad_zap);
   printf("quests left under way: ghost rose/rat/curse %d/%d/%d, wandmaker rotberry/dust/fish %d/%d/%d, smith gold/blood %d/%d, imp golems/monks %d/%d\n",
