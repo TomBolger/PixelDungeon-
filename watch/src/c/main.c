@@ -360,8 +360,8 @@ static GRect ctag(int k) {                          // 0 zoom (Up), 1 attack (Se
   return GRect(s_w - 22, k == 0 ? top : k == 1 ? s_h / 2 - 12 : bot - 24, 22, 24);   // 0.24: slim indicators
 #endif
 }
-static bool loot_shown(void) { int h = heap_at(G.hero.pos); return h >= 0 && G.hero.HP > 0 && s_scene == SC_GAME && !s_walking; }
-static bool resume_shown(void) { return G.last_action && G.hero.HP > 0 && s_scene == SC_GAME && !s_walking; }
+static bool loot_shown(void) { int h = heap_at(G.hero.pos); return h >= 0 && !(s_tg == G.hero.pos && s_tgk == TK_ITEM) && G.hero.HP > 0 && s_scene == SC_GAME && !s_walking; }
+static bool resume_shown(void) { return !AS_ON && G.last_action && G.hero.HP > 0 && s_scene == SC_GAME && !s_walking; }
 // PD StatusPane.layoutTags: LootIndicator (blue, what lies underfoot) and ResumeButton (pale) stack at the right edge
 // under the status pane (0.17); 0.23: at the left edge, the right one holds the buttons' tags
 static GRect tag_rect(int which) {
