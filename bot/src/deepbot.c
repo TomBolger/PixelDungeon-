@@ -2884,8 +2884,8 @@ static bool decide(void) {
   bool gvis = gi >= 0 && BIT_GET(G.fov, G.mobs[gi].pos);
   if (gvis) gp = G.mobs[gi].pos; else if (gp >= 0 && BIT_GET(G.fov, gp)) gp = -1;   // (where he was last seen; there and gone: lost)
   if (choice < 0 && !going && s_pztest && !floor_left() && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && gi >= 0 && !game_hungry()) {   // 0.92: the ghost's curse, at the floor's end (the pool's Strength first, the mace in hand): back to him if it's winnable now
-    if (h->HP < h->HT * 9 / 10 && threat_count() == 0) { if (curse_go_full()) { DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } else if (s_curse_trip) { s_curse_trip = 0; s_goal = 99; } }
-    else if (curse_go()) { bfs(h->pos, false);
+    if (h->HP < h->HT && threat_count() == 0) { if (curse_go_full()) { DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } else if (s_curse_trip) { s_curse_trip = 0; s_goal = 99; } }
+    else if (curse_go_full()) { bfs(h->pos, false);
       if (gp >= 0 && b_dist[gp] < 0x7FFF && gp != h->pos) { choice = gp; why = gvis ? "the ghost: take on his curse" : "the ghost: where I last saw him"; }
       else if (gsw < 5) {                               // (he drifts about: look round the rooms for him, a few at most)
         if (gsw_t >= 0 && (h->pos == gsw_t || b_dist[gsw_t] >= 0x7FFF)) { gsw++; gsw_t = -1; }
@@ -3555,8 +3555,8 @@ static int curse_odds(void) {
   Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.depth) * 4096 + h->lvl * 128 + h->STR * 4 + (h->HP * 4 / (h->HT ? h->HT : 1));
   k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind;
   if (k == key) return ans;
-  key = k; int wins = 0, hp = 0, n = getenv("CURSEN") ? atoi(getenv("CURSEN")) : 20; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
-  char rs[1200] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
+  key = k; int wins = 0, hp = 0, n = getenv("CURSEN") ? atoi(getenv("CURSEN")) : 40; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
+  char rs[2400] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
   if (getenv("CURSEDBG")) printf("  playouts: %s\n", rs);
   ans = wins * 100 / n;   // (0.92: the armour it gives is the difference on floor 4 (crabs): 4 honest runs without it all died there; 1 in 5 risk is worth it)
   if (getenv("CURSEDBG")) printf("CURSE d%d step %d lvl %d hp %d/%d wpn %d: %d/%d won (avg hp left %d%%) -> %s\n", G.depth, s_bot_steps, h->lvl, h->HP, h->HT, h->weapon.kind, wins, n, wins ? hp / wins : 0, ans >= 80 ? "80%+" : "low");
