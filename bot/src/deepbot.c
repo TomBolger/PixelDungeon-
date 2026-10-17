@@ -1251,6 +1251,7 @@ static int puzzle_task(const char **why) {             // after exploring: a cel
     if (h->pos != stand) { *why = "puzzle: beside the door"; return stand; }
     if (h->HP < h->HT * 9 / 10) { if (game_hungry()) { PZSKIP(r, "hungry, hurt"); continue; } walk(game_rest(true)); *why = "puzzle: heal first"; return -2; }   // (hungry: no time for it)
     int s = find_kind(need);
+    if (s >= 0 && item_known(need) && s_pztest && ({ bool foe = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && BIT_GET(G.fov, G.mobs[i].pos) && G.mobs[i].state != ST_PASSIVE && !(MOB_DEFS[G.mobs[i].type].flags & (MD_WATER | MD_NPC)) && distance(G.mobs[i].pos, h->pos) <= 8) foe = true; foe; })) { static int wq = 0; if (wq++ % 20 < 15) { walk(game_rest(false)); *why = "puzzle: a creature about: not yet"; return -2; } }   // 0.92: not with one about to break it
     if (s >= 0 && item_known(need)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); *why = "puzzle: drink the known potion"; return -2; }
     if (unknown_potion() >= 0 && !doortest) continue;   // 0.49: not tested at the door (liquid flame, toxic gas: the deaths it caused): tested the usual way, in water; levitating, it flies in (above)
     if ((s = unknown_potion()) >= 0) { st_uses[ACN_DRINK]++; st_kinds[h->bag[s].kind]++; do_item(s, ACN_DRINK); *why = "puzzle: test an unknown potion"; return -2; }
@@ -2699,6 +2700,9 @@ static bool decide(void) {
   if (getenv("GOO2") && !h->b.roots) for (int i = 0; i < G.n_mobs; i++) { Mob *gm = &G.mobs[i];   // 0.58: in the middle of the Goo dance (it may be round a corner): the dance, nothing else
     if (gm->HP <= 0 || gm->type != MT_GOO || gm->state != ST_HUNTING || distance(gm->pos, h->pos) > 5 || !(BIT_GET(G.fov, gm->pos) || G.now - s_goo2_last <= 4 * TICK)) continue;
     int r = goo2(gm); if (r == 1) return true; if (r == 0) { walk(game_tap_cell(gm->pos)); return true; } break; }
+  if (s_pztest && ((h->b.invis > 2 && pool_puzzle_pending()) || (h->b.levitation > 2 && trap_puzzle_pending())) && !({ bool adjh = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, h->pos) && !(MOB_DEFS[G.mobs[i].type].flags & MD_WATER)) adjh = true; adjh; })) {   // 0.92 (seed 84 d3: turned invisible at the pool, then swung at a passing crab and lost it): the prize first, the buff won't wait
+    const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { DID("%s", pw); return true; }
+    if (pt >= 0 && pw && (!strncmp(pw, "traps: levitating", 17) || !strncmp(pw, "pool: invisible", 15))) { int32_t t0 = h->time; ActResult rr = tap_safe(pt); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("%s (before anything else)", pw); walk(rr); return true; } } }
   if (fight()) return true;
   if (getenv("DEWREST") && find_kind(IK_DEW_VIAL) >= 0 && G.dew < 10 && h->HP < h->HT && h->HP * 5 >= h->HT * 4 && h->hunger < 260 && enemy_count() == 0 && !gas_at(h->pos)) {   // 0.78 (owner): fed, nearly full,
     bool dew = false; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW && G.heaps[i].type == HEAP_PLAIN && BIT_GET(G.visited, G.heaps[i].pos)) dew = true;   // dew about: rest to full first, so it fills the vial
