@@ -3598,7 +3598,7 @@ static int strategic_upgrade(int scroll) {              // 1: read on the best t
     if (s_pztest && sl >= 0 && (c == CAT_WEAPON || c == CAT_ARMOR) && ({ Item *eq = c == CAT_WEAPON ? &G.hero.weapon : &G.hero.armor; c == CAT_WEAPON ? weapon_score(it) <= weapon_score(eq) : armor_score(it) <= armor_score(eq); })) continue;   // 0.92 (seed 84: the spare cloth armour upgraded, scale armour on): a spare that's worse than what's on isn't a target
     tg[nt++] = sl; }
   if (!nt) return -1;
-  tg[nt++] = -1000;                                    // hold
+  if (!s_pztest) tg[nt++] = -1000;                     // hold (0.92 seed 84 d4: held at 2 HP among the crabs: a known Upgrade goes in now)
   st_sla_points++;
   long best = -1; int bi = 0; uint32_t base = (uint32_t)(cur_game * 7777 + s_bot_steps * 31);
   for (int i = 0; i < nt; i++) {
