@@ -33,14 +33,15 @@ static GRect rcell(int row, int col, int n) { return GRect(s_w / 2 - (n * 33 - 1
 // it as round bubbles, the way Emery's tabs do (the chosen one open into the window), and Exit is a round button at the bottom
 #define WB (ROW_Y(4) + CH + 9)                        // the window's bottom edge (below it: the tabs)
 #define TAB_CY (WB + 12)
-// (0.88 owner: Exit beside them, to the right: the tabs and Exit a row centred under the window)
-#define TAB_X0 (s_w / 2 - (bag_ntabs() * 36 + 40) / 2 + 18)
-#define EXIT_CX (TAB_X0 + bag_ntabs() * 36 + 4)
-#define EXIT_CY (WB + 18)                             // (a whole bubble, just under the window)
+// (0.89 owner: Exit pinned to the rim in the empty space at the bottom right, a quarter of it off the edge like the HUD's
+// bubbles; the tabs centred under the window, moved left only as far as they must to keep clear of it)
+#define TAB_X0 (s_w / 2 - (bag_ntabs() - 1) * 18 < 184 - (bag_ntabs() - 1) * 36 ? s_w / 2 - (bag_ntabs() - 1) * 18 : 184 - (bag_ntabs() - 1) * 36)
+#define EXIT_CX 213
+#define EXIT_CY 213
 static GRect bag_cell(int i) {
   if (i < 5) return rcell(1, i, 5);
   if (i < 19) return rcell(i < 12 ? 2 : 3, (i - 5) % 7, 7);
-  return i < 24 ? rcell(4, i - 19, 5) : GRect(EXIT_CX - 16, EXIT_CY - 16, 32, 32);
+  return i < 24 ? rcell(4, i - 19, 5) : GRect(EXIT_CX - 20, EXIT_CY - 20, 36, 36);
 }
 static GRect bag_tab(int t) { return GRect(TAB_X0 + t * 36 - 16, TAB_CY - 16, 32, 32); }
 static int isq(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
@@ -115,8 +116,8 @@ static void draw_bag(GContext *ctx) {
   }
   for (int t = 0; t < ntabs; t++) { GRect q = bag_tab(t); bool sel = t == s_bag_tab;   // (the buttons' choice: a yellow ring)
     hang(q.origin.x + 16, TAB_CY, 17, sel ? WB - 6 : WB, WB, ARGB(GColorDarkGray), s_sel == BAG_UI_TAB0 + t ? ARGB(GColorChromeYellow) : ARGB(GColorLightGray)); }
-  hang(EXIT_CX, EXIT_CY, 17, 0, 0, ARGB(GColorDarkCandyAppleRed), s_sel == BAG_EXIT ? ARGB(GColorChromeYellow) : ARGB(GColorLightGray));
-  blit(&s_micons, 8 * 16, 0, 16, 16, EXIT_CX - 16, EXIT_CY - 16, 2);   // Icons.EXIT
+  hang(EXIT_CX, EXIT_CY, 22, 0, 0, ARGB(GColorDarkCandyAppleRed), s_sel == BAG_EXIT ? ARGB(GColorChromeYellow) : ARGB(GColorLightGray));
+  blit(&s_micons, 8 * 16, 0, 16, 16, EXIT_CX - 18, EXIT_CY - 18, 2);   // Icons.EXIT
 #else
   blit_fog(0, 0, s_w > s_h ? s_w : s_h);           // 0.70 (owner): the game behind the window in the unexplored-cells shadow
   tab_panel(GRect(r.origin.x, r.origin.y + HEAD, r.size.w, r.size.h - HEAD));   // 0.69 (owner): the frame round the cells only, the title on a tab above it
