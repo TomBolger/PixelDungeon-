@@ -45,11 +45,13 @@ static GRect bag_cell(int i) {
 }
 static GRect bag_tab(int t) { return GRect(TAB_X0 + t * 36 - 16, TAB_CY - 16, 32, 32); }
 static int isq(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
-// a bubble round (cx, cy), radius r: black edge, a ring, the face; its rows from ytop, as wide as at row `hold` above it (a stem)
+// a bubble round (cx, cy), radius r: black edge, a ring, the face; its rows from ytop, as wide as at row `hold` above it (0.90: the
+// chosen tab starts on the window's light edge row, cut open there, so the edge turns down into its ring as on Emery)
 static void hang(int cx, int cy, int r, int ytop, int hold, uint8_t face, uint8_t ring) {
   for (int y = ytop; y <= cy + r + 1; y++) {
     int dy = (y < hold ? hold : y) - cy, d2 = dy * dy, R[3] = { r + 1, r, r - 2 }; uint8_t C[3] = { ARGB(GColorBlack), ring, face };
-    for (int k = 0; k < 3; k++) if (d2 <= R[k] * R[k]) { int w = isq(R[k] * R[k] - d2); blit_fill(cx - w, y, 2 * w + 1, 1, C[k]); }
+    for (int k = y < hold; k < 3; k++) if (d2 <= R[k] * R[k]) {   // (above `hold`: no black edge, the ring joins the window's light edge)
+      int w = isq(R[k] * R[k] - d2); blit_fill(cx - w, y, 2 * w + 1, 1, C[k]); }
   }
 }
 #define tab_hit hit
@@ -115,7 +117,7 @@ static void draw_bag(GContext *ctx) {
       blit_fill(q.origin.x - 2, q.origin.y - 2, n * 33 + 3, CH + 4, ARGB(GColorBlack)); }
   }
   for (int t = 0; t < ntabs; t++) { GRect q = bag_tab(t); bool sel = t == s_bag_tab;   // (the buttons' choice: a yellow ring)
-    hang(q.origin.x + 16, TAB_CY, 17, sel ? WB - 6 : WB, WB, ARGB(GColorDarkGray), s_sel == BAG_UI_TAB0 + t ? ARGB(GColorChromeYellow) : ARGB(GColorLightGray)); }
+    hang(q.origin.x + 16, TAB_CY, 17, sel ? WB - 1 : WB, WB, ARGB(GColorDarkGray), s_sel == BAG_UI_TAB0 + t ? ARGB(GColorChromeYellow) : ARGB(GColorLightGray)); }
   hang(EXIT_CX, EXIT_CY, 22, 0, 0, ARGB(GColorDarkCandyAppleRed), s_sel == BAG_EXIT ? ARGB(GColorChromeYellow) : ARGB(GColorLightGray));
   blit(&s_micons, 8 * 16, 0, 16, 16, EXIT_CX - 18, EXIT_CY - 18, 2);   // Icons.EXIT
 #else
