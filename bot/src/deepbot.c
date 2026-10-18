@@ -1070,7 +1070,8 @@ static double hero_dpt(Mob *m) {                       // the hero's mean damage
 // 0.54 (owner: "the Huntress needs massively different tactics: her boomerang"; audit): it comes back the same turn,
 // her spare STR adds 0..STR-10 to it, a Sniper's throws ignore armour and a hit marks for a half-turn follow-up
 static int st_boom;
-static bool dm_hold(void) { if (!getenv("DMHOLD2") || G.depth != 15) return false;   /* (r17: more gas deaths, no fewer DM deaths: opt-in) */ for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && G.mobs[i].HP < G.mobs[i].HT) return true; return false; }   // 0.54 (audit): DM-300 hurt: it mends only by stepping onto a dead trap: never make it walk
+static bool dm_plan(void) { return s_pztest && !getenv("NODMPLAN"); }
+static bool dm_hold(void) { if ((!getenv("DMHOLD2") && !dm_plan()) || G.depth != 15) return false;   /* (r17: more gas deaths, no fewer DM deaths: opt-in) */ for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && G.mobs[i].HP < G.mobs[i].HT) return true; return false; }   // 0.54 (audit): DM-300 hurt: it mends only by stepping onto a dead trap: never make it walk
 static bool hunt2(void) { return (G.hero.hclass & 3) == 3 && !getenv("OLDHUNT2"); }
 static int boom_slot(void) { if (G.hero.weapon.kind == IK_BOOMERANG) return -1; for (int i = 0; i < BAG_SIZE; i++) if (G.hero.bag[i].kind == IK_BOOMERANG) return i; return -100; }
 static double boom_dpt_vs(int def, int dr, int extra, bool near) {   // her boomerang's mean damage a turn against def / dr
@@ -1395,7 +1396,7 @@ static bool bad_air(int c) { return blob_at(BLOB_TOXIC, c) || blob_at(BLOB_FIRE,
 static bool escape_air(void) {                          // bot2: in gas or fire: walk to the nearest clean air (two steps clear)
   Hero *h = &G.hero; if (!bad_air(h->pos)) return false;
   if (dm_hold() && !blob_at(BLOB_FIRE, h->pos) && !blob_at(BLOB_PARALYTIC, h->pos)) return false;   // 0.54: its gas follows it anyway; stepping out makes it walk (and mend)
-  if (!getenv("OLDGASTANK") && blob_at(BLOB_TOXIC, h->pos) && !blob_at(BLOB_FIRE, h->pos) && !blob_at(BLOB_PARALYTIC, h->pos) && !blob_at(BLOB_CONFUSION, h->pos) && !(!s_oldfire && fire_next(h->pos)) && h->HP * 10 >= h->HT * ((!getenv("OLDDM") && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && adjacent(G.mobs[i].pos, h->pos)) dm = true; dm; })) ? 2.5 : 4)
+  if (!getenv("OLDGASTANK") && blob_at(BLOB_TOXIC, h->pos) && !blob_at(BLOB_FIRE, h->pos) && !blob_at(BLOB_PARALYTIC, h->pos) && !blob_at(BLOB_CONFUSION, h->pos) && !(!s_oldfire && fire_next(h->pos)) && h->HP * 10 >= h->HT * ((!getenv("OLDDM") && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && adjacent(G.mobs[i].pos, h->pos)) dm = true; dm; })) ? (dm_plan() ? 0 : 2.5) : 4)
       && ({ bool adj = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, h->pos)) adj = true; adj; })) return false;   // 0.50 (review g6): toxic gas with a foe at your side (DM-300 vents it): fight on above 40%, fleeing only gives it free turns
   bfs(h->pos, false); int best = -1, bd = 0x7FFF;
   for (int c = 0; c < MAP_LEN; c++) {
@@ -2030,10 +2031,15 @@ static bool fight(void) {
         if (h->pos != P) { bfs(h->pos, false); if (b_dist[P] <= 12 && !char_at(P)) { int32_t t0 = h->time; ActResult rr = tap_safe(P); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("King: onto the pedestal he wants next (no army from there)"); walk(rr); return true; } } }
         else if (!adjacent(m->pos, h->pos)) { if (!ranged_try(best)) { s_did[0] = 0; DID("King: hold the pedestal"); walk(game_rest(false)); } return true; } } } }
   if (m->type == MT_DM300 && !getenv("OLDDM")) {     // 0.53 (boss audit D1/D2): it repairs on dead traps and vents gas: meet it on a cell with no trap on it or beside it; hold it
+    if (adjacent(m->pos, h->pos) && dm_plan() && h->HP <= 30) { int s = find_kind(IK_POT_HEALING); if (s >= 0 && item_known(IK_POT_HEALING)) { s_did[0] = 0; DID("DM-300: drink before its next blow (up to 29)"); do_item(s, ACN_DRINK); return true; }
+      for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_POTION && !item_known(h->bag[i].kind) && s_pot_guess[h->bag[i].kind] == IK_POT_HEALING) { s_did[0] = 0; DID("DM-300: the Sungrass brew (Healing, likely)"); do_item(i, ACN_DRINK); return true; } }
+    if (!adjacent(m->pos, h->pos) && dm_plan() && distance(m->pos, h->pos) <= 4 && !G.herbal && m->state == ST_HUNTING) { int s = find_kind(IK_SEED_EARTHROOT); if (s >= 0) {   // 0.92 (audit): Earthroot soaks up the hero's HT in blows while you stand still: throw it beside me, step on it
+        int bn = -1; for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || char_at(q) || plant_at(q) >= 0 || heap_at(q) >= 0 || G.map[q] == T_INACTIVE_TRAP) continue; bool tr = false; for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && G.map[r] == T_INACTIVE_TRAP) tr = true; } if (tr) continue; bn = q; break; }
+        if (bn >= 0) { s_onto = bn; s_did[0] = 0; DID("DM-300: Earthroot beside me, then onto it"); walk(game_throw(s, bn)); return true; } } }
     if (adjacent(m->pos, h->pos)) { int s; if (blob_at(BLOB_TOXIC, h->pos) && (s = find_kind(IK_POT_PURITY)) >= 0 && item_known(IK_POT_PURITY) && !h->b.gas_immune) { s_did[0] = 0; DID("DM-300: Purity against its gas"); do_item(s, ACN_DRINK); return true; }
       if (!getenv("OLDDMHOLD2") && m->b.paralysis <= 1 && (s = find_kind(IK_CURARE_DART)) >= 0 && s < BAG_SIZE) { st_uses[ACN_THROW]++; s_did[0] = 0; DID("DM-300: a curare dart (paralysed, every blow lands)"); walk(game_throw(s, m->pos)); return true; }   // 0.54 (audit)
       if (!getenv("OLDDMHOLD2") && !m->b.slow) for (int sl = -1; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl); if (it->kind == IK_WND_SLOW && item_known(it->kind) && it->ench > 0) { s_did[0] = 0; DID("DM-300: slow it"); walk(game_zap(sl, m->pos)); return true; } } }
-    else if (dm_hold()) { if (!ranged_try(best)) { s_did[0] = 0; DID("DM-300 is hurt: hold still, let it come (no walking over dead traps)"); walk(game_rest(false)); } return true; }
+    else if (dm_hold()) { if (dm_plan() ? (distance(m->pos, h->pos) <= 2 && attack_wand_ready() && ranged_try(best)) : ranged_try(best)) {} else { s_did[0] = 0; DID("DM-300 is hurt: hold still, let it come (no walking over dead traps)"); walk(game_rest(false)); } return true; }
     else if (distance(m->pos, h->pos) >= 2) {
       bfs(h->pos, false); int bc = -1, bd = 9;
       for (int c = 0; c < MAP_LEN; c++) { if (b_dist[c] >= bd || !PASSABLE(G.map[c]) || (TFLAGS(G.map[c]) & F_AVOID) || G.map[c] == T_INACTIVE_TRAP || (char_at(c) && c != h->pos) || blob_at(BLOB_TOXIC, c)) continue;
@@ -2997,6 +3003,7 @@ static bool decide(void) {
     else { bfs(h->pos, false); if (b_dist[G.exit] < 0x7FFF) { choice = G.exit; why = "rush: straight to the stairs"; st_rush++; } } }
   if (choice < 0 && !going && (h->b.levitation > 2 || h->b.invis > 2) && s_pztest) { const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { DID("%s", pw); return true; } if (pt >= 0 && pw && (!strncmp(pw, "traps: levitating", 17) || !strncmp(pw, "pool: invisible", 15))) { choice = pt; why = pw; } }   // 0.91: floating: the trap room's prize before anything else (levitation doesn't last)
   if (choice < 0 && !going) { bfs(h->pos, false); int tp = trap_prize(); if (tp == -2) return true; if (tp >= 0 && tp != h->pos) { choice = tp; why = "to throw onto / step onto a trap with a prize"; } }
+  if (choice < 0 && !going && dm_plan() && G.depth == 15 && !(G.boss & 8) && h->HP * 20 < h->HT * 19 && !game_starving() && threat_count() == 0 && ({ static int rk = -1, rn; int key = cur_game; if (rk != key) { rk = key; rn = 0; } rn++ < 400; })) { DID("floor 15: rest to full before DM-300 (the floor is empty)"); walk(game_rest(false)); return true; }   // 0.92 (audit): no respawns on the boss floor
   if (choice < 0 && !going && s_pztest && !getenv("NOHEALFETCH") && h->HP * 10 < h->HT * 4 && threat_count() == 0 && item_known(IK_POT_HEALING)) {   // 0.92 (seed 84 d4: went down to the Goo at 4 HP, starving, with a Potion of Healing lying two cells away): a known Healing within reach comes first
     bfs(h->pos, false); int best = -1, bd = 20;
     for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_POT_HEALING && heap_wanted(i) && b_dist[G.heaps[i].pos] < bd) { bd = b_dist[G.heaps[i].pos]; best = G.heaps[i].pos; }

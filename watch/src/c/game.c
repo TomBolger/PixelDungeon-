@@ -911,7 +911,7 @@ static void blobs_act(void) {
   }
   if (g_blob[BLOB_TOXIC] && g_blob[BLOB_PARALYTIC]) {    // the two gases cancel out
     uint16_t *t = g_blob[BLOB_TOXIC], *p = g_blob[BLOB_PARALYTIC];
-    for (int i = 0; i < MAP_LEN; i++) { if (p[i] >= t[i]) { s_blob_vol[0] -= t[i]; t[i] = 0; } else { s_blob_vol[1] -= p[i]; p[i] = 0; } }
+    for (int i = 0; i < MAP_LEN; i++) if (p[i] && t[i] > p[i]) { s_blob_vol[1] -= p[i]; p[i] = 0; }   // 0.92 (audit): ToxicGas.evolve: the toxic side only touches the old array (thrown away): toxic gas is never removed, paralytic goes where toxic is stronger
   }
   for (int b = 0; b < BLOB_COUNT; b++) if (g_blob[b] && s_blob_vol[b] <= 0) { free(g_blob[b]); g_blob[b] = NULL; s_blob_vol[b] = 0; }
 }
