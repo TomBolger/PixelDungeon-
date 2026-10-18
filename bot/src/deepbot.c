@@ -801,13 +801,13 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
     st_uses[ACN_EQUIP]++; do_item(i, ACN_EQUIP); return true;
   }
   // identify by use, when it's safe: full health, nothing in sight
-  if ((h->HP * 100 >= h->HT * PRM[P_TESTHP] || (s_pztest && h->HP * 2 >= h->HT)) && !G.hero.b.blind) {   // 0.92 (seed 84 d3: the ivory one was Healing, drunk at 27/30): a potion test from half health up (a Healing then isn't wasted; fire goes out in the water)
+  if ((h->HP * 100 >= h->HT * PRM[P_TESTHP] || (s_pztest && !getenv("NOHALFTEST") && h->HP * 2 >= h->HT)) && !G.hero.b.blind) {   // 0.92 (seed 84 d3: the ivory one was Healing, drunk at 27/30): a potion test from half health up (a Healing then isn't wasted; fire goes out in the water)
     for (int i = 0; i < BAG_SIZE + 32; i++) {
       int sl = i < BAG_SIZE ? i : PACK0 + i - BAG_SIZE; Item *it = game_slot(sl);
       if (!it->kind || item_known(it->kind)) continue;
       int c = item_cat(it->kind);
       if (c != CAT_POTION && h->HP * 100 < h->HT * PRM[P_TESTHP]) continue;   // (scrolls and the rest: at full health as before)
-      if (c == CAT_POTION && s_pztest && h->HP * 100 > h->HT * 85 && floor_left() && !pool_puzzle_pending() && !trap_puzzle_pending()) continue;   // (0.92: nearly whole with the floor still to do: the test can wait for a scratch)
+      if (c == CAT_POTION && s_pztest && !getenv("NOHALFTEST") && h->HP * 100 > h->HT * 85 && floor_left() && !pool_puzzle_pending() && !trap_puzzle_pending()) continue;   // (0.92: nearly whole with the floor still to do: the test can wait for a scratch)
       if (c == CAT_SCROLL && getenv("SCRDBG") && !s_rollout) { static int ls = -1; if (ls != s_bot_steps) { ls = s_bot_steps; printf("SCR step %d d%d fsteps %d bag %d left %d gw %d\n", s_bot_steps, G.depth, s_floor_steps, bag_used(), floor_left(), gear_worth_upgrading()); } }
       if (c == CAT_SCROLL && !getenv("OLDHERO") && s_floor_steps > 30 && bag_used() < BAG_SIZE - 2 && !cursed_known(&h->armor) && !cursed_known(&h->weapon) && (floor_left() || s_pztest) && !boss_depth(G.depth) && !(s_pztest && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && gear_worth_upgrading())) continue;   // (0.92: not with the ghost's curse to fight here: an Upgrade helps now)   // 0.52 (audit): an unknown scroll waits for the next floor's start (Mapping then saves the walking)
       if (c == CAT_SCROLL && s_scrhold && !gear_worth_upgrading() && bag_used() < BAG_SIZE - 3 && G.depth < (s_scrhold > 1 ? s_scrhold : 4) && !cursed_known(&h->armor) && !cursed_known(&h->weapon)) continue;   // 0.91 (owner): an Upgrade read now goes into the starting gear: hold them till something's worth it (or the Goo's near)
@@ -1413,7 +1413,7 @@ static bool dew_take(void) {
   return h->HP * 2 < h->HT || (vial && (G.dew < 10 ? h->HP >= h->HT : h->HP < h->HT));
 }
 static bool far_missile(int hp) {                       // 0.92 (seed 84 d2: 53 turns there and back for two shuriken): plain missiles aren't worth a long walk
-  if (!s_pztest) return false; int k = G.heaps[hp].item.kind; if (item_cat(k) != CAT_MISSILE || k == IK_CURARE_DART || k == IK_INCENDIARY_DART || k == IK_BOOMERANG) return false;
+  if (!s_pztest || getenv("NOFARMISS")) return false; int k = G.heaps[hp].item.kind; if (item_cat(k) != CAT_MISSILE || k == IK_CURARE_DART || k == IK_INCENDIARY_DART || k == IK_BOOMERANG) return false;
   int c = G.heaps[hp].pos; return (unsigned)c < MAP_LEN && b_dist[c] > 12; }
 static bool heap_wanted(int hp) {
   Hero *h = &G.hero; int c = G.heaps[hp].pos, ty = G.heaps[hp].type;
@@ -2201,7 +2201,7 @@ static bool fight(void) {
 static bool npc_wanted(int i) {
   Quests *q = &G.q; int t = G.mobs[i].type;
   switch (t) {
-    case MT_GHOST: if (s_pztest && q->ghost_alt == 2 && q->ghost == QS_SPAWNED && (G.journal[J_GHOST] & (1u << G.depth)) && !curse_go()) return false;   // 0.92 (seed 84: ten talks, ten "no"s): heard him once; back only when the plan says the curse is on
+    case MT_GHOST: if (s_pztest && !getenv("NOCURSE2") && q->ghost_alt == 2 && q->ghost == QS_SPAWNED && (G.journal[J_GHOST] & (1u << G.depth)) && !curse_go()) return false;   // 0.92 (seed 84: ten talks, ten "no"s): heard him once; back only when the plan says the curse is on
       return q->ghost == QS_SPAWNED || (q->ghost_alt == 2 && q->ghost != QS_GIVEN && (getenv("OLDQBUG") || q->ghost == QS_DONE || ((attack_wand_ready() || curse_go()) && G.hero.HP >= G.hero.HT * 9 / 10))) || (q->ghost == QS_GIVEN && find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0) || (q->ghost == QS_DONE && (q->ghost_alt == 2 || find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0));
     case MT_WANDMAKER: { static const uint8_t W[3] = { IK_SEED_ROTBERRY, IK_CORPSE_DUST, IK_PHANTOM_FISH }; return q->wand == QS_SPAWNED || (q->wand == QS_GIVEN && find_kind(W[q->wand_alt % 3]) >= 0); }
     case MT_BLACKSMITH: {
@@ -2238,7 +2238,7 @@ static bool quest_on_floor(void) {                      // work on this floor's 
 }
 static bool wait_quest(void) {                          // 0.50 (review g6): quests that need monsters to come: the ghost's (rose, fetid rat), the smith's bat blood
   Quests *q = &G.q; int d = G.depth; if (s_explab) return false;
-  if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED && !(s_pztest && q->ghost_alt == 2)) return true;   // (0.92: the curse needs no monsters to come: the curse plan runs it)
+  if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED && !(s_pztest && !getenv("NOCURSE2") && q->ghost_alt == 2)) return true;   // (0.92: the curse needs no monsters to come: the curse plan runs it)
   if (q->smith_depth == d && q->smith == QS_GIVEN && q->smith_alt) return true;
   return false;
 }
@@ -2895,7 +2895,7 @@ static bool decide(void) {
     else { bfs(h->pos, false); if (b_dist[G.exit] < 0x7FFF) { choice = G.exit; why = "rush: straight to the stairs"; st_rush++; } } }
   if (choice < 0 && !going && (h->b.levitation > 2 || h->b.invis > 2) && s_pztest) { const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { DID("%s", pw); return true; } if (pt >= 0 && pw && (!strncmp(pw, "traps: levitating", 17) || !strncmp(pw, "pool: invisible", 15))) { choice = pt; why = pw; } }   // 0.91: floating: the trap room's prize before anything else (levitation doesn't last)
   if (choice < 0 && !going) { bfs(h->pos, false); int tp = trap_prize(); if (tp == -2) return true; if (tp >= 0 && tp != h->pos) { choice = tp; why = "to throw onto / step onto a trap with a prize"; } }
-  if (choice < 0 && !going && s_pztest && h->HP * 10 < h->HT * 4 && threat_count() == 0 && item_known(IK_POT_HEALING)) {   // 0.92 (seed 84 d4: went down to the Goo at 4 HP, starving, with a Potion of Healing lying two cells away): a known Healing within reach comes first
+  if (choice < 0 && !going && s_pztest && !getenv("NOHEALFETCH") && h->HP * 10 < h->HT * 4 && threat_count() == 0 && item_known(IK_POT_HEALING)) {   // 0.92 (seed 84 d4: went down to the Goo at 4 HP, starving, with a Potion of Healing lying two cells away): a known Healing within reach comes first
     bfs(h->pos, false); int best = -1, bd = 20;
     for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_POT_HEALING && heap_wanted(i) && b_dist[G.heaps[i].pos] < bd) { bd = b_dist[G.heaps[i].pos]; best = G.heaps[i].pos; }
     if (best >= 0) { choice = best; why = "a Healing potion lies there: fetch it first"; } }
@@ -3692,7 +3692,7 @@ static int curse_sim1(uint32_t seed) {
 static long curse_key(void) { Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.q.ghost_depth) * 4096 + h->lvl * 128 + h->STR * 4; k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind; k = k * 1048576 + curse_kit_sig(); return k; }
 static bool curse_food_ok(void) {                      // 0.92 (eat-late keeps the hero Hungry most of the time; the curse plan was gated on not being hungry and never ran): only Starving with nothing to eat rules it out
   if (!game_starving()) return true; for (int i = 0; i < BAG_SIZE; i++) if (is_food(G.hero.bag[i].kind) && G.hero.bag[i].kind != IK_MYSTERY_MEAT) return true; return false; }
-static bool food_pressed(void) { return s_pztest ? !curse_food_ok() : game_hungry(); }
+static bool food_pressed(void) { return s_pztest && !getenv("NOFOODP") ? !curse_food_ok() : game_hungry(); }
 static long curse_kit_sig(void) {                       // 0.92 (seed 84: the odds were cached at 30% before the flame potion was known, and never looked at again): the kit is part of the state
   Hero *h = &G.hero; long sig = h->weapon.lvl * 7 + h->armor.lvl * 13;
   for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (!k) continue; int c = item_cat(k);
