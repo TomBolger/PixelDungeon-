@@ -846,7 +846,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
     st_uses[ACN_SET]++; do_item(s, ACN_SET); return true;
   }
   // the dew vial when hurt
-  if (h->HP < h->HT / 2 && G.dew >= 5 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || (G.dew < 10 && game_starving()))) { do_item(s, ACN_DRINK); return true; }   // 0.52 (audit): a full vial is a second life (it revives you at death): rest instead, unless starving
+  if (h->HP < h->HT / 2 && G.dew >= 5 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || (G.dew < 10 && (game_starving() || (s_pztest && G.depth >= 6))))) { do_item(s, ACN_DRINK); return true; }   // (0.92: deep, the vial's drops are worth more drunk than hoarded: it fills only at full health)   // 0.52 (audit): a full vial is a second life (it revives you at death): rest instead, unless starving
   // 0.48 (owner): leave junk behind: known cursed or negative pieces not worn, rings known bad, and weapons and armour
   // that even at +1 would be worse than what's worn (dropped here, never picked up again)
   if (!s_oldgear && !getenv("NOJUNK") && enemy_count() == 0 && (getenv("OLDGEARFIX") || !h->weakness) && (getenv("OLDJUNK2") || ({ int nb = 0; for (int j = 0; j < BAG_SIZE; j++) nb += h->bag[j].kind != 0; nb; }) >= BAG_SIZE - 4)) for (int i = 0; i < BAG_SIZE; i++) {   // 0.49 (owner): only when the bag fills (spares are things to throw onto traps; heavy gear may fit later)
@@ -1407,6 +1407,7 @@ static bool boss_zone(int c) {
 // half health; into a vial that isn't full at full health; or hurt with the vial full. Else leave it for later (the Assist's rule)
 static bool dew_take(void) {
   Hero *h = &G.hero; bool vial = find_kind(IK_DEW_VIAL) >= 0;
+  if (s_pztest && h->HP < h->HT && (G.depth >= 6 || game_starving())) return true;   // 0.92 (seed 84: 52 drops left lying while it limped, starving, from floor 8 on; mending is 1 HP a 10 turns): deep, or with no mending, a drop is 2-4 HP now
   return h->HP * 2 < h->HT || (vial && (G.dew < 10 ? h->HP >= h->HT : h->HP < h->HT));
 }
 static bool heap_wanted(int hp) {
@@ -3429,7 +3430,7 @@ static int cands(Cand *c) {
     if (s < 0 && cat != CAT_WAND) continue;
     if (cat == CAT_POTION && s_pztest && item_known(k) && ((k == IK_POT_INVIS && pool_puzzle_pending()) || (k == IK_POT_LEVITATION && trap_puzzle_pending())) && h->HP * 4 >= h->HT) continue;   // 0.92 (seed 84 d3: the pool's invisibility spent getting away from a crab at 2/3 health): kept for its room unless near death
     if (cat == CAT_POTION) { if (getenv("OLDLADRINK") || !item_known(k) || !(k == IK_POT_LEVITATION || k == IK_POT_MIND || harmful_potion(k) || (k == IK_POT_PURITY && !bad_air(G.hero.pos)))) c[n++] = (Cand){ C_ITEM, ACN_DRINK, s, 0 };   /* (0.53: no Levitation or Mind Vision mid-fight: the look-ahead drank three at Tengu) */ if (fp >= 0 && ((!item_known(k) && !(MOB_DEFS[G.mobs[foe].type].flags & MD_BOSS)) || harmful_potion(k)) && (getenv("OLDLAGAS") || distance(fp, G.hero.pos) >= ((k == IK_POT_TOXIC || k == IK_POT_PARALYTIC || !item_known(k)) ? 4 : 3))) c[n++] = (Cand){ C_THROW, 0, s, fp }; }   /* 0.54: a gas thrown 2 away comes back over you (a Tengu death) */
-    else if (cat == CAT_SCROLL && !h->b.blind && !(k == IK_SCR_TERROR && item_known(k) && !getenv("OLDDMTERROR") && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300) dm = true; dm; }))) c[n++] = (Cand){ C_ITEM, ACN_READ, s, 0 };   // (0.50 review g6: not Terror at DM-300: it flees over the dead traps and repairs itself to full)
+    else if (cat == CAT_SCROLL && !h->b.blind && !(s_pztest && item_known(k) && k == IK_SCR_CHALLENGE) && !(k == IK_SCR_TERROR && item_known(k) && !getenv("OLDDMTERROR") && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300) dm = true; dm; }))) c[n++] = (Cand){ C_ITEM, ACN_READ, s, 0 };   // (0.50 review g6: not Terror at DM-300: it flees over the dead traps and repairs itself to full)
     else if (cat == CAT_SEED && k != IK_SEED_ROTBERRY && !(s_firedoom && (k == IK_SEED_FIREBLOOM || k == IK_SEED_ICECAP || k == IK_SEED_SORROWMOSS || k == IK_SEED_DREAMWEED || k == IK_SEED_FADELEAF)) && plant_at(hp) < 0 && heap_at(hp) < 0 && hp != G.exit && hp != G.entrance) c[n++] = (Cand){ C_ITEM, ACN_PLANT, s, 0 };
     else if (cat == CAT_WAND && it->ench > 0 && fp >= 0) c[n++] = (Cand){ C_ZAP, 0, s, fp };
     else if (cat == CAT_MISSILE && fp >= 0) c[n++] = (Cand){ C_THROW, 0, s, fp };
