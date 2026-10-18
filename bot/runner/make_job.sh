@@ -8,7 +8,7 @@
 set -e
 cd "$(dirname "$0")/.."
 [ $# -ge 6 ] || { sed -n 2,8p "$0"; exit 1; }
-V=$1; J=$2; N=$3; C=$4; F=$5; shift 5
+V=$1-$(date +%m%d%H%M%S); J=$2; N=$3; C=$4; F=$5; shift 5   # (the runner keeps an unpacked bundle by name: a stamp makes every bundle new)
 OUT=${OUT:-build/runner}; mkdir -p "$OUT"
 [ -x build/deepbot ] || ./build.sh
 T=$(mktemp -d); mkdir -p "$T/data"
