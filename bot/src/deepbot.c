@@ -2030,6 +2030,19 @@ static bool fight(void) {
   if (m->type == MT_GOO && !h->b.roots) {             // bot3: the Goo plan (STRATEGY.md)
     // a pumped Goo jumps 2 cells along a straight line: step where its line to you is blocked (round a corner, behind
     // the door frame: the jump fails and the pump is wasted), else as far as you can
+    if (s_pztest && !getenv("NOGOOT") && m->aux2 && distance(m->pos, h->pos) <= 2 && !G.herbal) {   // 0.92 (Goo deaths at full health: the "2-move escape" had one move: the pump began mid-step; 16-22 HP a jump): count the moves before it acts
+      #define GSAFE2(c) (distance((c), m->pos) > 2 || ({ bool hh; ballistica(m->pos, (c), &hh) != (c); }))
+      int mc = hero_move_cost(); int nm = m->time > h->time ? (m->time - h->time + mc - 1) / mc : 0;
+      int best = -1, bs = -1;
+      if (nm >= 1) for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || char_at(q) || plant_at(q) >= 0) continue;
+        int sc = GSAFE2(q) ? 100 : 0;
+        if (!sc && nm >= 2) for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && PASSABLE(G.map[r]) && !(TFLAGS(G.map[r]) & F_AVOID) && !char_at(r) && GSAFE2(r)) { sc = 50; break; } }
+        if (!sc) continue; sc += distance(q, m->pos) * 2 + (IS_WATER(G.map[q]) ? 1 : 0);
+        if (sc > bs) { bs = sc; best = q; } }
+      if (getenv("GOODBG") && !s_rollout) printf("  GOOT step %d moves %d best %d adj %d\n", s_bot_steps, nm, best, adjacent(m->pos, h->pos));
+      if (best >= 0) { s_goo_calm = G.now + 3 * TICK; s_did[0] = 0; DID("Goo pumps up: out of its reach in the %d move%s I have", nm, nm == 1 ? "" : "s"); walk(game_tap_cell(best)); return true; }
+      if (adjacent(m->pos, h->pos)) { s_did[0] = 0; DID("Goo pumps up: no way out in time: the free blows"); goto goo_melee; }
+    }
     if (getenv("X_DODGE2") && m->aux2 && distance(m->pos, h->pos) <= 2 && !G.herbal) {   // X: a 2-move escape (out of reach, or round a corner), else take the free blows
       #define GSAFE(c) (distance((c), m->pos) > 2 || ({ bool hh; ballistica(m->pos, (c), &hh) != (c); }))
       int best = -1, bs = -1;
