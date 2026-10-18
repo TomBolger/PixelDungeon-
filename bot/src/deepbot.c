@@ -591,7 +591,7 @@ static int upg_plan(bool *hold) {                         // bot3: which item th
   return bs;
 }
 static int s_force_pick = -999;                          // bot3: the strategic look-ahead chose the upgrade's target
-static long st_sou_read, st_sou_pos;
+static long st_sou_read, st_sou_pos; static long st_brkw, st_brka, st_brkn;
 // 0.92 (owner: "alchemy through the same bag valuation"): Heap.transmute with n seeds: 1 in n a random potion, else the
 // potion of a seed picked by count. A brew is worth it when the potion beats the three seeds it eats plus the bag slot it
 // needs (nothing, with a free slot or a stack to join; else the least useful thing in the bag). Three of one kind whose
@@ -4314,6 +4314,7 @@ int main(int argc, char **argv) {
       if (G.depth != s_floor_lastpos >> 16) { memset(s_stepped, 0, sizeof s_stepped); s_floor_moves = 0; s_floor_t0 = G.now; s_floor_lastpos = G.depth << 16 | 0xFFFF; }
 
       s_floor_steps++;
+      if (!s_rollout && !s_is_child) { Hero *bh = &G.hero; if (bh->weapon.kind && bh->weapon.lvl > 0 && item_broken(&bh->weapon)) st_brkw++; if (bh->armor.kind && bh->armor.lvl > 0 && item_broken(&bh->armor)) st_brka++; if (bh->weapon.lvl > 0 || bh->armor.lvl > 0) st_brkn++; }   // 0.93: steps with upgraded gear worn broken
       if (getenv("WPN")) { static int lw = -1; if (G.hero.weapon.kind != lw) { printf("  weapon %d -> %d at step %d depth %d; last logs: %s | %s\n", lw, G.hero.weapon.kind, steps, G.depth, s_last_log[(s_nlog - 2) & 7], s_last_log[(s_nlog - 1) & 7]); lw = G.hero.weapon.kind; } }
       if (getenv("NIGHT")) { static int lastn = -1; if (G.night != lastn) { printf("  night %d -> %d at step %d depth %d\n", lastn, G.night, steps, G.depth); lastn = G.night; } }
       if (getenv("BLAME") && !s_rollout && !s_is_child && !s_cf_child) { if (G.hero.HP <= 0) bl_on_death(); else if (G.action == HA_NONE && !s_pend_depth && steps % (getenv("BLK") ? atoi(getenv("BLK")) : 20) == 0) bl_checkpoint(g); }
@@ -4502,7 +4503,7 @@ int main(int argc, char **argv) {
                            G.q.ghost, G.q.wand, G.q.smith, G.q.imp, G.hero.HP <= 0 ? ": " : "", G.hero.HP <= 0 ? G.death : "");
     if (getenv("DUMPEND")) { printf("  END MAP d%d hero %d,%d exit %d,%d:\n", G.depth, cx(G.hero.pos), cy(G.hero.pos), cx(G.exit), cy(G.exit)); for (int y = 0; y < MAP_H; y++) { printf("   "); for (int x = 0; x < MAP_W; x++) { int c = x + y * MAP_W, t = G.map[c]; char ch = !BIT_GET(G.visited, c) ? (t == T_SECRET_DOOR ? 's' : ' ') : c == G.hero.pos ? '@' : t == T_SECRET_DOOR ? 'S' : t == T_WALL || t == T_WALL_DECO ? '#' : t == T_DOOR || t == T_OPEN_DOOR ? '+' : t == T_LOCKED_DOOR ? 'L' : t == T_LOCKED_EXIT ? 'X' : t == T_EXIT ? '>' : t == T_ENTRANCE ? '<' : (TFLAGS(t) & F_PIT) ? ':' : IS_WATER(t) ? '~' : (TFLAGS(t) & F_AVOID) ? '^' : PASSABLE(t) ? '.' : '?'; if (heap_at(c) >= 0 && BIT_GET(G.visited, c)) ch = '*'; putchar(ch); } putchar('\n'); } for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0) printf("   mob %s at %d,%d st %d\n", mob_name(G.mobs[i].type), cx(G.mobs[i].pos), cy(G.mobs[i].pos), G.mobs[i].state); }
     if (getenv("RESPAWN")) { printf("  respawns %d:%s\n", s_resp_n, s_resp_log); } s_resp_n = 0; s_resp_log[0] = 0;
-    if (getenv("D")) { Item *a = &G.hero.armor, *w = &G.hero.weapon; printf("  worn: armour %s%d%s, weapon %s%d%s, rings %s%s; SoU spawned %d read %ld in bag %d; STR potions spawned %d; hunger at end %d food %d\n", a->lvl >= 0 ? "+" : "", a->lvl, (a->flags & IF_CURSED) ? " CURSED" : "", w->lvl >= 0 ? "+" : "", w->lvl, (w->flags & IF_CURSED) ? " CURSED" : "", (G.hero.ring[0].flags & IF_CURSED) && G.hero.ring[0].kind ? "CURSED " : "", (G.hero.ring[1].flags & IF_CURSED) && G.hero.ring[1].kind ? "CURSED" : "", G.sou_count, st_sou_read, find_kind(IK_SCR_UPGRADE) >= 0 ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0, G.pos_count, G.hero.hunger, food_budget()); }
+    if (getenv("D")) { Item *a = &G.hero.armor, *w = &G.hero.weapon; printf("  worn: armour %s%d%s, weapon %s%d%s, rings %s%s; SoU spawned %d read %ld in bag %d; STR potions spawned %d; hunger at end %d food %d; broken steps w %ld a %ld of %ld\n", a->lvl >= 0 ? "+" : "", a->lvl, (a->flags & IF_CURSED) ? " CURSED" : "", w->lvl >= 0 ? "+" : "", w->lvl, (w->flags & IF_CURSED) ? " CURSED" : "", (G.hero.ring[0].flags & IF_CURSED) && G.hero.ring[0].kind ? "CURSED " : "", (G.hero.ring[1].flags & IF_CURSED) && G.hero.ring[1].kind ? "CURSED" : "", G.sou_count, st_sou_read, find_kind(IK_SCR_UPGRADE) >= 0 ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0, G.pos_count, G.hero.hunger, food_budget(), st_brkw, st_brka, st_brkn); st_brkw = st_brka = st_brkn = 0; }
   }
   printf("strategy: %ld upgrade decisions\n", st_sla_points);
   printf("look-ahead: %ld moments, %ld changed, %ld playouts\n", st_la_points, st_la_changed, st_la_forks);
