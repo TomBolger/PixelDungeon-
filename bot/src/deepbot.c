@@ -1124,6 +1124,7 @@ static bool altar_lure(int mi) {
   if (getenv("OLDALTAR") || !altar_live()) return false;
   Hero *h = &G.hero; Mob *m = &G.mobs[mi]; int a = G.altar_pos;
   if (m->state != ST_HUNTING || (MOB_DEFS[m->type].flags & (MD_BOSS | MD_WATER)) || h->lvl > MOB_DEFS[m->type].max_lvl || !MOB_DEFS[m->type].exp) return false;
+  if (!getenv("OLDALTAR3") && (magic_shooter(m->type) || m->type == MT_SCORPIO || m->type == MT_ACIDIC || m->type == MT_TENGU)) return false;   // 0.93 (zone run: waited by the altar while a warlock shot from across the room, two Healings drunk): a shooter never comes over it
   if (m->pos == a || m->b.mind > 0) return false;      // in the fire or marked: kill it now
   bool far = !getenv("OLDALTAR2");                    // 0.54 (owner: "it can take an entire stage 24 out at once; careful kiting of non-fast mobs; attempt it early in a stage with lots of mobs left")
   int live = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && !(MOB_DEFS[o->type].flags & (MD_BOSS | MD_NPC | MD_WATER)) && o->state != ST_PASSIVE && MOB_DEFS[o->type].exp) live++; }
@@ -2958,6 +2959,8 @@ static bool decide(void) {
   if (!getenv("OLDSTAIRREST") && (h->HP * 100 < h->HT * rlo || s_resting) && !game_starving() && near_foes == 0 && G.depth > 1 && G.entrance >= 0 && h->pos != G.entrance && !boss_depth(G.depth)) {
     bfs(h->pos, false);                                  // 0.50 (review: crab deaths): rest on the stairs up: a crab or a pack turning up while you're low, you step up and away
     if (b_dist[G.entrance] < 20 && mob_at(G.entrance) < 0) { s_resting = true; DID("to the stairs up, to rest there"); walk(tap_safe(G.entrance)); return true; } }
+  if (s_pztest && !getenv("OLDSTAIRUP") && h->pos == G.entrance && G.depth > 1 && h->HP * 2 < h->HT && !boss_depth(G.depth - 1) && !game_starving() && ({ bool w = false; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && BIT_GET(G.fov, o->pos) && o->state != ST_PASSIVE && o->state != ST_SLEEPING && !(MOB_DEFS[o->type].flags & MD_NPC)) w = true; } w; })) {   // 0.93 (zone run: resting on the stairs at 8 HP, a wandering warlock in sight shot it dead): one awake in sight: up now
+    int32_t t0 = h->time; ActResult rr = game_tap_cell(h->pos); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("low on the stairs up, one awake in sight: up and away"); walk(rr); return true; } }
   if ((h->HP * 100 < h->HT * rlo || s_resting) && !game_starving() && near_foes == 0 && s_ambush <= s_bot_steps && !(s_pztest && h->ooze && !IS_WATER(G.map[h->pos]))) {   // bot2: rest when below half, up to 4/5, a turn at a time   // (0.92: never oozing on dry ground: it eats a point a turn)
     if (!getenv("OLDHERO") && room_at(h->pos) >= 0 && G.rooms[room_at(h->pos)].type != RT_GARDEN) {   // 0.52 (audit): a garden: unseen there, and hunger runs at 2/3: rest in it
       bfs(h->pos, false); int gc = -1, gd = 16;
