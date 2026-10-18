@@ -2864,6 +2864,34 @@ static void oracles(void) {
   if (o_gear) for (int s = -4; s < PACK0 + 32; s = s == BAG_SIZE - 1 ? PACK0 : s + 1) { Item *it = game_slot(s); int c = item_cat(it->kind);
     if (c == CAT_WEAPON || c == CAT_ARMOR || c == CAT_RING || c == CAT_WAND) it->flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN | IF_CHARGE_KNOWN; }
 }
+// 0.93 (owner: "calculate the odds of what might be on a floor and leave early"): Dungeon.posNeeded / souNeeded, from the
+// source: Strength potions 2 by floor 4, 4 by 9, 6 by 14, 8 by 19, 9 by 24; Upgrades 3 by 5, 6 by 10, 9 by 15, 12 by 20,
+// 13 by 25; on floor d the chance is (still owed) / (floors to the deadline). The count spawned isn't known (a floor left
+// half seen may have held one), so it's kept as odds over 0..15, updated on leaving each floor with what was found there
+// and how much of it went unseen. Unknown scrolls / potions picked up there count as half a find (no peeking at kinds).
+static const uint8_t Q_POS[10] = { 4, 2, 9, 4, 14, 6, 19, 8, 24, 9 }, Q_SOU[10] = { 5, 3, 10, 6, 15, 9, 20, 12, 25, 13 };
+static double s_q_sou[16], s_q_pos[16], s_q_u = 1, s_q_fs, s_q_fp; static int s_q_d = -1, s_q_game = -1, s_q_us0, s_q_up0, s_q_sou0, s_q_str0;
+static double q_spawn(const uint8_t *Q, int n, int d) { if (d == 21) return 0; for (int i = 0; i < 10; i += 2) if (d <= Q[i]) { double p = (double)(Q[i + 1] - n) / (Q[i] - d + 1); return p < 0 ? 0 : p > 1 ? 1 : p; } return 0; }
+static double q_unseen(const double *P, const uint8_t *Q, int d, double f, double u) {   // the chance one is still in the unseen part here
+  double r = 0; for (int n = 0; n < 15; n++) if (P[n] > 0) { double sp = q_spawn(Q, n, d), den = 1 - sp * (1 - u); r += P[n] * (den > 1e-9 ? sp * u / den : 0); } return (1 - f) * r; }
+static void q_leave(double *P, const uint8_t *Q, int d, double f, double u) {   // the odds over the count spawned, after floor d
+  double N[16] = { 0 }; for (int n = 0; n < 15; n++) if (P[n] > 0) { double sp = q_spawn(Q, n, d), den = 1 - sp * (1 - u), ps = f + (1 - f) * (den > 1e-9 ? sp * u / den : 0); N[n + 1] += P[n] * ps; N[n] += P[n] * (1 - ps); }
+  double t = 0; for (int n = 0; n < 16; n++) t += N[n]; for (int n = 0; n < 16; n++) P[n] = t > 0 ? N[n] / t : (n == 0); }
+static int q_unknown(int cat) { int q = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == cat && !item_known(G.hero.bag[i].kind)) q += G.hero.bag[i].qty; return q; }
+static double floor_unseen(void) { int seen = 0; for (int c = 0; c < MAP_LEN; c++) if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) seen++; double est = seen + 40 > 300 ? seen + 40 : 300, un = 1 - seen / est; return un < 0 ? 0 : un; }
+static void q_track(void) {                              // each step: the floor's finds so far; a new deepest floor: fold the last one in
+  Hero *h = &G.hero; if (s_rollout || s_is_child) return;
+  if (s_q_game != cur_game) { s_q_game = cur_game; memset(s_q_sou, 0, sizeof s_q_sou); memset(s_q_pos, 0, sizeof s_q_pos); s_q_sou[0] = s_q_pos[0] = 1; s_q_d = -1; }
+  int sou = (int)st_sou_read + (find_kind(IK_SCR_UPGRADE) >= 0 && item_known(IK_SCR_UPGRADE) ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0), str = h->STR + (find_kind(IK_POT_STRENGTH) >= 0 && item_known(IK_POT_STRENGTH) ? game_slot(find_kind(IK_POT_STRENGTH))->qty : 0);
+  if (G.depth > s_q_d) {
+    if (s_q_d >= 1) { q_leave(s_q_sou, Q_SOU, s_q_d, s_q_fs, s_q_u); q_leave(s_q_pos, Q_POS, s_q_d, s_q_fp, s_q_u); }
+    s_q_d = G.depth; s_q_us0 = q_unknown(CAT_SCROLL); s_q_up0 = q_unknown(CAT_POTION); s_q_sou0 = sou; s_q_str0 = str; s_q_fs = s_q_fp = 0; s_q_u = 1; }
+  if (G.depth != s_q_d) return;
+  s_q_u = floor_unseen();
+  s_q_fs = sou > s_q_sou0 ? 1 : q_unknown(CAT_SCROLL) > s_q_us0 ? 0.5 : 0; s_q_fp = str > s_q_str0 ? 1 : q_unknown(CAT_POTION) > s_q_up0 ? 0.5 : 0;
+  if (sou > s_q_sou0) s_q_fs = 1; if (s_q_fs < 1 && q_unknown(CAT_SCROLL) < s_q_us0) s_q_us0 = q_unknown(CAT_SCROLL);   // (read or dropped: the baseline follows)
+  if (s_q_fp < 1 && q_unknown(CAT_POTION) < s_q_up0) s_q_up0 = q_unknown(CAT_POTION);
+}
 static bool decide(void) {
   oracles();
   if (P && s_pure && !s_rollout) return press();   // 0.64: Assist alone: every move is Select on the watch's suggestion (windows still the bot's)
@@ -3068,8 +3096,9 @@ static bool decide(void) {
     bool grab = false; if (!getenv("OLDHUNGRY") && !(game_starving() && h->HP * 100 < h->HT * s_starve_leave)) for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && !far_missile(i) && G.heaps[i].item.kind != IK_GOLD && G.heaps[i].item.kind != IK_DEW && b_dist[G.heaps[i].pos] < 0x7FFF) grab = true;
     if (s_pztest && !grab) for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && G.heaps[i].item.kind == IK_POT_HEALING && b_dist[G.heaps[i].pos] <= 20) grab = true;   // (0.92: a Healing is never left for being starved and hurt)   // 0.54 (SoU left lying on 1 floor in 3): what's in sight comes along first
     if (!food_here && !grab) { if (!getenv("OLDDOWNREST") && !rest_cap() && (getenv("THRIFT") ? h->HP < thrift_need() : h->HP * 10 < h->HT * 7) && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) { DID("rest before going down"); walk(game_rest(false)); return true; } choice = G.exit; why = "hungry: down"; if (getenv("HUNGDBG") && !s_rollout) printf("HUNGDBG d%d step %d evfood %d starving %d floor_left %d hp %d/%d\n", G.depth, s_bot_steps, s_ev_food, game_starving(), floor_left(), h->HP, h->HT); } }
+  q_track();
   if (s_ev_d != G.depth) { s_ev_d = G.depth; s_ev_sou0 = (int)st_sou_read + (find_kind(IK_SCR_UPGRADE) >= 0 ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0); s_ev_str0 = h->STR + (find_kind(IK_POT_STRENGTH) >= 0 ? game_slot(find_kind(IK_POT_STRENGTH))->qty : 0); }
-  if ((choice < 0 || (getenv("EVLEAVE2") && why && (!strcmp(why, "explore") || !strcmp(why, "frontier")))) && !going && getenv("EVLEAVE") && (!getenv("EVDEEP") || G.depth >= atoi(getenv("EVDEEP"))) && s_ev_food && G.depth % 5 && BIT_GET(G.visited, G.exit) && s_goal > G.depth && (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64)) && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; })) {
+  if ((choice < 0 || (getenv("EVLEAVE2") && why && (!strcmp(why, "explore") || !strcmp(why, "frontier")))) && !going && (getenv("EVLEAVE") || getenv("EV2")) && (!getenv("EVDEEP") || G.depth >= atoi(getenv("EVDEEP"))) && s_ev_food && G.depth % 5 && !shop_hunt_ok() && !quest_on_floor() && BIT_GET(G.visited, G.exit) && s_goal > G.depth && (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64)) && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; })) {
     // 0.58 (owner: "use the game's odds: have I probably looted most of the valuables?"): what's likely still out there against
     // what finding it costs in food. PD per floor: ~3.7 random items (3, +1 at 40% repeatedly), 3 Upgrade scrolls in each
     // region's 4 floors, ~2 Strength potions per region; spread over the rooms, so what's left scales with what's unseen
@@ -3078,8 +3107,11 @@ static bool decide(void) {
     bool sou_here = (int)st_sou_read + (find_kind(IK_SCR_UPGRADE) >= 0 ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0) > s_ev_sou0;
     bool pos_here = h->STR + (find_kind(IK_POT_STRENGTH) >= 0 ? game_slot(find_kind(IK_POT_STRENGTH))->qty : 0) > s_ev_str0;
     double v = un * ((sou_here ? 0 : 0.6) * 300 + (pos_here ? 0 : 0.4) * 300 + 2.7 * 40);
+    if (getenv("EV2")) { un = floor_unseen(); double ps = q_unseen(s_q_sou, Q_SOU, G.depth, s_q_fs, un), pp = q_unseen(s_q_pos, Q_POS, G.depth, s_q_fp, un);
+      v = ps * (getenv("EVSOU") ? atoi(getenv("EVSOU")) : 300) + pp * (getenv("EVPOS") ? atoi(getenv("EVPOS")) : 300) + un * 2.7 * 40;
+      if (getenv("EVDBG2") && !s_rollout && !s_is_child) { static int ls = -1; if (ls != s_bot_steps / 25) { ls = s_bot_steps / 25; printf("EV2 d%d step %d unseen %.2f sou %.2f (found %.1f, E[n] %.2f) str %.2f (found %.1f) value %.0f food %d\n", G.depth, s_bot_steps, un, ps, s_q_fs, ({ double e = 0; for (int n = 0; n < 16; n++) e += n * s_q_sou[n]; e; }), pp, s_q_fp, v, food_budget()); } } }
     double w = getenv("EVFOODW") ? (900 - food_budget()) / 600.0 : 1.0; if (w < 0.2) w = 0.2; if (w > 1.5) w = 1.5;   /* (owner: "exploring is never free": a turn now is a starving turn later) */
-    double cost = un * 220 * w * atoi(getenv("EVLEAVE")) / 100.0;
+    double cost = un * 220 * w * (getenv("EVLEAVE") ? atoi(getenv("EVLEAVE")) : 100) / 100.0;
     if (v < cost) { bool grab = false; for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && !far_missile(i) && G.heaps[i].item.kind != IK_GOLD && G.heaps[i].item.kind != IK_DEW && b_dist[G.heaps[i].pos] < 0x7FFF) grab = true;
       if (!grab) { if ((getenv("THRIFT") ? h->HP < thrift_need() : h->HP * 10 < h->HT * 7) && !game_starving() && threat_count() == 0 && !gas_at(h->pos)) { DID("rest before going down"); walk(game_rest(false)); return true; } choice = G.exit; why = "the rest isn't worth the food: down"; } } }
   if (choice < 0 && !going && getenv("FOODLEAVE") && s_ev_food && food_budget() < atoi(getenv("FOODLEAVE")) && BIT_GET(G.visited, G.exit) && s_goal > G.depth && (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64)) && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; })) {   // 0.58: food running short, this floor's food found: leave the far corners
