@@ -165,6 +165,7 @@ static bool risky(const Heap *h) {                     // 0.64 (the Assist alone
   Hero *hr = &G.hero; int c = h->pos;                  // well ahead of the depth; a pool room's prize (piranhas) unless levitating or
   if (h->type == HEAP_TOMB) return hr->lvl < G.depth + 3;   // invisible; a skeleton (a cursed one takes half your health) while hurt
   if (h->type == HEAP_SKELETON && hr->HP * 3 < hr->HT * 2) return true;
+  if (((1 << h->type) & (1 << HEAP_CHEST | 1 << HEAP_MIMIC)) && hr->HP < 2 * G.depth + 10) return true;   // 0.93 (bot): a chest is a mimic 1 time in 5 ((3 + depth) x 4 HP)
   for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r];
     if (R->type == RT_POOL && cx(c) >= R->left && cx(c) <= R->right && cy(c) >= R->top && cy(c) <= R->bottom) return !hr->b.levitation && !hr->b.invis; }
   return false;
@@ -578,6 +579,9 @@ static int hands(void) {
       if (a >= 0 && h->HP * 5 < h->HT * 2) { g_ovr.hs = fs; g_ovr.ha = ACN_ZAP; s_aim = a; return TK_BAG; }
       if (e && ed >= 2 && (e->type == MT_SHAMAN || e->type == MT_WARLOCK)) { g_ovr.hs = fs; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }
     if (!e || ed < 2) return -1;
+    if (e->type == MT_DM300 && XENV("DMOPEN", 1)) {      // 0.93 (bot: DM-300 deaths with bombs and missiles unused): from afar, paralytic gas (5+: it isn't immune; ~20 turns held), a bomb, liquid flame, curare, heavy missiles
+      static const uint8_t K[] = { IK_POT_PARALYTIC, IK_BOMB, IK_POT_FLAME, IK_CURARE_DART, IK_JAVELIN, IK_TOMAHAWK };
+      for (int j = 0; j < 6; j++) { int k = K[j], sl = game_bag_find(k); if (sl >= 0 && (item_cat(k) != CAT_POTION || item_known(k)) && (j || (ed >= 5 && !e->b.paralysis))) { g_ovr.hs = sl; g_ovr.ha = ACN_THROW; s_aim = e->pos; return TK_BAG; } } }
     int t = e->type; bool shooter = t == MT_TENGU || t == MT_EYE || t == MT_SCORPIO || t == MT_ACIDIC;
     if (t == MT_SHAMAN || t == MT_WARLOCK) return -1;   // 0.63 (owner): those want melee, from round a corner (tactics), not a wand duel
     for (int q = 0; q < 2; q++) { int k = h->quick[q], sl = k ? game_bag_find(k) : -1; if (sl < 0) continue; Item *it = game_slot(sl); int c = item_cat(k);   // 0.54 (owner): what's in a quickslot first, and more readily
@@ -669,6 +673,8 @@ static int hands(void) {
       bool worse = (c == CAT_WEAPON || c == CAT_ARMOR) && it->kind != IK_PICKAXE && (it->flags & IF_LEVEL_KNOWN) && cur->kind && !CLASS_ARMOR(it->kind) &&
                    2 * item_tier(it->kind) + it->lvl <= 2 * (CLASS_ARMOR(cur->kind) ? 6 : item_tier(cur->kind)) + ((cur->flags & IF_LEVEL_KNOWN) ? cur->lvl : 0);
       if ((junk(it) || worse) && !DECL(it->kind, ACN_DROP)) { g_ovr.hs = i; g_ovr.ha = ACN_DROP; return TK_BAG; } } }
+  if (!seen && G.depth >= 22 && G.depth <= 25 && !h->light && (s = game_bag_find(IK_TORCH)) >= 0 && XENV("TORCH", 1)) { g_ovr.hs = s; g_ovr.ha = ACN_LIGHT; return TK_BAG; }   // 0.93 (audit): the halls' sight is 25 - depth; the eyes, succubi and scorpios see 4
+  if (!seen && h->HP * 20 < h->HT * 19 && !game_starving() && XENV("BOSSREST", 1) && boss_depth(G.depth) && G.depth < 25 && !(G.boss & (G.depth == 5 ? 1 : G.depth == 10 ? 2 : G.depth == 15 ? 8 : 16)) && !DECL(0, 255)) return TK_REST;   // 0.93 (bot): a boss floor has no respawns: rest to full before the boss
   if (!seen && !HUNGRY && h->HP < h->HT && h->HP * 5 >= h->HT * 4 && G.dew < 10 && has(IK_DEW_VIAL) && !DECL(0, 255) && XENV("DEWREST", 1))   // 0.78 (owner): fed and nearly
     for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW && G.heaps[i].type == HEAP_PLAIN && s_dist[G.heaps[i].pos] < 255) return TK_REST;   // full, dew about: rest first (it then fills the vial)
   if ((h->HP * 10 < h->HT * XENV("RESTP", 5) || (G.health_pos == hp && h->HP < h->HT)) && !game_starving() && !DECL(0, 255)) return TK_REST;   // (0.64: on Sungrass: to full)
