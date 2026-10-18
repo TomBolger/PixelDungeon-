@@ -623,7 +623,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
   Hero *h = &G.hero;
   if (p == PICK_UPGRADE && !s_rollout) st_sou_read++;
   if (p == PICK_UPGRADE && getenv("ARMFIRST") && h->armor.kind && !CLASS_ARMOR(h->armor.kind) && item_tier(h->armor.kind) >= atoi(getenv("ARMFIRST")) && game_pick_ok(p, -2)) { s_force_pick = -999; return -2; }   // 0.54 test: the winners wore heavy armour with every upgrade in it
-  if (p == PICK_UPGRADE && s_force_pick != -999) { int f = s_force_pick; s_force_pick = -999; if (game_pick_ok(p, f)) return f; }
+  if ((p == PICK_UPGRADE || p == PICK_ENCHANT) && s_force_pick != -999) { int f = s_force_pick; s_force_pick = -999; if (game_pick_ok(p, f)) return f; }
   switch (p) {
     case PICK_IDENTIFY: {
       if (s_toe) for (int sl = 0; sl < BAG_SIZE; sl++) if (game_pick_ok(p, sl) && toe_keep(sl)) return sl;   // 0.73 TOE (owner: "identify the armor we're 1 point away from wearing"): the piece the plan grows into
@@ -789,6 +789,7 @@ static bool sun_dance(void) {
     st_uses[ACN_THROW]++; s_sun = c; s_sun_ph = 2; DID("hurt: throw sungrass beside me"); walk(game_throw(s, c)); return true; }
   return false;
 }
+static bool soures(void) { return s_pztest && !getenv("NOSOURES"); }
 static bool use_items_when_safe(void) {                 // housekeeping with no enemy in sight; true: did something
   Hero *h = &G.hero;
   // known good potions and scrolls
@@ -798,13 +799,15 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
   if (s_pztest && !getenv("NOTORCH") && G.depth >= 22 && G.depth <= 25 && !h->light && (s = find_kind(IK_TORCH)) >= 0 && s < BAG_SIZE) { if (!s_rollout) DID("light a torch (sight here is %d; the eyes, succubi and scorpios see 4)", 25 - G.depth); do_item(s, ACN_LIGHT); return true; }   // 0.93 (audit): HallsLevel.viewDistance = 25 - depth
   if ((s = find_kind(IK_POT_EXPERIENCE)) >= 0 && item_known(IK_POT_EXPERIENCE)) { do_item(s, ACN_DRINK); return true; }
   if (!getenv("OLDGEARFIX") && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE)) {   // 0.52 (audit): worn gear about to break (1/6 left, its level known): upgrade it now: +1 and mended (broken, it would only be mended)
-    for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl > 0 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur * 6 <= item_max_dur(it) && game_pick_ok(PICK_UPGRADE, w)) {
+    for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl > 0 && (it->flags & IF_LEVEL_KNOWN) && (!item_broken(it) || soures()) && it->dur * (soures() ? 4 : 6) <= item_max_dur(it) && game_pick_ok(PICK_UPGRADE, w)) {
       s_force_pick = w; DID("upgrade the %s before it breaks", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
   if (s_pztest && boss_depth(G.depth) && enemy_count() == 0 && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {   // 0.92 (seed 84: held from floor 4 into the Goo fight and beyond): the boss floor: no more holding
     if (!s_rollout) DID("the boss floor: the held upgrade goes in now"); do_item(s, ACN_READ); return true; }
   if (s_pztest && !getenv("NOREFORGE") && enemy_count() == 0 && h->weapon.kind && h->weapon.kind != IK_SHORT_SWORD && h->weapon.kind != IK_PICKAXE && !cursed_known(&h->weapon))   // 0.92 (audit): the Short Sword's reforge: a +1 one gives its +1 (and a full repair, never losing the enchantment) to the weapon in hand
     for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_SHORT_SWORD && h->bag[i].lvl > 0 && !cursed_known(&h->bag[i])) { if (!s_rollout) DID("reforge the old short sword into the weapon in hand"); do_item(i, ACN_REFORGE); return true; }
-  if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && G.now >= s_upg_hold_until && !(getenv("UPGHOLDBOSS") && !boss_depth(G.depth) && !boss_depth(G.depth + 1)) &&   /* 0.58 test (owner: hold for better gear): read only on or just before a boss floor */ (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {
+  if (soures() && (s = find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && game_slot(s)->qty == 1 && !boss_depth(G.depth) && ((h->armor.lvl >= 3 && (h->armor.flags & IF_LEVEL_KNOWN)) || (h->weapon.lvl >= 3 && (h->weapon.flags & IF_LEVEL_KNOWN)))) {   // 0.93 (zone run: plate+6 broke, then monks: an upgrade mends too): one scroll kept back to mend the piece about to break (it lasts 6x / 5x (16 - level) hits); more go in at once
+    if (!s_rollout) st_upg_holds++; }
+  else if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && G.now >= s_upg_hold_until && !(getenv("UPGHOLDBOSS") && !boss_depth(G.depth) && !boss_depth(G.depth + 1)) &&   /* 0.58 test (owner: hold for better gear): read only on or just before a boss floor */ (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {
     if (!s_rollout && !getenv("NOSTRAT")) { int r = s_toe && !getenv("TOENOUP") ? toe_upgrade(s) : strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
     else { bool hold = false; if (PRM[P_GEARMODEL]) upg_plan(&hold); if (!hold) { do_item(s, ACN_READ); return true; } if (!s_rollout) st_upg_holds++; }
   }
@@ -812,7 +815,9 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       (getenv("OLDGEARFIX") || ({ Item *a = &h->armor, *w = &h->weapon; (a->kind && (cursed_known(a) || item_broken(a) || !a->ench || a->ench == AG_ANTI_ENTROPY || a->ench == AG_POTENTIAL || a->ench == AG_MULTIPLICITY)) || (w->kind && (cursed_known(w) || item_broken(w) || !w->ench || w->ench == WE_INSTABILITY)); }))) {   /* (0.52: both already good: hold it) */ do_item(s, ACN_READ); return true; }
   if ((s = G.hero.b.blind ? -1 : find_kind(IK_MASTERY)) >= 0 && h->lvl >= 6) { do_item(s, ACN_READ); return true; }
   if ((s = find_kind(IK_ARMOR_KIT)) >= 0 && h->armor.kind && !CLASS_ARMOR(h->armor.kind) && (getenv("OLDGEARFIX") || (!item_broken(&h->armor) && find_kind(IK_SCR_UPGRADE) < 0 && find_kind(IK_SCR_ENCHANT) < 0))) {   /* 0.52 (audit): the kit freezes the armour's DR as it is now (broken: +0 for good) */ do_item(s, ACN_APPLY); return true; }
-  if ((s = find_kind(IK_WEIGHTSTONE)) >= 0 && h->weapon.kind && item_cat(h->weapon.kind) == CAT_WEAPON && !(h->weapon.flags & (IF_FAST | IF_ACCURATE))) { do_item(s, ACN_APPLY); return true; }
+  if (soures() && !G.hero.b.blind && find_kind(IK_SCR_UPGRADE) < 0 && (s = find_kind(IK_SCR_ENCHANT)) >= 0 && item_known(IK_SCR_ENCHANT))   // 0.93: no upgrade to mend with: an enchantment mends too (Item.fix), its old enchantment the price
+    for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl >= 3 && (it->flags & IF_LEVEL_KNOWN) && it->dur * 4 <= item_max_dur(it) && game_pick_ok(PICK_ENCHANT, w)) { s_force_pick = w; if (!s_rollout) DID("mend the %s with the enchantment", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } }
+  if ((s = find_kind(IK_WEIGHTSTONE)) >= 0 && h->weapon.kind && item_cat(h->weapon.kind) == CAT_WEAPON && !(h->weapon.flags & (IF_FAST | IF_ACCURATE)) && !(soures() && h->weapon.lvl >= 3 && (h->weapon.flags & IF_LEVEL_KNOWN) && h->weapon.dur * 4 > item_max_dur(&h->weapon))) {   /* 0.93: a weightstone mends the blade too (Weightstone.apply: fix): an upgraded one waits for that */ do_item(s, ACN_APPLY); return true; }
   if (!getenv("OLDHERO") && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_RECHARGING)) >= 0 && item_known(IK_SCR_RECHARGING)) {   // 0.52 (audit): wands low: recharge them
     int miss = 0; for (int sl = -1; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl); if (item_cat(it->kind) == CAT_WAND && item_known(it->kind) && attack_wand(it->kind)) miss += wand_max(it) - it->ench; }
     if (miss >= 3 || (miss >= 1 && boss_depth(G.depth + 1))) { DID("read Recharging (wands low)"); do_item(s, ACN_READ); return true; } }
