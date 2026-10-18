@@ -2688,6 +2688,8 @@ static bool decide(void) {
   { bool any = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_PIRANHA) { any = true; if (BIT_GET(G.fov, G.mobs[i].pos)) s_piranhas = true; }
     if (!any || s_brave) s_piranhas = false; }   // (seen once, and still about; unless there's no other way)
   if (h->b.paralysis || h->b.frost) { walk(game_rest(false)); return true; }
+  if (s_pztest && G.now >= s_goo_calm && G.now < s_goo_calm + 6 * TICK && G.now >= 0 && ({ bool unseen = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GOO && G.mobs[i].state == ST_HUNTING && !BIT_GET(G.fov, G.mobs[i].pos)) unseen = true; unseen; }) && threat_count() == 0) {
+    DID("Goo: out of sight after its pump: let it come to me"); walk(game_rest(false)); return true; }   // 0.92 (seed 84: walked back round the corner into the pumped jump, 16 HP): it comes to me
   if (G.now < s_goo_calm && G.now >= 0) { bool adj = false; for (int i = 0; i < G.n_mobs; i++) { Mob *gm = &G.mobs[i]; if (gm->HP > 0 && gm->type == MT_GOO) { bool hit; if (adjacent(gm->pos, h->pos) || (gm->aux2 && distance(gm->pos, h->pos) <= 2 && ballistica(gm->pos, h->pos, &hit) == h->pos)) adj = true; } }   // (still in its jump: keep moving)
     if (!adj && !getenv("GOO_NOCALM")) {
       if (G.hero.ooze && !IS_WATER(G.map[h->pos])) for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !IS_WATER(G.map[q]) || char_at(q)) continue;   // the pause: wash the ooze off, out of its reach
