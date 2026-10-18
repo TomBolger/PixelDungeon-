@@ -4037,7 +4037,12 @@ static bool lookahead(void) {
     else { int mi = c[bi].b >= 0 && c[bi].b < MAP_LEN ? mob_at(c[bi].b) : -1; snprintf(what, sizeof what, "%s %s%s%s", CNAME[c[bi].t], nm, mi >= 0 ? " at " : "", mi >= 0 ? mob_name(G.mobs[mi].type) : ""); }
     printf("LAT d%d c%d hp%d%% lvl%d foes", G.depth, h->hclass & 3, h->HP * 100 / (h->HT ? h->HT : 1), h->lvl);
     for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state != ST_PASSIVE) printf(" %s:%d:%d%%", mob_name(m->type), distance(m->pos, h->pos), m->HP * 100 / (m->HT ? m->HT : 1)); }
-    printf(" | pick %s | gain %ld\n", what, bm - tot[0] / cnt[0]); }
+    { char dflt[96] = "?"; int fd[2]; if (!pipe(fd)) { fflush(stdout); pid_t k = fork(); if (k == 0) { close(fd[0]); s_rollout = 1; V = 0; int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); } s_did[0] = 0; decide(); char b[96]; snprintf(b, sizeof b, "%s", s_did[0] ? s_did : "-"); if (write(fd[1], b, sizeof b) != sizeof b) {} _exit(0); }
+        close(fd[1]); if (read(fd[0], dflt, sizeof dflt) != sizeof dflt) snprintf(dflt, sizeof dflt, "?"); close(fd[0]); int st2; waitpid(k, &st2, 0); }
+      for (char *q = dflt; *q; q++) if (*q == '|') *q = '/';
+      int o0 = 0, o1 = 0, r1 = 0; if (c[bi].t == C_TAP && mob_at(c[bi].a) < 0) { int q1 = c[bi].a; for (int j = 0; j < 8; j++) { int a0 = h->pos + N8[j], a1 = q1 + N8[j]; if (nb_ok(h->pos, a0) && PASSABLE(G.map[a0])) o0++; if (nb_ok(q1, a1) && PASSABLE(G.map[a1])) o1++; }
+        for (int i = 0; i < G.n_mobs; i++) { Mob *mm = &G.mobs[i]; if (mm->HP > 0 && !ally(i) && BIT_GET(G.fov, mm->pos) && mm->state == ST_HUNTING && distance(mm->pos, q1) <= 2) r1++; } }
+      printf(" | pick %s | gain %ld | rules: %s | open %d->%d reach %d\n", what, bm - tot[0] / cnt[0], dflt, o0, o1, r1); } }
   { char nm[64] = ""; if (c[bi].t >= C_ITEM) item_name(game_slot(c[bi].a), nm, sizeof nm); DID("look-ahead: %s %s%s%d (%ld vs %ld)", CNAME[c[bi].t], nm, nm[0] ? " " : "", c[bi].t == C_TAP ? c[bi].a : c[bi].b, bm, tot[0] / cnt[0]); }
   apply_cand(c[bi]);
   return true;
