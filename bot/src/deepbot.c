@@ -4021,6 +4021,10 @@ static bool lookahead(void) {
   for (int i = 1; i < n; i++) if (cnt[i] >= 12 * LM && tot[i] / cnt[i] > bm) { bm = tot[i] / cnt[i]; bi = i; }
   if (getenv("LADBG")) for (int i = 0; i < n; i++) { char nm[64] = ""; if (c[i].t >= C_ITEM) item_name(game_slot(c[i].a), nm, sizeof nm); printf("    cand %-7s %-24s %4d -> %ld (%d)%s\n", CNAME[c[i].t], nm, c[i].t == C_TAP ? c[i].a : c[i].b, tot[i] / cnt[i], cnt[i], i == bi ? " <==" : ""); }
   if (bi == 0 || bm < tot[0] / cnt[0] + 150) return false;   // not clearly better: the rules
+  if (getenv("LAONLY")) {   // 0.93 diagnostic (teacher): let only one kind of override through, to find which kind carries the gain
+    const char *o = getenv("LAONLY"); int t = c[bi].t; bool mob = t == C_TAP && mob_at(c[bi].a) >= 0 && !ally(mob_at(c[bi].a));
+    const char *k = t == C_REST ? "rest" : t == C_TAP ? (c[bi].a == G.hero.pos ? "stairs" : mob ? "attack" : "move") : t == C_ITEM ? "item" : (t == C_ZAP || t == C_THROW) ? "ranged" : "other";
+    if (!strstr(o, k)) return false; }
   st_la_changed++;
   if (getenv("LATEACH") && !s_rollout && !s_is_child) {   // 0.93 (owner: the look-ahead as a teacher): what it chose over the rules, and in what situation
     Hero *h = &G.hero; int nf = nearest_hostile(), fp = nf >= 0 ? G.mobs[nf].pos : -1; char what[96] = "?", nm[64] = "";
