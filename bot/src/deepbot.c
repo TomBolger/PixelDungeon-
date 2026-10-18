@@ -1084,7 +1084,7 @@ static bool kit_fight(int mi) {                         // a losing duel: spend 
     if (!((item_cat(k) == CAT_POTION && item_known(k) && harmful_potion(k)) || k == IK_BOMB)) continue;
     if (!getenv("OLDMOBS") && (((k == IK_POT_PARALYTIC) && (MOB_DEFS[m->type].flags & MD_I_PARA)) || (k == IK_POT_FLAME && (MOB_DEFS[m->type].flags & MD_I_BURN)) || (k == IK_POT_TOXIC && (MOB_DEFS[m->type].flags & MD_I_GAS)) || (k == IK_POT_FROST && (MOB_DEFS[m->type].flags & MD_I_FROST)) || ((k == IK_POT_PARALYTIC || k == IK_POT_TOXIC) && d < 4))) continue;   // 0.52 (audit): immune; a gas cloud close enough to reach you
     st_kit[6]++; s_did[0] = 0; DID("losing duel: throw the %s", k == IK_BOMB ? "bomb" : "potion"); walk(game_throw(s, m->pos)); return true; }
-  if (line && d >= 2) for (s = 0; s < BAG_SIZE; s++) { int k = h->bag[s].kind;   // 4. darts and the rest while it comes
+  if (line && d >= 2 && !(s_pztest && !getenv("NOTENGUCLOSE") && m->type == MT_TENGU)) for (s = 0; s < BAG_SIZE; s++) { int k = h->bag[s].kind;   // 4. darts and the rest while it comes (0.92: not at Tengu: it dodges nearly all; close in)
     if (item_cat(k) != CAT_MISSILE || (k == IK_INCENDIARY_DART && d < 3)) continue;
     st_kit[2]++; s_did[0] = 0; DID("losing duel: throw while it comes"); walk(game_throw(s, m->pos)); return true; }
   if (line) for (s = -1; s < PACK0 + 32; s = s == BAG_SIZE - 1 ? PACK0 : s + 1) {   // 5. an unknown wand: a gamble (most of them hurt it or hold it)
@@ -1965,6 +1965,15 @@ static bool fight(void) {
   s_losing = m->type != MT_GOO && losing_fight(best);
   if (!(MOB_DEFS[m->type].flags & MD_WATER) && seed_tactic(best)) { s_losing = false; return true; }
   if (altar_lure(best)) { s_losing = false; return true; }
+  if (s_pztest && !getenv("NOTENGUCORNER") && m->type == MT_TENGU && distance(m->pos, h->pos) >= 2 && !h->b.roots && !m->b.paralysis && ({ bool hit; ballistica(m->pos, h->pos, &hit) == h->pos; })) {   // 0.92 (random-seed Tengu deaths: 15 darts thrown, all dodged, while its shuriken took 40 HP): in its sight it out-shoots you and leaps away; out of its sight it must walk to you, and up close the blows land
+    bfs(h->pos, false); int bc = -1, bd = getenv("TCD") ? atoi(getenv("TCD")) : 16;
+    for (int c = 0; c < MAP_LEN; c++) { if (b_dist[c] >= bd || char_at(c) || (TFLAGS(G.map[c]) & F_AVOID) || !BIT_GET(G.visited, c)) continue; bool hit; if (ballistica(m->pos, c, &hit) == c) continue; bd = b_dist[c]; bc = c; }
+    if (getenv("TDBG") && !s_rollout) printf("  TDBG step %d hero %d,%d tengu %d,%d corner %d dist %d\n", s_bot_steps, cx(h->pos), cy(h->pos), cx(m->pos), cy(m->pos), bc, bd);
+    if (bc >= 0) { int32_t t0 = h->time; ActResult rr = tap_safe(bc); if (rr != ACT_NONE || h->time != t0) { st_lurk++; s_lurk_until = s_bot_steps + 10; s_losing = false; s_did[0] = 0; DID("Tengu: out of its sight first, then let it come"); walk(rr); return true; } }
+    if (bc < 0 && !getenv("NOTENGUCLOSE") && !(find_kind(IK_CURARE_DART) >= 0 && find_kind(IK_CURARE_DART) < BAG_SIZE && m->b.paralysis <= 0 && distance(m->pos, h->pos) <= 4)) {   // (no hiding in its arena: it stands and shoots while you come, and only leaps after a few blows up close: close in rather than trade darts it dodges)
+      bfs(m->pos, false); int st = -1, sd = b_dist[h->pos];
+      for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (nb_ok(h->pos, q) && b_dist[q] < sd && !char_at(q) && !(TFLAGS(G.map[q]) & F_AVOID) && G.map[q] != T_INACTIVE_TRAP && !bad_air(q)) { sd = b_dist[q]; st = q; } }
+      if (st >= 0) { int32_t t0 = h->time; ActResult rr = tap_safe(st); if (rr != ACT_NONE || h->time != t0) { s_losing = false; s_did[0] = 0; DID("Tengu: close in (it dodges darts; up close the blows land)"); walk(rr); return true; } } } }
   if (m->type != MT_GOO && !(MOB_DEFS[m->type].flags & MD_WATER) && kit_fight(best)) { s_losing = false; return true; }
   s_losing = false;
   if ((MOB_DEFS[m->type].flags & MD_WATER) && s_bot_steps < s_pass_bite && h->HP > h->HT / 3 && !getenv("OLDPIRANHA")) return false;   // bot3: the only way on goes past them: keep walking
