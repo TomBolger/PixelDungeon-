@@ -1746,6 +1746,7 @@ static bool barricade_task(void) {
   if (getenv("BARRDBG")) printf("  BARR2 s%d b %d,%d best %d src %d\n", s_bot_steps, cx(b), cy(b), best, src); if (getenv("BARRDBG") && best < 0) for (int dy = -3; dy <= 3; dy++) { printf("    "); for (int dx = -4; dx <= 4; dx++) { int x = cx(b) + dx, y = cy(b) + dy; if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) { printf(" .."); continue; } int c = x + y * MAP_W; bool hh; int land = ballistica(c, b, &hh); printf(" %2d%c%c", G.map[c], b_dist[c] < 0x7FFF ? 'r' : '-', land == b ? 'B' : hh ? 'h' : adjacent(land, b) ? 'a' : 'x'); } printf("\n"); }
   if (best < 0) return false;
   if (best != h->pos) { int32_t t0 = h->time; ActResult r = tap_safe(best); if (r == ACT_NONE && h->time == t0) return false; DID("to a spot to set the barricade alight"); walk(r); return true; }
+  { static int bk = -1, bn; int key = cur_game * 64 + G.depth; if (bk != key) { bk = key; bn = 0; } if (++bn > 6) return false; }   /* 0.92 (game 1000: 3300 throws of an incendiary dart that never left the hand): six tries a floor */
   st_barr++; if (!zap && !item_known(h->bag[src].kind)) s_barr_tries++; DID("burn the barricade (a storage room behind it)"); walk(zap ? game_zap(src, b) : game_throw(src, b)); return true;
 }
 // 0.52 (audit): a weak-floor room: jump in and you land in the locked pit room below (Level.pitCell): its key, a ring or
