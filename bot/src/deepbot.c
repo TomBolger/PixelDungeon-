@@ -4263,6 +4263,7 @@ int main(int argc, char **argv) {
     g_new_class = seedcls >= 0 ? seedcls : getenv("CLS") ? atoi(getenv("CLS")) : getenv("ZONES") ? (g / (getenv("ZMAX") ? atoi(getenv("ZMAX")) : 5)) % 4 : g % 4;
     g_trade = 0; g_trade_arg = 0; s_prev_now = 0; g_from = -1; g_goal = -1;     // (a window left open when the last game stopped)
     game_new();
+    if (s_salt && getenv("DICESALT")) { extern uint32_t g_rng; g_rng ^= s_salt * 2654435761u; }   // 0.93: the same floors (they come from the seed), other dice for fights, spawns and drops
     head_start(hs);
     s_zone_start = getenv("ZONES") ? 1 + 5 * (g % (getenv("ZMAX") ? atoi(getenv("ZMAX")) : 5)) : 0;   // 0.48: equal numbers from each boss on
     if (s_zone_start > 1) zone_kit(s_zone_start);
