@@ -1094,6 +1094,7 @@ static double foe_dpt(Mob *m) {                        // m's mean damage to the
   if (!getenv("OLDDUEL2") && g_mh.stats) { uint32_t r0 = g_rng; double t = 0; int n = 0; for (int k = 0; k < 16; k++) { int v = g_mh.stats((int)(m - G.mobs), STAT_DMG); if (v < 0) break; t += v; n++; } g_rng = r0; if (n) dm = t / n; }   // the overlay's own roll (brute, Goo pumped, mimic, piranha...), averaged; the dice put back
   bool mag = !getenv("OLDDUEL2") && magic_shooter(m->type) && distance(m->pos, G.hero.pos) > 1;
   dm = mag ? (dm < 0.3 ? 0.3 : dm) : dr_left(dm, hero_dr());
+  if (m->type == MT_SPINNER && s_pztest && !getenv("OLDSPINNER")) dm += 6;   // 0.93 (poison: 11% of good-seed deaths, floors 12-14): every other bite poisons for 7-9 turns (~17 HP; a new one resets it): ~6 a hit on top, armour or not
   double a = mst(m, STAT_ATT, d->att) * (mag ? 2 : 1);
   return phit(a, hero_def_est()) * dm * TICK / (double)(d->atk_delay ? d->atk_delay : TICK);
 }
@@ -1998,6 +1999,7 @@ static bool fight(void) {
       if ((m->type == MT_THIEF || m->type == MT_BANDIT) && d <= 4) key = adjacent(m->pos, h->pos) ? -2 : 500 + d;   // a thief takes a bag, the Ankh, the healing: first
     }
     if ((MOB_DEFS[m->type].flags & MD_WATER) && !adjacent(m->pos, h->pos)) continue;   // piranhas: only when they come close
+    if (m->type == MT_SPINNER && m->state == ST_FLEEING && !adjacent(m->pos, h->pos) && s_pztest && !getenv("OLDSPINNER")) continue;   // 0.93 (source): a spinner that bit runs off laying webs until your poison is gone, then comes back: no chasing it into its webs
     if ((MOB_DEFS[m->type].flags & MD_WATER) && h->b.invis && !getenv("OLDINVIS")) continue;   // bot3: invisible in the pool: they can't see you; a blow would show you
     if (m->state != ST_HUNTING && !adjacent(m->pos, h->pos) && h->HP * 100 < h->HT * (getenv("OLDENGAGE") ? PRM[P_ENGAGE] : getenv("ENGAGEHP") ? atoi(getenv("ENGAGEHP")) : 60)) continue;   // (0.50 review g6: below 60%, let a wanderer pass; was tuned to 0)   // bot3: hurt: let it wander by
     if (m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !s_oldsleep && floor_left() && (getenv("OLDSLEEP2") || distance(m->pos, h->pos) > (getenv("SNEAKR") ? atoi(getenv("SNEAKR")) : 2))) continue;   // 0.49 (owner): one close by gets the sure first hit (asleep, it can't dodge) before walking past wakes it   // 0.48 (owner): sleepers after exploring (what's in the next room may be worth the health)
