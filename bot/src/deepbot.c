@@ -325,7 +325,7 @@ static ActResult tap_safe(int c) {                       // 0.47n: every tap: ac
   if (st < 0) return game_tap_cell(c);
   return BURNT(st) ? bot_search() : game_tap_cell(st);
 }
-static bool s_piranhas, s_brave; static bool s_front_ortho, s_front_wall; static int s_exw_far; static int s_exw_diag, s_exw_unk, s_exw_item, s_exw_inear = 99; static bool s_exp_tsp; static int s_srch_dead; static int s_detour, s_grassw, st_detour; static bool s_kite2, s_scrhold, s_pztest; static int s_pocket; static int s_headb; static int s_expgain, s_expcommit, s_exp_tgt = -1;
+static bool s_piranhas, s_brave; static bool s_front_ortho, s_front_wall; static int s_exw_far; static int s_exw_diag, s_exw_unk, s_exw_item, s_exw_inear = 99; static bool s_exp_tsp; static int s_srch_dead; static int s_detour, s_grassw, st_detour; static bool s_kite2, s_scrhold, s_pztest; static int s_pocket, s_plandbg = -1; static int s_headb; static int s_expgain, s_expcommit, s_exp_tgt = -1;
 static bool known_wall(int c) { return (unsigned)c < MAP_LEN && BIT_GET(G.visited, c) && (G.map[c] == T_WALL || G.map[c] == T_WALL_DECO); }
 static bool likely_wall(int u) {                         // bot3: an unseen cell in line with known walls (left and right, or above and below): part of a wall
   return (known_wall(u - 1) && known_wall(u + 1) && cx(u) > 0 && cx(u) < MAP_W - 1) || (known_wall(u - MAP_W) && known_wall(u + MAP_W));
@@ -1426,7 +1426,7 @@ static int plan_next(bool going, const char **why) {
   Hero *h = &G.hero; bfs(h->pos, false);
   int f = g_from, hx = cx(h->pos), hy = cy(h->pos), fx = f >= 0 ? hx - cx(f) : 0, fy = f >= 0 ? hy - cy(f) : 0;
   int best = -1, bc = 1 << 30; const char *bw = NULL;
-#define CONSIDER(cell, cost, w) do { int _c = (cell), _k = (cost); if (b_dist[_c] < 0x7FFF) { int dx = cx(_c) - hx, dy = cy(_c) - hy; _k = _k * 4 - ((dx * fx + dy * fy) > 0 ? 2 + s_headb : (dx * fx + dy * fy) < 0 ? -s_headb : 0); if (_k < bc) { bc = _k; best = _c; bw = (w); } } } while (0)
+#define CONSIDER(cell, cost, w) do { int _c = (cell), _k = (cost); if (b_dist[_c] < 0x7FFF) { int dx = cx(_c) - hx, dy = cy(_c) - hy; _k = _k * 4 - ((dx * fx + dy * fy) > 0 ? 2 + s_headb : (dx * fx + dy * fy) < 0 ? -s_headb : 0); if (s_plandbg == s_bot_steps) printf("   PLAN %s %d,%d bd %d k %d\n", (w), cx(_c), cy(_c), b_dist[_c], _k); if (_k < bc) { bc = _k; best = _c; bw = (w); } } } while (0)
   for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i)) { int c = G.heaps[i].pos; if (going && b_dist[c] > 4) continue; CONSIDER(c, b_dist[c] + (b_dist[c] > s_exw_inear ? s_exw_item : 0), "item"); }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos) && npc_wanted(i) && s_black[m->pos] <= s_bot_steps) CONSIDER(m->pos, b_dist[m->pos] > 0 ? b_dist[m->pos] : 1, "npc"); }
   int hunt = PRM[P_HUNT] ? PRM[P_HUNT] : (getenv("OLDHUNT") || getenv("THRIFT")) ? 0 : 70;   /* (0.58 THRIFT, owner: "under-levelled but at full HP and well fed") */   // 0.52 (audit): under-levelled at Goo (3-5 vs 6-7): respawns are the XP; hunt those that still give it and that I'd beat
@@ -1804,6 +1804,37 @@ static int sneak_step(const Mob *m) {
   s_sneak_expo = cost[tgt] - (steps + 1) * 10;
   return c;
 }
+// 0.92 (owner: "a human player simply kills the wraith"): the ghost's curse drifts at half speed, mends a point a turn,
+// and shoves on a hit. So: never a standing trade. Set it alight (liquid flame, a firebloom seed, an incendiary dart) and
+// walk away while it burns: it can't catch up, and each cell it closes costs it two turns, which are two throws for me.
+// Bombs at two cells (the blast reaches one). Melee only while it's burning or nearly dead, and with a wall at my back.
+static int s_curse_retreat_t = -1000;
+static bool curse_fight(int mi) {
+  Hero *h = &G.hero; Mob *m = &G.mobs[mi]; if (!s_pztest || m->type != MT_WRAITH || m->aux2 != 1 || getenv("OLDCURSE")) return false;
+  int d = distance(m->pos, h->pos); bool hit; bool line = ballistica(h->pos, m->pos, &hit) == m->pos; int s;
+  bool myfire = (TFLAGS(G.map[h->pos]) & F_FLAMABLE) != 0;   // (fire lands on its cell and spreads over grass only: my own cell is what matters)
+  int bombs = 0, missiles = 0; for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (k == IK_BOMB) bombs += h->bag[i].qty; if (item_cat(k) == CAT_MISSILE && k != IK_BOOMERANG && k != IK_CURARE_DART && k != IK_INCENDIARY_DART) missiles += h->bag[i].qty; }
+  int wmax = h->weapon.kind ? weapon_max(&h->weapon) : 3;
+  // 1. beside me and not burning: set it alight (the fire bites on the next tick: it must still be on the cell, i.e. attacking, not walking)
+  if (!m->b.burning && d <= 1 && !myfire) {
+    if ((s = find_kind(IK_POT_FLAME)) >= 0 && item_known(IK_POT_FLAME)) { s_did[0] = 0; DID("the curse: liquid flame on it, then keep away while it burns"); walk(game_throw(s, m->pos)); return true; }
+    if ((s = find_kind(IK_SEED_FIREBLOOM)) >= 0 && kn(IK_SEED_FIREBLOOM) && !(TFLAGS(G.map[m->pos]) & F_FLAMABLE)) { s_did[0] = 0; DID("the curse: a firebloom seed under it"); walk(game_throw(s, m->pos)); return true; } }
+  if (!m->b.burning && d >= 2 && line && (s = find_kind(IK_INCENDIARY_DART)) >= 0) { s_did[0] = 0; DID("the curse: an incendiary dart"); walk(game_throw(s, m->pos)); return true; }
+  // 2. bombs from two cells away (the blast reaches one); the last one is the Goo's unless it still has most of its health
+  if (line && d >= 2 && d <= 4 && bombs && (bombs >= 2 || m->HP > 10) && (s = find_kind(IK_BOMB)) >= 0) { s_did[0] = 0; DID("the curse: a bomb from two cells"); walk(game_throw(s, m->pos)); return true; }
+  // 3. beside me: trade blows only when a blow or two will finish it, or it's burning anyway and I'm sound; else a step away (it's slow)
+  bool burst_left = (find_kind(IK_POT_FLAME) >= 0 && item_known(IK_POT_FLAME)) || bombs;
+  bool trade = (m->HP <= wmax) || (m->b.burning && h->HP * 10 >= h->HT * 6) || (!burst_left && missiles == 0 && h->HP * 10 >= h->HT * 6);
+  if (d <= 1 && !trade) {
+    int best = -1, bs = -1; for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (!nb_ok(h->pos, n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID) || char_at(n) || gas_at(n) || (g_blob[BLOB_FIRE] && g_blob[BLOB_FIRE][n])) continue;
+      int dn = distance(n, m->pos); if (dn < 2) continue; int sc = dn * 10 + open_sides(n) * 2 - ((TFLAGS(G.map[n]) & F_FLAMABLE) ? 3 : 0); if (sc > bs) { bs = sc; best = n; } }
+    if (best >= 0) { int32_t t0 = h->time; ActResult rr = tap_safe(best); if (rr != ACT_NONE || h->time != t0) { s_curse_retreat_t = s_bot_steps; s_did[0] = 0; DID("the curse: a step away (it's slow; %s)", m->b.burning ? "it burns meanwhile" : "no standing trade"); walk(rr); return true; } } }
+  // 4. at two or more: throw while it closes (two turns a cell for it); burning: just let it
+  if (d >= 2 && line && missiles && !(m->b.burning && m->HP <= 4)) for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) != CAT_MISSILE || k == IK_BOOMERANG || k == IK_CURARE_DART || k == IK_INCENDIARY_DART) continue;
+    s_did[0] = 0; DID("the curse: throw while it closes"); walk(game_throw(i, m->pos)); return true; }
+  if (d >= 2 && (m->b.burning || !trade || !line)) { s_did[0] = 0; DID(m->b.burning ? "the curse: let it burn" : "the curse: let it come (no standing trade; it's slow)"); walk(game_rest(false)); return true; }
+  return false;                                         // (melee, as usual)
+}
 static bool fight(void) {
   Hero *h = &G.hero;
   int best = -1, bk = 1 << 30;
@@ -1883,11 +1914,7 @@ static bool fight(void) {
         bool tr = false; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && G.map[n] == T_INACTIVE_TRAP) tr = true; } if (tr) continue; bd = b_dist[c]; bc = c; }
       if (bc >= 0 && bc != h->pos) { int32_t t0 = h->time; ActResult rr = tap_safe(bc); if (rr != ACT_NONE || h->time != t0) { st_dmcell++; s_did[0] = 0; DID("DM-300: to a cell with no dead trap near (it repairs on them)"); walk(rr); return true; } }
       if (bc == h->pos && !ranged_try(best)) { s_did[0] = 0; DID("DM-300: hold the trap-free cell, let it come"); walk(game_rest(false)); return true; } } }
-  if (s_pztest && !getenv("NOCURSEWALL") && m->type == MT_WRAITH && m->aux2 == 1 && adjacent(m->pos, h->pos)) {   // 0.92: the ghost's curse shoves you back on each hit (then mends while it closes): stand with a wall behind, so it can't
-    int bh = h->pos + (h->pos - m->pos); bool free_behind = nb_ok(h->pos, bh) && (PASSABLE(G.map[bh]) || (TFLAGS(G.map[bh]) & F_AVOID)) && !char_at(bh);
-    if (free_behind) { int pick = -1; for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (!nb_ok(h->pos, n) || !adjacent(n, m->pos) || n == m->pos || char_at(n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID)) continue;
-        int b2 = n + (n - m->pos); if (nb_ok(n, b2) && (PASSABLE(G.map[b2]) || (TFLAGS(G.map[b2]) & F_AVOID)) && !char_at(b2)) continue; pick = n; break; }
-      if (pick >= 0) { s_did[0] = 0; DID("the curse shoves: a wall at my back"); walk(game_tap_cell(pick)); return true; } } }
+  if (curse_fight(best)) return true;
   s_losing = m->type != MT_GOO && losing_fight(best);
   if (!(MOB_DEFS[m->type].flags & MD_WATER) && seed_tactic(best)) { s_losing = false; return true; }
   if (altar_lure(best)) { s_losing = false; return true; }
@@ -3989,7 +4016,7 @@ int main(int argc, char **argv) {
   if (getenv("ARRLAB")) return run_lab(getenv("ARRLAB"));
   s_dring_on = getenv("DEATHRING") != NULL; if (getenv("STARVELEAVE")) s_starve_leave = atoi(getenv("STARVELEAVE"));
   if (getenv("ARM_SPEEDK")) s_arm_speedk = atof(getenv("ARM_SPEEDK"));
-  s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_pocket = getenv("POCKET") ? atoi(getenv("POCKET")) : 0; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") != NULL; s_pztest = getenv("PZTEST") != NULL; s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
+  s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_pocket = getenv("POCKET") ? atoi(getenv("POCKET")) : 0; s_plandbg = getenv("PLANDBG") ? atoi(getenv("PLANDBG")) : -1; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") != NULL; s_pztest = getenv("PZTEST") != NULL; s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
   if (getenv("EXPLAB")) return run_explab();
   int N = argc > 1 ? atoi(argv[1]) : 100, hs = getenv("HS") ? atoi(getenv("HS")) : 3;
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;

@@ -59,7 +59,7 @@ bool ally(int i) { int t = G.mobs[i].type; return t == MT_MIRROR || t == MT_SHEE
 bool hero_side(int i) { int t = G.mobs[i].type; return t == MT_MIRROR || t == MT_BEE; }   // fights the hero's enemies
 MobHooks g_mh;                                  // the "mobs" overlay's creature behaviours (all NULL: plain Mob)
 int g_dmg_src;                                  // what the next mob_damage comes from (DS_*): resistances / immunities
-bool mob_immune(int i, uint32_t f) { return i >= 0 && (MOB_DEFS[G.mobs[i].type].flags & f); }
+bool mob_immune(int i, uint32_t f) { return i >= 0 && ((MOB_DEFS[G.mobs[i].type].flags & f) || (G.mobs[i].type == MT_WRAITH && G.mobs[i].aux2 == 1 && (f & MD_I_PARA))); }   // 0.91: CursePersonification.IMMUNITIES: Paralysis too (Death, Terror, Roots: the wraith's and its flight)
 int mob_sprite_type(int i) { return G.mobs[i].type; }
 
 // ---------------- Level state helpers ----------------
@@ -698,7 +698,7 @@ bool mob_get_closer(int i, int target) {
   mob_move(i, step);
   return true;
 }
-int mob_move_cost(Mob *m) { int c = MOB_DEFS[m->type].move_cost; return m->b.cripple ? c * 2 : c; }
+int mob_move_cost(Mob *m) { int c = MOB_DEFS[m->type].move_cost; if (m->type == MT_WRAITH && m->aux2 == 1) c *= 2; return m->b.cripple ? c * 2 : c; }   // 0.91: CursePersonification.baseSpeed = 0.5: it drifts at half speed
 void mob_spend(Mob *m, int t) { m->time += m->b.slow ? t * 2 : t; }
 bool attack(int att, int def, Item *thrown);
 static int mstat(int i, int w, int dflt) { int v = g_mh.stats ? g_mh.stats(i, w) : -1; return v >= 0 ? v : dflt; }
