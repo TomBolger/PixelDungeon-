@@ -623,6 +623,7 @@ static int cook_pick(PickMode p) {
 static int pick_for(PickMode p) {                        // an item selector is open: what a person would choose
   Hero *h = &G.hero;
   if (p == PICK_UPGRADE && !s_rollout) st_sou_read++;
+  if (p == PICK_UPGRADE && getenv("ARMLATE") && G.depth >= atoi(getenv("ARMLATE")) && h->armor.kind && !CLASS_ARMOR(h->armor.kind) && item_tier(h->armor.kind) >= 3 && game_pick_ok(p, -2) && s_force_pick == -999) return -2;   // 0.93 test: from floor N on, upgrades into the armour (DR is tier x (2 + level): what the bosses there test)
   if (p == PICK_UPGRADE && getenv("ARMFIRST") && h->armor.kind && !CLASS_ARMOR(h->armor.kind) && item_tier(h->armor.kind) >= atoi(getenv("ARMFIRST")) && game_pick_ok(p, -2)) { s_force_pick = -999; return -2; }   // 0.54 test: the winners wore heavy armour with every upgrade in it
   if ((p == PICK_UPGRADE || p == PICK_ENCHANT) && s_force_pick != -999) { int f = s_force_pick; s_force_pick = -999; if (game_pick_ok(p, f)) return f; }
   switch (p) {
@@ -809,6 +810,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
   if (soures() && (s = find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && game_slot(s)->qty == 1 && !boss_depth(G.depth) && ((h->armor.lvl >= 3 && (h->armor.flags & IF_LEVEL_KNOWN)) || (h->weapon.lvl >= 3 && (h->weapon.flags & IF_LEVEL_KNOWN)))) {   // 0.93 (zone run: plate+6 broke, then monks: an upgrade mends too): one scroll kept back to mend the piece about to break (it lasts 6x / 5x (16 - level) hits); more go in at once
     if (!s_rollout) st_upg_holds++; }
   else if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && G.now >= s_upg_hold_until && !(getenv("UPGHOLDBOSS") && !boss_depth(G.depth) && !boss_depth(G.depth + 1)) &&   /* 0.58 test (owner: hold for better gear): read only on or just before a boss floor */ (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {
+    if (getenv("ARMLATE") && G.depth >= atoi(getenv("ARMLATE")) && h->armor.kind && !CLASS_ARMOR(h->armor.kind) && item_tier(h->armor.kind) >= 3) { do_item(s, ACN_READ); return true; }   /* (ARMLATE test: no playouts: into the armour) */
     if (!s_rollout && !getenv("NOSTRAT")) { int r = s_toe && !getenv("TOENOUP") ? toe_upgrade(s) : strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
     else { bool hold = false; if (PRM[P_GEARMODEL]) upg_plan(&hold); if (!hold) { do_item(s, ACN_READ); return true; } if (!s_rollout) st_upg_holds++; }
   }
