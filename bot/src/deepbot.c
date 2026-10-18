@@ -1029,14 +1029,17 @@ static bool class_special(bool escape) {
   return false;
 }
 static bool magic_shooter(int t); static bool losing_fight(int mi);
+static bool calc_on(void); static bool fair_on(void); static int foe_sees(int i); static void round_dmg(double *E, double *V);
 static bool emergency(void) {                           // badly hurt
   Hero *h = &G.hero; int s;
   { bool boss = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) boss = true;
     int dot = 0; for (int k = 1; k <= h->b.poison; k++) dot += k / 3 + 1; dot += 3 * h->b.bleed;
     if (!getenv("OLDHERO") && dot >= h->HP && (s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }   // 0.52 (audit): the poison still to come would kill
+  if (calc_on() && !getenv("OLDEMERG4") && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) { double E, V; round_dmg(&E, &V); double k = getenv("EMERGK") ? atof(getenv("EMERGK")) : 2.5;   // 0.93 review: drink when the next round could kill (Healing fills me up: as late as is safe)
+    if ((h->HP - G.deferred) > E + k * sqrt(V) + 1 && h->HP * 100 >= h->HT * 12) return false; } else
   if ((h->HP - (getenv("OLDGLYPH") ? 0 : G.deferred)) * 100 >= h->HT * (boss && getenv("BOSS_EMERG") ? atoi(getenv("BOSS_EMERG")) : PRM[P_EMERG])) return false; }   /* (0.52: Viscosity's deferred damage is still coming) */
-  if (s_pztest && !getenv("OLDEMERG2") && h->HP * 5 >= h->HT && !h->b.poison && !h->b.bleed && !({ bool t = false; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && (distance(o->pos, h->pos) <= 2 || magic_shooter(o->type) || o->type == MT_SCORPIO)) t = true; } t; })) return false;   // 0.93 (DM lab: Healings are what the bosses take): under a third but nothing on me: no potion yet (rest, walk on)
-  if (s_pztest && !getenv("OLDEMERG3") && (h->hclass & 3) != 1 && h->HP * 100 >= h->HT * 15 && !h->b.poison && !h->b.bleed && !({ bool bs = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) bs = true; bs; })) { int mi = -1, md = 99; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && distance(o->pos, h->pos) < md) { md = distance(o->pos, h->pos); mi = i; } } if (mi >= 0 && !losing_fight(mi) && h->HP > 2 * MOB_DEFS[G.mobs[mi].type].dmg_hi) return false; }   /* (a margin: two of its best blows) */   // 0.93: the fight's sum says I win it with HP to spare: no Healing for it (the bosses need them)
+  if (s_pztest && !(calc_on() && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) && !getenv("OLDEMERG2") && h->HP * 5 >= h->HT && !h->b.poison && !h->b.bleed && !({ bool t = false; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && (distance(o->pos, h->pos) <= 2 || magic_shooter(o->type) || o->type == MT_SCORPIO)) t = true; } t; })) return false;   // 0.93 (DM lab: Healings are what the bosses take): under a third but nothing on me: no potion yet (rest, walk on)
+  if (s_pztest && !(calc_on() && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) && !getenv("OLDEMERG3") && (h->hclass & 3) != 1 && h->HP * 100 >= h->HT * 15 && !h->b.poison && !h->b.bleed && !({ bool bs = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) bs = true; bs; })) { int mi = -1, md = 99; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && distance(o->pos, h->pos) < md) { md = distance(o->pos, h->pos); mi = i; } } if (mi >= 0 && !losing_fight(mi) && h->HP > 2 * MOB_DEFS[G.mobs[mi].type].dmg_hi) return false; }   /* (a margin: two of its best blows) */   // 0.93: the fight's sum says I win it with HP to spare: no Healing for it (the bosses need them)
   if ((s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }
   if (s_pztest && !item_known(IK_POT_HEALING)) for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_POTION && !item_known(h->bag[i].kind) && s_pot_guess[h->bag[i].kind] == IK_POT_HEALING) { st_uses[ACN_DRINK]++; if (!s_rollout) DID("the potion brewed from Sungrass: Healing, 2 times in 3"); do_item(i, ACN_DRINK); return true; }
   if (getenv("IDB") && !item_known(IK_POT_HEALING)) { int bi = -1; double bp = getenv("IDBEMERG") ? atof(getenv("IDBEMERG")) : 0.45;   // 0.93 IDB (owner): the colour that's most likely Healing (and not likely a gas or a fire on myself)
@@ -1044,7 +1047,7 @@ static bool emergency(void) {                           // badly hurt
       if (ph >= bp && bad <= 0.25) { bp = ph; bi = i; } }
     if (bi >= 0) { st_uses[ACN_DRINK]++; if (!s_rollout) DID("probably Healing (%.0f%%): drink it", bp * 100); do_item(bi, ACN_DRINK); return true; } }
   if (G.dew >= 3 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || G.dew < 10)) { do_item(s, ACN_DRINK); return true; }   // (0.52: at 10 it fires by itself at death)
-  int adj = 0, adjm = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE && (getenv("OLDEMERG") || G.mobs[i].state == ST_HUNTING)) { adj++; adjm = i; }   // 0.52 (audit): lulled, terrified, asleep: not a threat now (it spent the next escape item)
+  int adj = 0, adjm = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && (!fair_on() || foe_sees(i)) && G.mobs[i].state != ST_PASSIVE && (getenv("OLDEMERG") || G.mobs[i].state == ST_HUNTING)) { adj++; adjm = i; }   // 0.52 (audit): lulled, terrified, asleep: not a threat now (it spent the next escape item)
   if (!adj) return false;
   if (dm_hold()) return false;   // 0.54 (audit): no leap, smoke, terror, invisibility: they all make DM-300 walk over the dead traps
   if (class_special(true)) return true;
@@ -1052,7 +1055,7 @@ static bool emergency(void) {                           // badly hurt
     if (it->kind == IK_WND_TELEPORT && item_known(IK_WND_TELEPORT) && it->ench > 0 && !(MOB_DEFS[G.mobs[adjm].type].flags & MD_BOSS)) { walk(game_zap(sl, G.mobs[adjm].pos)); return true; } }
   if ((s = find_kind(IK_WIPE_OUT)) >= 0 && !G.hero.b.blind && (getenv("OLDALTAR2") || G.depth >= 22 || G.hero.HP * 4 < G.hero.HT)) { st_wipe++; do_item(s, ACN_READ); return true; }   // 0.51: the altar's gift: every lesser creature here dies
   static const uint8_t ESC[] = { IK_SCR_TELEPORT, IK_SCR_TERROR, IK_SCR_LULLABY, IK_SCR_MIRROR, IK_POT_INVIS };
-  for (unsigned k = 0; k < sizeof ESC; k++) if ((s = find_kind(ESC[k])) >= 0 && item_known(ESC[k]) && !(G.hero.b.blind && item_cat(ESC[k]) == CAT_SCROLL)) { do_item(s, item_cat(ESC[k]) == CAT_SCROLL ? ACN_READ : ACN_DRINK); return true; }
+  for (unsigned k = 0; k < sizeof ESC; k++) if ((s = find_kind(ESC[k])) >= 0 && item_known(ESC[k]) && !(G.hero.b.blind && item_cat(ESC[k]) == CAT_SCROLL) && !(calc_on() && ((ESC[k] == IK_SCR_TERROR && (MOB_DEFS[G.mobs[adjm].type].flags & MD_I_TERROR)) || (ESC[k] == IK_SCR_LULLABY && (MOB_DEFS[G.mobs[adjm].type].flags & MD_I_SLEEP))))) {   /* (0.93 review: not on a monk or golem: immune) */ do_item(s, item_cat(ESC[k]) == CAT_SCROLL ? ACN_READ : ACN_DRINK); return true; }
   if (getenv("LASTSTAND")) {                            // 0.73 X: dying with the kit unspent: every charge, scroll and missile at it first
     Mob *am = &G.mobs[adjm]; bool boss = MOB_DEFS[am->type].flags & MD_BOSS;
     for (int sl = -1; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl); int k = it->kind;
@@ -1076,15 +1079,31 @@ static double hero_def_est(void) {                   // Hero.defenseSkill (game.
   double d = scale_pow(G.hero.defense_skill + ev, 12, 10, ring_sum(IK_RNG_EVASION));
   if (G.hero.b.paralysis) d /= 2; for (int i = 0; i < e && i < 8; i++) d = d * 2 / 3; return d; }
 static double dr_left(double dm, int dr) { if (getenv("OLDDUEL2")) { dm -= dr / 2.0; return dm < 0.3 ? 0.3 : dm; } double t = 0; for (int r = 0; r <= dr; r++) t += dm > r ? dm - r : 0; t /= dr + 1; return t < 0.3 ? 0.3 : t; }   // E[max(0, dmg - U(0..DR))]
+static int s_fair = -1; static bool fair_on(void) { if (s_fair < 0) s_fair = getenv("FAIR") != NULL; return s_fair; }   // 0.93 review (owner: no hidden information): every peek closed
+static int s_calc = -1; static bool calc_on(void) { if (s_calc < 0) s_calc = getenv("CALC") != NULL; return s_calc; }   // 0.93 review: the guesses replaced by the source's numbers
+static double dmg_vs_dr(int lo, int hi, int dr) {          // E[max(0, D - A)]: D = NormalIntRange(lo, hi) (two uniforms), A = U(0..dr) (Char.damage, game.c)
+  if (hi < lo) hi = lo; if (dr < 0) dr = 0; int n = hi - lo + 1; double t = 0;
+  for (int j = 0; j < n; j++) { double a = 2.0 * j / n, b = 2.0 * (j + 1) / n, Fa = a <= 1 ? a * a / 2 : 1 - (2 - a) * (2 - a) / 2, Fb = b <= 1 ? b * b / 2 : 1 - (2 - b) * (2 - b) / 2, pj = Fb - Fa, e = 0;
+    for (int r = 0; r <= dr; r++) e += lo + j > r ? lo + j - r : 0; t += pj * e / (dr + 1); }
+  return t; }
+static void dmg_moments(int lo, int hi, int dr, double *m1, double *m2) {   // E[X], E[X^2] of max(0, D - A) (dr < 0: no armour)
+  if (hi < lo) hi = lo; int n = hi - lo + 1, R = dr < 0 ? 0 : dr; double t1 = 0, t2 = 0;
+  for (int j = 0; j < n; j++) { double a = 2.0 * j / n, b = 2.0 * (j + 1) / n, Fa = a <= 1 ? a * a / 2 : 1 - (2 - a) * (2 - a) / 2, Fb = b <= 1 ? b * b / 2 : 1 - (2 - b) * (2 - b) / 2, pj = Fb - Fa;
+    for (int r = 0; r <= R; r++) { double x = lo + j - (dr < 0 ? 0 : r); if (x < 0) x = 0; t1 += pj * x / (R + 1); t2 += pj * x * x / (R + 1); } }
+  *m1 = t1; *m2 = t2; }
 static bool magic_shooter(int t) { return t == MT_SHAMAN || t == MT_WARLOCK || t == MT_EYE || t == MT_BURNING_FIST; }   // char_hit(.., magic): their roll doubled, armour ignored
 static int mst(Mob *m, int w, int d) { int v = g_mh.stats ? g_mh.stats((int)(m - G.mobs), w) : -1; return v >= 0 ? v : d; }   // the creature overlay's own numbers (bats, Goo...)
 static double hero_dpt(Mob *m) {                       // the hero's mean damage to m per turn, melee
   const Item *w = G.hero.weapon.kind ? &G.hero.weapon : NULL; double dm;
   if (!w) { int st = hero_str(); dm = st > 10 ? (1 + st - 9) / 2.0 : 1; }
   else { dm = (weapon_min(w) + weapon_max(w)) / 2.0; int ex = hero_str() - item_str(w); if (ex > 0 && G.hero.hclass != 3) dm += ex / 2.0; }   // (a huntress's spare STR goes to her missiles, not her blade)
+  if (calc_on() && w && !g_mh.stats) { int ex = hero_str() - item_str(w); dm = dmg_vs_dr(weapon_min(w), weapon_max(w), mst(m, STAT_DR, MOB_DEFS[m->type].dr)) + (ex > 0 && G.hero.hclass != 3 ? ex / 2.0 : 0); } else
   dm = dr_left(dm, mst(m, STAT_DR, MOB_DEFS[m->type].dr));
   double p = (m->b.paralysis || m->b.frost) ? 1 : phit(hero_attack_skill(NULL, m->pos), mst(m, STAT_DEF, MOB_DEFS[m->type].def));
-  return p * dm * TICK / (double)attack_delay(w);
+  double r = p * dm * TICK / (double)attack_delay(w);
+  if (calc_on() && (m->type == MT_MONK || m->type == MT_SENIOR) && w && w->kind != IK_KNUCKLES && !(w->flags & IF_CURSED)) {   // mob_monk.inc: 1 in 6 of its hits knocks the weapon away: 2 turns to pick it up and wield it
+    const MobDef *md = &MOB_DEFS[m->type]; double lam = phit(md->att, hero_def_est()) * TICK / (double)(md->atk_delay ? md->atk_delay : TICK) / 6; r /= 1 + 2 * lam; }
+  return r;
 }
 // 0.54 (owner: "the Huntress needs massively different tactics: her boomerang"; audit): it comes back the same turn,
 // her spare STR adds 0..STR-10 to it, a Sniper's throws ignore armour and a hit marks for a half-turn follow-up
@@ -1100,15 +1119,35 @@ static double boom_dpt_vs(int def, int dr, int extra, bool near) {   // her boom
   double acc = G.hero.attack_skill * (near ? 0.5 : 1.0), p = acc <= 0 ? 0 : def <= 0 ? 1 : acc >= def ? 1 - def / (2 * acc) : acc / (2 * def);
   return p * e / (sn ? 1 - 0.5 * p : 1);
 }
+static int foe_sees(int i) { return BIT_GET(G.fov, G.mobs[i].pos); }
+static void round_dmg(double *E, double *V) {             // 0.93 review: what could land before my next turn: each foe that can strike now, each of its attacks a hit-or-miss draw
+  Hero *h = &G.hero; double e = 0, v = 0, def = hero_def_est();
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING || !foe_sees(i) || m->b.paralysis || m->b.frost) continue;
+    const MobDef *d = &MOB_DEFS[m->type]; bool adj = adjacent(m->pos, h->pos), mag = magic_shooter(m->type) && !adj;
+    if (!adj && !mag && m->type != MT_SCORPIO) continue;
+    int lo = d->dmg_lo, hi = d->dmg_hi; if (mag && m->type == MT_WARLOCK) { lo = 12; hi = 17; }
+    double m1, m2; dmg_moments(lo, hi, mag ? -1 : hero_dr(), &m1, &m2);
+    double p = phit(mst(m, STAT_ATT, d->att) * (mag ? 2 : 1), def); int k = d->atk_delay && d->atk_delay < TICK ? TICK / d->atk_delay : 1;
+    for (int j = 0; j < k; j++) { e += p * m1; v += p * m2 - p * p * m1 * m1; } }
+  if (h->b.burning) { e += 2.5; v += 1.25; }
+  for (int k = 1; k <= h->b.poison && k <= 1; k++) e += h->b.poison / 3 + 1;
+  if (h->b.bleed) e += h->b.bleed;
+  *E = e; *V = v; }
 static double foe_dpt(Mob *m) {                        // m's mean damage to the hero per turn
   if (m->b.paralysis || m->b.frost) return 0;
   const MobDef *d = &MOB_DEFS[m->type]; double dm = (d->dmg_lo + d->dmg_hi) / 2.0;
   if (!getenv("OLDDUEL2") && g_mh.stats) { uint32_t r0 = g_rng; double t = 0; int n = 0; for (int k = 0; k < 16; k++) { int v = g_mh.stats((int)(m - G.mobs), STAT_DMG); if (v < 0) break; t += v; n++; } g_rng = r0; if (n) dm = t / n; }   // the overlay's own roll (brute, Goo pumped, mimic, piranha...), averaged; the dice put back
   bool mag = !getenv("OLDDUEL2") && magic_shooter(m->type) && distance(m->pos, G.hero.pos) > 1;
   dm = mag ? (dm < 0.3 ? 0.3 : dm) : dr_left(dm, hero_dr());
+  if (calc_on()) {
+    if (!mag && !g_mh.stats) dm = dmg_vs_dr(d->dmg_lo, d->dmg_hi, hero_dr());
+    if (mag && m->type == MT_WARLOCK) dm = 14.5;   // city.c warlock_zap: 12..17, armour ignored
+    if (dm < 0.3) dm = 0.3; }
   if (m->type == MT_SPINNER && s_pztest && getenv("SPINNER2")) dm += 6;   // 0.93 (poison: 11% of good-seed deaths, floors 12-14): every other bite poisons for 7-9 turns (~17 HP; a new one resets it): ~6 a hit on top, armour or not
   double a = mst(m, STAT_ATT, d->att) * (mag ? 2 : 1);
-  return phit(a, hero_def_est()) * dm * TICK / (double)(d->atk_delay ? d->atk_delay : TICK);
+  double hp = phit(a, hero_def_est()), rate = TICK / (double)(d->atk_delay ? d->atk_delay : TICK), r = hp * dm * rate;
+  if (calc_on() && m->type == MT_ELEMENTAL && !IS_WATER(G.map[G.hero.pos])) r += 2.5 * (1 - exp(-hp * 0.5 * rate * 6));   // city.c: half its hits set you alight (1-4 a turn, ~6 turns; water puts it out)
+  return r;
 }
 static double s_lose_cost;                              // the HP the fight's sum says it costs (vs the HP you have)
 static bool losing_fight(int mi) {                      // the sum: its HP over my damage, times what all of them that hunt me deal
@@ -1269,7 +1308,7 @@ static int open_sides(int c) { int n = 0; for (int k = 0; k < 4; k++) { int m = 
 static bool s_oldtrap; static int st_trap_throws, st_trap_rooms;
 static int trap_room_gas(int r) {                       // the trap kind filling room r (toxic / paralytic), else -1
   Room *R = &G.rooms[r]; int tox = 0, par = 0, other = 0;
-  for (int y = R->top + 1; y < R->bottom; y++) for (int x = R->left + 1; x < R->right; x++) { int t = G.map[x + y * MAP_W];
+  for (int y = R->top + 1; y < R->bottom; y++) for (int x = R->left + 1; x < R->right; x++) { int t = G.map[x + y * MAP_W]; if (fair_on() && !BIT_GET(G.visited, x + y * MAP_W)) continue;
     if (t == T_TOXIC_TRAP) tox++; else if (t == T_PARALYTIC_TRAP) par++; else if (t == T_CHASM || t == T_SUMMONING_TRAP) other++; }
   if (other) return -1;
   return tox ? T_TOXIC_TRAP : par ? T_PARALYTIC_TRAP : 0;   // (0: none left: all sprung)
@@ -1399,7 +1438,8 @@ static int puzzle_task(const char **why) {             // after exploring: a cel
   return -1;
 }
 
-static bool pool_floor(void) { for (int r = 0; r < G.n_rooms; r++) if (G.rooms[r].type == RT_POOL) return true; return false; }
+static bool room_seen(int r);
+static bool pool_floor(void) { for (int r = 0; r < G.n_rooms; r++) if (G.rooms[r].type == RT_POOL && (!fair_on() || room_seen(r))) return true; return false; }
 static int dry_step(int target) {                      // bot2: the first step of a walk that keeps out of the water, -1 none
   s_dry = true; s_dry_reach = !getenv("DRYWATER"); s_dry_goal = target; bfs(target, false);   // bot3: out of the piranhas' bite, not just their water
   if (s_dry_reach && b_dist[G.hero.pos] == 0x7FFF) { s_dry_reach = false; bfs(target, false); if (!s_rollout) s_pass_bite = s_bot_steps + 8; }   // (no way round: their water only; past their teeth quickly)
@@ -1436,7 +1476,7 @@ static bool escape_air(void) {                          // bot2: in gas or fire:
 
 // ---- bot2: seed tactics (STRATEGY.md: plant a seed between you and the enemy, step back)
 static int s_step_back = -1, s_step_back2, s_onto = -1;                           // a seed planted here: step away from it next
-static int foes_near(int r) { int n = 0; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && distance(G.mobs[i].pos, G.hero.pos) <= r) n++; return n; }
+static int foes_near(int r) { int n = 0; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && (!fair_on() || foe_sees(i)) && distance(G.mobs[i].pos, G.hero.pos) <= r) n++; return n; }
 // 0.52 (owner): seeds are thrown, not planted: a thrown seed grows where it lands (trap.c land), and fires when trodden
 // on. Onto the foe's way in (Icecap 2+ cells from me: it freezes all within 1); Earthroot or Sungrass beside me, then
 // step onto it. Planting under yourself is throwing it at yourself: only for the one beside you (step back, it follows).
@@ -1701,11 +1741,28 @@ static double hp_cost_vs(int mt, const Item *w, const Item *a) {
     bool shoots = mt == MT_TENGU || mt == MT_EYE || mt == MT_SCORPIO || mt == MT_SHAMAN || mt == MT_DM300;
     double left = (md->HT - s_hp_cut > 1 ? md->HT - s_hp_cut : 1) - (shoots ? 0 : 2.0) * far; if (left < 0) left = 0; double d2 = dps > near ? dps : near;
     return left / (d2 > 0.01 ? d2 : 0.01) * mdps; }
+  if (calc_on()) {                                      // 0.93 review: what the plain stats leave out
+    double rate = md->atk_delay ? TICK / (double)md->atk_delay : 1;
+    if (mt == MT_ELEMENTAL) mdps += 2.5 * (1 - exp(-hr * 0.5 * rate * 6));
+    if (mt == MT_BRUTE || mt == MT_SHIELDED) mdps *= 0.75 + 0.25 * 25.0 / 13;   // mob_brute.inc: enraged under a quarter, 10-40 for 8-18
+    if ((mt == MT_MONK || mt == MT_SENIOR) && w && w->kind && w->kind != IK_KNUCKLES && !(w->flags & IF_CURSED)) dps /= 1 + 2 * hr * rate / 6;
+    double extra = 0;
+    if (mt == MT_WARLOCK) {                                  // two bolts on the way in (doubled roll, armour ignored), each 1 in 2 weakening: -2 STR
+      double pb = hitp(md->att * 2.0, def), pw = 1 - (1 - 0.5 * pb) * (1 - 0.5 * pb); extra = 2 * pb * 14.5;
+      int ew = w && w->kind ? item_str(w) - st : 0; double fa = pw2(2.0 / 3, ew + 2) / pw2(2.0 / 3, ew), fd = pw2(2.0 / 3, ae + 2) / pw2(2.0 / 3, ae);
+      dps *= 1 - pw * (1 - fa); mdps *= 1 + pw * (1 / fd - 1) * 0.5; }
+    return extra + (md->HT - s_hp_cut > 1 ? md->HT - s_hp_cut : 1) / (dps > 0.01 ? dps : 0.01) * mdps; }
   return (md->HT - s_hp_cut > 1 ? md->HT - s_hp_cut : 1) / (dps > 0.01 ? dps : 0.01) * mdps;
 }
+extern const uint8_t BEST_KIND[], BEST_OFF[26]; extern const uint16_t BEST_W[];
+static double mix_cost(int d, const Item *w, const Item *a, double *worst) {   // 0.93: the expected cost over the floor's real spawn odds (Bestiary, game.c)
+  if (d < 1) d = 1; if (d > 25) d = 25; int o = BEST_OFF[d - 1], n = BEST_OFF[d] - o; double t = 0, ws = 0; if (worst) *worst = 0;
+  for (int i = 0; i < n; i++) { int mt = BEST_KIND[o + i]; if (MOB_DEFS[mt].flags & MD_BOSS) continue; double c = hp_cost_vs(mt, w, a); t += BEST_W[o + i] * c; ws += BEST_W[o + i]; if (worst && BEST_W[o + i] * 5 >= 100 && c > *worst) *worst = c; }
+  return ws > 0 ? t / ws : 0; }
 static double gear_cost(const Item *w, const Item *a) {   // lower: better (the region's monsters, and its boss)
   static const uint8_t REF[5][3] = { { MT_GNOLL, MT_CRAB, MT_GOO }, { MT_SKELETON, MT_THIEF, MT_TENGU }, { MT_BAT, MT_BRUTE, MT_DM300 }, { MT_MONK, MT_GOLEM, MT_KING }, { MT_SUCCUBUS, MT_SCORPIO, MT_EYE } };
   int r = (G.depth - 1) / 5; if (r > 4) r = 4; double c = 0;
+  if (calc_on()) { for (int d = G.depth; d < G.depth + 3; d++) c += mix_cost(d, w, a, NULL); c = c / 3 * 2 + hp_cost_vs(REF[r][2], w, a) * 0.5; } else
   for (int i = 0; i < 3; i++) c += hp_cost_vs(REF[r][i], w, a) * (i == 2 ? 0.5 : 1);
   if (a && a->kind) { int enc = item_str(a) - (hero_str() + s_str_plus); if (enc > 0) c *= 1 + s_arm_speedk * (pw2(1.3, enc) - 1); }   // bot3: Hero.speed: heavy armour walks 1.3x slower per missing STR (turns, hunger, exposure)
   return c;
@@ -1715,6 +1772,7 @@ static double gear_cost(const Item *w, const Item *a) {   // lower: better (the 
 static int thrift_need(void) {
   static const uint8_t R2[5][2] = { { MT_GNOLL, MT_CRAB }, { MT_SKELETON, MT_THIEF }, { MT_BAT, MT_BRUTE }, { MT_MONK, MT_GOLEM }, { MT_SUCCUBUS, MT_SCORPIO } };
   Hero *h = &G.hero; int r = (G.depth - 1) / 5; if (r > 4) r = 4; double c = 0;
+  if (calc_on()) mix_cost(G.depth, h->weapon.kind ? &h->weapon : NULL, h->armor.kind ? &h->armor : NULL, &c); else
   for (int i = 0; i < 2; i++) { double v = hp_cost_vs(R2[r][i], h->weapon.kind ? &h->weapon : NULL, h->armor.kind ? &h->armor : NULL); if (v > c) c = v; }
   int need = (int)(c * 1.3) + 2, lo = h->HT / 4, hi = h->HT * 6 / 10; return need < lo ? lo : need > hi ? hi : need;
 }
@@ -1827,7 +1885,7 @@ static uint8_t s_arr_qty[IK_COUNT];
 static bool pot_new(int sl) { Item *it = game_slot(sl); return it->kind < IK_COUNT && item_cat(it->kind) == CAT_POTION && !item_known(it->kind) && it->qty > s_arr_qty[it->kind]; }   // 0.58: an unknown potion picked up on this floor
 static int storage_barr(void) {                         // 0.58: the storage room's way in (a barricade, or a bookshelf one time in three), seen
   for (int c = 0; c < MAP_LEN; c++) { if (!BIT_GET(G.visited, c)) continue; if (G.map[c] == T_BARRICADE) return c;
-    if (G.map[c] == T_BOOKSHELF && !getenv("OLDBOOKS")) for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r]; if (R->type == RT_STORAGE && cx(c) >= R->left && cx(c) <= R->right && cy(c) >= R->top && cy(c) <= R->bottom) return c; } }
+    if (G.map[c] == T_BOOKSHELF && !getenv("OLDBOOKS") && !fair_on()) for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r]; if (R->type == RT_STORAGE && cx(c) >= R->left && cx(c) <= R->right && cy(c) >= R->top && cy(c) <= R->bottom) return c; } }
   return -1; }
 static bool barricade_task(void) {
   if (getenv("OLDDUNG") || enemy_count() || G.hero.b.blind) return false;
@@ -1871,7 +1929,7 @@ static bool pit_jump(void) {
 static bool statue_worth(int i) {                     // 0.52 (audit): a statue holds an enchanted, uncursed weapon (its description names it): worth a fight if better and the duel's won
   Mob *m = &G.mobs[i]; Hero *h = &G.hero; if (h->HP * 10 < h->HT * 9) return false;
   int cp = CARRIED_POS(m->uid); for (int k = 0; k < G.n_heaps; k++) if (G.heaps[k].pos == cp && item_cat(G.heaps[k].item.kind) == CAT_WEAPON) {
-    Item w = G.heaps[k].item, ba = believed(&h->armor, 0), bw = believed(&h->weapon, 0);
+    Item w = G.heaps[k].item, ba = believed(&h->armor, 0), bw = believed(&h->weapon, 0); if (fair_on() && !(w.flags & IF_LEVEL_KNOWN)) w.lvl = 0;   /* (fair: its name and enchantment show, not its level) */
     if (gear_cost(&w, &ba) < gear_cost(&bw, &ba) * 0.9 && !losing_fight(i) && !(s_pztest && (s_lose_cost * 2.5 > h->HP || h->lvl < G.depth + 3))) return true; }   // (0.92 seed 84 d4: a statue judged winnable at 40/40, lvl 5, took 35 HP in 4 blows: its weapon hits far harder than the estimate)
   return false;
 }
@@ -2411,22 +2469,25 @@ static bool want_buy(int h) {
   if (s_pztest && !getenv("OLDAFFORD") && G.hero.gold < shop_price(it)) return false;   // 0.93: the price is on the tag
   if (getenv("IDB") && item_cat(k) == CAT_POTION && !item_known(k) && idb_p(k, IK_POT_HEALING) >= 0.5) return true;   // 0.93 IDB (owner): probably Healing, at the unknown price
   if (getenv("IDB") && item_cat(k) == CAT_SCROLL && !item_known(k) && idb_p(k, IK_SCR_UPGRADE) >= 0.5) return true;
-  if (k == IK_POT_HEALING || is_food(k) || k == IK_ANKH || k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER || k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH) return true;
+  if (((k == IK_POT_HEALING || k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH) && (!fair_on() || item_known(k))) || is_food(k) || k == IK_ANKH || k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) return true;   /* (fair: an unknown one by its odds, IDB) */
   if (s_toe && (item_cat(k) == CAT_ARMOR || item_cat(k) == CAT_WEAPON)) return toe_buy(h);   // 0.73 TOE: by the plan
   if (item_cat(k) == CAT_ARMOR && armor_score(it) > armor_score(&G.hero.armor) + 2) return true;
   return false;
 }
+static uint32_t s_npc_seen; static int s_npc_d = -1, s_npc_g = -1;   // 0.93 FAIR: the quest-givers seen on this floor (a player can't know one's there before)
+static bool npc_known(int mt, int st) { if (!fair_on() || st >= QS_GIVEN) return true; if (s_npc_d != G.depth || s_npc_g != cur_game) { s_npc_d = G.depth; s_npc_g = cur_game; s_npc_seen = 0; }
+  for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && BIT_GET(G.fov, G.mobs[i].pos) && G.mobs[i].type < 32) s_npc_seen |= 1u << G.mobs[i].type; return (s_npc_seen >> mt) & 1; }
 static bool quest_on_floor(void) {                      // work on this floor's quest before leaving
   Quests *q = &G.q; int d = G.depth; if (s_explab) return false;   // (stage 1: no quests)
-  if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED) return true;
-  if (q->wand_depth == d && q->wand && q->wand < QS_REWARDED) return true;
-  if (q->smith_depth == d && q->smith && q->smith < QS_DONE) return true;
-  if (q->imp_depth == d && q->imp && q->imp < QS_REWARDED) return true;
+  if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED && npc_known(MT_GHOST, q->ghost)) return true;
+  if (q->wand_depth == d && q->wand && q->wand < QS_REWARDED && npc_known(MT_WANDMAKER, q->wand)) return true;
+  if (q->smith_depth == d && q->smith && q->smith < QS_DONE && npc_known(MT_BLACKSMITH, q->smith)) return true;
+  if (q->imp_depth == d && q->imp && q->imp < QS_REWARDED && npc_known(MT_IMP, q->imp)) return true;
   return false;
 }
 static bool wait_quest(void) {                          // 0.50 (review g6): quests that need monsters to come: the ghost's (rose, fetid rat), the smith's bat blood
   Quests *q = &G.q; int d = G.depth; if (s_explab) return false;
-  if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED && !(s_pztest && !getenv("NOCURSE2") && q->ghost_alt == 2)) return true;   // (0.92: the curse needs no monsters to come: the curse plan runs it)
+  if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED && npc_known(MT_GHOST, q->ghost) && !(s_pztest && !getenv("NOCURSE2") && q->ghost_alt == 2 && q->ghost >= QS_GIVEN)) return true;   // (0.92: the curse needs no monsters to come: the curse plan runs it)
   if (q->smith_depth == d && q->smith == QS_GIVEN && q->smith_alt) return true;
   return false;
 }
@@ -2461,7 +2522,7 @@ static int trap_prize(void) {                            // 0.54 (an upgrade scr
   int best = -1, bd = 0x7FFF;
   for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos, k = hp->item.kind, cat = item_cat(k);
     if ((unsigned)c >= MAP_LEN || hp->type != HEAP_PLAIN || !BIT_GET(G.visited, c) || s_black[c] > s_bot_steps) continue;
-    if (!(k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH || k == IK_SCR_ENCHANT || cat == CAT_WAND || cat == CAT_RING || cat == CAT_ARMOR || cat == CAT_WEAPON || (is_food(k) && !getenv("OLDTRAPFOOD") && !({ bool f = false; for (int j = 0; j < BAG_SIZE; j++) if (is_food(h->bag[j].kind)) f = true; f; })))) continue;   // 0.58: food too, with none in the bag (a ration on a trap was left while starving)
+    if (!(((k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH || k == IK_SCR_ENCHANT) && (!fair_on() || item_known(k))) || (fair_on() && (cat == CAT_SCROLL || cat == CAT_POTION) && !item_known(k)) || cat == CAT_WAND || cat == CAT_RING || cat == CAT_ARMOR || cat == CAT_WEAPON || (is_food(k) && !getenv("OLDTRAPFOOD") && !({ bool f = false; for (int j = 0; j < BAG_SIZE; j++) if (is_food(h->bag[j].kind)) f = true; f; })))) continue;   // 0.58: food too, with none in the bag (a ration on a trap was left while starving)
     int t = G.map[c]; if (!(TFLAGS(t) & F_AVOID) || (TFLAGS(t) & F_PIT) || in_room(c, RT_TRAPS)) continue;
     int dg = trap_danger(t);
     if (s >= 0) {                                      // (owner) throw something onto it: the trap goes off on that, then both lie there safe
@@ -2566,8 +2627,8 @@ static int search_spot(void) {                          // where to look for sec
 // that room is behind a secret door. (Unknown potions: no potion seen at all in the ordinary rooms is the evidence.)
 static int s_ev_food, st_xpb, st_pace; static uint8_t s_ev_seen[MAP_LEN / 8 + 1]; static int s_ev_floor = -1, s_std_pots, s_ev_k[5], s_ev_searches, s_ev_on; static int st_ev_search, st_ev_floors, st_ev_found;
 static bool std_room(int c) { int r = room_at(c); if (r < 0) return true; int t = G.rooms[r].type; return t == RT_STANDARD || t == RT_ENTRANCE || t == RT_EXIT || t == RT_TUNNEL || t == RT_PASSAGE; }
-static bool room_seen(int r) { Room *R = &G.rooms[r]; for (int y = R->top; y <= R->bottom; y++) for (int x = R->left; x <= R->right; x++) if (BIT_GET(G.visited, x + y * MAP_W)) return true; return false; }
-static bool room_prize(int r) { for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if (hp->pos < MAP_LEN && room_at(hp->pos) == r && hp->type != HEAP_CARRIED) return true; } return false; }
+static bool room_seen(int r) { Room *R = &G.rooms[r]; int i = fair_on() ? 1 : 0; for (int y = R->top + i; y <= R->bottom - i; y++) for (int x = R->left + i; x <= R->right - i; x++) if (BIT_GET(G.visited, x + y * MAP_W)) return true; return false; }   /* (fair: its inside seen, not a wall) */
+static bool room_prize(int r) { for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if (hp->pos < MAP_LEN && room_at(hp->pos) == r && hp->type != HEAP_CARRIED && (!fair_on() || BIT_GET(G.visited, hp->pos))) return true; } return false; }
 static const char *evidence_hidden(void);
 static void evidence_track(void) {
   if (s_ev_floor != G.depth) {                        // 0.92 (seed 84: back up to floor 3 for the stairs bounce, it hunted for the ration it had eaten there): what each floor showed is kept
@@ -2879,7 +2940,7 @@ static void oracles(void) {
 // and how much of it went unseen. Unknown scrolls / potions picked up there count as half a find (no peeking at kinds).
 static const uint8_t Q_POS[10] = { 4, 2, 9, 4, 14, 6, 19, 8, 24, 9 }, Q_SOU[10] = { 5, 3, 10, 6, 15, 9, 20, 12, 25, 13 };
 static int s_q_lab0[IK_COUNT]; static double s_q_sou[16], s_q_pos[16], s_q_u = 1, s_q_fs, s_q_fp; static int s_q_d = -1, s_q_game = -1, s_q_us0, s_q_up0, s_q_sou0, s_q_str0;
-static double q_spawn(const uint8_t *Q, int n, int d) { if (d == 21) return 0; for (int i = 0; i < 10; i += 2) if (d <= Q[i]) { double p = (double)(Q[i + 1] - n) / (Q[i] - d + 1); return p < 0 ? 0 : p > 1 ? 1 : p; } return 0; }
+static double q_spawn(const uint8_t *Q, int n, int d) { if (d == 21 || boss_depth(d)) return 0;   /* (review: level_content rolls no quota on a boss floor) */ for (int i = 0; i < 10; i += 2) if (d <= Q[i]) { double p = (double)(Q[i + 1] - n) / (Q[i] - d + 1); return p < 0 ? 0 : p > 1 ? 1 : p; } return 0; }
 static double q_unseen(const double *P, const uint8_t *Q, int d, double f, double u) {   // the chance one is still in the unseen part here
   double r = 0; for (int n = 0; n < 15; n++) if (P[n] > 0) { double sp = q_spawn(Q, n, d), den = 1 - sp * (1 - u); r += P[n] * (den > 1e-9 ? sp * u / den : 0); } return (1 - f) * r; }
 static void q_leave(double *P, const uint8_t *Q, int d, double f, double u) {   // the odds over the count spawned, after floor d
@@ -3174,8 +3235,8 @@ static bool decide(void) {
     // region's 4 floors, ~2 Strength potions per region; spread over the rooms, so what's left scales with what's unseen
     int seen = 0; for (int c = 0; c < MAP_LEN; c++) if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) seen++;
     double est = seen + 40 > 300 ? seen + 40 : 300, un = 1 - seen / est; if (un < 0) un = 0;
-    bool sou_here = (int)st_sou_read + (find_kind(IK_SCR_UPGRADE) >= 0 ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0) > s_ev_sou0;
-    bool pos_here = h->STR + (find_kind(IK_POT_STRENGTH) >= 0 ? game_slot(find_kind(IK_POT_STRENGTH))->qty : 0) > s_ev_str0;
+    bool sou_here = (int)st_sou_read + (find_kind(IK_SCR_UPGRADE) >= 0 && (!fair_on() || item_known(IK_SCR_UPGRADE)) ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0) > s_ev_sou0;
+    bool pos_here = h->STR + (find_kind(IK_POT_STRENGTH) >= 0 && (!fair_on() || item_known(IK_POT_STRENGTH)) ? game_slot(find_kind(IK_POT_STRENGTH))->qty : 0) > s_ev_str0;
     double v = un * ((sou_here ? 0 : 0.6) * 300 + (pos_here ? 0 : 0.4) * 300 + 2.7 * 40);
     if (getenv("EV2")) { un = floor_unseen(); double ps = q_unseen(s_q_sou, Q_SOU, G.depth, s_q_fs, un), pp = q_unseen(s_q_pos, Q_POS, G.depth, s_q_fp, un);
       v = ps * (getenv("EVSOU") ? atoi(getenv("EVSOU")) : 300) + pp * (getenv("EVPOS") ? atoi(getenv("EVPOS")) : 300) + un * 2.7 * 40;
@@ -3221,7 +3282,7 @@ static bool decide(void) {
   if (!getenv("OLDSHOP") && enemy_count() == 0) {   // 0.50 (review g6): the shop's wares never made the target list (the suggester leaves them out): go and buy what's wanted
     bfs(h->pos, false); int bc = -1, bp = 99;
     for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos; if (hp->type != HEAP_FOR_SALE || (unsigned)c >= MAP_LEN || !BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || (s_black[c] > s_bot_steps && (getenv("OLDAFFORD") || G.hero.gold <= s_sale_gold[c])) || !want_buy(i)) continue;   /* (0.93 n8g5 g3001: in at 62 gold, the wares blacklisted 3000 steps: back with 491, two rations left, down starving) */
-      int k = hp->item.kind, pr = (s_pztest && getenv("SHOP2")) ? (3000 - shop_value(&hp->item)) / 40 : (s_pztest && !getenv("OLDSHOPPRI")) ? (getenv("SHOPANKH") && k == IK_ANKH ? 0 : (k == IK_POT_HEALING || (getenv("IDB") && !item_known(k) && item_cat(k) == CAT_POTION && idb_p(k, IK_POT_HEALING) >= 0.5)) ? 0 : is_food(k) ? 1 : k == IK_POT_STRENGTH || k == IK_SCR_UPGRADE ? 2 : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 3 : k == IK_ANKH ? 4 : 5) : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 0 : is_food(k) ? 1 : k == IK_POT_HEALING ? 2 : k == IK_ANKH ? 3 : 4;   /* (0.92 seed 84 d6: 800 gold on a pouch and a ration, two Healings left on the shelf: a Healing is 60-odd HP, 600 turns of mending) */ /* (owner: the bag first: more room, more tools all game) */ if (pr < bp || (pr == bp && b_dist[c] < b_dist[bc])) { bp = pr; bc = c; } }
+      int k = hp->item.kind, pr = (s_pztest && getenv("SHOP2")) ? (3000 - shop_value(&hp->item)) / 40 : (s_pztest && !getenv("OLDSHOPPRI")) ? (getenv("SHOPANKH") && k == IK_ANKH ? 0 : ((k == IK_POT_HEALING && (!fair_on() || item_known(k))) || (getenv("IDB") && !item_known(k) && item_cat(k) == CAT_POTION && idb_p(k, IK_POT_HEALING) >= 0.5)) ? 0 : is_food(k) ? 1 : (k == IK_POT_STRENGTH || k == IK_SCR_UPGRADE) && (!fair_on() || item_known(k)) ? 2 : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 3 : k == IK_ANKH ? 4 : 5) : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 0 : is_food(k) ? 1 : k == IK_POT_HEALING ? 2 : k == IK_ANKH ? 3 : 4;   /* (0.92 seed 84 d6: 800 gold on a pouch and a ration, two Healings left on the shelf: a Healing is 60-odd HP, 600 turns of mending) */ /* (owner: the bag first: more room, more tools all game) */ if (pr < bp || (pr == bp && b_dist[c] < b_dist[bc])) { bp = pr; bc = c; } }
     if (bc >= 0) { static int lc = -1, ln, lg; if (bc == lc && G.hero.gold == lg) ln++; else { lc = bc; ln = 0; lg = G.hero.gold; }
       if (getenv("WNDDBG")) printf("  SHOP bc %d ln %d black %d steps %d\n", bc, ln, s_black[bc], s_bot_steps); if (ln > 6) { s_black[bc] = s_bot_steps + 3000; s_sale_gold[bc] = G.hero.gold; ln = 0; } else { choice = bc; why = "shop"; } } }   /* (0.52f: can't afford it: the trade window does nothing: 300 steps stuck, games 4/41) */
   for (int i = 0; i < n && choice < 0; i++) {
@@ -4428,6 +4489,7 @@ int main(int argc, char **argv) {
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;
   if (getenv("STOP")) sscanf(getenv("STOP"), "%d:%d", &stop_game, &stop_step);
   V = getenv("V") != NULL;
+  if (getenv("FAIR") && !getenv("FAIRPLAY")) { setenv("NOLA", "1", 1); setenv("NOSTRAT", "1", 1); }   // 0.93 review: both look-aheads play a copy of the real game (unseen floors, monsters, unknown items): off
   P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0; s_pure = getenv("PURE") != NULL; s_toe = getenv("TOE") != NULL;
   if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); if ((g_assist & 5) == 5) memset(g_view, 0, 4); }   // 0.77: Assist Max (0.80: off-screen targets, ASSIST=7): the whole map
   static int s_seedv[512], s_seedc[512], s_seedn; if (getenv("SEEDS")) { const char *q = getenv("SEEDS"); while (*q && s_seedn < 512) { s_seedv[s_seedn] = atoi(q); s_seedc[s_seedn] = -1; while (*q >= '0' && *q <= '9') q++; if (*q == ':') { q++; s_seedc[s_seedn] = atoi(q); while (*q >= '0' && *q <= '9') q++; } s_seedn++; if (*q == ',') q++; else break; } }   // SEEDS=84:0,151:2 (game:class): game index i plays the i-th listed seed (the runner hands out index ranges)
