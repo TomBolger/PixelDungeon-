@@ -591,6 +591,7 @@ static int upg_plan(bool *hold) {                         // bot3: which item th
   return bs;
 }
 static int s_force_pick = -999;                          // bot3: the strategic look-ahead chose the upgrade's target
+static uint32_t s_salt;   // 0.93: BOTSALT=n: the same seed, another hand of the bot's own dice (a ticket on a good seed)
 static long st_sou_read, st_sou_pos; static long st_brkw, st_brka, st_brkn;
 // 0.92 (owner: "alchemy through the same bag valuation"): Heap.transmute with n seeds: 1 in n a random potion, else the
 // potion of a seed picked by count. A brew is worth it when the potion beats the three seeds it eats plus the bag slot it
@@ -3679,7 +3680,7 @@ static void bl_eval(int g, int ddepth, int32_t dnow, int age) {
   int ok[80] = { 0 }; for (int i = 0; i < n; i++) { ok[i] = 0;
     for (int r = 0; r < R; r++) { int p[2]; if (pipe(p)) break; fflush(stdout); pid_t k = fork();
       if (k == 0) { close(p[0]); s_rollout = 1; V = 0; int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); }
-        uint32_t seed = (uint32_t)(r + 1) * 7919u; g_rng ^= seed * 2654435761u; srand(seed); resample_unknowns(seed);   // (the same luck for every option at one r)
+        uint32_t seed = (uint32_t)(r + 1) * 7919u + s_salt * 104729u; g_rng ^= seed * 2654435761u; srand(seed); resample_unknowns(seed);   // (the same luck for every option at one r)
         if (c[i].t == C_DEFAULT && c[i].act) fla_apply(senv[c[i].act - 1]);
         int res = 0;
         if (apply_cand(c[i])) for (int q = 0; q < 4000; q++) { if (h->HP <= 0) { res = 0; break; } if (G.max_depth > ddepth) { res = 1; break; } if (G.now >= dnow + (getenv("BLNEXT") ? 300 : 150) * TICK) { res = getenv("BLNEXT") ? G.depth >= cdep : 1; break; } if (!la_step()) walk(game_rest(false)); }   /* (BLNEXT: alive 300 turns past the death and not hiding upstairs) */   /* (BLNEXT: only getting below counts: stalling upstairs doesn't) */
@@ -3850,7 +3851,7 @@ static int strategic_upgrade(int scroll) {              // 1: read on the best t
   if (!nt) return -1;
   if (!s_pztest) tg[nt++] = -1000;                     // hold (0.92 seed 84 d4: held at 2 HP among the crabs: a known Upgrade goes in now)
   st_sla_points++;
-  long best = -1; int bi = 0; uint32_t base = (uint32_t)(cur_game * 7777 + s_bot_steps * 31);
+  long best = -1; int bi = 0; uint32_t base = (uint32_t)(cur_game * 7777 + s_bot_steps * 31 + s_salt * 15485863u);
   for (int i = 0; i < nt; i++) {
     long tot = 0; for (int r = 0; r < 8; r++) tot += strat_playout(scroll, tg[i], base + r * 104729);
     if (getenv("SLADBG")) { char nm[64] = "hold"; if (tg[i] != -1000) item_name(game_slot(tg[i]), nm, sizeof nm); printf("   upgrade? %-34s -> %ld\n", nm, tot / 8); }
@@ -4228,6 +4229,7 @@ static int run_explab(void) {
   return 0;
 }
 int main(int argc, char **argv) {
+  s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
   if (!getenv("NOX")) { static const char *const X[] = { "X_OOZE", "X_DODGE", "X_DODGE2", "X_NOTEST", "X_DRYGOO", "X_OPENFIX", "X_NOBOSSTRAP" }; for (unsigned i = 0; i < sizeof X / sizeof *X; i++) setenv(X[i], "1", 0); }   // 0.52e: the boss audit's Goo/Tengu fixes on (NOX=1: off)
   signal(SIGALRM, on_alarm); signal(SIGVTALRM, on_alarm); setvbuf(stdout, NULL, _IONBF, 0);
   if (!game_init()) return 1;
@@ -4248,7 +4250,7 @@ int main(int argc, char **argv) {
   static int s_seedv[512], s_seedc[512], s_seedn; if (getenv("SEEDS")) { const char *q = getenv("SEEDS"); while (*q && s_seedn < 512) { s_seedv[s_seedn] = atoi(q); s_seedc[s_seedn] = -1; while (*q >= '0' && *q <= '9') q++; if (*q == ':') { q++; s_seedc[s_seedn] = atoi(q); while (*q >= '0' && *q <= '9') q++; } s_seedn++; if (*q == ',') q++; else break; } }   // SEEDS=84:0,151:2 (game:class): game index i plays the i-th listed seed (the runner hands out index ranges)
   for (int gi = getenv("START") ? atoi(getenv("START")) : 0; gi < N; gi++) {
     int si = gi - (getenv("SEEDSBASE") ? atoi(getenv("SEEDSBASE")) : 0); if (s_seedn && (si < 0 || si >= s_seedn)) break; int g = s_seedn ? s_seedv[si] : gi; int seedcls = s_seedn ? s_seedc[si] : -1;
-    cur_game = g; srand(g + 1); st_games++; lg_maxleft = 0;
+    cur_game = g; srand(g + 1 + s_salt * 7919); st_games++; lg_maxleft = 0;
     if (!getenv("OLDLEAK")) { g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; g_goal = -1; g_from = -1; memset(g_drop, 0, sizeof g_drop); g_drop_i = 0; }   // 0.64: no Assist state carried from game to game (a game replays alone the same)
     extern uint32_t g_host_time; extern uint16_t g_host_ms;
     g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7);   // a different dungeon each game, night or day
