@@ -399,7 +399,7 @@ static int item_value(const Item *it) {
       case IK_SCR_TERROR: v = 30; break; case IK_SCR_MIRROR: v = 25; break; case IK_SCR_REMOVE_CURSE: v = 20; break; case IK_SCR_RECHARGING: v = 20; break;
       case IK_SCR_PSIONIC: v = 20; break; case IK_SCR_LULLABY: v = 15; break; case IK_SCR_IDENTIFY: v = 15; break; case IK_SCR_CHALLENGE: v = 0; break; default: v = 15; }
     return v * q; }
-  if (c == CAT_SEED) { int v; switch (k) { case IK_SEED_SUNGRASS: v = 22; break; case IK_SEED_EARTHROOT: v = 15; break; case IK_SEED_DREAMWEED: v = 12; break; case IK_SEED_FIREBLOOM: v = 12; break; default: v = 7; } return v * q; }
+  if (c == CAT_SEED) { int v; switch (k) { case IK_SEED_SUNGRASS: v = s_pztest && !getenv("OLDSUNVAL") ? 85 : 22; break;   /* 0.93 (audit): planted, one heals a tenth of max HP every 5 turns to full: worth about a Healing; brewed, three make 2/3 of one */ case IK_SEED_EARTHROOT: v = 15; break; case IK_SEED_DREAMWEED: v = 12; break; case IK_SEED_FIREBLOOM: v = 12; break; default: v = 7; } return v * q; }
   if (c == CAT_WAND) return item_known(k) ? (attack_wand(k) ? 70 : k == IK_WND_TELEPORT || k == IK_WND_BLINK ? 50 : k == IK_WND_SLOW ? 45 : 20) + 5 * it->ench : 45;
   if (c == CAT_RING) return cursed_known(it) || ((it->flags & IF_LEVEL_KNOWN) && it->lvl <= 0) ? -10 : 60 + 20 * known_lvl(it);
   if (c == CAT_MISSILE) return k == IK_BOOMERANG ? 200 : (k == IK_CURARE_DART ? 8 : k == IK_INCENDIARY_DART ? 6 : 3) * q;
@@ -1502,6 +1502,7 @@ static bool boss_zone(int c) {
 // half health; into a vial that isn't full at full health; or hurt with the vial full. Else leave it for later (the Assist's rule)
 static bool dew_take(void) {
   Hero *h = &G.hero; bool vial = find_kind(IK_DEW_VIAL) >= 0;
+  if (s_pztest && getenv("DEWBANK") && vial && G.dew < 10) return h->HP >= h->HT || h->HP * 10 < h->HT * 3;   // 0.93 test (audit): a full vial heals all of max HP (volume^1.3/20), ten drops eaten hurt ~3 HP each: bank them
   if (s_pztest && h->HP < h->HT && (G.depth >= 6 || game_starving())) return true;   // 0.92 (seed 84: 52 drops left lying while it limped, starving, from floor 8 on; mending is 1 HP a 10 turns): deep, or with no mending, a drop is 2-4 HP now
   return h->HP * 2 < h->HT || (vial && (G.dew < 10 ? h->HP >= h->HT : h->HP < h->HT));
 }
@@ -1580,7 +1581,7 @@ static int plan_next(bool going, const char **why) {
     if (b_dist[c] == 0x7FFF || s_black[c] > s_bot_steps) continue;
     int t = G.map[c];
     if (t == T_LOCKED_DOOR && (G.keys[G.depth] & 15)) CONSIDER(c, b_dist[c], "locked door");
-    else if (t == T_WELL && !BIT_GET(s_used_feature, c) && c == G.well_pos && (getenv("OLDDUNG") || G.well_kind == 0 || (G.well_kind == 1 && (h->HP * 2 < h->HT || cursed_known(&h->armor) || cursed_known(&h->weapon) || !floor_left())))) CONSIDER(c, b_dist[c] + 2, "well");   /* 0.52: Awareness at once; Health when hurt, cursed, or on leaving */
+    else if (t == T_WELL && !BIT_GET(s_used_feature, c) && c == G.well_pos && (getenv("OLDDUNG") || G.well_kind == 0 || (G.well_kind == 1 && (h->HP * 2 < h->HT || cursed_known(&h->armor) || cursed_known(&h->weapon) || !floor_left() || (s_pztest && !getenv("OLDWELL2") && h->hunger >= 260))))) CONSIDER(c, b_dist[c] + 2, "well");   /* 0.52: Awareness at once; Health when hurt, cursed, or on leaving */
     else if (!s_olddead && dead_end(c)) CONSIDER(c, b_dist[c] + 2, "dead end");
     else if (b_dist[c] > 0 && frontier(c) && !(s_piranhas && PREACH(c)) && !boss_zone(c)) {
       int adj = 0;
@@ -2836,7 +2837,7 @@ static bool decide(void) {
   if (!(buffrush && !game_starving()) && (s_eatlate >= 0 ? eat_late() : s_oldeat ? game_hungry() : (game_starving() || (((!getenv("OLDEAT2")) || getenv("THRIFT")) && game_hungry() && ({ bool r = false; for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_RATION || h->bag[i].kind == IK_CHARGRILLED || h->bag[i].kind == IK_CARPACCIO || h->bag[i].kind == IK_OVERPRICED) r = true; r; }))) && !foe_near(3))) {   // 0.58 EATEARLY: a ration (260) at hungry (260+) wastes nothing, and a fight while starving has no healing   // 0.47n: only once starving (PD: hungry costs nothing, a ration eaten early wastes up to 100 turns), never with a foe at hand
     int s = -1; for (int i = 0; i < BAG_SIZE && s < 0; i++) if (is_food(h->bag[i].kind) && !(((!getenv("OLDEAT2")) || getenv("THRIFT")) && !game_starving() && h->bag[i].kind == IK_PASTY)) s = i;
     if (s < 0) s = find_kind(IK_MYSTERY_MEAT);
-    if (s < 0 && game_starving()) s = find_kind(IK_PHANTOM_FISH) >= 0 && G.q.wand != QS_GIVEN ? find_kind(IK_PHANTOM_FISH) : -1;
+    if (s < 0 && game_starving() && (!s_pztest || getenv("OLDFISH"))) s = find_kind(IK_PHANTOM_FISH) >= 0 && G.q.wand != QS_GIVEN ? find_kind(IK_PHANTOM_FISH) : -1;   /* (0.93 audit: the phantom fish feeds nothing) */
     if (s >= 0 && h->bag[s].kind == IK_MYSTERY_MEAT && !IS_WATER(G.map[h->pos]) && !h->b.levitation && !getenv("OLDMEAT")) {   // 0.47n: 1 in 5 it sets you alight:
       bfs(h->pos, false); int w = -1, wd = 13;           // eat it standing in water (that puts the flames out), else only when healthy
       for (int c = 0; c < MAP_LEN; c++) if (IS_WATER(G.map[c]) && !PWATER(c) && b_dist[c] < wd && heap_at(c) < 0 && c != G.entrance && c != G.exit) { wd = b_dist[c]; w = c; }
