@@ -1023,12 +1023,14 @@ static bool class_special(bool escape) {
     if (cls == 3 && n >= 3) { st_special++; s_did[0] = 0; DID("spectral blades on the crowd"); walk(game_aim(2, 0, h->pos)); return true; } }
   return false;
 }
+static bool magic_shooter(int t);
 static bool emergency(void) {                           // badly hurt
   Hero *h = &G.hero; int s;
   { bool boss = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) boss = true;
     int dot = 0; for (int k = 1; k <= h->b.poison; k++) dot += k / 3 + 1; dot += 3 * h->b.bleed;
     if (!getenv("OLDHERO") && dot >= h->HP && (s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }   // 0.52 (audit): the poison still to come would kill
   if ((h->HP - (getenv("OLDGLYPH") ? 0 : G.deferred)) * 100 >= h->HT * (boss && getenv("BOSS_EMERG") ? atoi(getenv("BOSS_EMERG")) : PRM[P_EMERG])) return false; }   /* (0.52: Viscosity's deferred damage is still coming) */
+  if (s_pztest && !getenv("OLDEMERG2") && h->HP * 5 >= h->HT && !h->b.poison && !h->b.bleed && !({ bool t = false; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && (distance(o->pos, h->pos) <= 2 || magic_shooter(o->type) || o->type == MT_SCORPIO)) t = true; } t; })) return false;   // 0.93 (DM lab: Healings are what the bosses take): under a third but nothing on me: no potion yet (rest, walk on)
   if ((s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }
   if (s_pztest && !item_known(IK_POT_HEALING)) for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_POTION && !item_known(h->bag[i].kind) && s_pot_guess[h->bag[i].kind] == IK_POT_HEALING) { st_uses[ACN_DRINK]++; if (!s_rollout) DID("the potion brewed from Sungrass: Healing, 2 times in 3"); do_item(i, ACN_DRINK); return true; }
   if (G.dew >= 3 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || G.dew < 10)) { do_item(s, ACN_DRINK); return true; }   // (0.52: at 10 it fires by itself at death)
@@ -3734,6 +3736,9 @@ static bool lookahead(void) {
   int ord[80]; for (int i = 0; i < n; i++) ord[i] = i;
   for (int a = 1; a < n; a++) for (int b = a + 1; b < n; b++) if (tot[ord[b]] * cnt[ord[a]] > tot[ord[a]] * cnt[ord[b]]) { int t = ord[a]; ord[a] = ord[b]; ord[b] = t; }
   for (int q = 0; q < 5 && q < n; q++) { int i = q == 0 ? 0 : ord[q]; if (q && i == 0) continue; int r0 = cnt[i]; for (int r = r0; r < 12 * LM; r++) { tot[i] += playout(c[i], base + r * 104729); cnt[i]++; } }
+  if (s_pztest && !getenv("NOHEALVAL") && !s_rollout) for (int i = 1; i < n; i++) if (c[i].t == C_ITEM && c[i].act == ACN_DRINK && game_slot(c[i].a)->kind == IK_POT_HEALING && item_known(IK_POT_HEALING)) {   // 0.93 (DM lab: 0 Healings at floor 15: 11% pass; 3+: 85-95%): a Healing drunk now is one the boss fight won't have
+      int hv = getenv("HEALVAL") ? atoi(getenv("HEALVAL")) : 600; bool bossnow = false; for (int j = 0; j < G.n_mobs; j++) if (G.mobs[j].HP > 0 && (MOB_DEFS[G.mobs[j].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[j].pos)) bossnow = true;
+      if (!bossnow) tot[i] -= (long)hv * cnt[i]; }
   int bi = 0; long bm = tot[0] / cnt[0];
   for (int i = 1; i < n; i++) if (cnt[i] >= 12 * LM && tot[i] / cnt[i] > bm) { bm = tot[i] / cnt[i]; bi = i; }
   if (getenv("LADBG")) for (int i = 0; i < n; i++) { char nm[64] = ""; if (c[i].t >= C_ITEM) item_name(game_slot(c[i].a), nm, sizeof nm); printf("    cand %-7s %-24s %4d -> %ld (%d)%s\n", CNAME[c[i].t], nm, c[i].t == C_TAP ? c[i].a : c[i].b, tot[i] / cnt[i], cnt[i], i == bi ? " <==" : ""); }
