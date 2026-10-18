@@ -801,7 +801,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
   if (s_pztest && !getenv("NOTORCH") && G.depth >= 22 && G.depth <= 25 && !h->light && (s = find_kind(IK_TORCH)) >= 0 && s < BAG_SIZE) { if (!s_rollout) DID("light a torch (sight here is %d; the eyes, succubi and scorpios see 4)", 25 - G.depth); do_item(s, ACN_LIGHT); return true; }   // 0.93 (audit): HallsLevel.viewDistance = 25 - depth
   if ((s = find_kind(IK_POT_EXPERIENCE)) >= 0 && item_known(IK_POT_EXPERIENCE)) { do_item(s, ACN_DRINK); return true; }
   if (!getenv("OLDGEARFIX") && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE)) {   // 0.52 (audit): worn gear about to break (1/6 left, its level known): upgrade it now: +1 and mended (broken, it would only be mended)
-    for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl > 0 && (it->flags & IF_LEVEL_KNOWN) && (!item_broken(it) || soures()) && it->dur * (soures() ? 4 : 6) <= item_max_dur(it) && game_pick_ok(PICK_UPGRADE, w)) {
+    for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl > 0 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur * (soures() ? (getenv("MEND4") ? 4 : 3) : 6) <= item_max_dur(it) && game_pick_ok(PICK_UPGRADE, w)) {
       s_force_pick = w; DID("upgrade the %s before it breaks", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
   if (s_pztest && boss_depth(G.depth) && enemy_count() == 0 && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {   // 0.92 (seed 84: held from floor 4 into the Goo fight and beyond): the boss floor: no more holding
     if (!s_rollout) DID("the boss floor: the held upgrade goes in now"); do_item(s, ACN_READ); return true; }
@@ -1991,6 +1991,8 @@ static bool curse_fight(int mi) {
 }
 static bool fight(void) {
   Hero *h = &G.hero;
+  if (soures() && !getenv("NOFIGHTMEND") && !h->b.blind && !s_rollout) { int s = find_kind(IK_SCR_UPGRADE); if (s >= 0 && item_known(IK_SCR_UPGRADE))   // 0.93 (owner: a broken piece is only mended, the level is lost): a piece a few uses from breaking mid-fight: read it now
+    for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl >= 2 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur <= 3 && game_pick_ok(PICK_UPGRADE, w)) { s_force_pick = w; s_did[0] = 0; DID("the %s is about to break: upgrade it now, before it does", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
   int best = -1, bk = 1 << 30;
   for (int i = 0; i < G.n_mobs; i++) {
     Mob *m = &G.mobs[i];
