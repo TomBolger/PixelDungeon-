@@ -74,7 +74,7 @@ static bool lookahead(void);
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
 static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 2500 };
 static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool trap_door_testable(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static bool attack_wand_ready(void); static bool room_seen(int r);
-static bool curse_food_ok(void); static bool food_pressed(void); static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force; static bool curse_sim_ok(void); static int s_curse_trip; static long curse_key(void); static long s_curse_no_key = -1;
+static bool curse_food_ok(void); static bool food_pressed(void); static long curse_kit_sig(void); static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force; static bool curse_sim_ok(void); static int s_curse_trip; static long curse_key(void); static long s_curse_no_key = -1;
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
 static double s_hp_cut; static bool s_toe; static int toe_upgrade(int scroll); static int toe_choose(bool *hold); static bool toe_keep(int slot); static bool toe_buy(int hh);
@@ -2201,7 +2201,8 @@ static bool fight(void) {
 static bool npc_wanted(int i) {
   Quests *q = &G.q; int t = G.mobs[i].type;
   switch (t) {
-    case MT_GHOST: return q->ghost == QS_SPAWNED || (q->ghost_alt == 2 && q->ghost != QS_GIVEN && (getenv("OLDQBUG") || q->ghost == QS_DONE || ((attack_wand_ready() || curse_go()) && G.hero.HP >= G.hero.HT * 9 / 10))) || (q->ghost == QS_GIVEN && find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0) || (q->ghost == QS_DONE && (q->ghost_alt == 2 || find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0));
+    case MT_GHOST: if (s_pztest && q->ghost_alt == 2 && q->ghost == QS_SPAWNED && (G.journal[J_GHOST] & (1u << G.depth)) && !curse_go()) return false;   // 0.92 (seed 84: ten talks, ten "no"s): heard him once; back only when the plan says the curse is on
+      return q->ghost == QS_SPAWNED || (q->ghost_alt == 2 && q->ghost != QS_GIVEN && (getenv("OLDQBUG") || q->ghost == QS_DONE || ((attack_wand_ready() || curse_go()) && G.hero.HP >= G.hero.HT * 9 / 10))) || (q->ghost == QS_GIVEN && find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0) || (q->ghost == QS_DONE && (q->ghost_alt == 2 || find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0));
     case MT_WANDMAKER: { static const uint8_t W[3] = { IK_SEED_ROTBERRY, IK_CORPSE_DUST, IK_PHANTOM_FISH }; return q->wand == QS_SPAWNED || (q->wand == QS_GIVEN && find_kind(W[q->wand_alt % 3]) >= 0); }
     case MT_BLACKSMITH: {
       if (q->smith == QS_SPAWNED) return true;
@@ -2237,7 +2238,7 @@ static bool quest_on_floor(void) {                      // work on this floor's 
 }
 static bool wait_quest(void) {                          // 0.50 (review g6): quests that need monsters to come: the ghost's (rose, fetid rat), the smith's bat blood
   Quests *q = &G.q; int d = G.depth; if (s_explab) return false;
-  if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED) return true;
+  if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED && !(s_pztest && q->ghost_alt == 2)) return true;   // (0.92: the curse needs no monsters to come: the curse plan runs it)
   if (q->smith_depth == d && q->smith == QS_GIVEN && q->smith_alt) return true;
   return false;
 }
@@ -3654,14 +3655,16 @@ static bool curse_go_full(void) { Hero *h = &G.hero; int hp = h->HP; h->HP = h->
 static int curse_odds(void) {
   if (getenv("CURSEGO") || s_curse_force) return 100;
   if (!s_pztest || getenv("NOCURSESIM") || s_rollout || s_is_child) return 0;
-  static long key = -1; static int ans;
+  static long key = -1; static int ans; static long go_key = -1;   // 0.92 (seed 84: 33/40 go, then 28/40 no after a shuriken was thrown and picked up): a go sticks while level, gear and the flame potion stay
+  { Hero *hh = &G.hero; long gk = ((long)cur_game * 64 + G.depth) * 4096 + hh->lvl * 128 + hh->STR * 4; gk = gk * 256 + hh->weapon.kind; gk = gk * 256 + hh->armor.kind; gk = gk * 8 + (find_kind(IK_POT_FLAME) >= 0 && item_known(IK_POT_FLAME) ? 1 : 0) + (find_kind(IK_SEED_FIREBLOOM) >= 0 ? 2 : 0) + (find_kind(IK_BOMB) >= 0 ? 4 : 0);
+    if (gk == go_key && hh->HP * 10 >= hh->HT * 9) return 100; }
   Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.depth) * 4096 + h->lvl * 128 + h->STR * 4 + (h->HP * 4 / (h->HT ? h->HT : 1));
-  k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind;
+  k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind; k = k * 1048576 + curse_kit_sig();
   if (k == key) return ans;
   key = k; int wins = 0, hp = 0, n = getenv("CURSEN") ? atoi(getenv("CURSEN")) : 40; uint32_t base = (uint32_t)(cur_game * 9173 + s_bot_steps * 37);
   char rs[2400] = ""; for (int r = 0; r < n; r++) { int o = curse_playout(base + r * 104729); if (o > 0) { wins++; hp += o - 1; } char t[8]; snprintf(t, sizeof t, "%d ", o); strcat(rs, t); }
   if (getenv("CURSEDBG")) printf("  playouts: %s\n", rs);
-  ans = wins * 100 / n;   // (0.92: the armour it gives is the difference on floor 4 (crabs): 4 honest runs without it all died there; 1 in 5 risk is worth it)
+  ans = wins * 100 / n; if (ans >= 80) { Hero *hh = &G.hero; long gk = ((long)cur_game * 64 + G.depth) * 4096 + hh->lvl * 128 + hh->STR * 4; gk = gk * 256 + hh->weapon.kind; gk = gk * 256 + hh->armor.kind; gk = gk * 8 + (find_kind(IK_POT_FLAME) >= 0 && item_known(IK_POT_FLAME) ? 1 : 0) + (find_kind(IK_SEED_FIREBLOOM) >= 0 ? 2 : 0) + (find_kind(IK_BOMB) >= 0 ? 4 : 0); go_key = gk; }   // (0.92: the armour it gives is the difference on floor 4 (crabs): 4 honest runs without it all died there; 1 in 5 risk is worth it)
   if (getenv("CURSEDBG")) printf("CURSE d%d step %d lvl %d hp %d/%d wpn %d: %d/%d won (avg hp left %d%%) -> %s\n", G.depth, s_bot_steps, h->lvl, h->HP, h->HT, h->weapon.kind, wins, n, wins ? hp / wins : 0, ans >= 80 ? "80%+" : "low");
   return ans;
 }
@@ -3686,10 +3689,15 @@ static int curse_sim1(uint32_t seed) {
   return ok;
 }
 // 0.92 (seed 84: up and down three times between the cheap odds and the real ones): s_curse_no_key: the real odds said no in this state: no more trips till it changes
-static long curse_key(void) { Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.q.ghost_depth) * 4096 + h->lvl * 128 + h->STR * 4; k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind; return k; }
+static long curse_key(void) { Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.q.ghost_depth) * 4096 + h->lvl * 128 + h->STR * 4; k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind; k = k * 1048576 + curse_kit_sig(); return k; }
 static bool curse_food_ok(void) {                      // 0.92 (eat-late keeps the hero Hungry most of the time; the curse plan was gated on not being hungry and never ran): only Starving with nothing to eat rules it out
   if (!game_starving()) return true; for (int i = 0; i < BAG_SIZE; i++) if (is_food(G.hero.bag[i].kind) && G.hero.bag[i].kind != IK_MYSTERY_MEAT) return true; return false; }
-static bool food_pressed(void) { return s_pztest ? !curse_food_ok() : game_hungry(); }   // (0.92: "no time, food matters" under eat-late: Starving with nothing to eat)
+static bool food_pressed(void) { return s_pztest ? !curse_food_ok() : game_hungry(); }
+static long curse_kit_sig(void) {                       // 0.92 (seed 84: the odds were cached at 30% before the flame potion was known, and never looked at again): the kit is part of the state
+  Hero *h = &G.hero; long sig = h->weapon.lvl * 7 + h->armor.lvl * 13;
+  for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (!k) continue; int c = item_cat(k);
+    if ((c == CAT_POTION && item_known(k) && k == IK_POT_FLAME) || k == IK_BOMB || k == IK_SEED_FIREBLOOM || c == CAT_MISSILE || (c == CAT_WAND && item_known(k))) sig = sig * 31 + k * 4 + (h->bag[i].qty > 3 ? 3 : h->bag[i].qty); }
+  return sig & 0xFFFFF; }   // (0.92: "no time, food matters" under eat-late: Starving with nothing to eat)
 static bool curse_sim_ok(void) {
   static long key = -1; static bool ans; Hero *h = &G.hero;
   long k = curse_key();
