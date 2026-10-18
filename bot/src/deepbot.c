@@ -2377,7 +2377,7 @@ static bool rest_cap(void) {                             // 0.92 (seed 84 d4: 23
   return s_pztest && G.now - t0 > 120 * TICK && G.hero.HP * 10 >= G.hero.HT * 5;
 }
 static bool food_ev_ok(void) {                           // 0.92: hungry with no food, this floor's ration unseen: search for it here, not on down
-  Hero *h = &G.hero; if (!s_pztest || getenv("NOEV") || s_ev_food || boss_depth(G.depth) || G.depth == 1 || G.depth == 21 || s_ev_searches >= 60 || h->HP * 2 < h->HT || threat_count() || floor_left()) return false;
+  Hero *h = &G.hero; if (!s_pztest || getenv("NOEV") || s_ev_food || boss_depth(G.depth) || G.depth == 1 || G.depth == 21 || s_ev_searches >= 20 || h->HP * 2 < h->HT || threat_count() || floor_left()) return false;
   for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) return false;
   return game_hungry();
 }
