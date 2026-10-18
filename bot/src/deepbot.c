@@ -2718,7 +2718,8 @@ static bool decide(void) {
     if (best >= 0) { ActResult r = tap_safe(best); if (V) printf("  to water %d from %d: %d (dist %d) action %d\n", best, h->pos, r, bd, G.action); if (r != ACT_NONE) { walk(r); return true; } }
   }
   if ((getenv("X_OOZE") || s_pztest) && h->ooze && !IS_WATER(G.map[h->pos]) && !h->b.roots) {   // X (0.92: on under PZTEST; seed 84: the Goo fled in terror, the ooze ate the bot at rest): ooze never wears off: wash it in the nearest water
-    bool gc = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (G.mobs[i].type == MT_GOO || (G.mobs[i].type == MT_ROTTING_FIST && !getenv("OLDYOG"))) && distance(G.mobs[i].pos, h->pos) <= (G.mobs[i].type == MT_GOO ? 2 : 4)) gc = true;   // (0.54: not with the rotting fist near: in water it mends)
+    bool gc = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && BIT_GET(G.fov, G.mobs[i].pos) && (G.mobs[i].type == MT_GOO || (G.mobs[i].type == MT_ROTTING_FIST && !getenv("OLDYOG"))) && distance(G.mobs[i].pos, h->pos) <= (G.mobs[i].type == MT_GOO ? 2 : 4)) gc = true;   // (0.92: one I can see)
+    if (s_pztest && h->HP * 10 < h->HT * 4) gc = false;   // 0.92 (seed 84: 6 HP, oozing, the Goo fled in terror: it rested and died): under 40% the water comes first whatever's near   // (0.54: not with the rotting fist near: in water it mends)
     if (!gc) { bfs(h->pos, false); int best = -1, bd = 40;
       for (int c = 0; c < MAP_LEN; c++) if (IS_WATER(G.map[c]) && b_dist[c] < bd && !PWATER(c) && !char_at(c)) { bool nearg = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GOO && distance(G.mobs[i].pos, c) <= 1) nearg = true; if (!nearg) { bd = b_dist[c]; best = c; } }
       if (best >= 0) { int32_t t0 = h->time; ActResult r = tap_safe(best); if (r != ACT_NONE || h->time != t0) { DID("ooze: to the water to wash it off"); walk(r); return true; } } } }
@@ -2800,7 +2801,7 @@ static bool decide(void) {
   if (!getenv("OLDSTAIRREST") && (h->HP * 100 < h->HT * rlo || s_resting) && !game_starving() && near_foes == 0 && G.depth > 1 && G.entrance >= 0 && h->pos != G.entrance && !boss_depth(G.depth)) {
     bfs(h->pos, false);                                  // 0.50 (review: crab deaths): rest on the stairs up: a crab or a pack turning up while you're low, you step up and away
     if (b_dist[G.entrance] < 20 && mob_at(G.entrance) < 0) { s_resting = true; DID("to the stairs up, to rest there"); walk(tap_safe(G.entrance)); return true; } }
-  if ((h->HP * 100 < h->HT * rlo || s_resting) && !game_starving() && near_foes == 0 && s_ambush <= s_bot_steps) {   // bot2: rest when below half, up to 4/5, a turn at a time
+  if ((h->HP * 100 < h->HT * rlo || s_resting) && !game_starving() && near_foes == 0 && s_ambush <= s_bot_steps && !(s_pztest && h->ooze && !IS_WATER(G.map[h->pos]))) {   // bot2: rest when below half, up to 4/5, a turn at a time   // (0.92: never oozing on dry ground: it eats a point a turn)
     if (!getenv("OLDHERO") && room_at(h->pos) >= 0 && G.rooms[room_at(h->pos)].type != RT_GARDEN) {   // 0.52 (audit): a garden: unseen there, and hunger runs at 2/3: rest in it
       bfs(h->pos, false); int gc = -1, gd = 16;
       for (int r = 0; r < G.n_rooms; r++) if (G.rooms[r].type == RT_GARDEN && room_seen(r)) { Room *R = &G.rooms[r]; for (int y = R->top + 1; y < R->bottom; y++) for (int x = R->left + 1; x < R->right; x++) { int c = x + y * MAP_W; if (b_dist[c] < gd && !char_at(c) && PASSABLE(G.map[c]) && !(TFLAGS(G.map[c]) & F_AVOID)) { gd = b_dist[c]; gc = c; } } }
