@@ -704,10 +704,10 @@ static bool sun_dance(void) {
     if (s_sun_ph == 1) { s_sun_ph = 2; int best = -1; for (int k = 0; k < 8; k++) { int c = h->pos + N8[k]; if (nb_ok(h->pos, c) && PASSABLE(G.map[c]) && !(TFLAGS(G.map[c]) & F_AVOID) && !char_at(c) && plant_at(c) < 0) { best = c; break; } }
       if (best >= 0) { DID("sungrass: step off it..."); walk(game_tap_cell(best)); return true; } s_sun = -1; return false; }
     if (s_sun_ph == 2) { s_sun_ph = 3; if (plant_at(s_sun) >= 0 && h->pos != s_sun) { DID("sungrass: ...and back on: it heals while I stand here"); walk(tap_safe(s_sun)); return true; } }
-    if (G.health_pos == h->pos && h->HP < h->HT && !game_starving()) { DID("rest on the sungrass"); walk(game_rest(false)); return true; }
+    if (G.health_pos == h->pos && h->HP < h->HT && (!game_starving() || s_pztest)) { DID("rest on the sungrass"); walk(game_rest(false)); return true; }
     s_sun = -1; return false;
   }
-  if (h->HP >= h->HT * 3 / 4 || game_starving()) return false;
+  if (h->HP >= h->HT * 3 / 4 || (game_starving() && !s_pztest)) return false;   // (0.92: Sungrass mends HT/10 a 5 turns starving or not: n60 died at the Goo, starving, with one in the bag)
   if (G.health_pos == h->pos && h->HP < h->HT) { DID("rest on the sungrass"); walk(game_rest(false)); return true; }
   bfs(h->pos, false); int bush = -1; for (int i = 0; i < G.n_plants; i++) if (G.plants[i].type == 4 && BIT_GET(G.visited, G.plants[i].pos) && b_dist[G.plants[i].pos] <= 15 && !char_at(G.plants[i].pos)) bush = G.plants[i].pos;
   if (bush >= 0) { s_sun = bush; s_sun_ph = 3; DID("hurt: to the sungrass bush to heal"); walk(tap_safe(bush)); return true; }
