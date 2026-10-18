@@ -375,6 +375,45 @@ static bool attack_wand(int k) { return k == IK_WND_SLOW || k == IK_WND_FIREBOLT
 static bool kn(int k) { return (item_cat(k) == CAT_SEED && !getenv("OLDSEED")) || item_known(k); }   // 0.52 (audit): seeds are always named in the port (no set_known for them)
 static bool harmful_potion(int k) { return k == IK_POT_TOXIC || k == IK_POT_FLAME || k == IK_POT_PARALYTIC || k == IK_POT_FROST; }
 static bool is_food(int k) { return k == IK_RATION || k == IK_PASTY || k == IK_CHARGRILLED || k == IK_CARPACCIO || k == IK_OVERPRICED; }
+// 0.92 (owner: "one weighted system for the bag"): what an item is worth to keep, in rough points (a Healing potion ~100,
+// an Upgrade ~300). Used for: what to drop when full, whether a full bag takes something, what the alchemy pot is worth.
+static int s_pot_guess[IK_COUNT];                       // alchemy: a potion brewed from three seeds of one kind is that seed's potion 2 times in 3
+static int seed_potion(int k) { switch (k) { case IK_SEED_FIREBLOOM: return IK_POT_FLAME; case IK_SEED_ICECAP: return IK_POT_FROST; case IK_SEED_SORROWMOSS: return IK_POT_TOXIC; case IK_SEED_DREAMWEED: return IK_POT_INVIS; case IK_SEED_SUNGRASS: return IK_POT_HEALING; case IK_SEED_EARTHROOT: return IK_POT_PARALYTIC; case IK_SEED_FADELEAF: return IK_POT_MIND; case IK_SEED_ROTBERRY: return IK_POT_STRENGTH; } return 0; }
+static int s_brew_kind = -1, s_brew_pot = -1;           // the last brew's seeds, if all of one kind, and the pot
+static bool smith_reachable(void) { Quests *q = &G.q; return q->smith && (q->smith == QS_DONE || q->smith == QS_GIVEN || q->smith == QS_SPAWNED) && G.depth <= q->smith_depth + 2; }
+static int item_value(const Item *it) {
+  int k = it->kind, c = item_cat(k), q = it->qty > 0 ? it->qty : 1; Hero *h = &G.hero; if (!k) return -1000;
+  if (k == IK_AMULET || c == CAT_QUEST || c == CAT_KEY || k == IK_ANKH || (k >= IK_SEED_POUCH && k <= IK_WAND_HOLSTER) || k == IK_SEED_ROTBERRY || k == IK_DEW_VIAL) return 10000;
+  if (k == IK_PICKAXE) return G.q.smith == QS_GIVEN ? 10000 : -20;
+  if (k == IK_DARK_GOLD) return G.q.smith == QS_GIVEN ? 10000 : 0;
+  if (c == CAT_FOOD || is_food(k)) return (k == IK_PASTY ? 110 : k == IK_MYSTERY_MEAT ? 30 : 90) * q;
+  if (c == CAT_POTION) { int v;
+    if (!item_known(k)) v = s_pot_guess[k] == IK_POT_HEALING ? 90 : 45;
+    else switch (k) { case IK_POT_HEALING: v = 100; break; case IK_POT_STRENGTH: case IK_POT_MIGHT: v = 400; break; case IK_POT_EXPERIENCE: v = 250; break;
+      case IK_POT_INVIS: v = 35; break; case IK_POT_LEVITATION: v = 30; break; case IK_POT_PARALYTIC: v = 35; break; case IK_POT_FLAME: v = 35; break;
+      case IK_POT_FROST: v = 20; break; case IK_POT_TOXIC: v = 25; break; case IK_POT_PURITY: v = 15; break; case IK_POT_MIND: v = 8; break; default: v = 20; }
+    return v * q; }
+  if (c == CAT_SCROLL) { int v;
+    if (!item_known(k)) v = 50;
+    else switch (k) { case IK_SCR_UPGRADE: v = 300; break; case IK_SCR_ENCHANT: v = 150; break; case IK_SCR_TELEPORT: v = 30; break; case IK_SCR_MAPPING: v = 25; break;
+      case IK_SCR_TERROR: v = 30; break; case IK_SCR_MIRROR: v = 25; break; case IK_SCR_REMOVE_CURSE: v = 20; break; case IK_SCR_RECHARGING: v = 20; break;
+      case IK_SCR_PSIONIC: v = 20; break; case IK_SCR_LULLABY: v = 15; break; case IK_SCR_IDENTIFY: v = 15; break; case IK_SCR_CHALLENGE: v = 0; break; default: v = 15; }
+    return v * q; }
+  if (c == CAT_SEED) { int v; switch (k) { case IK_SEED_SUNGRASS: v = 22; break; case IK_SEED_EARTHROOT: v = 15; break; case IK_SEED_DREAMWEED: v = 12; break; case IK_SEED_FIREBLOOM: v = 12; break; default: v = 7; } return v * q; }
+  if (c == CAT_WAND) return item_known(k) ? (attack_wand(k) ? 70 : k == IK_WND_TELEPORT || k == IK_WND_BLINK ? 50 : k == IK_WND_SLOW ? 45 : 20) + 5 * it->ench : 45;
+  if (c == CAT_RING) return cursed_known(it) || ((it->flags & IF_LEVEL_KNOWN) && it->lvl <= 0) ? -10 : 60 + 20 * known_lvl(it);
+  if (c == CAT_MISSILE) return k == IK_BOOMERANG ? 200 : (k == IK_CURARE_DART ? 8 : k == IK_INCENDIARY_DART ? 6 : 3) * q;
+  if (k == IK_BOMB) return 40 * q;
+  if (k == IK_WEIGHTSTONE || k == IK_ARMOR_KIT || k == IK_MASTERY) return 150;
+  if (c == CAT_WEAPON || c == CAT_ARMOR) {
+    const Item *w = c == CAT_WEAPON ? &h->weapon : &h->armor;
+    if (cursed_known(it) || ((it->flags & IF_LEVEL_KNOWN) && it->lvl < 0)) return -10;
+    if (w->kind == k && smith_reachable() && it != w) return 200;   // (owner: by the blacksmith a twin of what you wear is a scroll of upgrade, or better)
+    int sc = c == CAT_WEAPON ? weapon_score(it) - weapon_score(w) : armor_score(it) - armor_score(w);
+    if (k == IK_SHORT_SWORD && it->lvl > 0 && c == CAT_WEAPON && h->weapon.kind != IK_SHORT_SWORD) return 250;   // (its reforge: +1 for the weapon in hand)
+    return sc > 0 ? 100 + sc : 5; }
+  return 20 * q;
+}
 
 // ---------------- stats ----------------
 static int st_games, st_wins, st_deaths, st_maxd[30], st_turns, st_boss_kill[30], st_boss_seen[30], st_qs[4][5], st_floor_turns_max;
@@ -553,6 +592,33 @@ static int upg_plan(bool *hold) {                         // bot3: which item th
 }
 static int s_force_pick = -999;                          // bot3: the strategic look-ahead chose the upgrade's target
 static long st_sou_read, st_sou_pos;
+// 0.92 (owner: "alchemy through the same bag valuation"): Heap.transmute with n seeds: 1 in n a random potion, else the
+// potion of a seed picked by count. A brew is worth it when the potion beats the three seeds it eats plus the bag slot it
+// needs (nothing, with a free slot or a stack to join; else the least useful thing in the bag). Three of one kind whose
+// potion is unknown also names that potion (2 times in 3): worth a bit more.
+static int s_brew_plan[3], s_brew_i = 3;
+static int brew_value(const int kinds[3]) {
+  int ev = 0; for (int j = 0; j < 3; j++) { int pk = seed_potion(kinds[j]); Item t = (Item){ .kind = (uint8_t)pk, .qty = 1 }; int v = pk ? item_value(&t) : 0; if (pk && !item_known(pk)) { int kv = v; Item u = t; (void)u; v = kv; } ev += v * 2 / 9; }   // (each seed: picked 1 in 3 of the 2-in-3 share)
+  ev += 45 / 3;                                         // (1 in 3: a random potion, ~45)
+  if (kinds[0] == kinds[1] && kinds[1] == kinds[2] && !item_known(seed_potion(kinds[0]))) ev += 15;
+  return ev;
+}
+static int cook_pick(PickMode p) {
+  Hero *h = &G.hero;
+  if (s_brew_i < 3) { for (; s_brew_i < 3; s_brew_i++) ALL_SLOTS(s) if (game_pick_ok(p, s) && game_slot(s)->kind == s_brew_plan[s_brew_i]) { s_brew_i++; s_cooked++; return s; } return -1000; }
+  if (s_cooked >= 12) return -1000;
+  int cnt[IK_COUNT]; memset(cnt, 0, sizeof cnt); ALL_SLOTS(s) if (game_pick_ok(p, s) && game_slot(s)->kind != IK_SEED_ROTBERRY) cnt[game_slot(s)->kind] += game_slot(s)->qty;
+  int best[3] = { 0, 0, 0 }, bnet = -1000;
+  for (int k = 0; k < IK_COUNT; k++) if (cnt[k] >= 3) { int t[3] = { k, k, k }; Item sd = (Item){ .kind = (uint8_t)k, .qty = 3 }; int net = brew_value(t) - item_value(&sd); if (net > bnet) { bnet = net; memcpy(best, t, sizeof t); } }
+  { int t[3] = { 0, 0, 0 }, n = 0; for (int r = 0; r < 3; r++) { int bk = 0, bv = -1; for (int k = 0; k < IK_COUNT; k++) { int used = 0; for (int j = 0; j < n; j++) used += t[j] == k; if (cnt[k] - used <= 0) continue; int pk = seed_potion(k); Item pt = (Item){ .kind = (uint8_t)pk, .qty = 1 }, sd = (Item){ .kind = (uint8_t)k, .qty = 1 }; int v = (pk ? item_value(&pt) : 0) - item_value(&sd); if (v > bv) { bv = v; bk = k; } } if (bk) t[n++] = bk; }
+    if (n == 3) { int sv = 0; for (int j = 0; j < 3; j++) { Item sd = (Item){ .kind = (uint8_t)t[j], .qty = 1 }; sv += item_value(&sd); } int net = brew_value(t) - sv; if (net > bnet) { bnet = net; memcpy(best, t, sizeof t); } } }
+  if (!best[0]) return -1000;
+  int slotcost = 0; if (bag_used() >= BAG_SIZE - 1) { int mn = 100000; for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind) { int v = item_value(&h->bag[i]); if (v < mn) mn = v; } slotcost = mn; }
+  if (getenv("COOKDBG") && !s_rollout) printf("  COOK step %d plan %d %d %d net %d slotcost %d free %d\n", s_bot_steps, best[0], best[1], best[2], bnet, slotcost, BAG_SIZE - 1 - bag_used());
+  if (bnet - slotcost <= 0) return -1000;
+  memcpy(s_brew_plan, best, sizeof best); s_brew_i = 0; s_brew_kind = best[0] == best[1] && best[1] == best[2] ? best[0] : -1; s_brew_pot = g_trade_arg;
+  return cook_pick(p);
+}
 static int pick_for(PickMode p) {                        // an item selector is open: what a person would choose
   Hero *h = &G.hero;
   if (p == PICK_UPGRADE && !s_rollout) st_sou_read++;
@@ -592,6 +658,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
     case PICK_ARMOR: return h->armor.kind ? -2 : -1000;
     case PICK_WEAPON: return h->weapon.kind && game_pick_ok(p, -1) ? -1 : -1000;
     case PICK_SEED: {                                    // the alchemy pot: any seed but the quest's rotberry
+      if (s_pztest && !getenv("OLDCOOK") && !getenv("COOK1")) { return cook_pick(p); }
       if (s_pztest && !getenv("OLDCOOK")) {             // 0.92 (owner: potions beat seeds): Heap.transmute: 1 in n a random potion, else the potion of a seed picked by its count: Sungrass gives Healing, so the best seeds go in first (3 Sungrass: Healing 2 times in 3)
         static const uint8_t PRI[] = { IK_SEED_SUNGRASS, IK_SEED_DREAMWEED, IK_SEED_EARTHROOT, IK_SEED_FIREBLOOM, IK_SEED_ICECAP, IK_SEED_SORROWMOSS, IK_SEED_FADELEAF };
         int nseed = 0; ALL_SLOTS(s) if (game_pick_ok(p, s) && game_slot(s)->kind != IK_SEED_ROTBERRY) nseed += game_slot(s)->qty;
@@ -882,9 +949,10 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       if (s_toe && (c == CAT_ARMOR || c == CAT_WEAPON) && toe_keep(i)) sc = 50;
       if (it->kind == IK_PICKAXE) sc = G.q.smith == QS_GIVEN ? 1000 : -20;   // (the blacksmith wants it back)
       if (it->kind == IK_DARK_GOLD && G.q.smith == QS_GIVEN) sc = 1000;
+      if (s_pztest && !getenv("OLDBAGVAL")) sc = item_value(it);
       if (sc < ws) { ws = sc; worst = i; }
     }
-    if (worst >= 0) { BIT_SET(s_dropped, h->pos); st_uses[ACN_DROP]++; do_item(worst, ACN_DROP); return true; }
+    if (worst >= 0) { BIT_SET(s_dropped, h->pos); st_uses[ACN_DROP]++; if (s_pztest && !s_rollout) DID("bag full: leave the least useful behind: %s", ({ static char jn[96]; item_name(&h->bag[worst], jn, sizeof jn); jn; })); do_item(worst, ACN_DROP); return true; }
   }
   return false;
 }
@@ -955,6 +1023,7 @@ static bool emergency(void) {                           // badly hurt
     if (!getenv("OLDHERO") && dot >= h->HP && (s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }   // 0.52 (audit): the poison still to come would kill
   if ((h->HP - (getenv("OLDGLYPH") ? 0 : G.deferred)) * 100 >= h->HT * (boss && getenv("BOSS_EMERG") ? atoi(getenv("BOSS_EMERG")) : PRM[P_EMERG])) return false; }   /* (0.52: Viscosity's deferred damage is still coming) */
   if ((s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }
+  if (s_pztest && !item_known(IK_POT_HEALING)) for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_POTION && !item_known(h->bag[i].kind) && s_pot_guess[h->bag[i].kind] == IK_POT_HEALING) { st_uses[ACN_DRINK]++; if (!s_rollout) DID("the potion brewed from Sungrass: Healing, 2 times in 3"); do_item(i, ACN_DRINK); return true; }
   if (G.dew >= 3 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || G.dew < 10)) { do_item(s, ACN_DRINK); return true; }   // (0.52: at 10 it fires by itself at death)
   int adj = 0, adjm = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE && (getenv("OLDEMERG") || G.mobs[i].state == ST_HUNTING)) { adj++; adjm = i; }   // 0.52 (audit): lulled, terrified, asleep: not a threat now (it spent the next escape item)
   if (!adj) return false;
@@ -2722,6 +2791,7 @@ static bool decide(void) {
   { int s = find_kind(IK_TORCH); Hero *hh = &G.hero;  // 0.48: the halls are dark (you see 1-3, an evil eye 4): a torch
     if (!s_olddark && s >= 0 && s < BAG_SIZE && !hh->light && view_distance() < 4 && enemy_count() == 0) { DID("light a torch"); do_item(s, ACN_LIGHT); return true; } }                                        // bot3: fire can turn a burnt door beside the pool into water
   Hero *h = &G.hero; const char *why = "?";
+  if (s_brew_kind >= 0 && s_brew_i >= 3 && (unsigned)s_brew_pot < MAP_LEN) { int hb = heap_at(s_brew_pot); if (hb >= 0 && item_cat(G.heaps[hb].item.kind) == CAT_POTION) { int pk = G.heaps[hb].item.kind; if (!item_known(pk) && !s_pot_guess[pk]) s_pot_guess[pk] = seed_potion(s_brew_kind); s_brew_kind = -1; } }   // (the brew's colour: probably that seed's potion)
   if (V) printf("  decide: hero %d hp %d/%d hunger %d blind %d light %d vd %d\n", h->pos, h->HP, h->HT, h->hunger, h->b.blind, h->light, view_distance());
   // eat
   bool buffrush = s_pztest && ((h->b.invis > 0 && pool_puzzle_pending()) || (h->b.levitation > 0 && trap_puzzle_pending()));   // 0.92 (seed 84: ate while floating, the ration left behind): the prize first
@@ -2968,7 +3038,7 @@ static bool decide(void) {
       int t = G.map[c];
       if (t == T_WELL && !BIT_GET(s_used_feature, c)) { BIT_SET(s_used_feature, c); st_wells++; choice = c; continue; }
       if (t == T_ALCHEMY) { int seeds = 0; ALL_SLOTS(s) if (item_cat(game_slot(s)->kind) == CAT_SEED && game_slot(s)->kind != IK_SEED_ROTBERRY) seeds += game_slot(s)->qty;
-        if (seeds >= 3 && !BIT_GET(s_used_feature, c)) { BIT_SET(s_used_feature, c); s_cooked = 0; st_pot++; choice = c; } continue; }
+        if (seeds >= 3 && !BIT_GET(s_used_feature, c)) { BIT_SET(s_used_feature, c); s_cooked = 0; s_brew_i = 3; st_pot++; choice = c; } continue; }
       if (t == T_LOCKED_DOOR) { choice = c; continue; }
       if (going || (s_piranhas && PREACH(c))) continue;
       if (frontier(c)) { choice = c; st_explore_tgt++; continue; }
@@ -4152,7 +4222,7 @@ int main(int argc, char **argv) {
     if (!getenv("OLDLEAK")) { g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; g_goal = -1; g_from = -1; memset(g_drop, 0, sizeof g_drop); g_drop_i = 0; }   // 0.64: no Assist state carried from game to game (a game replays alone the same)
     extern uint32_t g_host_time; extern uint16_t g_host_ms;
     g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7);   // a different dungeon each game, night or day
-    s_wait_n = 0; s_cooked = 0; s_fork_until = -1; memset(s_bounce_n, 0, sizeof s_bounce_n);
+    s_wait_n = 0; s_cooked = 0; memset(s_pot_guess, 0, sizeof s_pot_guess); s_brew_kind = -1; s_brew_i = 3; s_fork_until = -1; memset(s_bounce_n, 0, sizeof s_bounce_n);
     s_kite_uid = -1; s_kite_cell = -1; s_thief_uid = -1; s_thief_cell = -1; s_lurk_until = 0; s_sun = -1; s_onto = -1; s_want_jump = false; s_step_back = -1; s_altar_uid = -1; st_sou_read = 0;   // (review: per-game state)
     memset(g_keys, 0, sizeof g_keys);
     g_new_class = seedcls >= 0 ? seedcls : getenv("CLS") ? atoi(getenv("CLS")) : getenv("ZONES") ? (g / (getenv("ZMAX") ? atoi(getenv("ZMAX")) : 5)) % 4 : g % 4;
