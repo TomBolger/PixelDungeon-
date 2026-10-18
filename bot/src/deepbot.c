@@ -588,6 +588,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
       return -1000;
     }
     case PICK_RING: return -3;
+    case PICK_REFORGE: return h->weapon.kind && game_pick_ok(p, -1) ? -1 : -1000;
     case PICK_ARMOR: return h->armor.kind ? -2 : -1000;
     case PICK_WEAPON: return h->weapon.kind && game_pick_ok(p, -1) ? -1 : -1000;
     case PICK_SEED: {                                    // the alchemy pot: any seed but the quest's rotberry
@@ -733,6 +734,8 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       s_force_pick = w; DID("upgrade the %s before it breaks", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
   if (s_pztest && boss_depth(G.depth) && enemy_count() == 0 && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {   // 0.92 (seed 84: held from floor 4 into the Goo fight and beyond): the boss floor: no more holding
     if (!s_rollout) DID("the boss floor: the held upgrade goes in now"); do_item(s, ACN_READ); return true; }
+  if (s_pztest && !getenv("NOREFORGE") && enemy_count() == 0 && h->weapon.kind && h->weapon.kind != IK_SHORT_SWORD && h->weapon.kind != IK_PICKAXE && !cursed_known(&h->weapon))   // 0.92 (audit): the Short Sword's reforge: a +1 one gives its +1 (and a full repair, never losing the enchantment) to the weapon in hand
+    for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_SHORT_SWORD && h->bag[i].lvl > 0 && !cursed_known(&h->bag[i])) { if (!s_rollout) DID("reforge the old short sword into the weapon in hand"); do_item(i, ACN_REFORGE); return true; }
   if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && G.now >= s_upg_hold_until && !(getenv("UPGHOLDBOSS") && !boss_depth(G.depth) && !boss_depth(G.depth + 1)) &&   /* 0.58 test (owner: hold for better gear): read only on or just before a boss floor */ (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {
     if (!s_rollout && !getenv("NOSTRAT")) { int r = s_toe && !getenv("TOENOUP") ? toe_upgrade(s) : strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
     else { bool hold = false; if (PRM[P_GEARMODEL]) upg_plan(&hold); if (!hold) { do_item(s, ACN_READ); return true; } if (!s_rollout) st_upg_holds++; }

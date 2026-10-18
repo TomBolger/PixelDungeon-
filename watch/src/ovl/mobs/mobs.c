@@ -173,7 +173,7 @@ static int stats(int i, int w) {
 static int attack_proc(int i, int def, int dmg) {
   if (M_(i)->type == MT_STATUE && def < 0) {           // Statue.attackProc: weapon.proc (its enchantment)
     int h = carried(i);
-    if (h >= 0) { Item w = G.heaps[h].item; if (w.ench) ench_weapon_proc(-2 - i, dmg, &w); }
+    if (h >= 0) { Item w = G.heaps[h].item; if (w.ench) ench_weapon_proc(-2 - i, dmg, &w); item_use(&G.heaps[h].item); }   // 0.92 (audit): Weapon.proc -> use(): its weapon wears too
   }
   if (M_(i)->type == MT_MIMIC && def < 0 && rnd_int(3) == 0) {   // Mimic.attackProc: knocks gold loose
     int g = rnd_int2(G.hero.gold / 10, G.hero.gold / 2);

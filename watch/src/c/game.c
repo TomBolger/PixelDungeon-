@@ -1464,7 +1464,7 @@ bool game_pick_ok(PickMode mode, int slot) {           // WndBag.Mode filters
     case PICK_SEED: return slot >= 0 && item_cat(it->kind) == CAT_SEED;
     case PICK_IDENTIFY: return !item_identified(it);
     case PICK_UPGRADE: return item_upgradable(it->kind);
-    case PICK_REFORGE: return item_cat(it->kind) == CAT_WEAPON && it != &G.hero.weapon;
+    case PICK_REFORGE: return (item_cat(it->kind) == CAT_WEAPON || it->kind == IK_BOOMERANG) && it->kind != IK_PICKAXE && it != (g_reforge_slot == -1 ? &G.hero.weapon : game_slot(g_reforge_slot));   // 0.92 (audit): ShortSword.execute takes the sword out first, then any MeleeWeapon or Boomerang, the one in hand too
     case PICK_SMITH: return item_upgradable(it->kind);   // WndBag.Mode.UPGRADEABLE
     case PICK_ARMOR: return item_cat(it->kind) == CAT_ARMOR;
     case PICK_WAND: return item_cat(it->kind) == CAT_WAND && it->kind != IK_WND_MM;
