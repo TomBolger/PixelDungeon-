@@ -3897,7 +3897,7 @@ static void zone_kit(int d) {
   if (z >= 2) h->subclass = 1 + 2 * (h->hclass & 3) + rand() % 2;
   int up = 3 * z + rand() % 3 - 1, wu = 0, au = 0, nu = 0;
   bool wand_up = rand() % 4 == 0;
-  for (int i = 0; i < up; i++) { int r = rand() % 10; if (wand_up && r == 0) nu++; else if (r < 6) wu++; else au++; }
+  for (int i = 0; i < up; i++) { int r = rand() % 10; if (wand_up && r == 0) nu++; else if (r < (getenv("KITW") ? atoi(getenv("KITW")) : 6)) wu++; else au++; }   // (0.93: KITW=n of 10 to the weapon: how much do armour-heavy heroes gain deep?)
   if (h->weapon.kind && item_cat(h->weapon.kind) == CAT_WAND) { bag_add(h->weapon); h->weapon = (Item){ 0 }; }
   h->weapon = kit_item(kit_best(IK_DAGGER, IK_GLAIVE, h->STR, wu), wu);
   h->armor = kit_item(kit_best(IK_CLOTH_ARMOR, IK_PLATE_ARMOR, h->STR, au), au);
@@ -4270,7 +4270,7 @@ int main(int argc, char **argv) {
       if (getenv("CAMPSEED")) s_camp_reroll = atoi(getenv("CAMPSEED")); }   // (a flagged reroll: other dice from here, applied once the floor's checkpoint round trip is done)
     if (getenv("HG")) { uint32_t hsh = 2166136261u; const uint8_t *pp = (const uint8_t *)&G; for (size_t i = 0; i < sizeof G; i++) hsh = (hsh ^ pp[i]) * 16777619u; printf("  HG game %d hash %08x\n", g, hsh); }
     if (getenv("SD")) { int sd = atoi(getenv("SD")); for (int d = 2; d <= sd; d++) { switch_level(d, ARRIVE_ENTRANCE); game_level_commit(); }
-      G.hero.lvl = sd; G.hero.HT = 20 + 5 * sd + 15 * hs; G.hero.HP = G.hero.HT; G.hero.STR = 12 + sd / 4 + hs;
+      while (G.hero.lvl < sd) earn_exp(hero_max_exp() - G.hero.exp); G.hero.HT += 15 * hs; G.hero.HP = G.hero.HT;   /* (0.93: level-ups, not a bare lvl: attack and defense were left at level 1) */ G.hero.STR = 12 + sd / 4 + hs;
       Item a = item_make(sd >= 15 ? IK_SCALE_ARMOR : IK_MAIL_ARMOR, 1); a.lvl = sd / 4; a.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; a.dur = item_max_dur(&a); G.hero.armor = a;
       Item w = item_make(sd >= 15 ? IK_LONGSWORD : IK_SWORD, 1); w.lvl = sd / 4; w.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; w.dur = item_max_dur(&w); G.hero.weapon = w; }
     memset(s_ign_until, 0, sizeof s_ign_until);
