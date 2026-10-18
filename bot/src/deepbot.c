@@ -74,7 +74,7 @@ static bool lookahead(void);
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
 static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 2500 };
 static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool trap_door_testable(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static bool attack_wand_ready(void); static bool room_seen(int r);
-static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force; static bool curse_sim_ok(void); static int s_curse_trip; static long curse_key(void); static long s_curse_no_key = -1;
+static bool curse_food_ok(void); static bool food_pressed(void); static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force; static bool curse_sim_ok(void); static int s_curse_trip; static long curse_key(void); static long s_curse_no_key = -1;
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
 static double s_hp_cut; static bool s_toe; static int toe_upgrade(int scroll); static int toe_choose(bool *hold); static bool toe_keep(int slot); static bool toe_buy(int hh);
@@ -1116,7 +1116,7 @@ static int pz_sig(void) { int n = 0; for (int i = 0; i < BAG_SIZE; i++) { int k 
 static bool room_skipped(int r) { if (s_room_skip[r] == 2 && pz_sig() != s_room_sig[r]) s_room_skip[r] = 0; return s_room_skip[r] != 0; }
 static bool deferred_heap(int hi) {                    // left alone until the puzzle phase
   Heap *hp = &G.heaps[hi]; int r = room_at(hp->pos);
-  if (hp->type == HEAP_SKELETON && s_pztest && !getenv("OLDREMAINS") && G.hero.HP * 10 >= G.hero.HT * 7 && !game_hungry() && (r < 0 || G.rooms[r].type != RT_PIT)) return false;   // 0.92 (seed 84 d2: a 30-turn trip back for the remains at the floor's end): remains raise one weak wraith at most: opened in passing when sound
+  if (hp->type == HEAP_SKELETON && s_pztest && !getenv("OLDREMAINS") && G.hero.HP * 10 >= G.hero.HT * 7 && !food_pressed() && (r < 0 || G.rooms[r].type != RT_PIT)) return false;   // 0.92 (seed 84 d2: a 30-turn trip back for the remains at the floor's end): remains raise one weak wraith at most: opened in passing when sound
   if (hp->type == HEAP_TOMB || hp->type == HEAP_SKELETON) return true;
   return r >= 0 && (G.rooms[r].type == RT_POOL || G.rooms[r].type == RT_TRAPS);
 }
@@ -1250,8 +1250,8 @@ static int puzzle_task(const char **why) {             // after exploring: a cel
       bool skel = hp->type == HEAP_SKELETON && !getenv("OLDDUNG");   // 0.52 (audit): remains raise one weak wraith at most (and only if cursed): not a crypt
       if (!skel && !attack_wand_ready() && h->lvl < G.depth + 3) { if (r >= 0 && getenv("OLDDUNG")) s_room_skip[r] = 1; else s_black[c] = s_bot_steps + 100000; continue; }   // wraiths: wands, or much stronger
       bool pitr = skel && r >= 0 && G.rooms[r].type == RT_PIT && !getenv("OLDDUNG2");   // 0.54 (audit): in the pit room the remains are the way out (its key): never skip them, 50% health will do
-      if (skel && !pitr && h->HP < h->HT * 8 / 10 && game_hungry()) { s_black[c] = s_bot_steps + 100000; continue; }
-      if (h->HP < h->HT * (pitr ? 5 : 9) / 10) { if (pitr && !game_starving()) { walk(game_rest(true)); *why = "remains: heal first"; return -2; } if (game_hungry()) { if (r >= 0) s_room_skip[r] = 1; else s_black[c] = s_bot_steps + 100000; continue; } if (s_pztest) { static int gk = -1, gt; if (gk != G.depth * MAP_LEN + c) { gk = G.depth * MAP_LEN + c; gt = G.now; } if (G.now - gt > 50 * TICK) { s_black[c] = s_bot_steps + 100000; continue; } }   /* 0.92 (seed 84 d6: 191 turns of resting for one grave) */ walk(game_rest(true)); *why = "grave: heal first"; return -2; }   // (hungry: no time for it)
+      if (skel && !pitr && h->HP < h->HT * 8 / 10 && food_pressed()) { s_black[c] = s_bot_steps + 100000; continue; }
+      if (h->HP < h->HT * (pitr ? 5 : 9) / 10) { if (pitr && !game_starving()) { walk(game_rest(true)); *why = "remains: heal first"; return -2; } if (food_pressed()) { if (r >= 0) s_room_skip[r] = 1; else s_black[c] = s_bot_steps + 100000; continue; } if (s_pztest) { static int gk = -1, gt; if (gk != G.depth * MAP_LEN + c) { gk = G.depth * MAP_LEN + c; gt = G.now; } if (G.now - gt > 50 * TICK) { s_black[c] = s_bot_steps + 100000; continue; } }   /* 0.92 (seed 84 d6: 191 turns of resting for one grave) */ walk(game_rest(true)); *why = "grave: heal first"; return -2; }   // (hungry: no time for it)
       int best = -1, bo = 9;
       for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && PASSABLE(G.map[n]) && b_dist[n] < 0x7FFF && mob_at(n) < 0 && !(TFLAGS(G.map[n]) & F_AVOID)) { int o = open_sides(n); if (o < bo || (o == bo && b_dist[n] < b_dist[best])) { bo = o; best = n; } } }
       if (best < 0) { if (r >= 0) s_room_skip[r] = 1; else s_black[c] = s_bot_steps + 100000; continue; }
@@ -1288,7 +1288,7 @@ static int puzzle_task(const char **why) {             // after exploring: a cel
     if (doortest && !(find_kind(need) >= 0 && item_known(need)) && unknown_potion() >= 0 && h->HP >= h->HT * (s_pztest ? 7 : 9) / 10 && stash_for(stand)) { *why = "puzzle: scrolls out of harm's way first"; return -2; }
     if (!getenv("OLDQBUG") && (s_black[stand] > s_bot_steps || (game_starving() && h->HP < h->HT / 2))) { PZSKIP(r, "stand blacked / starving"); continue; }   // 0.54 (r10 lockout): can't get there, or no time
     if (h->pos != stand) { *why = "puzzle: beside the door"; return stand; }
-    if (h->HP < h->HT * (s_pztest ? 6 : 9) / 10) { if (game_hungry()) { PZSKIP(r, "hungry, hurt"); continue; } walk(game_rest(true)); *why = "puzzle: heal first"; return -2; }   // (0.92 owner: less resting; invisible or floating, the room can't touch me)   // (hungry: no time for it)
+    if (h->HP < h->HT * (s_pztest ? 6 : 9) / 10) { if (food_pressed()) { PZSKIP(r, "hungry, hurt"); continue; } walk(game_rest(true)); *why = "puzzle: heal first"; return -2; }   // (0.92 owner: less resting; invisible or floating, the room can't touch me)   // (hungry: no time for it)
     int s = find_kind(need);
     if (s >= 0 && item_known(need) && s_pztest && ({ bool foe = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && BIT_GET(G.fov, G.mobs[i].pos) && G.mobs[i].state != ST_PASSIVE && !(MOB_DEFS[G.mobs[i].type].flags & (MD_WATER | MD_NPC)) && distance(G.mobs[i].pos, h->pos) <= 8) foe = true; foe; })) { static int wq = 0; if (wq++ % 20 < 15) { walk(game_rest(false)); *why = "puzzle: a creature about: not yet"; return -2; } }   // 0.92: not with one about to break it
     if (s >= 0 && item_known(need)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); *why = "puzzle: drink the known potion"; return -2; }
@@ -2975,14 +2975,14 @@ static bool decide(void) {
   if (getenv("CURSEDBG") && !s_rollout && G.q.ghost_depth == G.depth && G.q.ghost < QS_GIVEN) { static int ls = -1; if (ls != s_bot_steps / 5) { ls = s_bot_steps / 5; int gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i; printf("CURSECHK step %d choice %d going %d left %d ghost %d alt %d hungry %d gi %d fov %d\n", s_bot_steps, choice, going, floor_left(), G.q.ghost, G.q.ghost_alt, game_hungry(), gi, gi >= 0 ? BIT_GET(G.fov, G.mobs[gi].pos) : -1); } }
   static int gd = -1, gp = -1, gi = -1, gsw = 0, gsw_t = -1, gpd[32], gpg = -1; if (gpg != cur_game) { gpg = cur_game; for (int i = 0; i < 32; i++) gpd[i] = -1; }
   if (gd != G.depth) { if (gd >= 0) gpd[gd & 31] = gp; gd = G.depth; gp = gpd[G.depth & 31]; gsw = 0; gsw_t = -1; }   // (where he was last seen, kept per floor)
-  if (s_curse_trip && (G.q.ghost >= QS_REWARDED || game_hungry() || (G.depth == G.q.ghost_depth && !floor_left() && G.q.ghost < QS_GIVEN && gp < 0 && gsw >= 5))) { s_curse_trip = 0; s_goal = 99; }   // (done, or no luck: on down again)
-  if (choice < 0 && !going && s_pztest && !s_curse_trip && G.depth == G.q.ghost_depth + 1 && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && !floor_left() && !game_hungry() && threat_count() == 0 && BIT_GET(G.visited, G.entrance) && curse_sim_ok()) {
+  if (s_curse_trip && (G.q.ghost >= QS_REWARDED || !curse_food_ok() || (G.depth == G.q.ghost_depth && !floor_left() && G.q.ghost < QS_GIVEN && gp < 0 && gsw >= 5))) { s_curse_trip = 0; s_goal = 99; }   // (done, or no luck: on down again)
+  if (choice < 0 && !going && s_pztest && !s_curse_trip && G.depth == G.q.ghost_depth + 1 && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && !floor_left() && curse_food_ok() && threat_count() == 0 && BIT_GET(G.visited, G.entrance) && curse_sim_ok()) {
     s_curse_trip = 1; s_goal = G.depth - 1; DID("back up for the ghost's curse: I'd win it now"); walk(tap_safe(G.entrance)); return true; }
   gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i;   // (alive: the quest says so; where: only by sight)
   bool gvis = gi >= 0 && BIT_GET(G.fov, G.mobs[gi].pos);
   if (gvis) gp = G.mobs[gi].pos; else if (gp >= 0 && BIT_GET(G.fov, gp)) gp = -1;   // (where he was last seen; there and gone: lost)
-  if (choice < 0 && !going && s_pztest && !floor_left() && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && gi >= 0 && !game_hungry()) {   // 0.92: the ghost's curse, at the floor's end (the pool's Strength first, the mace in hand): back to him if it's winnable now
-    if (h->HP < h->HT && threat_count() == 0) { if (curse_go_full()) { DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } else if (s_curse_trip) { s_curse_trip = 0; s_goal = 99; s_curse_no_key = curse_key(); } }
+  if (choice < 0 && !going && s_pztest && !floor_left() && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && gi >= 0 && curse_food_ok()) {   // 0.92: the ghost's curse, at the floor's end (the pool's Strength first, the mace in hand): back to him if it's winnable now
+    if (h->HP < h->HT && threat_count() == 0) { if (curse_go_full()) { if (game_starving()) { for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind) && h->bag[i].kind != IK_MYSTERY_MEAT) { DID("the ghost's curse next: eat, then rest"); do_item(i, ACN_EAT); return true; } } DID("the ghost's curse next: rest first"); walk(game_rest(false)); return true; } else if (s_curse_trip) { s_curse_trip = 0; s_goal = 99; s_curse_no_key = curse_key(); } }
     else if (curse_go_full()) { bfs(h->pos, false);
       if (gp >= 0 && b_dist[gp] < 0x7FFF && gp != h->pos) { choice = gp; why = gvis ? "the ghost: take on his curse" : "the ghost: where I last saw him"; }
       else if (gsw < 5) {                               // (he drifts about: look round the rooms for him, a few at most)
@@ -3687,6 +3687,9 @@ static int curse_sim1(uint32_t seed) {
 }
 // 0.92 (seed 84: up and down three times between the cheap odds and the real ones): s_curse_no_key: the real odds said no in this state: no more trips till it changes
 static long curse_key(void) { Hero *h = &G.hero; long k = ((long)cur_game * 64 + G.q.ghost_depth) * 4096 + h->lvl * 128 + h->STR * 4; k = k * 256 + h->weapon.kind; k = k * 256 + h->armor.kind; return k; }
+static bool curse_food_ok(void) {                      // 0.92 (eat-late keeps the hero Hungry most of the time; the curse plan was gated on not being hungry and never ran): only Starving with nothing to eat rules it out
+  if (!game_starving()) return true; for (int i = 0; i < BAG_SIZE; i++) if (is_food(G.hero.bag[i].kind) && G.hero.bag[i].kind != IK_MYSTERY_MEAT) return true; return false; }
+static bool food_pressed(void) { return s_pztest ? !curse_food_ok() : game_hungry(); }   // (0.92: "no time, food matters" under eat-late: Starving with nothing to eat)
 static bool curse_sim_ok(void) {
   static long key = -1; static bool ans; Hero *h = &G.hero;
   long k = curse_key();
