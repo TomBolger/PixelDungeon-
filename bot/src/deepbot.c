@@ -2504,7 +2504,7 @@ static int trap_step(int target) {                     // bot3: the next step to
 // unknown straight across on the other (PD's doors are orthogonal); the more unknown behind it, the likelier (a dead
 // end's wall most of all). Each spot is worth the walls it would newly cover, per step to get there and search
 // (2 turns): sweeping along a wall three cells at a time beats crossing the map for a slightly better spot.
-static uint8_t s_ww[MAP_LEN]; static int s_srch_win = 1, s_srch_k = 2;
+static uint8_t s_ww[MAP_LEN]; static int s_srch_win = 1, s_srch_k = 2; static bool s_shophunt;   // 0.93: hunting this floor's shop (evidence_hidden): the entrance room's walls first
 static int wall_worth(int w) {
   if ((G.map[w] != T_WALL && G.map[w] != T_SECRET_DOOR) || BIT_GET(s_searched, w)) return 0;
   int best = 0;
@@ -2514,7 +2514,7 @@ static int wall_worth(int w) {
     if (!BIT_GET(G.visited, a) || BIT_GET(G.visited, b) || !(PASSABLE(G.map[a]) || G.map[a] == T_DOOR || G.map[a] == T_OPEN_DOOR)) continue;
     int dx = bx - cx(w), dy = by - cy(w), R = s_srch_win, x0 = bx + R * dx, y0 = by + R * dy, u = 0;   // (the box beyond, R each way)
     for (int y = y0 - R; y <= y0 + R; y++) for (int x = x0 - R; x <= x0 + R; x++) u += x > 0 && y > 0 && x < MAP_W - 1 && y < MAP_H - 1 && !BIT_GET(G.visited, x + y * MAP_W);
-    int v = 1 + u * 10 / ((2 * R + 1) * (2 * R + 1)) + (dead_end(a) ? 12 : 0); if (v > best) best = v;
+    int v = 1 + u * 10 / ((2 * R + 1) * (2 * R + 1)) + (dead_end(a) ? 12 : 0) + (s_shophunt && G.entrance >= 0 && room_at(a) >= 0 && room_at(a) == room_at(G.entrance) ? 30 : 0); if (v > best) best = v;   // (0.93: the shop's a dead end off the entrance room)
   }
   return best;
 }
@@ -2582,8 +2582,15 @@ static bool food_ev_ok(void) {                           // 0.92: hungry with no
   for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) return false;
   return game_hungry();
 }
+static bool shop_seen(void) { for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && (unsigned)G.heaps[i].pos < MAP_LEN && BIT_GET(G.visited, G.heaps[i].pos)) return true; return false; }
+static bool shop_seen(void);
+static bool shop_hunt_ok(void) {                         // 0.93: a shop floor, its shop not found, gold to spend: search for it, hungry or not (it sells food)
+  Hero *h = &G.hero; return s_pztest && !getenv("NOSHOPHUNT") && !getenv("NOEV") && (G.depth == 6 || G.depth == 11 || G.depth == 16) && h->gold >= 150 * (G.depth / 5 + 1) && s_ev_searches < 48 && h->HP * 4 >= h->HT && threat_count() == 0 && !shop_seen();
+}
 static const char *evidence_hidden(void) {
+  s_shophunt = false;
   if (getenv("OLDEVID") || boss_depth(G.depth) || G.depth == 1) return NULL;
+  if (s_pztest && !getenv("NOSHOPHUNT") && (G.depth == 6 || G.depth == 11 || G.depth == 16) && G.hero.gold >= 150 * (G.depth / 5 + 1) && !shop_seen()) { s_shophunt = true; return "a shop floor and no shop seen: it's behind a secret door off the entrance room"; }   // 0.93 (n8g5: a quarter of shop visits bought nothing, the shop never found: PD hides a shop's door like any other, 1 in 6)
   if (s_pztest && !s_ev_food && G.depth != 21) return "this floor's ration not seen: it's behind a secret door";   // 0.92 (seed 84 d3: went down starving beside the dead end that hid it): every floor but the bosses' has one
   bool ld = false, lc = false; for (int c = 0; c < MAP_LEN; c++) if (G.map[c] == T_LOCKED_DOOR && BIT_GET(G.visited, c)) ld = true;
   for (int i = 0; i < G.n_heaps; i++) if ((G.heaps[i].type == HEAP_LOCKED_CHEST || G.heaps[i].type == HEAP_CRYSTAL_CHEST) && G.heaps[i].pos < MAP_LEN && BIT_GET(G.visited, G.heaps[i].pos)) lc = true;
@@ -3049,7 +3056,7 @@ static bool decide(void) {
   }
   bool going = s_goal < G.depth && BIT_GET(G.visited, G.entrance);   // on the way up with the way known: no detours but items
   bool famished = game_hungry() && !({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; });
-  if (choice < 0 && famished && PRM[P_HUNGRYDOWN] && !food_ev_ok() && BIT_GET(G.visited, G.exit) && s_goal > G.depth && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; }) &&   /* (0.52: a way there: seen across a chasm or a trap field isn't one) */ (getenv("OLDHERO") || (s_ev_food && (getenv("OLDHUNGRY") || game_starving())) || !floor_left() || boss_depth(G.depth) || G.depth == 21 || (game_starving() && h->HP * 100 < h->HT * s_starve_leave && !(s_pztest && boss_depth(G.depth + 1) && floor_left() && !s_ev_food))) &&   /* (0.92 seed 84: down to the Goo at 12/40 starving, the floor's ration unfound: before a boss, find it) */   /* (owner: look for it even starving; under 30% health, just go) */   /* 0.52 (audit): every floor but the bosses' has a ration somewhere: find it first */ (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // bot3: no food, hungry: on down
+  if (choice < 0 && famished && PRM[P_HUNGRYDOWN] && !food_ev_ok() && !shop_hunt_ok() && BIT_GET(G.visited, G.exit) && s_goal > G.depth && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; }) &&   /* (0.52: a way there: seen across a chasm or a trap field isn't one) */ (getenv("OLDHERO") || (s_ev_food && (getenv("OLDHUNGRY") || game_starving())) || !floor_left() || boss_depth(G.depth) || G.depth == 21 || (game_starving() && h->HP * 100 < h->HT * s_starve_leave && !(s_pztest && boss_depth(G.depth + 1) && floor_left() && !s_ev_food))) &&   /* (0.92 seed 84: down to the Goo at 12/40 starving, the floor's ration unfound: before a boss, find it) */   /* (owner: look for it even starving; under 30% health, just go) */   /* 0.52 (audit): every floor but the bosses' has a ration somewhere: find it first */ (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // bot3: no food, hungry: on down
     bool food_here = false; for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && is_food(G.heaps[i].item.kind)) food_here = true;
     if (!game_starving()) for (int i = 0; i < G.n_heaps; i++) { int r = (unsigned)G.heaps[i].pos < MAP_LEN ? room_at(G.heaps[i].pos) : -1; if (r >= 0 && !room_skipped(r) && G.rooms[r].type == RT_TRAPS && is_food(G.heaps[i].item.kind) && BIT_GET(G.visited, G.heaps[i].pos)) food_here = true; }   // 0.91: food in the trap room: solve it, don't leave it lying (seed 84 floor 1)
     bool grab = false; if (!getenv("OLDHUNGRY") && !(game_starving() && h->HP * 100 < h->HT * s_starve_leave)) for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && !far_missile(i) && G.heaps[i].item.kind != IK_GOLD && G.heaps[i].item.kind != IK_DEW && b_dist[G.heaps[i].pos] < 0x7FFF) grab = true;
@@ -3090,7 +3097,7 @@ static bool decide(void) {
     if (pt >= 0 && pw && !strncmp(pw, "puzzle: beside the door", 23)) { bfs(h->pos, false); if (b_dist[pt] <= 5) { choice = pt; why = "puzzle: passing its door: the potions now"; }
       else if (IS_WATER(G.map[h->pos]) && !PWATER(h->pos) && pending_trap_door_dist() <= 6 && (s_stash < 0 || !scrolls_loose() || distance(h->pos, s_stash) >= 3)) { int sl = unknown_potion(); if (sl >= 0) { st_uses[ACN_DRINK]++; st_kinds[h->bag[sl].kind]++; DID("puzzle: in the water by its door already: the next potion here"); do_item(sl, ACN_DRINK); return true; } } } }
   if (choice < 0 && !getenv("NOPLAN")) { const char *pw = NULL; choice = plan_next(going, &pw); if (choice >= 0) why = pw; }
-  if (getenv("SHOPDBG") && !s_rollout) { static int ls = -1; if (ls != s_bot_steps / 20) { ls = s_bot_steps / 20; int ns = 0, nw = 0; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE) { ns++; nw += want_buy(i); } if (ns) printf("SHOPDBG d%d gold %d sale %d want %d choice %d\n", G.depth, G.hero.gold, ns, nw, choice); } }
+  if (getenv("SHOPDBG") && !s_rollout) { static int ls = -1; if (ls != s_bot_steps / 20) { ls = s_bot_steps / 20; int ns = 0, nw = 0; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE) { ns++; nw += want_buy(i); } if (ns) { printf("SHOPDBG d%d gold %d sale %d want %d choice %d enemies %d\n", G.depth, G.hero.gold, ns, nw, choice, enemy_count()); bfs(h->pos, false); for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && want_buy(i)) { int c = G.heaps[i].pos; printf("   ware %d at %d vis %d dist %d black %d\n", G.heaps[i].item.kind, c, c < MAP_LEN && BIT_GET(G.visited, c), b_dist[c], s_black[c] - s_bot_steps); } } } }
   if (!getenv("OLDSHOP") && enemy_count() == 0) {   // 0.50 (review g6): the shop's wares never made the target list (the suggester leaves them out): go and buy what's wanted
     bfs(h->pos, false); int bc = -1, bp = 99;
     for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos; if (hp->type != HEAP_FOR_SALE || (unsigned)c >= MAP_LEN || !BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || s_black[c] > s_bot_steps || !want_buy(i)) continue;
@@ -3206,12 +3213,14 @@ static bool decide(void) {
     } else if (BIT_GET(G.visited, stairs) && (G.map[stairs] != T_LOCKED_EXIT || (G.keys[G.depth] & 64)) && s_black[stairs] <= s_bot_steps) {
       const char *ev = !up && !getenv("NOEV") && s_ev_searches < (s_pztest ? 24 : 60) && (h->hunger < 200 || ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; })) && !game_starving() && threat_count() == 0 ? evidence_hidden() : NULL;
       if (!ev && food_ev_ok()) ev = evidence_hidden();   // 0.92: the ration's the one worth looking for hungry (2 turns a search: a dead end beside me is a sure find)   /* (food in the bag: the hunger is paid for) */
+      if (!ev && !up && shop_hunt_ok()) { const char *e = evidence_hidden(); if (s_shophunt) ev = e; }   // 0.93: the shop sells food: hungry is no reason to pass it by (48: walking steps count too)
       if (ev) {                                            // 0.51: the evidence says a room is hidden: search for it before going on
         if (!s_ev_on) { s_ev_on = 1; st_ev_floors++; if (getenv("EVDBG")) printf("  EV game %d d%d step %d: %s (std pots %d, keys %x, hunger %d)\n", cur_game, G.depth, s_bot_steps, ev, s_std_pots, G.keys[G.depth], h->hunger); for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_IRON_KEY || G.heaps[i].item.kind == IK_POT_LEVITATION) printf("    (truth: kind %d at %d,%d heap type %d visited %d room type %d)\n", G.heaps[i].item.kind, cx(G.heaps[i].pos), cy(G.heaps[i].pos), G.heaps[i].type, G.heaps[i].pos < MAP_LEN ? BIT_GET(G.visited, G.heaps[i].pos) : -1, G.heaps[i].pos < MAP_LEN && room_at(G.heaps[i].pos) >= 0 ? G.rooms[room_at(G.heaps[i].pos)].type : -1); fflush(stdout); }
         if (s_spot >= 0 && (s_black[s_spot] > s_bot_steps || mob_at(s_spot) >= 0)) s_spot = -1;
         int sp = s_spot >= 0 ? s_spot : search_spot();
         if (sp < 0) { if (getenv("EVDBG")) printf("  EV game %d d%d: no spot left to search after %d\n", cur_game, G.depth, s_ev_searches); s_ev_searches = 99; }                    // (nowhere left worth a look)
         else { if (getenv("EVDBG") && !s_rollout && !s_is_child && s_ev_searches == 59) { printf("  EV map (v seen, ' ' unseen, S secret door, s searched wall, K key, @ hero):\n"); for (int y = 0; y < MAP_H; y++) { printf("   "); for (int x = 0; x < MAP_W; x++) { int c = x + y * MAP_W, t = G.map[c]; bool v = BIT_GET(G.visited, c); char ch = t == T_SECRET_DOOR ? 'S' : !v ? (PASSABLE(t) ? ',' : ' ') : PASSABLE(t) ? '.' : t == T_DOOR || t == T_OPEN_DOOR ? '+' : t == T_LOCKED_DOOR ? 'L' : BIT_GET(s_searched, c) ? 's' : '#'; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].pos == c && G.heaps[i].item.kind == IK_IRON_KEY) ch = 'K'; if (c == h->pos) ch = '@'; putchar(ch); } putchar('\n'); } fflush(stdout); }
+          if (getenv("EVDBG") && !s_rollout && !s_is_child) printf("  EVS d%d step %d n%d hero %d,%d spot %d,%d%s\n", G.depth, s_bot_steps, s_ev_searches, cx(h->pos), cy(h->pos), cx(sp), cy(sp), s_shophunt ? " shop" : "");
           s_ev_searches++; st_ev_search++; if (sp != h->pos) { s_spot = sp; choice = sp; why = ev; } else { s_spot = -1; choice = sp; } }
       }
     }
