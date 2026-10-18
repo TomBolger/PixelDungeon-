@@ -4136,7 +4136,9 @@ int main(int argc, char **argv) {
   V = getenv("V") != NULL;
   P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0; s_pure = getenv("PURE") != NULL; s_toe = getenv("TOE") != NULL;
   if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); if ((g_assist & 5) == 5) memset(g_view, 0, 4); }   // 0.77: Assist Max (0.80: off-screen targets, ASSIST=7): the whole map
-  for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
+  static int s_seedv[512], s_seedc[512], s_seedn; if (getenv("SEEDS")) { const char *q = getenv("SEEDS"); while (*q && s_seedn < 512) { s_seedv[s_seedn] = atoi(q); s_seedc[s_seedn] = -1; while (*q >= '0' && *q <= '9') q++; if (*q == ':') { q++; s_seedc[s_seedn] = atoi(q); while (*q >= '0' && *q <= '9') q++; } s_seedn++; if (*q == ',') q++; else break; } }   // SEEDS=84:0,151:2 (game:class): game index i plays the i-th listed seed (the runner hands out index ranges)
+  for (int gi = getenv("START") ? atoi(getenv("START")) : 0; gi < N; gi++) {
+    if (s_seedn && gi >= s_seedn) break; int g = s_seedn ? s_seedv[gi] : gi; int seedcls = s_seedn ? s_seedc[gi] : -1;
     cur_game = g; srand(g + 1); st_games++; lg_maxleft = 0;
     if (!getenv("OLDLEAK")) { g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; g_goal = -1; g_from = -1; memset(g_drop, 0, sizeof g_drop); g_drop_i = 0; }   // 0.64: no Assist state carried from game to game (a game replays alone the same)
     extern uint32_t g_host_time; extern uint16_t g_host_ms;
@@ -4144,7 +4146,7 @@ int main(int argc, char **argv) {
     s_wait_n = 0; s_cooked = 0; s_fork_until = -1; memset(s_bounce_n, 0, sizeof s_bounce_n);
     s_kite_uid = -1; s_kite_cell = -1; s_thief_uid = -1; s_thief_cell = -1; s_lurk_until = 0; s_sun = -1; s_onto = -1; s_want_jump = false; s_step_back = -1; s_altar_uid = -1; st_sou_read = 0;   // (review: per-game state)
     memset(g_keys, 0, sizeof g_keys);
-    g_new_class = getenv("CLS") ? atoi(getenv("CLS")) : getenv("ZONES") ? (g / (getenv("ZMAX") ? atoi(getenv("ZMAX")) : 5)) % 4 : g % 4;
+    g_new_class = seedcls >= 0 ? seedcls : getenv("CLS") ? atoi(getenv("CLS")) : getenv("ZONES") ? (g / (getenv("ZMAX") ? atoi(getenv("ZMAX")) : 5)) % 4 : g % 4;
     g_trade = 0; g_trade_arg = 0; s_prev_now = 0; g_from = -1; g_goal = -1;     // (a window left open when the last game stopped)
     game_new();
     head_start(hs);
