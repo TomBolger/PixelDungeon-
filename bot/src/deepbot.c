@@ -591,6 +591,11 @@ static int pick_for(PickMode p) {                        // an item selector is 
     case PICK_ARMOR: return h->armor.kind ? -2 : -1000;
     case PICK_WEAPON: return h->weapon.kind && game_pick_ok(p, -1) ? -1 : -1000;
     case PICK_SEED: {                                    // the alchemy pot: any seed but the quest's rotberry
+      if (s_pztest && !getenv("OLDCOOK")) {             // 0.92 (owner: potions beat seeds): Heap.transmute: 1 in n a random potion, else the potion of a seed picked by its count: Sungrass gives Healing, so the best seeds go in first (3 Sungrass: Healing 2 times in 3)
+        static const uint8_t PRI[] = { IK_SEED_SUNGRASS, IK_SEED_DREAMWEED, IK_SEED_EARTHROOT, IK_SEED_FIREBLOOM, IK_SEED_ICECAP, IK_SEED_SORROWMOSS, IK_SEED_FADELEAF };
+        int nseed = 0; ALL_SLOTS(s) if (game_pick_ok(p, s) && game_slot(s)->kind != IK_SEED_ROTBERRY) nseed += game_slot(s)->qty;
+        if (s_cooked < 9 && (s_cooked % 3 || nseed >= 3)) for (unsigned j = 0; j < sizeof PRI; j++) ALL_SLOTS(s) if (game_pick_ok(p, s) && game_slot(s)->kind == PRI[j]) { s_cooked++; return s; }
+        return -1000; }
       ALL_SLOTS(s) if (game_pick_ok(p, s) && game_slot(s)->kind != IK_SEED_ROTBERRY && s_cooked < 3) { s_cooked++; return s; }
       return -1000;
     }
