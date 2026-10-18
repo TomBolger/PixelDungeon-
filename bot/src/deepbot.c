@@ -4147,7 +4147,7 @@ int main(int argc, char **argv) {
   if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); if ((g_assist & 5) == 5) memset(g_view, 0, 4); }   // 0.77: Assist Max (0.80: off-screen targets, ASSIST=7): the whole map
   static int s_seedv[512], s_seedc[512], s_seedn; if (getenv("SEEDS")) { const char *q = getenv("SEEDS"); while (*q && s_seedn < 512) { s_seedv[s_seedn] = atoi(q); s_seedc[s_seedn] = -1; while (*q >= '0' && *q <= '9') q++; if (*q == ':') { q++; s_seedc[s_seedn] = atoi(q); while (*q >= '0' && *q <= '9') q++; } s_seedn++; if (*q == ',') q++; else break; } }   // SEEDS=84:0,151:2 (game:class): game index i plays the i-th listed seed (the runner hands out index ranges)
   for (int gi = getenv("START") ? atoi(getenv("START")) : 0; gi < N; gi++) {
-    if (s_seedn && gi >= s_seedn) break; int g = s_seedn ? s_seedv[gi] : gi; int seedcls = s_seedn ? s_seedc[gi] : -1;
+    int si = gi - (getenv("SEEDSBASE") ? atoi(getenv("SEEDSBASE")) : 0); if (s_seedn && (si < 0 || si >= s_seedn)) break; int g = s_seedn ? s_seedv[si] : gi; int seedcls = s_seedn ? s_seedc[si] : -1;
     cur_game = g; srand(g + 1); st_games++; lg_maxleft = 0;
     if (!getenv("OLDLEAK")) { g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; g_goal = -1; g_from = -1; memset(g_drop, 0, sizeof g_drop); g_drop_i = 0; }   // 0.64: no Assist state carried from game to game (a game replays alone the same)
     extern uint32_t g_host_time; extern uint16_t g_host_ms;
