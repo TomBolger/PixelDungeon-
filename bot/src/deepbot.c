@@ -245,6 +245,7 @@ static ActResult do_item_(int slot, ItemAction a) { if (a == ACN_EAT && !s_rollo
 static int s_ign_uid[MAX_MOBS], s_ign_until[MAX_MOBS];
 static uint16_t s_black[MAP_LEN]; static uint8_t s_sale[MAP_LEN / 8 + 1]; static bool s_sale_any;                       // cell: skipped as a target until this decision
 static uint8_t s_searched[MAP_LEN / 8], s_dropped[MAP_LEN / 8], s_used_feature[MAP_LEN / 8];
+static bool sell_extra(const Item *it);
 static int s_floor_steps, s_floor_turn0, s_last_depth, s_goal = 99, s_floor_searches, s_shop_sold, s_cooked, s_fallback, s_tgt_explore;
 static uint8_t s_pwater[MAP_LEN / 8];                    // bot3: the piranhas' water (what joins the pool room's), not every puddle
 #define PWATER(c) BIT_GET(s_pwater, (c))
@@ -675,7 +676,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
         Item *it = &h->bag[s]; int c = item_cat(it->kind);
         if (!it->kind || !game_pick_ok(p, s)) continue;
         if (s_toe && (c == CAT_ARMOR || c == CAT_WEAPON) && toe_keep(s)) continue;   // 0.73 TOE
-        if ((c == CAT_ARMOR && armor_score(it) <= armor_score(&h->armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&h->weapon))) { s_shop_sold++; st_sells++; return s; }
+        if (sell_extra(it) || (c == CAT_ARMOR && armor_score(it) <= armor_score(&h->armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&h->weapon))) { s_shop_sold++; st_sells++; return s; }
       }
       return -1000;
     }
@@ -2356,13 +2357,50 @@ static bool npc_wanted(int i) {
     case MT_SHOPKEEPER: case MT_IMP_SHOP: {
       if (s_shop_sold > 6) return false;
       for (int k = 0; k < BAG_SIZE; k++) { Item *it = &G.hero.bag[k]; int c = item_cat(it->kind);
-        if (it->kind && game_pick_ok(PICK_SELL, k) && !(s_toe && toe_keep(k)) && ((c == CAT_ARMOR && armor_score(it) <= armor_score(&G.hero.armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&G.hero.weapon)))) return true; }
+        if (it->kind && game_pick_ok(PICK_SELL, k) && !(s_toe && toe_keep(k)) && (sell_extra(it) || (c == CAT_ARMOR && armor_score(it) <= armor_score(&G.hero.armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&G.hero.weapon)))) return true; }
       return false; }
   }
   return false;
 }
+static int food_budget(void);
+static bool sell_extra(const Item *it) {               // 0.93 SHOP2: more to sell: known-bad rings and wands, a known Scroll of Challenge
+  int k = it->kind, c = item_cat(k); if (!getenv("SHOP2") || !s_pztest) return false;
+  if ((c == CAT_RING || c == CAT_WAND) && (cursed_known(it) || ((it->flags & IF_LEVEL_KNOWN) && it->lvl < 0))) return true;
+  if (k == IK_SCR_CHALLENGE && item_known(k)) return true;
+  if (k == IK_PICKAXE && G.q.smith != QS_GIVEN) return false;
+  return false;
+}
+static int shop_price(const Item *it) {                 // 0.93 SHOP2: what the shopkeeper asks (Item.price x 5 x (depth / 5 + 1)), from what the player sees
+  int k = it->kind, c = item_cat(k), p = 20;
+  static const uint8_t PP[12] = { 30, 80, 40, 40, 100, 40, 35, 35, 50, 40, 200, 50 }, SP[12] = { 30, 25, 40, 30, 40, 15, 50, 50, 80, 15, 15, 15 };
+  if (c == CAT_POTION) p = item_known(k) ? PP[k - IK_FIRST_POTION] : 20; else if (c == CAT_SCROLL) p = item_known(k) ? SP[k - IK_FIRST_SCROLL] : 15;
+  else if (c == CAT_WEAPON) p = 20 * (1 << (item_tier(k) - 1)); else if (c == CAT_ARMOR) p = 10 * (1 << (item_tier(k) - 1));
+  else if (k == IK_ANKH || k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) p = 50; else if (k == IK_WEIGHTSTONE) p = 40; else if (k == IK_TORCH) p = 10; else if (k == IK_OVERPRICED) p = 20;
+  return p * 5 * (G.depth / 5 + 1);
+}
+static int shop_value(const Item *it) {                 // 0.93 SHOP2 (owner: shops replenish the valuable reserves): what a ware is worth to this hero now
+  int k = it->kind, c = item_cat(k); Hero *h = &G.hero;
+  if (k == IK_POT_HEALING) return 1000;
+  if ((k == IK_POT_STRENGTH || k == IK_SCR_UPGRADE || k == IK_POT_MIGHT) && item_known(k)) return 2000;
+  if (is_food(k)) return food_budget() < 700 ? 600 : 150;
+  if (k == IK_ANKH) return find_kind(IK_ANKH) >= 0 ? 0 : G.depth >= 11 ? 500 : 250;
+  if (k == IK_WEIGHTSTONE) return h->weapon.kind && item_cat(h->weapon.kind) == CAT_WEAPON ? (h->weapon.lvl >= 3 ? 300 : 120) : 0;
+  if (c == CAT_POTION && !item_known(k)) return item_known(IK_POT_HEALING) ? 60 : 250;   // (Healing unknown: 3 in 10 unknown potions are it)
+  if (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) return 120;
+  if (k == IK_TORCH) return G.depth >= 21 && find_kind(IK_TORCH) < 0 ? 200 : 0;
+  if (c == CAT_ARMOR && armor_score(it) > armor_score(&h->armor) + 2) return 400;
+  return 0;
+}
+static bool want_buy2(int hsel) {                       // greedy by worth: the wares worth buying that the gold covers, best first
+  int idx[32], n = 0; for (int i = 0; i < G.n_heaps && n < 32; i++) if (G.heaps[i].type == HEAP_FOR_SALE && shop_value(&G.heaps[i].item) >= 100) idx[n++] = i;
+  for (int a = 0; a < n; a++) for (int b = a + 1; b < n; b++) if (shop_value(&G.heaps[idx[b]].item) > shop_value(&G.heaps[idx[a]].item)) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
+  int gold = G.hero.gold;
+  for (int j = 0; j < n; j++) { int pr = shop_price(&G.heaps[idx[j]].item); if (pr <= gold) { if (idx[j] == hsel) return true; gold -= pr; } else if (idx[j] == hsel) return false; }
+  return false;
+}
 static bool want_buy(int h) {
   Item *it = &G.heaps[h].item; int k = it->kind;
+  if (s_pztest && getenv("SHOP2")) return want_buy2(h);
   if (G.hero.gold < 60) return false;
   if (k == IK_POT_HEALING || is_food(k) || k == IK_ANKH || k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER || k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH) return true;
   if (s_toe && (item_cat(k) == CAT_ARMOR || item_cat(k) == CAT_WEAPON)) return toe_buy(h);   // 0.73 TOE: by the plan
@@ -3056,7 +3094,7 @@ static bool decide(void) {
   if (!getenv("OLDSHOP") && enemy_count() == 0) {   // 0.50 (review g6): the shop's wares never made the target list (the suggester leaves them out): go and buy what's wanted
     bfs(h->pos, false); int bc = -1, bp = 99;
     for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos; if (hp->type != HEAP_FOR_SALE || (unsigned)c >= MAP_LEN || !BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || s_black[c] > s_bot_steps || !want_buy(i)) continue;
-      int k = hp->item.kind, pr = (s_pztest && !getenv("OLDSHOPPRI")) ? (getenv("SHOPANKH") && k == IK_ANKH ? 0 : k == IK_POT_HEALING ? 0 : is_food(k) ? 1 : k == IK_POT_STRENGTH || k == IK_SCR_UPGRADE ? 2 : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 3 : k == IK_ANKH ? 4 : 5) : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 0 : is_food(k) ? 1 : k == IK_POT_HEALING ? 2 : k == IK_ANKH ? 3 : 4;   /* (0.92 seed 84 d6: 800 gold on a pouch and a ration, two Healings left on the shelf: a Healing is 60-odd HP, 600 turns of mending) */ /* (owner: the bag first: more room, more tools all game) */ if (pr < bp || (pr == bp && b_dist[c] < b_dist[bc])) { bp = pr; bc = c; } }
+      int k = hp->item.kind, pr = (s_pztest && getenv("SHOP2")) ? (3000 - shop_value(&hp->item)) / 40 : (s_pztest && !getenv("OLDSHOPPRI")) ? (getenv("SHOPANKH") && k == IK_ANKH ? 0 : k == IK_POT_HEALING ? 0 : is_food(k) ? 1 : k == IK_POT_STRENGTH || k == IK_SCR_UPGRADE ? 2 : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 3 : k == IK_ANKH ? 4 : 5) : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 0 : is_food(k) ? 1 : k == IK_POT_HEALING ? 2 : k == IK_ANKH ? 3 : 4;   /* (0.92 seed 84 d6: 800 gold on a pouch and a ration, two Healings left on the shelf: a Healing is 60-odd HP, 600 turns of mending) */ /* (owner: the bag first: more room, more tools all game) */ if (pr < bp || (pr == bp && b_dist[c] < b_dist[bc])) { bp = pr; bc = c; } }
     if (bc >= 0) { static int lc = -1, ln, lg; if (bc == lc && G.hero.gold == lg) ln++; else { lc = bc; ln = 0; lg = G.hero.gold; }
       if (getenv("WNDDBG")) printf("  SHOP bc %d ln %d black %d steps %d\n", bc, ln, s_black[bc], s_bot_steps); if (ln > 6) { s_black[bc] = s_bot_steps + 3000; ln = 0; } else { choice = bc; why = "shop"; } } }   /* (0.52f: can't afford it: the trade window does nothing: 300 steps stuck, games 4/41) */
   for (int i = 0; i < n && choice < 0; i++) {
@@ -4355,6 +4393,12 @@ int main(int argc, char **argv) {
       if (G.depth != s_floor_lastpos >> 16) { memset(s_stepped, 0, sizeof s_stepped); s_floor_moves = 0; s_floor_t0 = G.now; s_floor_lastpos = G.depth << 16 | 0xFFFF; }
 
       s_floor_steps++;
+      if (!s_rollout && !s_is_child) { static int sd = -1, g0, gl, nl, left[24], b0, s0; bool shop = false; int n = 0, tmp[24];   // 0.93: SHOP lines: what each shop had, what was bought, what gold was there
+        for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE) { shop = true; if (n < 24) tmp[n++] = G.heaps[i].item.kind; }
+        if (shop) { if (sd != G.depth) { if (sd > 0) printf("SHOP g%d d%d gold %d -> %d bought %d sold %d left:", cur_game, sd, g0, gl, st_buys - b0, st_sells - s0), ({ for (int j = 0; j < nl; j++) { Item t = item_make(left[j], 1); char nm[48]; item_name(&t, nm, sizeof nm); printf(" [%s]", nm); } 0; }), printf("\n");
+            sd = G.depth; g0 = G.hero.gold; b0 = st_buys; s0 = st_sells; } gl = G.hero.gold; nl = n; memcpy(left, tmp, sizeof tmp); }
+        else if (sd > 0 && G.depth != sd) { printf("SHOP g%d d%d gold %d -> %d bought %d sold %d left:", cur_game, sd, g0, gl, st_buys - b0, st_sells - s0); for (int j = 0; j < nl; j++) { Item t = item_make(left[j], 1); char nm[48]; item_name(&t, nm, sizeof nm); printf(" [%s]", nm); } printf(" | gold now %d\n", G.hero.gold); sd = -1; }
+        if (G.hero.HP <= 0) sd = -1; }
       if (!s_rollout && !s_is_child) { Hero *bh = &G.hero; if (bh->weapon.kind && bh->weapon.lvl > 0 && item_broken(&bh->weapon)) st_brkw++; if (bh->armor.kind && bh->armor.lvl > 0 && item_broken(&bh->armor)) st_brka++; if (bh->weapon.lvl > 0 || bh->armor.lvl > 0) st_brkn++; }   // 0.93: steps with upgraded gear worn broken
       if (getenv("WPN")) { static int lw = -1; if (G.hero.weapon.kind != lw) { printf("  weapon %d -> %d at step %d depth %d; last logs: %s | %s\n", lw, G.hero.weapon.kind, steps, G.depth, s_last_log[(s_nlog - 2) & 7], s_last_log[(s_nlog - 1) & 7]); lw = G.hero.weapon.kind; } }
       if (getenv("NIGHT")) { static int lastn = -1; if (G.night != lastn) { printf("  night %d -> %d at step %d depth %d\n", lastn, G.night, steps, G.depth); lastn = G.night; } }
