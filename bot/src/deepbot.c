@@ -73,7 +73,7 @@ static bool lookahead(void);
 // bot3: tunable judgment calls (PRM=v0,v1,... overrides; tools/tune.py searches them)
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
 static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 2500 };
-static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool trap_door_testable(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static int32_t s_sale_gold[MAP_LEN];   /* 0.93: the gold when a ware was passed over: more gold since, look again */ static bool attack_wand_ready(void); static bool room_seen(int r);
+static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool trap_door_testable(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static double idb_p(int label, int kind); static int32_t s_sale_gold[MAP_LEN];   /* 0.93: the gold when a ware was passed over: more gold since, look again */ static bool attack_wand_ready(void); static bool room_seen(int r);
 static bool curse_food_ok(void); static bool food_pressed(void); static long curse_kit_sig(void); static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force; static bool curse_sim_ok(void); static int s_curse_trip; static long curse_key(void); static long s_curse_no_key = -1;
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
@@ -239,7 +239,8 @@ static ActResult do_tap(int c) { int32_t t = G.hero.time; int hb = heap_at(c), t
 static int s_line;
 static long st_eat_energy, st_eat_waste; static int st_warreat;   // 0.61: food eaten (energy) and wasted (below 0 hunger)
 #define do_item(s, a) (s_line = __LINE__, do_item_(s, a))
-static ActResult do_item_(int slot, ItemAction a) { if (a == ACN_EAT && !s_rollout && !s_is_child) { int k = game_slot(slot)->kind, e = k == IK_RATION ? 260 : k == IK_PASTY ? 360 : k == IK_PHANTOM_FISH ? 0 : 100; st_eat_energy += e; if (e > G.hero.hunger) st_eat_waste += e - G.hero.hunger; } { char nm[64]; item_name(game_slot(slot), nm, sizeof nm); DID("%s: %s", ACTION_NAMES[a], nm); } int32_t t = G.hero.time; if (V) printf("  item slot %d kind %d %s (line %d)\n", slot, game_slot(slot)->kind, ACTION_NAMES[a], s_line); ActResult r = game_item_do(slot, a); if (V) printf("   -> %d\n", r); if (r == ACT_TURN && G.hero.time <= t && G.hero.HP > 0 && !s_pend_depth && a != ACN_DROP && a != ACN_RETURN) viol("NO_TIME", "item %d action %s took no time", game_slot(slot)->kind, ACTION_NAMES[a]); return walk(r); }
+static int s_iddrop_k = -1;
+static ActResult do_item_(int slot, ItemAction a) { if (a == ACN_DROP) s_iddrop_k = game_slot(slot)->kind; if (a == ACN_EAT && !s_rollout && !s_is_child) { int k = game_slot(slot)->kind, e = k == IK_RATION ? 260 : k == IK_PASTY ? 360 : k == IK_PHANTOM_FISH ? 0 : 100; st_eat_energy += e; if (e > G.hero.hunger) st_eat_waste += e - G.hero.hunger; } { char nm[64]; item_name(game_slot(slot), nm, sizeof nm); DID("%s: %s", ACTION_NAMES[a], nm); } int32_t t = G.hero.time; if (V) printf("  item slot %d kind %d %s (line %d)\n", slot, game_slot(slot)->kind, ACTION_NAMES[a], s_line); ActResult r = game_item_do(slot, a); if (V) printf("   -> %d\n", r); if (r == ACT_TURN && G.hero.time <= t && G.hero.HP > 0 && !s_pend_depth && a != ACN_DROP && a != ACN_RETURN) viol("NO_TIME", "item %d action %s took no time", game_slot(slot)->kind, ACTION_NAMES[a]); return walk(r); }
 
 // ---------------- knowledge ----------------
 static int s_ign_uid[MAX_MOBS], s_ign_until[MAX_MOBS];
@@ -898,6 +899,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       if (c == CAT_SCROLL && s_scrhold && !gear_worth_upgrading() && bag_used() < BAG_SIZE - 3 && G.depth < (s_scrhold > 1 ? s_scrhold : 4) && !cursed_known(&h->armor) && !cursed_known(&h->weapon)) continue;   // 0.91 (owner): an Upgrade read now goes into the starting gear: hold them till something's worth it (or the Goo's near)
       if (c == CAT_SCROLL) { st_uses[ACN_READ]++; st_kinds[it->kind]++; do_item(sl, ACN_READ); return true; }
       if (c == CAT_POTION && getenv("HOLDPOT") && floor_left() && G.depth <= 2) continue;
+      if (c == CAT_POTION && getenv("IDB") && h->HP * 100 > h->HT * 60 && idb_p(it->kind, IK_POT_HEALING) >= (getenv("IDBKEEP") ? atof(getenv("IDBKEEP")) : 0.35)) continue;   // 0.93 IDB (owner): probably Healing: not tested at full health (wasted), kept for when it's needed (and cheaper in the shop unknown)
       if (c == CAT_POTION && !getenv("OLDBOOKS") && pot_new(sl) && storage_barr() >= 0 && s_barr_tries < 3) continue;   // 0.58 (owner: "test potions of flame against books"): one found on a storage room's floor is thrown at its door, not drunk   /* 0.51: off by default: ab50 +0.107, ab50b +0.097 without the hold */
       if (c == CAT_POTION && G.hero.b.levitation > 0 && puzzle_pending()) continue;
       if (c == CAT_POTION && s_pztest && ((!item_known(IK_POT_LEVITATION) && trap_puzzle_pending() && trap_door_testable()) || (!item_known(IK_POT_INVIS) && pool_puzzle_pending()))) continue;   // 0.92 (seed 84 d2: the bistre one was invisibility, drunk across the floor from the pool with the vault's key in it): pools too   // 0.91 (owner): tested at the trap room's door (puzzle_task), where levitation flies straight in   // (levitating: to the prize first)   // (puzzles: tested in water once the floor is done; levitating then, it flies to the prize)   // 0.49 (owner): no tests till the floor is done and its puzzles tried (a levitation potion opens a trap room)
@@ -1037,6 +1039,10 @@ static bool emergency(void) {                           // badly hurt
   if (s_pztest && !getenv("OLDEMERG3") && (h->hclass & 3) != 1 && h->HP * 100 >= h->HT * 15 && !h->b.poison && !h->b.bleed && !({ bool bs = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) bs = true; bs; })) { int mi = -1, md = 99; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && distance(o->pos, h->pos) < md) { md = distance(o->pos, h->pos); mi = i; } } if (mi >= 0 && !losing_fight(mi) && h->HP > 2 * MOB_DEFS[G.mobs[mi].type].dmg_hi) return false; }   /* (a margin: two of its best blows) */   // 0.93: the fight's sum says I win it with HP to spare: no Healing for it (the bosses need them)
   if ((s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }
   if (s_pztest && !item_known(IK_POT_HEALING)) for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_POTION && !item_known(h->bag[i].kind) && s_pot_guess[h->bag[i].kind] == IK_POT_HEALING) { st_uses[ACN_DRINK]++; if (!s_rollout) DID("the potion brewed from Sungrass: Healing, 2 times in 3"); do_item(i, ACN_DRINK); return true; }
+  if (getenv("IDB") && !item_known(IK_POT_HEALING)) { int bi = -1; double bp = getenv("IDBEMERG") ? atof(getenv("IDBEMERG")) : 0.45;   // 0.93 IDB (owner): the colour that's most likely Healing (and not likely a gas or a fire on myself)
+    for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) != CAT_POTION || item_known(k)) continue; double ph = idb_p(k, IK_POT_HEALING), bad = idb_p(k, IK_POT_PARALYTIC) + idb_p(k, IK_POT_TOXIC) + idb_p(k, IK_POT_FLAME);
+      if (ph >= bp && bad <= 0.25) { bp = ph; bi = i; } }
+    if (bi >= 0) { st_uses[ACN_DRINK]++; if (!s_rollout) DID("probably Healing (%.0f%%): drink it", bp * 100); do_item(bi, ACN_DRINK); return true; } }
   if (G.dew >= 3 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || G.dew < 10)) { do_item(s, ACN_DRINK); return true; }   // (0.52: at 10 it fires by itself at death)
   int adj = 0, adjm = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE && (getenv("OLDEMERG") || G.mobs[i].state == ST_HUNTING)) { adj++; adjm = i; }   // 0.52 (audit): lulled, terrified, asleep: not a threat now (it spent the next escape item)
   if (!adj) return false;
@@ -2403,6 +2409,8 @@ static bool want_buy(int h) {
   if (s_pztest && getenv("SHOP2")) return want_buy2(h);
   if (G.hero.gold < 60) return false;
   if (s_pztest && !getenv("OLDAFFORD") && G.hero.gold < shop_price(it)) return false;   // 0.93: the price is on the tag
+  if (getenv("IDB") && item_cat(k) == CAT_POTION && !item_known(k) && idb_p(k, IK_POT_HEALING) >= 0.5) return true;   // 0.93 IDB (owner): probably Healing, at the unknown price
+  if (getenv("IDB") && item_cat(k) == CAT_SCROLL && !item_known(k) && idb_p(k, IK_SCR_UPGRADE) >= 0.5) return true;
   if (k == IK_POT_HEALING || is_food(k) || k == IK_ANKH || k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER || k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH) return true;
   if (s_toe && (item_cat(k) == CAT_ARMOR || item_cat(k) == CAT_WEAPON)) return toe_buy(h);   // 0.73 TOE: by the plan
   if (item_cat(k) == CAT_ARMOR && armor_score(it) > armor_score(&G.hero.armor) + 2) return true;
@@ -2870,7 +2878,7 @@ static void oracles(void) {
 // half seen may have held one), so it's kept as odds over 0..15, updated on leaving each floor with what was found there
 // and how much of it went unseen. Unknown scrolls / potions picked up there count as half a find (no peeking at kinds).
 static const uint8_t Q_POS[10] = { 4, 2, 9, 4, 14, 6, 19, 8, 24, 9 }, Q_SOU[10] = { 5, 3, 10, 6, 15, 9, 20, 12, 25, 13 };
-static double s_q_sou[16], s_q_pos[16], s_q_u = 1, s_q_fs, s_q_fp; static int s_q_d = -1, s_q_game = -1, s_q_us0, s_q_up0, s_q_sou0, s_q_str0;
+static int s_q_lab0[IK_COUNT]; static double s_q_sou[16], s_q_pos[16], s_q_u = 1, s_q_fs, s_q_fp; static int s_q_d = -1, s_q_game = -1, s_q_us0, s_q_up0, s_q_sou0, s_q_str0;
 static double q_spawn(const uint8_t *Q, int n, int d) { if (d == 21) return 0; for (int i = 0; i < 10; i += 2) if (d <= Q[i]) { double p = (double)(Q[i + 1] - n) / (Q[i] - d + 1); return p < 0 ? 0 : p > 1 ? 1 : p; } return 0; }
 static double q_unseen(const double *P, const uint8_t *Q, int d, double f, double u) {   // the chance one is still in the unseen part here
   double r = 0; for (int n = 0; n < 15; n++) if (P[n] > 0) { double sp = q_spawn(Q, n, d), den = 1 - sp * (1 - u); r += P[n] * (den > 1e-9 ? sp * u / den : 0); } return (1 - f) * r; }
@@ -2879,16 +2887,78 @@ static void q_leave(double *P, const uint8_t *Q, int d, double f, double u) {   
   double t = 0; for (int n = 0; n < 16; n++) t += N[n]; for (int n = 0; n < 16; n++) P[n] = t > 0 ? N[n] / t : (n == 0); }
 static int q_unknown(int cat) { int q = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == cat && !item_known(G.hero.bag[i].kind)) q += G.hero.bag[i].qty; return q; }
 static double floor_unseen(void) { int seen = 0; for (int c = 0; c < MAP_LEN; c++) if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) seen++; double est = seen + 40 > 300 ? seen + 40 : 300, un = 1 - seen / est; return un < 0 ? 0 : un; }
+// 0.93 IDB (owner: "worth the average of the yet-unidentified, weighted by their drop rates"): what an unknown potion or
+// scroll probably is. Each colour / label is an opaque name (the bot never reads its meaning). Evidence: how often each
+// label has turned up against each kind's rate (Generator's weights; Strength and Upgrade come by the quota instead,
+// about 0.38 and 0.52 a floor), the flies' drop (only ever Healing), and the shop's shelf (one Healing among its
+// potions; Identify, Remove Curse and Magic Mapping among its scrolls). Each kind has exactly one label: the odds are
+// balanced both ways (rows and columns) until they agree.
+static const uint16_t IDB_PW[12] = { 45, 4, 15, 10, 15, 10, 0, 20, 12, 10, 0, 10 }, IDB_SW[12] = { 30, 10, 15, 10, 15, 12, 8, 8, 4, 6, 0, 1 };
+static const uint8_t IDB_PK[12] = { IK_POT_HEALING, IK_POT_EXPERIENCE, IK_POT_TOXIC, IK_POT_PARALYTIC, IK_POT_FLAME, IK_POT_LEVITATION, IK_POT_STRENGTH, IK_POT_MIND, IK_POT_PURITY, IK_POT_INVIS, IK_POT_MIGHT, IK_POT_FROST };
+static const uint8_t IDB_SK[12] = { IK_SCR_IDENTIFY, IK_SCR_TELEPORT, IK_SCR_REMOVE_CURSE, IK_SCR_RECHARGING, IK_SCR_MAPPING, IK_SCR_CHALLENGE, IK_SCR_TERROR, IK_SCR_LULLABY, IK_SCR_PSIONIC, IK_SCR_MIRROR, IK_SCR_UPGRADE, IK_SCR_ENCHANT };
+static double s_idn[IK_COUNT]; static uint8_t s_idfly[IK_COUNT]; static uint16_t s_idshop_p[8], s_idshop_s[8]; static int s_nidshop, s_idgame = -1, s_idmaxd, s_idq[IK_COUNT], s_idshop_d[8];
+static int16_t s_idfpos[32]; static int s_nidf; static uint8_t s_idheap[MAP_LEN / 8 + 1]; static int s_iddepth = -1; static int32_t s_idgold; static int s_iddrop = -1;
+static double s_idP[2][12][12]; static int s_idstep = -1;   // [potions/scrolls][label][kind index]
+static double idb_rate(int pot, int i) { double r = pot ? 1.0 * IDB_PW[i] / 151.0 : 0.8 * IDB_SW[i] / 119.0; int k = pot ? IDB_PK[i] : IDB_SK[i];
+  if (k == IK_POT_STRENGTH) r += 0.38; if (k == IK_SCR_UPGRADE) r += 0.52; if (k == IK_SCR_ENCHANT) r += 0.12; if (k == IK_POT_MIGHT) r += 0.01; if (k == IK_POT_LEVITATION || k == IK_POT_INVIS || k == IK_POT_FLAME) r += 0.05; return r; }
+static void idb_solve(void) {
+  if (s_idstep == s_bot_steps) return; s_idstep = s_bot_steps;
+  for (int pot = 0; pot < 2; pot++) { const uint8_t *K = pot ? IDB_PK : IDB_SK; int base = pot ? IK_FIRST_POTION : IK_FIRST_SCROLL; double (*P)[12] = s_idP[pot];
+    double M[12][12]; bool lu[12], ku[12];   // label unknown, kind unknown (a known kind's label is itself)
+    for (int c = 0; c < 12; c++) lu[c] = !item_known(base + c); for (int i = 0; i < 12; i++) ku[i] = !item_known(K[i]);
+    int F = s_idmaxd > 0 ? s_idmaxd : 1;
+    for (int c = 0; c < 12; c++) for (int i = 0; i < 12; i++) { if (!lu[c] || !ku[i]) { M[c][i] = 0; continue; } double r = idb_rate(pot, i); M[c][i] = s_idn[base + c] * log(r) - r * F; }
+    for (int c = 0; c < 12; c++) { if (!lu[c]) continue; double mx = -1e300; for (int i = 0; i < 12; i++) if (ku[i] && M[c][i] > mx) mx = M[c][i]; for (int i = 0; i < 12; i++) M[c][i] = ku[i] ? exp(M[c][i] - mx) : 0; }
+    for (int c = 0; c < 12; c++) if (lu[c]) {   // the hard clues
+      int L = base + c; if (pot && s_idfly[L]) for (int i = 0; i < 12; i++) if (K[i] != IK_POT_HEALING) M[c][i] = 0;
+      if (pot) for (int j = 0; j < 12; j++) if (j != c && s_idfly[base + j] && !item_known(base + j)) for (int i = 0; i < 12; i++) if (K[i] == IK_POT_HEALING) M[c][i] = 0;
+      for (int sh = 0; sh < s_nidshop; sh++) { uint16_t set = pot ? s_idshop_p[sh] : s_idshop_s[sh]; if (set & (1 << c)) continue;
+        for (int i = 0; i < 12; i++) if (pot ? K[i] == IK_POT_HEALING : (K[i] == IK_SCR_IDENTIFY || K[i] == IK_SCR_REMOVE_CURSE || K[i] == IK_SCR_MAPPING)) M[c][i] = 0; } }
+    for (int it = 0; it < 80; it++) {
+      for (int c = 0; c < 12; c++) { double t = 0; for (int i = 0; i < 12; i++) t += M[c][i]; if (t > 0) for (int i = 0; i < 12; i++) M[c][i] /= t; }
+      for (int i = 0; i < 12; i++) { double t = 0; for (int c = 0; c < 12; c++) t += M[c][i]; if (t > 0) for (int c = 0; c < 12; c++) M[c][i] /= t; } }
+    for (int c = 0; c < 12; c++) { double t = 0; for (int i = 0; i < 12; i++) t += M[c][i]; for (int i = 0; i < 12; i++) P[c][i] = t > 0 ? M[c][i] / t : 0; } }
+}
+static double idb_p(int label, int kind) {              // the chance the unknown label is that kind (a known label: 1 or 0)
+  if (item_known(label)) return label == kind; int pot = item_cat(label) == CAT_POTION; if (!pot && item_cat(label) != CAT_SCROLL) return 0;
+  idb_solve(); const uint8_t *K = pot ? IDB_PK : IDB_SK; int c = label - (pot ? IK_FIRST_POTION : IK_FIRST_SCROLL);
+  for (int i = 0; i < 12; i++) if (K[i] == kind) return s_idP[pot][c][i]; return 0; }
+static void idb_track(void) {                           // each step (main game): finds by label, the flies' drops, the shops' shelves
+  Hero *h = &G.hero; if (s_rollout || s_is_child) return;
+  if (s_idgame != cur_game) { s_idgame = cur_game; memset(s_idn, 0, sizeof s_idn); memset(s_idfly, 0, sizeof s_idfly); s_nidshop = 0; s_idmaxd = 0; memset(s_idq, 0, sizeof s_idq); s_nidf = 0; s_iddepth = -1; s_idgold = h->gold; s_iddrop = -1; }
+  if (G.depth > s_idmaxd) s_idmaxd = G.depth;
+  if (s_iddepth != G.depth) { s_iddepth = G.depth; memset(s_idheap, 0, sizeof s_idheap); s_nidf = 0; }
+  int q[IK_COUNT] = { 0 }; for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_POTION || item_cat(k) == CAT_SCROLL) q[k] += h->bag[i].qty; }
+  for (int k = 0; k < IK_COUNT; k++) if (q[k] != s_idq[k]) { int d = q[k] - s_idq[k];
+    if (d > 0 && h->gold >= s_idgold) s_idn[k] += d;        // found (not bought: the gold went down then)
+    if (d < 0 && s_iddrop_k == k) s_idn[k] += d;              // dropped (it'll be picked up again)
+    s_idq[k] = q[k]; }
+  s_idgold = h->gold; s_iddrop = -1; s_iddrop_k = -1;
+  for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos, k = hp->item.kind; if ((unsigned)c >= MAP_LEN || !BIT_GET(G.fov, c) || BIT_GET(s_idheap, c)) continue;
+    BIT_SET(s_idheap, c); if (hp->type == HEAP_PLAIN && item_cat(k) == CAT_POTION && !item_known(k)) for (int f = 0; f < s_nidf; f++) if (s_idfpos[f] == c) { s_idfly[k] = 1; if (getenv("IDBDBG")) printf("IDB g%d d%d: a potion where flies died: label %d is Healing\n", cur_game, G.depth, k); } }
+  s_nidf = 0; for (int i = 0; i < G.n_mobs && s_nidf < 32; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_SWARM && BIT_GET(G.fov, G.mobs[i].pos)) s_idfpos[s_nidf++] = G.mobs[i].pos;
+  if (G.depth == 6 || G.depth == 11 || G.depth == 16) { int ns = 0; uint16_t sp = 0, ss = 0; for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if (hp->type != HEAP_FOR_SALE || (unsigned)hp->pos >= MAP_LEN || !BIT_GET(G.visited, hp->pos)) continue; ns++; int k = hp->item.kind;
+      if (item_cat(k) == CAT_POTION) sp |= 1 << (k - IK_FIRST_POTION); if (item_cat(k) == CAT_SCROLL) ss |= 1 << (k - IK_FIRST_SCROLL); }
+    if (ns >= 10) { int j = 0; while (j < s_nidshop && s_idshop_d[j] != G.depth) j++; if (j < 8) { if (j == s_nidshop) s_nidshop++; s_idshop_d[j] = G.depth; s_idshop_p[j] |= sp; s_idshop_s[j] |= ss; } } }
+  if (getenv("IDBDBG") && !(s_bot_steps % atoi(getenv("IDBDBG")))) { printf("IDB g%d d%d step %d potions:", cur_game, G.depth, s_bot_steps); for (int c = 0; c < 12; c++) if (!item_known(IK_FIRST_POTION + c) && s_idn[IK_FIRST_POTION + c] > 0) printf(" L%d n%.0f heal %.2f str %.2f", c, s_idn[IK_FIRST_POTION + c], idb_p(IK_FIRST_POTION + c, IK_POT_HEALING), idb_p(IK_FIRST_POTION + c, IK_POT_STRENGTH));
+    printf(" | scrolls:"); for (int c = 0; c < 12; c++) if (!item_known(IK_FIRST_SCROLL + c) && s_idn[IK_FIRST_SCROLL + c] > 0) printf(" L%d n%.0f upg %.2f", c, s_idn[IK_FIRST_SCROLL + c], idb_p(IK_FIRST_SCROLL + c, IK_SCR_UPGRADE)); printf("\n"); }
+}
 static void q_track(void) {                              // each step: the floor's finds so far; a new deepest floor: fold the last one in
   Hero *h = &G.hero; if (s_rollout || s_is_child) return;
+  if (getenv("IDB") || getenv("IDBDBG")) idb_track();
   if (s_q_game != cur_game) { s_q_game = cur_game; memset(s_q_sou, 0, sizeof s_q_sou); memset(s_q_pos, 0, sizeof s_q_pos); s_q_sou[0] = s_q_pos[0] = 1; s_q_d = -1; }
   int sou = (int)st_sou_read + (find_kind(IK_SCR_UPGRADE) >= 0 && item_known(IK_SCR_UPGRADE) ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0), str = h->STR + (find_kind(IK_POT_STRENGTH) >= 0 && item_known(IK_POT_STRENGTH) ? game_slot(find_kind(IK_POT_STRENGTH))->qty : 0);
   if (G.depth > s_q_d) {
     if (s_q_d >= 1) { q_leave(s_q_sou, Q_SOU, s_q_d, s_q_fs, s_q_u); q_leave(s_q_pos, Q_POS, s_q_d, s_q_fp, s_q_u); }
+    memcpy(s_q_lab0, s_idq, sizeof s_q_lab0);
     s_q_d = G.depth; s_q_us0 = q_unknown(CAT_SCROLL); s_q_up0 = q_unknown(CAT_POTION); s_q_sou0 = sou; s_q_str0 = str; s_q_fs = s_q_fp = 0; s_q_u = 1; }
   if (G.depth != s_q_d) return;
   s_q_u = floor_unseen();
   s_q_fs = sou > s_q_sou0 ? 1 : q_unknown(CAT_SCROLL) > s_q_us0 ? 0.5 : 0; s_q_fp = str > s_q_str0 ? 1 : q_unknown(CAT_POTION) > s_q_up0 ? 0.5 : 0;
+  if (getenv("IDB")) {   // 0.93: an unknown one found here counts as the chance it's the one (not a flat half)
+    double ns = 1, np = 1; for (int c = 0; c < 12; c++) { int ks = IK_FIRST_SCROLL + c, kp = IK_FIRST_POTION + c, ds = s_idq[ks] - s_q_lab0[ks], dp = s_idq[kp] - s_q_lab0[kp];
+      if (ds > 0 && !item_known(ks)) ns *= pow(1 - idb_p(ks, IK_SCR_UPGRADE), ds); if (dp > 0 && !item_known(kp)) np *= pow(1 - idb_p(kp, IK_POT_STRENGTH), dp); }
+    if (s_q_fs < 1) s_q_fs = 1 - ns; if (s_q_fp < 1) s_q_fp = 1 - np; }
   if (sou > s_q_sou0) s_q_fs = 1; if (s_q_fs < 1 && q_unknown(CAT_SCROLL) < s_q_us0) s_q_us0 = q_unknown(CAT_SCROLL);   // (read or dropped: the baseline follows)
   if (s_q_fp < 1 && q_unknown(CAT_POTION) < s_q_up0) s_q_up0 = q_unknown(CAT_POTION);
 }
@@ -3151,7 +3221,7 @@ static bool decide(void) {
   if (!getenv("OLDSHOP") && enemy_count() == 0) {   // 0.50 (review g6): the shop's wares never made the target list (the suggester leaves them out): go and buy what's wanted
     bfs(h->pos, false); int bc = -1, bp = 99;
     for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos; if (hp->type != HEAP_FOR_SALE || (unsigned)c >= MAP_LEN || !BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || (s_black[c] > s_bot_steps && (getenv("OLDAFFORD") || G.hero.gold <= s_sale_gold[c])) || !want_buy(i)) continue;   /* (0.93 n8g5 g3001: in at 62 gold, the wares blacklisted 3000 steps: back with 491, two rations left, down starving) */
-      int k = hp->item.kind, pr = (s_pztest && getenv("SHOP2")) ? (3000 - shop_value(&hp->item)) / 40 : (s_pztest && !getenv("OLDSHOPPRI")) ? (getenv("SHOPANKH") && k == IK_ANKH ? 0 : k == IK_POT_HEALING ? 0 : is_food(k) ? 1 : k == IK_POT_STRENGTH || k == IK_SCR_UPGRADE ? 2 : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 3 : k == IK_ANKH ? 4 : 5) : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 0 : is_food(k) ? 1 : k == IK_POT_HEALING ? 2 : k == IK_ANKH ? 3 : 4;   /* (0.92 seed 84 d6: 800 gold on a pouch and a ration, two Healings left on the shelf: a Healing is 60-odd HP, 600 turns of mending) */ /* (owner: the bag first: more room, more tools all game) */ if (pr < bp || (pr == bp && b_dist[c] < b_dist[bc])) { bp = pr; bc = c; } }
+      int k = hp->item.kind, pr = (s_pztest && getenv("SHOP2")) ? (3000 - shop_value(&hp->item)) / 40 : (s_pztest && !getenv("OLDSHOPPRI")) ? (getenv("SHOPANKH") && k == IK_ANKH ? 0 : (k == IK_POT_HEALING || (getenv("IDB") && !item_known(k) && item_cat(k) == CAT_POTION && idb_p(k, IK_POT_HEALING) >= 0.5)) ? 0 : is_food(k) ? 1 : k == IK_POT_STRENGTH || k == IK_SCR_UPGRADE ? 2 : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 3 : k == IK_ANKH ? 4 : 5) : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 0 : is_food(k) ? 1 : k == IK_POT_HEALING ? 2 : k == IK_ANKH ? 3 : 4;   /* (0.92 seed 84 d6: 800 gold on a pouch and a ration, two Healings left on the shelf: a Healing is 60-odd HP, 600 turns of mending) */ /* (owner: the bag first: more room, more tools all game) */ if (pr < bp || (pr == bp && b_dist[c] < b_dist[bc])) { bp = pr; bc = c; } }
     if (bc >= 0) { static int lc = -1, ln, lg; if (bc == lc && G.hero.gold == lg) ln++; else { lc = bc; ln = 0; lg = G.hero.gold; }
       if (getenv("WNDDBG")) printf("  SHOP bc %d ln %d black %d steps %d\n", bc, ln, s_black[bc], s_bot_steps); if (ln > 6) { s_black[bc] = s_bot_steps + 3000; s_sale_gold[bc] = G.hero.gold; ln = 0; } else { choice = bc; why = "shop"; } } }   /* (0.52f: can't afford it: the trade window does nothing: 300 steps stuck, games 4/41) */
   for (int i = 0; i < n && choice < 0; i++) {
