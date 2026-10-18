@@ -4042,7 +4042,7 @@ static FILE *tt_f; void tgt_time(long ns) { if (getenv("TTV") && ns > atoi(geten
 
 // ==== bot3: the "real arrivals" lab: each saved hero (ARRLAB=dir) fights floor 5 R times with different luck
 static char *snap_state(int g, int step);
-static long s_lab_dh[32];
+static long s_lab_dh[32]; static int s_lab_b = 1 << 30;
 static int lab_trial(const char *fn, uint32_t seed) {
   int fds[2]; if (pipe(fds)) return -1;
   pid_t pid = fork();
@@ -4078,7 +4078,7 @@ static int lab_trial(const char *fn, uint32_t seed) {
 }
 static int run_lab(const char *dir) {
   char cmd[400]; snprintf(cmd, sizeof cmd, "ls %s/arr_g*.bin", dir); FILE *ls = popen(cmd, "r"); char fn[300]; int R = getenv("LABR") ? atoi(getenv("LABR")) : 5;
-  int a = getenv("LABA") ? atoi(getenv("LABA")) : 0, b = getenv("LABB") ? atoi(getenv("LABB")) : 1 << 30, idx = 0;
+  int a = getenv("LABA") ? atoi(getenv("LABA")) : getenv("START") ? atoi(getenv("START")) : 0, b = getenv("LABB") ? atoi(getenv("LABB")) : s_lab_b, idx = 0;   // (0.93: START..N: one runner chunk each)
   long wins = 0, tot = 0, stuck = 0;
   while (ls && fgets(fn, sizeof fn, ls)) { fn[strcspn(fn, "\n")] = 0; if (idx < a || idx >= b) { idx++; continue; } idx++;
     int w = 0; for (int r = 0; r < R; r++) { int res = lab_trial(fn, 1000 + r * 7919); if (res == 1) w++; if (res == 2) stuck++; tot++; }
@@ -4236,10 +4236,10 @@ int main(int argc, char **argv) {
   prm_load();
   if (getenv("LAK")) LA_K = atoi(getenv("LAK"));
   { s_noburnt = getenv("NOBURNT") != NULL; s_oldfire = getenv("OLDFIRE") != NULL; s_oldchoke = getenv("OLDCHOKE") != NULL; s_oldeat = getenv("OLDEAT") != NULL; if (getenv("EATLATE")) s_eatlate = atoi(getenv("EATLATE")); else if (getenv("PZTEST") && getenv("EATLATE50")) s_eatlate = 50; /* (0.92 e1, 120 games each: eat at Hungry 7.11, at Starving 6.81, Starving under 80% 6.50, under 50% 5.67: starving bleeds ~3 HP a 10 turns and stops mending) */ /* 0.92 (owner: "I always eat after starving down a little"): hunger stops at Starving, so turns spent there cost no food, only ~1.3 HP a 10 turns */ if (getenv("WARREAT")) s_warreat = atoi(getenv("WARREAT")); s_oldgear = getenv("OLDGEAR") != NULL; s_oldtrap = getenv("OLDTRAP") != NULL; if (getenv("SRCH_WIN")) s_srch_win = atoi(getenv("SRCH_WIN")); if (getenv("SRCH_K")) s_srch_k = atoi(getenv("SRCH_K")); s_olddead = getenv("OLDDEAD") != NULL; s_olddark = getenv("OLDDARK") != NULL; if (getenv("RISKP")) s_riskp = atof(getenv("RISKP")); s_nounk = getenv("NOUNK") != NULL; s_oldsleep = getenv("OLDSLEEP") != NULL; }
-  if (getenv("ARRLAB")) return run_lab(getenv("ARRLAB"));
   s_dring_on = getenv("DEATHRING") != NULL; if (getenv("STARVELEAVE")) s_starve_leave = atoi(getenv("STARVELEAVE"));
   if (getenv("ARM_SPEEDK")) s_arm_speedk = atof(getenv("ARM_SPEEDK"));
   s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_pocket = getenv("POCKET") ? atoi(getenv("POCKET")) : 0; s_plandbg = getenv("PLANDBG") ? atoi(getenv("PLANDBG")) : -1; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") ? atoi(getenv("SCRHOLD")) : 0; s_pztest = getenv("PZTEST") != NULL; s_firedoom = s_pztest && !getenv("NOFIREDOOM"); s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
+  if (getenv("ARRLAB")) { s_lab_b = argc > 1 ? atoi(argv[1]) : 1 << 30; return run_lab(getenv("ARRLAB")); }   /* (0.93: after the settings: the lab ran without PZTEST, DETOUR, KITE2...) */
   if (getenv("EXPLAB")) return run_explab();
   int N = argc > 1 ? atoi(argv[1]) : 100, hs = getenv("HS") ? atoi(getenv("HS")) : 3;
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;
