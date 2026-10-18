@@ -4025,6 +4025,12 @@ static bool lookahead(void) {
     const char *o = getenv("LAONLY"); int t = c[bi].t; bool mob = t == C_TAP && mob_at(c[bi].a) >= 0 && !ally(mob_at(c[bi].a));
     const char *k = t == C_REST ? "rest" : t == C_TAP ? (c[bi].a == G.hero.pos ? "stairs" : mob ? "attack" : "move") : t == C_ITEM ? "item" : (t == C_ZAP || t == C_THROW) ? "ranged" : "other";
     if (!strstr(o, k)) return false; }
+  if (getenv("LACTX")) {   // 0.93 diagnostic: only in one kind of situation (boss in sight / the rules' plain fight / anything else)
+    bool boss = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) boss = true;
+    char dflt[96] = "?"; if (!boss) { int fd[2]; if (!pipe(fd)) { fflush(stdout); pid_t kk = fork(); if (kk == 0) { close(fd[0]); s_rollout = 1; V = 0; int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); } s_did[0] = 0; decide(); char b[96]; snprintf(b, sizeof b, "%s", s_did[0] ? s_did : "-"); if (write(fd[1], b, sizeof b) != sizeof b) {} _exit(0); }
+        close(fd[1]); if (read(fd[0], dflt, sizeof dflt) != sizeof dflt) dflt[0] = 0; close(fd[0]); int st2; waitpid(kk, &st2, 0); } }
+    const char *ctx = boss ? "boss" : !strncmp(dflt, "fight ", 6) ? "fight" : "other";
+    if (!strstr(getenv("LACTX"), ctx)) return false; }
   st_la_changed++;
   if (getenv("LATEACH") && !s_rollout && !s_is_child) {   // 0.93 (owner: the look-ahead as a teacher): what it chose over the rules, and in what situation
     Hero *h = &G.hero; int nf = nearest_hostile(), fp = nf >= 0 ? G.mobs[nf].pos : -1; char what[96] = "?", nm[64] = "";
