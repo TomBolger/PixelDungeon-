@@ -2958,7 +2958,7 @@ static bool decide(void) {
     int bud = 360 - h->hunger; for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (is_food(k)) bud += (k == IK_RATION ? 260 : k == IK_PASTY ? 360 : 100) * h->bag[i].qty; }
     if (!s_ev_food && !boss_depth(G.depth)) bud += 260;   // (this floor's ration, not found yet)
     int need = 300 + (boss_depth(G.depth + 1) ? 300 : 0), sur = bud - need;
-    if (sur < 0) { if (rhi > 55) rhi = 55; if (rlo > 35) rlo = 35; } else if (sur < 200) { if (rhi > 65) rhi = 65; if (rlo > 40) rlo = 40; } }
+    if (sur < 0) { if (rhi > 55) rhi = 55; if (rlo > 35) rlo = 35; if (getenv("RESTFOOD2")) { rhi = 35; rlo = 25; } } else if (sur < 200) { if (rhi > 65) rhi = 65; if (rlo > 40) rlo = 40; } }   /* (0.93 RESTFOOD2 test (audit): food-short, regen is food-limited: resting only moves it earlier and walking regenerates too) */
   if (getenv("RESTFULL")) { rhi = 100; rlo = 80; }
   if (getenv("THRIFT")) { int pc = thrift_need() * 100 / (h->HT ? h->HT : 1); rhi = pc + 1; rlo = pc; }   // 0.58 (owner): rest only to what the next fight needs; the rest comes back while walking   // 0.57 counterfactual: rest to full whatever the food
   s_resting = s_resting && h->HP * 100 < h->HT * rhi;   // bot3 (owner): heal while walking; with a backup, rest only when low
