@@ -1977,7 +1977,7 @@ static bool fight(void) {
         if (x != R->left && x != R->right && y != R->top && y != R->bottom) continue;
         int c = x + y * MAP_W; if (G.map[c] != T_DOOR && G.map[c] != T_OPEN_DOOR) continue;
         for (int k = 0; k < 8; k++) { int q = c + N8[k]; if (!nb_ok(c, q) || room_at(q) == gr || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || b_dist[q] == 0x7FFF || (char_at(q) && q != h->pos)) continue;
-          if (getenv("GOO_ESCSPOT")) { bool esc = false; for (int a = 0; a < 8 && !esc; a++) { int q1 = q + N8[a]; if (!nb_ok(q, q1) || !PASSABLE(G.map[q1]) || (TFLAGS(G.map[q1]) & F_AVOID) || room_at(q1) == gr) continue;   // 0.58: a spot with a way out of a pumped Goo's reach (two steps to 3+ from the door)
+          if (getenv("GOO_ESCSPOT") || s_pztest) { bool esc = false; for (int a = 0; a < 8 && !esc; a++) { int q1 = q + N8[a]; if (!nb_ok(q, q1) || !PASSABLE(G.map[q1]) || (TFLAGS(G.map[q1]) & F_AVOID) || room_at(q1) == gr) continue;   // 0.58: a spot with a way out of a pumped Goo's reach (two steps to 3+ from the door)
               for (int b2 = 0; b2 < 8 && !esc; b2++) { int q2 = q1 + N8[b2]; if (nb_ok(q1, q2) && PASSABLE(G.map[q2]) && !(TFLAGS(G.map[q2]) & F_AVOID) && room_at(q2) != gr && distance(q2, c) >= 3) esc = true; } } if (!esc) continue; }
           int sc = b_dist[q] * 4 - (IS_WATER(G.map[q]) ? 6 : 0) + (k >= 4 ? 2 : 0); if (sc < bsc) { bsc = sc; spot = q; door = c; } }
       }
