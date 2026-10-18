@@ -1758,7 +1758,7 @@ static bool statue_worth(int i) {                     // 0.52 (audit): a statue 
   Mob *m = &G.mobs[i]; Hero *h = &G.hero; if (h->HP * 10 < h->HT * 9) return false;
   int cp = CARRIED_POS(m->uid); for (int k = 0; k < G.n_heaps; k++) if (G.heaps[k].pos == cp && item_cat(G.heaps[k].item.kind) == CAT_WEAPON) {
     Item w = G.heaps[k].item, ba = believed(&h->armor, 0), bw = believed(&h->weapon, 0);
-    if (gear_cost(&w, &ba) < gear_cost(&bw, &ba) * 0.9 && !losing_fight(i)) return true; }
+    if (gear_cost(&w, &ba) < gear_cost(&bw, &ba) * 0.9 && !losing_fight(i) && !(s_pztest && (s_lose_cost * 2.5 > h->HP || h->lvl < G.depth + 3))) return true; }   // (0.92 seed 84 d4: a statue judged winnable at 40/40, lvl 5, took 35 HP in 4 blows: its weapon hits far harder than the estimate)
   return false;
 }
 
@@ -4102,7 +4102,7 @@ int main(int argc, char **argv) {
   if (!game_init()) return 1;
   prm_load();
   if (getenv("LAK")) LA_K = atoi(getenv("LAK"));
-  { s_noburnt = getenv("NOBURNT") != NULL; s_oldfire = getenv("OLDFIRE") != NULL; s_oldchoke = getenv("OLDCHOKE") != NULL; s_oldeat = getenv("OLDEAT") != NULL; if (getenv("EATLATE")) s_eatlate = atoi(getenv("EATLATE")); else if (getenv("PZTEST")) s_eatlate = 50; /* 0.92 (owner: "I always eat after starving down a little"): hunger stops at Starving, so turns spent there cost no food, only ~1.3 HP a 10 turns */ if (getenv("WARREAT")) s_warreat = atoi(getenv("WARREAT")); s_oldgear = getenv("OLDGEAR") != NULL; s_oldtrap = getenv("OLDTRAP") != NULL; if (getenv("SRCH_WIN")) s_srch_win = atoi(getenv("SRCH_WIN")); if (getenv("SRCH_K")) s_srch_k = atoi(getenv("SRCH_K")); s_olddead = getenv("OLDDEAD") != NULL; s_olddark = getenv("OLDDARK") != NULL; if (getenv("RISKP")) s_riskp = atof(getenv("RISKP")); s_nounk = getenv("NOUNK") != NULL; s_oldsleep = getenv("OLDSLEEP") != NULL; }
+  { s_noburnt = getenv("NOBURNT") != NULL; s_oldfire = getenv("OLDFIRE") != NULL; s_oldchoke = getenv("OLDCHOKE") != NULL; s_oldeat = getenv("OLDEAT") != NULL; if (getenv("EATLATE")) s_eatlate = atoi(getenv("EATLATE")); else if (getenv("PZTEST") && getenv("EATLATE50")) s_eatlate = 50; /* (0.92 e1, 120 games each: eat at Hungry 7.11, at Starving 6.81, Starving under 80% 6.50, under 50% 5.67: starving bleeds ~3 HP a 10 turns and stops mending) */ /* 0.92 (owner: "I always eat after starving down a little"): hunger stops at Starving, so turns spent there cost no food, only ~1.3 HP a 10 turns */ if (getenv("WARREAT")) s_warreat = atoi(getenv("WARREAT")); s_oldgear = getenv("OLDGEAR") != NULL; s_oldtrap = getenv("OLDTRAP") != NULL; if (getenv("SRCH_WIN")) s_srch_win = atoi(getenv("SRCH_WIN")); if (getenv("SRCH_K")) s_srch_k = atoi(getenv("SRCH_K")); s_olddead = getenv("OLDDEAD") != NULL; s_olddark = getenv("OLDDARK") != NULL; if (getenv("RISKP")) s_riskp = atof(getenv("RISKP")); s_nounk = getenv("NOUNK") != NULL; s_oldsleep = getenv("OLDSLEEP") != NULL; }
   if (getenv("ARRLAB")) return run_lab(getenv("ARRLAB"));
   s_dring_on = getenv("DEATHRING") != NULL; if (getenv("STARVELEAVE")) s_starve_leave = atoi(getenv("STARVELEAVE"));
   if (getenv("ARM_SPEEDK")) s_arm_speedk = atof(getenv("ARM_SPEEDK"));
