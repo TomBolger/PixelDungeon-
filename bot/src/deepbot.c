@@ -1102,6 +1102,7 @@ static bool losing_fight(int mi) {                      // the sum: its HP over 
   double turns = hp_left / hd;                   // (the others after it: counted once more each)
   for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (i != mi && IN_FIGHT(i, o)) turns += o->HP / hero_dpt(o); }
   s_lose_cost = turns * in;
+  if (s_pztest && !getenv("NOBRUTEEST") && (m->type == MT_BRUTE || m->type == MT_SHIELDED) && m->HP >= m->HT / 4) { int q = m->HT / 4; s_lose_cost += (q < m->HP ? q : m->HP) / hd * foe_dpt(m) * 0.9; }   // 0.92 (gnoll brutes: the top killer on floors 11-14): its last quarter it fights enraged, 10-40 a blow
   if (getenv("KITDBG")) printf("  duel s%d: %s hp %d: my dpt %.2f (att %d vs def %d, dly %d), its dpt %.2f (att %d vs my def %.1f, my dr %d, its dr %d, wpn %d-%d), turns %.1f cost %.1f of %d\n", s_bot_steps, mob_name(m->type), m->HP, hero_dpt(m), hero_attack_skill(NULL, m->pos), mst(m, STAT_DEF, MOB_DEFS[m->type].def), attack_delay(G.hero.weapon.kind ? &G.hero.weapon : NULL), in, mst(m, STAT_ATT, MOB_DEFS[m->type].att), hero_def_est(), hero_dr(), mst(m, STAT_DR, MOB_DEFS[m->type].dr), G.hero.weapon.kind ? weapon_min(&G.hero.weapon) : 0, G.hero.weapon.kind ? weapon_max(&G.hero.weapon) : 0, turns, s_lose_cost, h->HP);
   return s_lose_cost >= (h->HP - (getenv("OLDGLYPH") ? 0 : G.deferred)) * 0.6;                    // it would leave you under 40% of what you have now (dice run hot: margin)
 }
