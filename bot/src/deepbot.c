@@ -2009,6 +2009,7 @@ static bool fight(void) {
   if (m->type == MT_GOO && !h->b.roots && G.hero.ooze && !IS_WATER(G.map[h->pos]) && !adjacent(m->pos, h->pos) && !(m->aux2 && distance(m->pos, h->pos) <= 2)) {   // bot3: ooze: one step into water washes it off
     for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (nb_ok(h->pos, q) && IS_WATER(G.map[q]) && !char_at(q) && !adjacent(q, m->pos)) { s_did[0] = 0; DID("wash the ooze off in the water"); walk(tap_safe(q)); return true; } }
   }
+  if (m->type == MT_GOO && getenv("GOODBG") && !s_rollout) printf("  GOODBG step %d hero %d,%d hp %d/%d goo %d,%d hp %d aux2 %d aux %d state %d d %d ooze %d calm %d spot %d\n", s_bot_steps, cx(h->pos), cy(h->pos), h->HP, h->HT, cx(m->pos), cy(m->pos), m->HP, m->aux2, m->aux, m->state, distance(m->pos, h->pos), h->ooze, G.now < s_goo_calm, s_goo_spot);
   if (m->type == MT_GOO && !h->b.roots) {             // bot3: the Goo plan (STRATEGY.md)
     // a pumped Goo jumps 2 cells along a straight line: step where its line to you is blocked (round a corner, behind
     // the door frame: the jump fails and the pump is wasted), else as far as you can
