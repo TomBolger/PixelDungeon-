@@ -2717,7 +2717,7 @@ static bool decide(void) {
     for (int c = 0; c < MAP_LEN; c++) if (IS_WATER(G.map[c]) && b_dist[c] < bd && c != G.entrance && c != G.exit && heap_at(c) < 0) { bd = b_dist[c]; best = c; }
     if (best >= 0) { ActResult r = tap_safe(best); if (V) printf("  to water %d from %d: %d (dist %d) action %d\n", best, h->pos, r, bd, G.action); if (r != ACT_NONE) { walk(r); return true; } }
   }
-  if (getenv("X_OOZE") && h->ooze && !IS_WATER(G.map[h->pos]) && !h->b.roots) {   // X: ooze never wears off: wash it in the nearest water
+  if ((getenv("X_OOZE") || s_pztest) && h->ooze && !IS_WATER(G.map[h->pos]) && !h->b.roots) {   // X (0.92: on under PZTEST; seed 84: the Goo fled in terror, the ooze ate the bot at rest): ooze never wears off: wash it in the nearest water
     bool gc = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (G.mobs[i].type == MT_GOO || (G.mobs[i].type == MT_ROTTING_FIST && !getenv("OLDYOG"))) && distance(G.mobs[i].pos, h->pos) <= (G.mobs[i].type == MT_GOO ? 2 : 4)) gc = true;   // (0.54: not with the rotting fist near: in water it mends)
     if (!gc) { bfs(h->pos, false); int best = -1, bd = 40;
       for (int c = 0; c < MAP_LEN; c++) if (IS_WATER(G.map[c]) && b_dist[c] < bd && !PWATER(c) && !char_at(c)) { bool nearg = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GOO && distance(G.mobs[i].pos, c) <= 1) nearg = true; if (!nearg) { bd = b_dist[c]; best = c; } }
