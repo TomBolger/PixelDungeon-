@@ -257,6 +257,15 @@ static bool fire_next(int c) {                          // 0.47n: flammable and 
   static const int8_t O4[4] = { -1, 1, -MAP_W, MAP_W }; for (int k = 0; k < 4; k++) { int n = c + O4[k]; if (nb_ok(c, n) && g_blob[BLOB_FIRE][n]) return true; } return false;
 }
 static bool s_oldfire, s_oldchoke, s_oldeat;
+static bool s_firedoom; static uint8_t s_doom[MAP_LEN / 8]; static uint32_t s_doom_key;   // 0.92 (s1 g18 burned): grass joined to a fire burns in time, every cell of it
+static bool fire_doomed(int c) {                        // flammable and joined (four ways, through flammable cells) to a flame: the fire gets here
+  if (!s_firedoom || !g_blob[BLOB_FIRE] || !(TFLAGS(G.map[c]) & F_FLAMABLE)) return false;
+  uint32_t key = (uint32_t)G.hero.time * 7919u + (uint32_t)G.depth * 131u + 1u; if (key != s_doom_key) { s_doom_key = key; memset(s_doom, 0, sizeof s_doom);
+    static int16_t q[MAP_LEN]; int qh = 0, qt = 0; static const int8_t O4[4] = { -1, 1, -MAP_W, MAP_W };
+    for (int x = 0; x < MAP_LEN; x++) if (g_blob[BLOB_FIRE][x]) for (int k = 0; k < 4; k++) { int n = x + O4[k]; if (nb_ok(x, n) && (TFLAGS(G.map[n]) & F_FLAMABLE) && !BIT_GET(s_doom, n)) { BIT_SET(s_doom, n); q[qt++] = n; } }
+    while (qh < qt) { int x = q[qh++]; for (int k = 0; k < 4; k++) { int n = x + O4[k]; if (nb_ok(x, n) && (TFLAGS(G.map[n]) & F_FLAMABLE) && !BIT_GET(s_doom, n)) { BIT_SET(s_doom, n); q[qt++] = n; } } } }
+  return BIT_GET(s_doom, c);
+}
 static bool looks_floor(int t) { return t == T_EMPTY || ((TFLAGS(t) & F_SECRET) && PASSABLE(t)); }   // what a hidden trap looks like
 static void burnt_scan(void) {                          // StandardPainter.paintBurned: embers, fire traps (half hidden), spent traps, bare floor
   memset(s_burnt, 0, sizeof s_burnt); s_burnt_any = false;
@@ -299,6 +308,7 @@ static int bfs(int from, bool through_unknown) {        // walking distances ove
       if (!PASSABLE(t) || (TFLAGS(t) & F_AVOID) || (s_dry && (s_dry_reach ? PREACH(n) && n != s_dry_goal : PWATER(n)))) continue;
       if ((g_blob[BLOB_FIRE] && g_blob[BLOB_FIRE][n]) || (g_blob[BLOB_TOXIC] && g_blob[BLOB_TOXIC][n])) continue;   // never path through flames or toxic gas
       if (!s_oldfire && fire_next(n)) continue;           // (0.47n: nor grass about to catch)
+      if (s_firedoom) { int pi = plant_at(n); if (pi >= 0 && G.plants[pi].type <= 3) continue; }   // 0.92 (s1 g112): not over a Firebloom, Icecap, Sorrowmoss or Dreamweed
       b_dist[n] = b_dist[c] + 1; if (!BURNT(n)) b_q[qt++] = n;   /* (0.52f: a ware: a place to go, never a way through: stepping on it opens the trade window) */   // (0.47n: a burned room's bare floor: a place to go, never a way through)
     }
   }
@@ -884,6 +894,7 @@ static int ranged_try(int mi) {                         // something to throw or
     if (item_cat(it->kind) != CAT_WAND || it->ench == 0) continue;   // bot2: no charges, no zap (the bot may read the charge)
     if (item_known(it->kind) && !attack_wand(it->kind) && !(it->kind == IK_WND_TELEPORT && h->HP < h->HT / 3)) continue;
     if (s == -1 && it->ench == 0) continue;
+    if (s_firedoom && it->kind == IK_WND_FIREBOLT && item_known(it->kind) && ((MOB_DEFS[m->type].flags & MD_I_FIREBOLT) || ({ bool gr = TFLAGS(G.map[h->pos]) & F_FLAMABLE; for (int k = 0; k < 8 && !gr; k++) { int q = h->pos + N8[k]; if (nb_ok(h->pos, q) && (TFLAGS(G.map[q]) & F_FLAMABLE)) gr = true; } gr; }))) continue;   // 0.92 (s1 g18 burned): its bolt lights the grass on the way, with me in it
     st_uses[ACN_ZAP]++; st_kinds[it->kind]++;
     int32_t t = h->time; if (V) printf("  zap slot %d kind %d at %d\n", s, it->kind, m->pos); ActResult r = game_zap(s, m->pos); if (r == ACT_TURN && h->time <= t && h->HP > 0) viol("NO_TIME", "zap of kind %d took no time", it->kind);
     walk(r); return 1;
@@ -1300,7 +1311,7 @@ static bool attack_wand_ready(void) {
   return false;
 }
 static int blob_at(int b, int c) { return g_blob[b] ? g_blob[b][c] : 0; }
-static bool bad_air(int c) { return blob_at(BLOB_TOXIC, c) || blob_at(BLOB_FIRE, c) || blob_at(BLOB_PARALYTIC, c) || blob_at(BLOB_CONFUSION, c) || (!s_oldfire && fire_next(c)); }
+static bool bad_air(int c) { return blob_at(BLOB_TOXIC, c) || blob_at(BLOB_FIRE, c) || blob_at(BLOB_PARALYTIC, c) || blob_at(BLOB_CONFUSION, c) || (!s_oldfire && fire_next(c)) || fire_doomed(c); }
 static bool escape_air(void) {                          // bot2: in gas or fire: walk to the nearest clean air (two steps clear)
   Hero *h = &G.hero; if (!bad_air(h->pos)) return false;
   if (dm_hold() && !blob_at(BLOB_FIRE, h->pos) && !blob_at(BLOB_PARALYTIC, h->pos)) return false;   // 0.54: its gas follows it anyway; stepping out makes it walk (and mend)
@@ -1318,7 +1329,7 @@ static bool escape_air(void) {                          // bot2: in gas or fire:
   if (st < 0) return false;
   int32_t t = h->time; ActResult r = tap_safe(st);
   if (r == ACT_NONE && h->time == t) return false;
-  DID("out of the gas / fire"); walk(r); return true;
+  DID(fire_doomed(h->pos) && !blob_at(BLOB_FIRE, h->pos) ? "off the grass: the fire will get here" : "out of the gas / fire"); walk(r); return true;
 }
 
 // ---- bot2: seed tactics (STRATEGY.md: plant a seed between you and the enemy, step back)
@@ -2973,6 +2984,7 @@ static bool decide(void) {
     int stairs = up ? G.entrance : G.exit;
     bool stay = !up && quest_on_floor() && s_floor_steps < PRM[P_QSTAY] && !game_starving();   // bot2: starving: food lies deeper
     if (stay && !getenv("OLDQSTAY") && (!wait_quest() || s_floor_steps > 600 || game_hungry())) stay = false;
+    if (stay && s_pztest && (G.now - s_floor_turn0) / TICK > (getenv("QSTAYT") ? atoi(getenv("QSTAYT")) : 350)) stay = false;   // 0.92 (s1 g112: 700 turns and two rations on floor 3 for a quest that never came): a floor's worth of turns, no more
     if (stay && s_pztest && !({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; })) stay = false;   // 0.92 (seed 84 d3: 223 turns wandering for the ghost on its last pasty, then down hungry to the Goo): only on food in the bag   // 0.50 (review g6): wandering about only helps a quest that needs monsters to come, and not for long (food)
     if (stay && !BIT_GET(G.visited, stairs) && !getenv("OLDSTAY")) stay = false;   // 0.49: the way down not found yet: search while waiting (what it waits for may be behind that door)
     static int s_bounce_wait;
@@ -2981,7 +2993,7 @@ static bool decide(void) {
     if (getenv("XPDBG") && !s_rollout && !s_is_child && boss_depth(G.depth + 1)) { static int ls = -1; if (ls != s_bot_steps / 10) { ls = s_bot_steps / 10; printf("  XPB d%d lvl %d up %d hungry %d hunger %d stairs %d hp %d/%d food %d stay %d xpb %d n %d\n", G.depth, h->lvl, up, game_hungry(), h->hunger, BIT_GET(G.visited, stairs), h->HP, h->HT, ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; }), stay, xpb, s_bounce_n[G.depth & 31]); } }
     if (xpb && s_bounce_n[G.depth & 31] >= (getenv("XPBN") ? atoi(getenv("XPBN")) : 4)) xpb = false;   // (review: each stair costs 36 food: 4 bounces at most)
     if (xpb && s_bounce_n[G.depth & 31] < 12) { stay = true; }
-    if (stay && ((wait_quest() && getenv("QBOUNCE")) || xpb) && !getenv("OLDBOUNCE") && G.depth > 1 && G.entrance >= 0 && ({ bfs(h->pos, false); b_dist[G.entrance] < 0x7FFF; })) {   /* (0.53: quest bouncing off: kit1 -0.064 with it; and only with a way to the stairs: game 41 locked out) */   // 0.50 (owner, from the source): each arrival on a floor spawns a monster at once (the respawner starts afresh): bounce on the stairs for the quest's kills
+    if (stay && ((wait_quest() && (getenv("QBOUNCE") || (s_pztest && !getenv("NOQBOUNCE") && !(G.q.ghost_depth == G.depth && G.q.ghost_alt == 2)))) || xpb) && !getenv("OLDBOUNCE") && G.depth > 1 && G.entrance >= 0 && ({ bfs(h->pos, false); b_dist[G.entrance] < 0x7FFF; })) {   /* (0.53: quest bouncing off: kit1 -0.064 with it; and only with a way to the stairs: game 41 locked out) */   // 0.50 (owner, from the source): each arrival on a floor spawns a monster at once (the respawner starts afresh): bounce on the stairs for the quest's kills
       if (s_bounce_n[G.depth & 31] < 12) {
         if (h->pos != G.entrance) { choice = G.entrance; why = "quest: to the stairs, to bounce for monsters"; }
         else if (s_bounce_wait++ < 15) { DID("quest: wait on the stairs for the new monster"); walk(game_rest(false)); return true; }
@@ -2993,7 +3005,7 @@ static bool decide(void) {
       why = "stay"; for (int k = 0; k < 40; k++) { int c = rand() % MAP_LEN; if (BIT_GET(G.visited, c) && PASSABLE(G.map[c]) && G.map[c] != T_ALCHEMY && heap_at(c) < 0 && c != G.entrance && c != G.exit) { choice = c; break; } }
       if (choice < 0) { walk(game_rest(false)); return true; }
     } else if (BIT_GET(G.visited, stairs) && (G.map[stairs] != T_LOCKED_EXIT || (G.keys[G.depth] & 64)) && s_black[stairs] <= s_bot_steps) {
-      const char *ev = !up && !getenv("NOEV") && s_ev_searches < 60 && (h->hunger < 200 || ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; })) && !game_starving() && threat_count() == 0 ? evidence_hidden() : NULL;
+      const char *ev = !up && !getenv("NOEV") && s_ev_searches < (s_pztest ? 24 : 60) && (h->hunger < 200 || ({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; })) && !game_starving() && threat_count() == 0 ? evidence_hidden() : NULL;
       if (!ev && food_ev_ok()) ev = evidence_hidden();   // 0.92: the ration's the one worth looking for hungry (2 turns a search: a dead end beside me is a sure find)   /* (food in the bag: the hunger is paid for) */
       if (ev) {                                            // 0.51: the evidence says a room is hidden: search for it before going on
         if (!s_ev_on) { s_ev_on = 1; st_ev_floors++; if (getenv("EVDBG")) printf("  EV game %d d%d step %d: %s (std pots %d, keys %x, hunger %d)\n", cur_game, G.depth, s_bot_steps, ev, s_std_pots, G.keys[G.depth], h->hunger); for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_IRON_KEY || G.heaps[i].item.kind == IK_POT_LEVITATION) printf("    (truth: kind %d at %d,%d heap type %d visited %d room type %d)\n", G.heaps[i].item.kind, cx(G.heaps[i].pos), cy(G.heaps[i].pos), G.heaps[i].type, G.heaps[i].pos < MAP_LEN ? BIT_GET(G.visited, G.heaps[i].pos) : -1, G.heaps[i].pos < MAP_LEN && room_at(G.heaps[i].pos) >= 0 ? G.rooms[room_at(G.heaps[i].pos)].type : -1); fflush(stdout); }
@@ -3418,7 +3430,7 @@ static int cands(Cand *c) {
     if (cat == CAT_POTION && s_pztest && item_known(k) && ((k == IK_POT_INVIS && pool_puzzle_pending()) || (k == IK_POT_LEVITATION && trap_puzzle_pending())) && h->HP * 4 >= h->HT) continue;   // 0.92 (seed 84 d3: the pool's invisibility spent getting away from a crab at 2/3 health): kept for its room unless near death
     if (cat == CAT_POTION) { if (getenv("OLDLADRINK") || !item_known(k) || !(k == IK_POT_LEVITATION || k == IK_POT_MIND || harmful_potion(k) || (k == IK_POT_PURITY && !bad_air(G.hero.pos)))) c[n++] = (Cand){ C_ITEM, ACN_DRINK, s, 0 };   /* (0.53: no Levitation or Mind Vision mid-fight: the look-ahead drank three at Tengu) */ if (fp >= 0 && ((!item_known(k) && !(MOB_DEFS[G.mobs[foe].type].flags & MD_BOSS)) || harmful_potion(k)) && (getenv("OLDLAGAS") || distance(fp, G.hero.pos) >= ((k == IK_POT_TOXIC || k == IK_POT_PARALYTIC || !item_known(k)) ? 4 : 3))) c[n++] = (Cand){ C_THROW, 0, s, fp }; }   /* 0.54: a gas thrown 2 away comes back over you (a Tengu death) */
     else if (cat == CAT_SCROLL && !h->b.blind && !(k == IK_SCR_TERROR && item_known(k) && !getenv("OLDDMTERROR") && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300) dm = true; dm; }))) c[n++] = (Cand){ C_ITEM, ACN_READ, s, 0 };   // (0.50 review g6: not Terror at DM-300: it flees over the dead traps and repairs itself to full)
-    else if (cat == CAT_SEED && k != IK_SEED_ROTBERRY && plant_at(hp) < 0 && heap_at(hp) < 0 && hp != G.exit && hp != G.entrance) c[n++] = (Cand){ C_ITEM, ACN_PLANT, s, 0 };
+    else if (cat == CAT_SEED && k != IK_SEED_ROTBERRY && !(s_firedoom && (k == IK_SEED_FIREBLOOM || k == IK_SEED_ICECAP || k == IK_SEED_SORROWMOSS || k == IK_SEED_DREAMWEED || k == IK_SEED_FADELEAF)) && plant_at(hp) < 0 && heap_at(hp) < 0 && hp != G.exit && hp != G.entrance) c[n++] = (Cand){ C_ITEM, ACN_PLANT, s, 0 };
     else if (cat == CAT_WAND && it->ench > 0 && fp >= 0) c[n++] = (Cand){ C_ZAP, 0, s, fp };
     else if (cat == CAT_MISSILE && fp >= 0) c[n++] = (Cand){ C_THROW, 0, s, fp };
     else if (is_food(k) && (s_eatlate < 0 ? h->hunger >= 150 : game_starving() || (s_warreat && (h->hclass & 3) == 0 && h->HP * 4 < h->HT))) c[n++] = (Cand){ C_ITEM, ACN_EAT, s, 0 };
@@ -4065,7 +4077,7 @@ int main(int argc, char **argv) {
   if (getenv("ARRLAB")) return run_lab(getenv("ARRLAB"));
   s_dring_on = getenv("DEATHRING") != NULL; if (getenv("STARVELEAVE")) s_starve_leave = atoi(getenv("STARVELEAVE"));
   if (getenv("ARM_SPEEDK")) s_arm_speedk = atof(getenv("ARM_SPEEDK"));
-  s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_pocket = getenv("POCKET") ? atoi(getenv("POCKET")) : 0; s_plandbg = getenv("PLANDBG") ? atoi(getenv("PLANDBG")) : -1; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") != NULL; s_pztest = getenv("PZTEST") != NULL; s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
+  s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_pocket = getenv("POCKET") ? atoi(getenv("POCKET")) : 0; s_plandbg = getenv("PLANDBG") ? atoi(getenv("PLANDBG")) : -1; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") != NULL; s_pztest = getenv("PZTEST") != NULL; s_firedoom = s_pztest && !getenv("NOFIREDOOM"); s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
   if (getenv("EXPLAB")) return run_explab();
   int N = argc > 1 ? atoi(argv[1]) : 100, hs = getenv("HS") ? atoi(getenv("HS")) : 3;
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;
