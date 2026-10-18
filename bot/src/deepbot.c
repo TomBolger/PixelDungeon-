@@ -2556,7 +2556,7 @@ static int search_spot(void) {                          // where to look for sec
 // key or potion in an ordinary room somewhere on the floor (content.c add_spawn): a locked door and no key seen, a
 // locked chest and no golden key, a trap room and no levitation, a pool and no invisibility, a storage room and no flame:
 // that room is behind a secret door. (Unknown potions: no potion seen at all in the ordinary rooms is the evidence.)
-static int s_ev_food, st_xpb; static uint8_t s_ev_seen[MAP_LEN / 8 + 1]; static int s_ev_floor = -1, s_std_pots, s_ev_k[5], s_ev_searches, s_ev_on; static int st_ev_search, st_ev_floors, st_ev_found;
+static int s_ev_food, st_xpb, st_pace; static uint8_t s_ev_seen[MAP_LEN / 8 + 1]; static int s_ev_floor = -1, s_std_pots, s_ev_k[5], s_ev_searches, s_ev_on; static int st_ev_search, st_ev_floors, st_ev_found;
 static bool std_room(int c) { int r = room_at(c); if (r < 0) return true; int t = G.rooms[r].type; return t == RT_STANDARD || t == RT_ENTRANCE || t == RT_EXIT || t == RT_TUNNEL || t == RT_PASSAGE; }
 static bool room_seen(int r) { Room *R = &G.rooms[r]; for (int y = R->top; y <= R->bottom; y++) for (int x = R->left; x <= R->right; x++) if (BIT_GET(G.visited, x + y * MAP_W)) return true; return false; }
 static bool room_prize(int r) { for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if (hp->pos < MAP_LEN && room_at(hp->pos) == r && hp->type != HEAP_CARRIED) return true; } return false; }
@@ -3057,6 +3057,10 @@ static bool decide(void) {
     if (choice < 0) s_am_depth = -1;                   // gone with its carrier (an Ankh's floor reset): no way to win now
   }
   bool going = s_goal < G.depth && BIT_GET(G.visited, G.entrance);   // on the way up with the way known: no detours but items
+  if (choice < 0 && s_pztest && getenv("PACE") && G.depth >= atoi(getenv("PACE")) && !boss_depth(G.depth) && !boss_depth(G.depth + 1) && s_ev_food && G.exit >= 0 && BIT_GET(G.visited, G.exit) && threat_count() == 0 && !quest_on_floor() && !shop_hunt_ok()
+      && food_budget() < (getenv("PACEB") ? atoi(getenv("PACEB")) : 300) && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; })) {   // 0.93 test (deep runs arrive starving: ~346 turns a floor against ~260 of food): the floor's food found, nothing seen left to take: down, the rest unexplored
+    bool want = false; for (int i = 0; i < G.n_heaps && !want; i++) if (heap_wanted(i) && G.heaps[i].item.kind != IK_DEW && b_dist[G.heaps[i].pos] < 0x7FFF) want = true;
+    if (!want) { choice = G.exit; why = "pace: food short, this floor's food found: down"; st_pace++; } }
   bool famished = game_hungry() && !({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; });
   if (choice < 0 && famished && PRM[P_HUNGRYDOWN] && !food_ev_ok() && !shop_hunt_ok() && BIT_GET(G.visited, G.exit) && s_goal > G.depth && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; }) &&   /* (0.52: a way there: seen across a chasm or a trap field isn't one) */ (getenv("OLDHERO") || (s_ev_food && (getenv("OLDHUNGRY") || game_starving())) || !floor_left() || boss_depth(G.depth) || G.depth == 21 || (game_starving() && h->HP * 100 < h->HT * s_starve_leave && !(s_pztest && boss_depth(G.depth + 1) && floor_left() && !s_ev_food))) &&   /* (0.92 seed 84: down to the Goo at 12/40 starving, the floor's ration unfound: before a boss, find it) */   /* (owner: look for it even starving; under 30% health, just go) */   /* 0.52 (audit): every floor but the bosses' has a ration somewhere: find it first */ (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // bot3: no food, hungry: on down
     bool food_here = false; for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && is_food(G.heaps[i].item.kind)) food_here = true;
@@ -4643,7 +4647,7 @@ int main(int argc, char **argv) {
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);
   ledger_print();
   if (getenv("SNEAK") || getenv("TACTBOT") || getenv("DEWREST")) printf("owner ideas: sneak steps %d, door trick moves %d, dew rests %d\n", st_sneak, st_door, st_dewrest);
-  printf("food: energy eaten %ld (%.1f rations), wasted %ld; warrior emergency meals %d\n", st_eat_energy, st_eat_energy / 260.0, st_eat_waste, st_warreat);
+  printf("food: energy eaten %ld (%.1f rations), wasted %ld; warrior emergency meals %d; paced descents %d\n", st_eat_energy, st_eat_energy / 260.0, st_eat_waste, st_warreat, st_pace);
   printf("floors cleared %d (%.1f a game); decisions %d, presses %d (%.1f a floor), entry 0 off screen %d, oscillations %d\n", st_floors, st_floors / (double)(st_games ? st_games : 1), st_press_n, st_press, st_press / (double)(st_floors ? st_floors : 1), st_press_off, st_osc);
   printf("veins: mined %d, walks to one %d (did nothing %d)\n", st_mine, st_mine_walk, st_mine_none);
   printf("fallbacks (entry 0 did nothing) %d; waits for an enemy a step short %d (longest run %d)\n", st_fb, st_hold, st_hold_max);
