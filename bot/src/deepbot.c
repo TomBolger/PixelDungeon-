@@ -73,7 +73,7 @@ static bool lookahead(void);
 // bot3: tunable judgment calls (PRM=v0,v1,... overrides; tools/tune.py searches them)
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
 static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 2500 };
-static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool trap_door_testable(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static bool attack_wand_ready(void); static bool room_seen(int r);
+static double gear_cost(const Item *w, const Item *a); static bool have_rc(void); static Item believed(const Item *it, int unk); static double gear_cost_b(const Item *w, const Item *a, int unk); static bool s_oldgear; static bool underpowered(int c); static double ev_cost(const Item *it, int cat, double base); static int s_zone_start; static double s_riskp; static bool s_nounk; static double unk_cost(const Item *it, int cat, double base); static bool floor_left(void); static bool puzzle_pending(void); static bool trap_puzzle_pending(void); static bool pool_puzzle_pending(void); static bool trap_door_testable(void); static bool room_skipped(int r); static int s_trap_throws_room[64], s_trap_door[64]; static int s_arrive_step = -1000, s_prev_arrive = -1000, s_camp_steps, s_camp_reroll; static uint8_t s_trap_done[64]; static int s_bounce_n[32]; static uint8_t s_room_skip[64]; static int room_door(int r); static bool want_buy(int h); static int32_t s_sale_gold[MAP_LEN];   /* 0.93: the gold when a ware was passed over: more gold since, look again */ static bool attack_wand_ready(void); static bool room_seen(int r);
 static bool curse_food_ok(void); static bool food_pressed(void); static long curse_kit_sig(void); static bool curse_go(void); static bool curse_go_full(void); static int s_curse_force; static bool curse_sim_ok(void); static int s_curse_trip; static long curse_key(void); static long s_curse_no_key = -1;
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
@@ -695,7 +695,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
   }
 }
 static int wnd_for(void) {                              // a window with buttons: which one
-  if (g_trade == 1) { int hh = heap_at(g_trade_arg); if (hh >= 0 && strncmp(s_wnd_b1, "Buy", 3) == 0 && (getenv("OLDBUY") || want_buy(hh))) { st_buys++; return 0; } /* 0.50 (review g6): only what it meant to buy (walking over the wares once cost 1200g for a sword it sold back for 80) */ s_black[g_trade_arg] = s_bot_steps + 3000; return 1; }
+  if (g_trade == 1) { int hh = heap_at(g_trade_arg); if (hh >= 0 && strncmp(s_wnd_b1, "Buy", 3) == 0 && (getenv("OLDBUY") || want_buy(hh))) { st_buys++; return 0; } /* 0.50 (review g6): only what it meant to buy (walking over the wares once cost 1200g for a sword it sold back for 80) */ s_black[g_trade_arg] = s_bot_steps + 3000; s_sale_gold[g_trade_arg] = G.hero.gold; return 1; }
   if (g_trade == 3 && !getenv("OLDGEARFIX")) {   // 0.52 (audit): the Tome: the way that suits this bot (no wand-in-hand melee, so not Battlemage)
     if (strncmp(s_wnd_b1, "Yes", 3) == 0) return 1;      // (a respec: no)
     static const char *const PREF[] = { "Gladiator", "Warlock", "Freerunner", "Sniper" };
@@ -2402,6 +2402,7 @@ static bool want_buy(int h) {
   Item *it = &G.heaps[h].item; int k = it->kind;
   if (s_pztest && getenv("SHOP2")) return want_buy2(h);
   if (G.hero.gold < 60) return false;
+  if (s_pztest && !getenv("OLDAFFORD") && G.hero.gold < shop_price(it)) return false;   // 0.93: the price is on the tag
   if (k == IK_POT_HEALING || is_food(k) || k == IK_ANKH || k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER || k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH) return true;
   if (s_toe && (item_cat(k) == CAT_ARMOR || item_cat(k) == CAT_WEAPON)) return toe_buy(h);   // 0.73 TOE: by the plan
   if (item_cat(k) == CAT_ARMOR && armor_score(it) > armor_score(&G.hero.armor) + 2) return true;
@@ -2512,6 +2513,7 @@ static int wall_worth(int w) {
     int a = w - N8[k], b = w + N8[k]; if (!nb_ok(w, a) || !nb_ok(w, b)) continue;
     int bx = cx(b), by = cy(b); if (bx <= 0 || by <= 0 || bx >= MAP_W - 1 || by >= MAP_H - 1) continue;
     if (!BIT_GET(G.visited, a) || BIT_GET(G.visited, b) || !(PASSABLE(G.map[a]) || G.map[a] == T_DOOR || G.map[a] == T_OPEN_DOOR)) continue;
+    if (s_shophunt && !getenv("SHOPANY") && G.entrance >= 0 && room_at(a) != room_at(G.entrance)) continue;   // 0.93 (owner): the shop's only door is in the entrance room's walls (Dungeon.shopOnLevel: a dead end off roomEntrance)
     int dx = bx - cx(w), dy = by - cy(w), R = s_srch_win, x0 = bx + R * dx, y0 = by + R * dy, u = 0;   // (the box beyond, R each way)
     for (int y = y0 - R; y <= y0 + R; y++) for (int x = x0 - R; x <= x0 + R; x++) u += x > 0 && y > 0 && x < MAP_W - 1 && y < MAP_H - 1 && !BIT_GET(G.visited, x + y * MAP_W);
     int v = 1 + u * 10 / ((2 * R + 1) * (2 * R + 1)) + (dead_end(a) ? 12 : 0) + (s_shophunt && G.entrance >= 0 && room_at(a) >= 0 && room_at(a) == room_at(G.entrance) ? 30 : 0); if (v > best) best = v;   // (0.93: the shop's a dead end off the entrance room)
@@ -2585,7 +2587,7 @@ static bool food_ev_ok(void) {                           // 0.92: hungry with no
 static bool shop_seen(void) { for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && (unsigned)G.heaps[i].pos < MAP_LEN && BIT_GET(G.visited, G.heaps[i].pos)) return true; return false; }
 static bool shop_seen(void);
 static bool shop_hunt_ok(void) {                         // 0.93: a shop floor, its shop not found, gold to spend: search for it, hungry or not (it sells food)
-  Hero *h = &G.hero; return s_pztest && !getenv("NOSHOPHUNT") && !getenv("NOEV") && (G.depth == 6 || G.depth == 11 || G.depth == 16) && h->gold >= 150 * (G.depth / 5 + 1) && s_ev_searches < 48 && h->HP * 4 >= h->HT && threat_count() == 0 && !shop_seen();
+  Hero *h = &G.hero; if (getenv("SHOPMAP") && !s_rollout && !s_is_child && (G.depth == 6 || G.depth == 11 || G.depth == 16) && !shop_seen()) { static int dd = -1, gg = -1; if (dd != G.depth || gg != cur_game) { dd = G.depth; gg = cur_game; printf("SHOPMAP d%d entrance %d,%d room %d hp %d/%d gold %d\n", G.depth, cx(G.entrance), cy(G.entrance), room_at(G.entrance), h->HP, h->HT, h->gold); dump_map(h->pos); } } return s_pztest && !getenv("NOSHOPHUNT") && !getenv("NOEV") && (G.depth == 6 || G.depth == 11 || G.depth == 16) && h->gold >= 150 * (G.depth / 5 + 1) && s_ev_searches < 48 && h->HP * 4 >= h->HT && threat_count() == 0 && !shop_seen();
 }
 static const char *evidence_hidden(void) {
   s_shophunt = false;
@@ -3098,12 +3100,24 @@ static bool decide(void) {
       else if (IS_WATER(G.map[h->pos]) && !PWATER(h->pos) && pending_trap_door_dist() <= 6 && (s_stash < 0 || !scrolls_loose() || distance(h->pos, s_stash) >= 3)) { int sl = unknown_potion(); if (sl >= 0) { st_uses[ACN_DRINK]++; st_kinds[h->bag[sl].kind]++; DID("puzzle: in the water by its door already: the next potion here"); do_item(sl, ACN_DRINK); return true; } } } }
   if (choice < 0 && !getenv("NOPLAN")) { const char *pw = NULL; choice = plan_next(going, &pw); if (choice >= 0) why = pw; }
   if (getenv("SHOPDBG") && !s_rollout) { static int ls = -1; if (ls != s_bot_steps / 20) { ls = s_bot_steps / 20; int ns = 0, nw = 0; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE) { ns++; nw += want_buy(i); } if (ns) { printf("SHOPDBG d%d gold %d sale %d want %d choice %d enemies %d\n", G.depth, G.hero.gold, ns, nw, choice, enemy_count()); bfs(h->pos, false); for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && want_buy(i)) { int c = G.heaps[i].pos; printf("   ware %d at %d vis %d dist %d black %d\n", G.heaps[i].item.kind, c, c < MAP_LEN && BIT_GET(G.visited, c), b_dist[c], s_black[c] - s_bot_steps); } } } }
+  if (s_pztest && !getenv("NOSHOPDOOR") && (G.depth == 6 || G.depth == 11 || G.depth == 16) && h->gold >= 150 * (G.depth / 5 + 1) && enemy_count() == 0 && G.entrance >= 0 && room_at(G.entrance) >= 0 && !shop_seen()) {   // 0.93 (owner; n8g5 g2613: the shop's door two steps from the stairs, explored last, gone down starving): the shop hangs off the entrance room: its unexplored doors first
+    Room *er = &G.rooms[room_at(G.entrance)]; bfs(h->pos, false); int bd = -1;
+    for (int y = er->top; y <= er->bottom; y++) for (int x = er->left; x <= er->right; x++) { if (x != er->left && x != er->right && y != er->top && y != er->bottom) continue;
+      int c = x + y * MAP_W, t = G.map[c]; if (!(t == T_DOOR || t == T_OPEN_DOOR || PASSABLE(t)) || b_dist[c] >= 0x7FFF || s_black[c] > s_bot_steps) continue;
+      int ox = x == er->left ? x - 1 : x == er->right ? x + 1 : x, oy = y == er->top ? y - 1 : y == er->bottom ? y + 1 : y; if (ox < 0 || oy < 0 || ox >= MAP_W || oy >= MAP_H) continue;
+      if (BIT_GET(G.visited, ox + oy * MAP_W)) continue; if (bd < 0 || b_dist[c] < b_dist[bd]) bd = c; }
+    if (bd >= 0) { choice = bd; why = "shop floor: the entrance room's unexplored way out first (the shop's off it)"; }
+    else if (!getenv("NOSHOPSRCH") && h->HP * 4 >= h->HT && 1) {   // every way out seen and no shop: its door's a secret one in these walls: search them now (they're near)
+      static int sd = -1, sg = -1, sn; if (sd != G.depth || sg != cur_game) { sd = G.depth; sg = cur_game; sn = 0; }
+      s_shophunt = true; int sp = sn < 16 ? search_spot2() : -1; s_shophunt = false;
+      if (sp >= 0 && sp == h->pos) { sn++; for (int k = 0; k < 8; k++) { int c = h->pos + N8[k]; if (nb_ok(h->pos, c)) BIT_SET(s_searched, c); } BIT_SET(s_searched, h->pos); s_floor_searches++; st_search++; DID("search (the shop's hidden door)"); search_dbg(); walk(bot_search()); return true; }
+      if (sp >= 0) { sn++; choice = sp; why = "shop floor: search the entrance room's walls (the shop's door is hidden)"; } } }
   if (!getenv("OLDSHOP") && enemy_count() == 0) {   // 0.50 (review g6): the shop's wares never made the target list (the suggester leaves them out): go and buy what's wanted
     bfs(h->pos, false); int bc = -1, bp = 99;
-    for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos; if (hp->type != HEAP_FOR_SALE || (unsigned)c >= MAP_LEN || !BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || s_black[c] > s_bot_steps || !want_buy(i)) continue;
+    for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos; if (hp->type != HEAP_FOR_SALE || (unsigned)c >= MAP_LEN || !BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || (s_black[c] > s_bot_steps && (getenv("OLDAFFORD") || G.hero.gold <= s_sale_gold[c])) || !want_buy(i)) continue;   /* (0.93 n8g5 g3001: in at 62 gold, the wares blacklisted 3000 steps: back with 491, two rations left, down starving) */
       int k = hp->item.kind, pr = (s_pztest && getenv("SHOP2")) ? (3000 - shop_value(&hp->item)) / 40 : (s_pztest && !getenv("OLDSHOPPRI")) ? (getenv("SHOPANKH") && k == IK_ANKH ? 0 : k == IK_POT_HEALING ? 0 : is_food(k) ? 1 : k == IK_POT_STRENGTH || k == IK_SCR_UPGRADE ? 2 : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 3 : k == IK_ANKH ? 4 : 5) : (k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) ? 0 : is_food(k) ? 1 : k == IK_POT_HEALING ? 2 : k == IK_ANKH ? 3 : 4;   /* (0.92 seed 84 d6: 800 gold on a pouch and a ration, two Healings left on the shelf: a Healing is 60-odd HP, 600 turns of mending) */ /* (owner: the bag first: more room, more tools all game) */ if (pr < bp || (pr == bp && b_dist[c] < b_dist[bc])) { bp = pr; bc = c; } }
     if (bc >= 0) { static int lc = -1, ln, lg; if (bc == lc && G.hero.gold == lg) ln++; else { lc = bc; ln = 0; lg = G.hero.gold; }
-      if (getenv("WNDDBG")) printf("  SHOP bc %d ln %d black %d steps %d\n", bc, ln, s_black[bc], s_bot_steps); if (ln > 6) { s_black[bc] = s_bot_steps + 3000; ln = 0; } else { choice = bc; why = "shop"; } } }   /* (0.52f: can't afford it: the trade window does nothing: 300 steps stuck, games 4/41) */
+      if (getenv("WNDDBG")) printf("  SHOP bc %d ln %d black %d steps %d\n", bc, ln, s_black[bc], s_bot_steps); if (ln > 6) { s_black[bc] = s_bot_steps + 3000; s_sale_gold[bc] = G.hero.gold; ln = 0; } else { choice = bc; why = "shop"; } } }   /* (0.52f: can't afford it: the trade window does nothing: 300 steps stuck, games 4/41) */
   for (int i = 0; i < n && choice < 0; i++) {
     int c = cell[i];
     if (s_black[c] > s_bot_steps) continue;
