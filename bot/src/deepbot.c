@@ -1097,11 +1097,11 @@ static double hero_dpt(Mob *m) {                       // the hero's mean damage
   const Item *w = G.hero.weapon.kind ? &G.hero.weapon : NULL; double dm;
   if (!w) { int st = hero_str(); dm = st > 10 ? (1 + st - 9) / 2.0 : 1; }
   else { dm = (weapon_min(w) + weapon_max(w)) / 2.0; int ex = hero_str() - item_str(w); if (ex > 0 && G.hero.hclass != 3) dm += ex / 2.0; }   // (a huntress's spare STR goes to her missiles, not her blade)
-  if (calc_on() && w && !g_mh.stats) { int ex = hero_str() - item_str(w); dm = dmg_vs_dr(weapon_min(w), weapon_max(w), mst(m, STAT_DR, MOB_DEFS[m->type].dr)) + (ex > 0 && G.hero.hclass != 3 ? ex / 2.0 : 0); } else
+  if (calc_on() && !getenv("CALCNOFOE") && w && !g_mh.stats) { int ex = hero_str() - item_str(w); dm = dmg_vs_dr(weapon_min(w), weapon_max(w), mst(m, STAT_DR, MOB_DEFS[m->type].dr)) + (ex > 0 && G.hero.hclass != 3 ? ex / 2.0 : 0); } else
   dm = dr_left(dm, mst(m, STAT_DR, MOB_DEFS[m->type].dr));
   double p = (m->b.paralysis || m->b.frost) ? 1 : phit(hero_attack_skill(NULL, m->pos), mst(m, STAT_DEF, MOB_DEFS[m->type].def));
   double r = p * dm * TICK / (double)attack_delay(w);
-  if (calc_on() && (m->type == MT_MONK || m->type == MT_SENIOR) && w && w->kind != IK_KNUCKLES && !(w->flags & IF_CURSED)) {   // mob_monk.inc: 1 in 6 of its hits knocks the weapon away: 2 turns to pick it up and wield it
+  if (calc_on() && !getenv("CALCNOFOE") && (m->type == MT_MONK || m->type == MT_SENIOR) && w && w->kind != IK_KNUCKLES && !(w->flags & IF_CURSED)) {   // mob_monk.inc: 1 in 6 of its hits knocks the weapon away: 2 turns to pick it up and wield it
     const MobDef *md = &MOB_DEFS[m->type]; double lam = phit(md->att, hero_def_est()) * TICK / (double)(md->atk_delay ? md->atk_delay : TICK) / 6; r /= 1 + 2 * lam; }
   return r;
 }
@@ -1139,14 +1139,14 @@ static double foe_dpt(Mob *m) {                        // m's mean damage to the
   if (!getenv("OLDDUEL2") && g_mh.stats) { uint32_t r0 = g_rng; double t = 0; int n = 0; for (int k = 0; k < 16; k++) { int v = g_mh.stats((int)(m - G.mobs), STAT_DMG); if (v < 0) break; t += v; n++; } g_rng = r0; if (n) dm = t / n; }   // the overlay's own roll (brute, Goo pumped, mimic, piranha...), averaged; the dice put back
   bool mag = !getenv("OLDDUEL2") && magic_shooter(m->type) && distance(m->pos, G.hero.pos) > 1;
   dm = mag ? (dm < 0.3 ? 0.3 : dm) : dr_left(dm, hero_dr());
-  if (calc_on()) {
+  if (calc_on() && !getenv("CALCNOFOE")) {
     if (!mag && !g_mh.stats) dm = dmg_vs_dr(d->dmg_lo, d->dmg_hi, hero_dr());
     if (mag && m->type == MT_WARLOCK) dm = 14.5;   // city.c warlock_zap: 12..17, armour ignored
     if (dm < 0.3) dm = 0.3; }
   if (m->type == MT_SPINNER && s_pztest && getenv("SPINNER2")) dm += 6;   // 0.93 (poison: 11% of good-seed deaths, floors 12-14): every other bite poisons for 7-9 turns (~17 HP; a new one resets it): ~6 a hit on top, armour or not
   double a = mst(m, STAT_ATT, d->att) * (mag ? 2 : 1);
   double hp = phit(a, hero_def_est()), rate = TICK / (double)(d->atk_delay ? d->atk_delay : TICK), r = hp * dm * rate;
-  if (calc_on() && m->type == MT_ELEMENTAL && !IS_WATER(G.map[G.hero.pos])) r += 2.5 * (1 - exp(-hp * 0.5 * rate * 6));   // city.c: half its hits set you alight (1-4 a turn, ~6 turns; water puts it out)
+  if (calc_on() && !getenv("CALCNOFOE") && m->type == MT_ELEMENTAL && !IS_WATER(G.map[G.hero.pos])) r += 2.5 * (1 - exp(-hp * 0.5 * rate * 6));   // city.c: half its hits set you alight (1-4 a turn, ~6 turns; water puts it out)
   return r;
 }
 static double s_lose_cost;                              // the HP the fight's sum says it costs (vs the HP you have)
@@ -1741,7 +1741,7 @@ static double hp_cost_vs(int mt, const Item *w, const Item *a) {
     bool shoots = mt == MT_TENGU || mt == MT_EYE || mt == MT_SCORPIO || mt == MT_SHAMAN || mt == MT_DM300;
     double left = (md->HT - s_hp_cut > 1 ? md->HT - s_hp_cut : 1) - (shoots ? 0 : 2.0) * far; if (left < 0) left = 0; double d2 = dps > near ? dps : near;
     return left / (d2 > 0.01 ? d2 : 0.01) * mdps; }
-  if (calc_on()) {                                      // 0.93 review: what the plain stats leave out
+  if (calc_on() && !getenv("CALCNOFOE")) {                                      // 0.93 review: what the plain stats leave out
     double rate = md->atk_delay ? TICK / (double)md->atk_delay : 1;
     if (mt == MT_ELEMENTAL) mdps += 2.5 * (1 - exp(-hr * 0.5 * rate * 6));
     if (mt == MT_BRUTE || mt == MT_SHIELDED) mdps *= 0.75 + 0.25 * 25.0 / 13;   // mob_brute.inc: enraged under a quarter, 10-40 for 8-18
@@ -1762,7 +1762,7 @@ static double mix_cost(int d, const Item *w, const Item *a, double *worst) {   /
 static double gear_cost(const Item *w, const Item *a) {   // lower: better (the region's monsters, and its boss)
   static const uint8_t REF[5][3] = { { MT_GNOLL, MT_CRAB, MT_GOO }, { MT_SKELETON, MT_THIEF, MT_TENGU }, { MT_BAT, MT_BRUTE, MT_DM300 }, { MT_MONK, MT_GOLEM, MT_KING }, { MT_SUCCUBUS, MT_SCORPIO, MT_EYE } };
   int r = (G.depth - 1) / 5; if (r > 4) r = 4; double c = 0;
-  if (calc_on()) { for (int d = G.depth; d < G.depth + 3; d++) c += mix_cost(d, w, a, NULL); c = c / 3 * 2 + hp_cost_vs(REF[r][2], w, a) * 0.5; } else
+  if (calc_on() && !getenv("CALCNOMIX")) { for (int d = G.depth; d < G.depth + 3; d++) c += mix_cost(d, w, a, NULL); c = c / 3 * 2 + hp_cost_vs(REF[r][2], w, a) * 0.5; } else
   for (int i = 0; i < 3; i++) c += hp_cost_vs(REF[r][i], w, a) * (i == 2 ? 0.5 : 1);
   if (a && a->kind) { int enc = item_str(a) - (hero_str() + s_str_plus); if (enc > 0) c *= 1 + s_arm_speedk * (pw2(1.3, enc) - 1); }   // bot3: Hero.speed: heavy armour walks 1.3x slower per missing STR (turns, hunger, exposure)
   return c;
@@ -1772,7 +1772,7 @@ static double gear_cost(const Item *w, const Item *a) {   // lower: better (the 
 static int thrift_need(void) {
   static const uint8_t R2[5][2] = { { MT_GNOLL, MT_CRAB }, { MT_SKELETON, MT_THIEF }, { MT_BAT, MT_BRUTE }, { MT_MONK, MT_GOLEM }, { MT_SUCCUBUS, MT_SCORPIO } };
   Hero *h = &G.hero; int r = (G.depth - 1) / 5; if (r > 4) r = 4; double c = 0;
-  if (calc_on()) mix_cost(G.depth, h->weapon.kind ? &h->weapon : NULL, h->armor.kind ? &h->armor : NULL, &c); else
+  if (calc_on() && !getenv("CALCNOMIX")) mix_cost(G.depth, h->weapon.kind ? &h->weapon : NULL, h->armor.kind ? &h->armor : NULL, &c); else
   for (int i = 0; i < 2; i++) { double v = hp_cost_vs(R2[r][i], h->weapon.kind ? &h->weapon : NULL, h->armor.kind ? &h->armor : NULL); if (v > c) c = v; }
   int need = (int)(c * 1.3) + 2, lo = h->HT / 4, hi = h->HT * 6 / 10; return need < lo ? lo : need > hi ? hi : need;
 }
@@ -3006,7 +3006,7 @@ static void idb_track(void) {                           // each step (main game)
 }
 static void q_track(void) {                              // each step: the floor's finds so far; a new deepest floor: fold the last one in
   Hero *h = &G.hero; if (s_rollout || s_is_child) return;
-  if (getenv("IDB") || getenv("IDBDBG")) idb_track();
+  if (getenv("IDB") || getenv("IDBDBG") || fair_on()) idb_track();
   if (s_q_game != cur_game) { s_q_game = cur_game; memset(s_q_sou, 0, sizeof s_q_sou); memset(s_q_pos, 0, sizeof s_q_pos); s_q_sou[0] = s_q_pos[0] = 1; s_q_d = -1; }
   int sou = (int)st_sou_read + (find_kind(IK_SCR_UPGRADE) >= 0 && item_known(IK_SCR_UPGRADE) ? game_slot(find_kind(IK_SCR_UPGRADE))->qty : 0), str = h->STR + (find_kind(IK_POT_STRENGTH) >= 0 && item_known(IK_POT_STRENGTH) ? game_slot(find_kind(IK_POT_STRENGTH))->qty : 0);
   if (G.depth > s_q_d) {
@@ -3789,7 +3789,7 @@ static int cands(Cand *c) {
   Hero *h = &G.hero; int n = 0, hp = h->pos;
   c[n++] = (Cand){ C_DEFAULT, 0, 0, 0 };
   c[n++] = (Cand){ C_REST, 0, 0, 0 };
-  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && adjacent(m->pos, hp) && m->state != ST_PASSIVE) c[n++] = (Cand){ C_TAP, 0, m->pos, 0 }; }
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && adjacent(m->pos, hp) && m->state != ST_PASSIVE && (!fair_on() || BIT_GET(G.fov, m->pos))) c[n++] = (Cand){ C_TAP, 0, m->pos, 0 }; }
   for (int k = 0; k < 8; k++) { int q = hp + N8[k]; if (nb_ok(hp, q) && PASSABLE(G.map[q]) && !(TFLAGS(G.map[q]) & F_AVOID) && !char_at(q)) c[n++] = (Cand){ C_TAP, 0, q, 0 }; }
   if (hp == G.exit || (hp == G.entrance && !(s_zone_start && boss_depth(G.depth - 1)))) c[n++] = (Cand){ C_TAP, 0, hp, 0 };   // (zone starts: the boss above was never fought: no escape up there)
   int foe = nearest_hostile(), fp = foe >= 0 ? G.mobs[foe].pos : -1;
@@ -3876,13 +3876,40 @@ static void resample_unknowns(uint32_t seed) {
     if (s_pztest) for (int i = 0; i < G.n_heaps; i++) { Item *it = &G.heaps[i].item; for (int j = 0; j < nh; j++) if (it->kind == held[j]) { it->kind = map[j]; break; } }
   }
 }
+// 0.93 (owner: progress with hidden information doesn't count): before a playout, the copy is cut down to what a player
+// knows: only the creatures in sight, hidden traps as plain floor and hidden doors as wall, nothing lying where it hasn't
+// been seen, unknown potions and scrolls drawn from the odds (IDB), unknown wands from the Generator's weights.
+static void la_scrub(uint32_t seed) {
+  uint32_t r = seed * 747796405u + 2891336453u;
+  int k = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && (ally(i) || BIT_GET(G.fov, m->pos))) G.mobs[k++] = *m; } G.n_mobs = k;
+  for (int c = 0; c < MAP_LEN; c++) { int t = G.map[c]; if (t == T_SECRET_DOOR) G.map[c] = T_WALL;
+    else if (t == T_SECRET_TOXIC_TRAP || t == T_SECRET_FIRE_TRAP || t == T_SECRET_PARALYTIC_TRAP || t == T_SECRET_POISON_TRAP || t == T_SECRET_ALARM_TRAP || t == T_SECRET_LIGHTNING_TRAP || t == T_SECRET_GRIPPING_TRAP || t == T_SECRET_SUMMONING_TRAP) G.map[c] = T_EMPTY; }
+  k = 0; for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if (hp->type == HEAP_CARRIED || ((unsigned)hp->pos < MAP_LEN && BIT_GET(G.visited, hp->pos))) G.heaps[k++] = *hp; } G.n_heaps = k;
+  for (int pot = 0; pot < 2; pot++) {                  // potions and scrolls: a consistent draw from the odds
+    int base = pot ? IK_FIRST_POTION : IK_FIRST_SCROLL; const uint8_t *K = pot ? IDB_PK : IDB_SK; int map[12]; bool used[12] = { 0 };
+    for (int i = 0; i < 12; i++) if (item_known(K[i])) used[i] = true;
+    for (int c = 0; c < 12; c++) { map[c] = base + c; if (item_known(base + c)) continue; double tot = 0, w[12];
+      for (int i = 0; i < 12; i++) { w[i] = used[i] ? 0 : idb_p(base + c, K[i]); tot += w[i]; }
+      if (tot <= 0) { for (int i = 0; i < 12; i++) { w[i] = used[i] ? 0 : (pot ? IDB_PW[i] + 1 : IDB_SW[i] + 1); tot += w[i]; } }
+      r = r * 1664525u + 1013904223u; double x = (r >> 8) / 16777216.0 * tot;
+      for (int i = 0; i < 12; i++) { if (w[i] <= 0) continue; if (x < w[i]) { map[c] = K[i]; used[i] = true; break; } x -= w[i]; } }
+    for (int s2 = -1; s2 < PACK0 + 32; s2 = s2 == BAG_SIZE - 1 ? PACK0 : s2 + 1) { Item *it = game_slot(s2); int c = it->kind - base; if (c >= 0 && c < 12 && !item_known(it->kind)) it->kind = map[c]; }
+    for (int i = 0; i < G.n_heaps; i++) { Item *it = &G.heaps[i].item; int c = it->kind - base; if (c >= 0 && c < 12 && !item_known(it->kind)) it->kind = map[c]; } }
+  { static const uint16_t WW[12] = { 10, 10, 15, 6, 10, 11, 15, 10, 6, 10, 5, 5 };   // gen.c Generator wands (teleport .. avalanche)
+    static const uint8_t WK[12] = { IK_WND_TELEPORT, IK_WND_SLOW, IK_WND_FIREBOLT, IK_WND_REGROWTH, IK_WND_POISON, IK_WND_BLINK, IK_WND_LIGHTNING, IK_WND_AMOK, IK_WND_REACH, IK_WND_FLOCK, IK_WND_DISINTEGRATION, IK_WND_AVALANCHE };
+    bool used[12] = { 0 }; for (int i = 0; i < 12; i++) if (item_known(WK[i])) used[i] = true;
+    for (int s2 = -1; s2 < PACK0 + 32; s2 = s2 == BAG_SIZE - 1 ? PACK0 : s2 + 1) { Item *it = game_slot(s2); if (item_cat(it->kind) != CAT_WAND || item_known(it->kind) || it->kind == IK_WND_MM) continue;
+      int tot = 0; for (int i = 0; i < 12; i++) if (!used[i]) tot += WW[i]; if (tot <= 0) continue; r = r * 1664525u + 1013904223u; int x = (r >> 8) % tot, nk = it->kind;
+      for (int i = 0; i < 12; i++) { if (used[i]) continue; if (x < WW[i]) { nk = WK[i]; used[i] = true; break; } x -= WW[i]; }
+      int old = it->kind; for (int s3 = -1; s3 < PACK0 + 32; s3 = s3 == BAG_SIZE - 1 ? PACK0 : s3 + 1) if (game_slot(s3)->kind == old) game_slot(s3)->kind = nk; } }
+}
 static int playout(Cand c, uint32_t seed) {
   int fds[2]; if (pipe(fds)) return -1000000;
   st_la_forks++;
   pid_t pid = fork();
   if (pid == 0) { signal(SIGALRM, SIG_DFL); alarm(900);
     close(fds[0]); s_rollout = 1; V = 0;
-    g_rng ^= seed * 2654435761u; srand(seed); resample_unknowns(seed);
+    g_rng ^= seed * 2654435761u; srand(seed); if (fair_on() && !getenv("LACHEAT")) la_scrub(seed); else resample_unknowns(seed);
     Hero *h = &G.hero; int hp0 = h->HP, ht0 = h->HT, exp0 = h->exp, lvl0 = h->lvl; int32_t now0 = G.now; s_la_boss0 = boss_hp();
     int sc;
     if (!apply_cand(c)) sc = -1000000;
@@ -4489,7 +4516,7 @@ int main(int argc, char **argv) {
   int maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 150000, rt = getenv("RT") ? atoi(getenv("RT")) : 400, fk = getenv("FK") ? atoi(getenv("FK")) : 3000;
   if (getenv("STOP")) sscanf(getenv("STOP"), "%d:%d", &stop_game, &stop_step);
   V = getenv("V") != NULL;
-  if (getenv("FAIR") && !getenv("FAIRPLAY")) { setenv("NOLA", "1", 1); setenv("NOSTRAT", "1", 1); }   // 0.93 review: both look-aheads play a copy of the real game (unseen floors, monsters, unknown items): off
+  if (getenv("FAIR")) { setenv("NOSTRAT", "1", 1); if (getenv("FAIRNOLA")) setenv("NOLA", "1", 1); }   // 0.93: the upgrade look-ahead (worth nothing) off; the fight look-ahead plays a copy cut down to what a player knows (la_scrub)   // 0.93 review: both look-aheads play a copy of the real game (unseen floors, monsters, unknown items): off
   P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0; s_pure = getenv("PURE") != NULL; s_toe = getenv("TOE") != NULL;
   if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); if ((g_assist & 5) == 5) memset(g_view, 0, 4); }   // 0.77: Assist Max (0.80: off-screen targets, ASSIST=7): the whole map
   static int s_seedv[512], s_seedc[512], s_seedn; if (getenv("SEEDS")) { const char *q = getenv("SEEDS"); while (*q && s_seedn < 512) { s_seedv[s_seedn] = atoi(q); s_seedc[s_seedn] = -1; while (*q >= '0' && *q <= '9') q++; if (*q == ':') { q++; s_seedc[s_seedn] = atoi(q); while (*q >= '0' && *q <= '9') q++; } s_seedn++; if (*q == ',') q++; else break; } }   // SEEDS=84:0,151:2 (game:class): game index i plays the i-th listed seed (the runner hands out index ranges)
