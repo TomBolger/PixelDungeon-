@@ -4020,6 +4020,17 @@ static bool lookahead(void) {
   int bi = 0; long bm = tot[0] / cnt[0];
   for (int i = 1; i < n; i++) if (cnt[i] >= 12 * LM && tot[i] / cnt[i] > bm) { bm = tot[i] / cnt[i]; bi = i; }
   if (getenv("LADBG")) for (int i = 0; i < n; i++) { char nm[64] = ""; if (c[i].t >= C_ITEM) item_name(game_slot(c[i].a), nm, sizeof nm); printf("    cand %-7s %-24s %4d -> %ld (%d)%s\n", CNAME[c[i].t], nm, c[i].t == C_TAP ? c[i].a : c[i].b, tot[i] / cnt[i], cnt[i], i == bi ? " <==" : ""); }
+  if (getenv("LAFEAT") && !s_rollout && !s_is_child) {   // 0.93 (teacher, every decision in a plain fight): the numbers a watch could work out, and what the look-ahead chose
+    Hero *h = &G.hero; int ai = -1, na = 0, no = 0; double odpt = 0, adpt = 0; bool boss = false;
+    for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE) continue; if (MOB_DEFS[m->type].flags & MD_BOSS) boss = true; int d = distance(m->pos, h->pos);
+      if (d <= 1 && m->state == ST_HUNTING) { na++; adpt += foe_dpt(m); if (ai < 0 || m->HP < G.mobs[ai].HP) ai = i; } else if (d <= 4 && m->state == ST_HUNTING) { no++; odpt += foe_dpt(m); } }
+    if (ai >= 0 && !boss) { Mob *m = &G.mobs[ai]; double hd = hero_dpt(m), fd = foe_dpt(m); int bs = -1; long bsv = -1000000000L;
+      for (int i = 1; i < n; i++) if (c[i].t == C_TAP && mob_at(c[i].a) < 0 && c[i].a != h->pos && tot[i] / cnt[i] > bsv) { bsv = tot[i] / cnt[i]; bs = i; }
+      int o1 = 0; if (bs >= 0) for (int j = 0; j < 8; j++) { int q = c[bs].a + N8[j]; if (nb_ok(c[bs].a, q) && PASSABLE(G.map[q])) o1++; }
+      int o0 = 0; for (int j = 0; j < 8; j++) { int q = h->pos + N8[j]; if (nb_ok(h->pos, q) && PASSABLE(G.map[q])) o0++; }
+      const char *pick = bi == 0 || bm < tot[0] / cnt[0] + 150 ? "rules" : (c[bi].t == C_TAP && mob_at(c[bi].a) < 0) ? "step" : "other";
+      printf("LAF d%d c%d hp%d ht%d lvl%d na%d no%d foe=%s fhp%d fht%d fast%d hd%.2f fd%.2f ad%.2f od%.2f tkill%.1f tdie%.1f o0 %d o1 %d starv%d pick=%s stepgain=%ld\n", G.depth, h->hclass & 3, h->HP, h->HT, h->lvl, na, no, mob_name(m->type), m->HP, m->HT, mob_move_cost(m) < hero_move_cost(), hd, fd, adpt, odpt,
+        m->HP / (hd > 0.01 ? hd : 0.01), h->HP / (adpt + odpt > 0.01 ? adpt + odpt : 0.01), o0, o1, game_starving(), pick, bs >= 0 ? bsv - tot[0] / cnt[0] : -999999L); } }
   if (bi == 0 || bm < tot[0] / cnt[0] + 150) return false;   // not clearly better: the rules
   if (getenv("LAONLY")) {   // 0.93 diagnostic (teacher): let only one kind of override through, to find which kind carries the gain
     const char *o = getenv("LAONLY"); int t = c[bi].t; bool mob = t == C_TAP && mob_at(c[bi].a) >= 0 && !ally(mob_at(c[bi].a));
