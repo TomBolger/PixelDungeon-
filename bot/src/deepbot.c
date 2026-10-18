@@ -1071,7 +1071,7 @@ static double hero_dpt(Mob *m) {                       // the hero's mean damage
 // her spare STR adds 0..STR-10 to it, a Sniper's throws ignore armour and a hit marks for a half-turn follow-up
 static int st_boom;
 static bool dm_plan(void) { return s_pztest && !getenv("NODMPLAN"); }
-static bool dm_hold(void) { if ((!getenv("DMHOLD2") && !dm_plan()) || G.depth != 15) return false;   /* (r17: more gas deaths, no fewer DM deaths: opt-in) */ for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && G.mobs[i].HP < G.mobs[i].HT) return true; return false; }   // 0.54 (audit): DM-300 hurt: it mends only by stepping onto a dead trap: never make it walk
+static bool dm_hold(void) { if ((!getenv("DMHOLD2") && !(dm_plan() && getenv("DMHOLDPLAN"))) || G.depth != 15) return false;   /* (r17: more gas deaths, no fewer DM deaths: opt-in) */ for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && G.mobs[i].HP < G.mobs[i].HT) return true; return false; }   // 0.54 (audit): DM-300 hurt: it mends only by stepping onto a dead trap: never make it walk
 static bool hunt2(void) { return (G.hero.hclass & 3) == 3 && !getenv("OLDHUNT2"); }
 static int boom_slot(void) { if (G.hero.weapon.kind == IK_BOOMERANG) return -1; for (int i = 0; i < BAG_SIZE; i++) if (G.hero.bag[i].kind == IK_BOOMERANG) return i; return -100; }
 static double boom_dpt_vs(int def, int dr, int extra, bool near) {   // her boomerang's mean damage a turn against def / dr
@@ -1396,7 +1396,7 @@ static bool bad_air(int c) { return blob_at(BLOB_TOXIC, c) || blob_at(BLOB_FIRE,
 static bool escape_air(void) {                          // bot2: in gas or fire: walk to the nearest clean air (two steps clear)
   Hero *h = &G.hero; if (!bad_air(h->pos)) return false;
   if (dm_hold() && !blob_at(BLOB_FIRE, h->pos) && !blob_at(BLOB_PARALYTIC, h->pos)) return false;   // 0.54: its gas follows it anyway; stepping out makes it walk (and mend)
-  if (!getenv("OLDGASTANK") && blob_at(BLOB_TOXIC, h->pos) && !blob_at(BLOB_FIRE, h->pos) && !blob_at(BLOB_PARALYTIC, h->pos) && !blob_at(BLOB_CONFUSION, h->pos) && !(!s_oldfire && fire_next(h->pos)) && h->HP * 10 >= h->HT * ((!getenv("OLDDM") && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && adjacent(G.mobs[i].pos, h->pos)) dm = true; dm; })) ? (dm_plan() ? 0 : 2.5) : 4)
+  if (!getenv("OLDGASTANK") && blob_at(BLOB_TOXIC, h->pos) && !blob_at(BLOB_FIRE, h->pos) && !blob_at(BLOB_PARALYTIC, h->pos) && !blob_at(BLOB_CONFUSION, h->pos) && !(!s_oldfire && fire_next(h->pos)) && h->HP * 10 >= h->HT * ((!getenv("OLDDM") && ({ bool dm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_DM300 && adjacent(G.mobs[i].pos, h->pos)) dm = true; dm; })) ? (dm_plan() && getenv("DMHOLDPLAN") ? 0 : 2.5) : 4)
       && ({ bool adj = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, h->pos)) adj = true; adj; })) return false;   // 0.50 (review g6): toxic gas with a foe at your side (DM-300 vents it): fight on above 40%, fleeing only gives it free turns
   bfs(h->pos, false); int best = -1, bd = 0x7FFF;
   for (int c = 0; c < MAP_LEN; c++) {
