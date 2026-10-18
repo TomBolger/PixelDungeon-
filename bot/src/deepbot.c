@@ -1237,6 +1237,8 @@ static bool kit_fight(int mi) {                         // a losing duel: spend 
   if (h->HP * 2 < h->HT && !h->b.blind && (foes_near(3) >= 2 || h->HP * 4 < h->HT) && (s = find_kind(IK_WIPE_OUT)) >= 0) { st_wipe++; s_did[0] = 0; DID("losing duel, low: read Wipe Out"); do_item(s, ACN_READ); return true; }   // the altar's gift
   if (adjacent(m->pos, h->pos) && h->HP * 2 < h->HT && !h->b.blind) for (s = 0; s < BAG_SIZE; s++) { int k = h->bag[s].kind;   // 6. an unknown scroll: teleport, terror, lullaby, mirror images, psionic blast...
     if (item_cat(k) != CAT_SCROLL || item_known(k)) continue;
+    if (getenv("NOSCRGAMBLE")) { double esc = idb_p(k, IK_SCR_TELEPORT) + idb_p(k, IK_SCR_TERROR) * !(MOB_DEFS[m->type].flags & MD_I_TERROR) + idb_p(k, IK_SCR_LULLABY) * !(MOB_DEFS[m->type].flags & MD_I_SLEEP) + idb_p(k, IK_SCR_MIRROR) + idb_p(k, IK_SCR_PSIONIC), bad = idb_p(k, IK_SCR_CHALLENGE);   // 0.93 (teacher: the look-ahead threw them away rather than read them): only when the odds say it's probably an escape
+      if (esc < 0.45 || bad > 0.2) continue; }
     st_kit[4]++; s_did[0] = 0; DID("losing duel, half HP: read an unknown scroll (could be an escape)"); do_item(s, ACN_READ); return true; }
   return false;
 }
@@ -2058,6 +2060,21 @@ static bool fight(void) {
   Hero *h = &G.hero;
   if (soures() && !getenv("NOFIGHTMEND") && !h->b.blind && !s_rollout) { int s = find_kind(IK_SCR_UPGRADE); if (s >= 0 && item_known(IK_SCR_UPGRADE))   // 0.93 (owner: a broken piece is only mended, the level is lost): a piece a few uses from breaking mid-fight: read it now
     for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl >= 2 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur <= 3 && game_pick_ok(PICK_UPGRADE, w)) { s_force_pick = w; s_did[0] = 0; DID("the %s is about to break: upgrade it now, before it does", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
+  if ((getenv("DANCE") || getenv("TELEADJ")) && !s_rollout && !h->b.roots && !h->b.paralysis) {   // 0.93 (teacher: the look-ahead's commonest pick was a step away from the one beside me)
+    int adj = -1, nadj = 0, oth = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP <= 0 || ally(i) || !BIT_GET(G.fov, o->pos) || o->state == ST_PASSIVE) continue; int d = distance(o->pos, h->pos); if (d <= 1 && o->state == ST_HUNTING) { nadj++; adj = i; } else if (d <= 6 && o->state == ST_HUNTING) oth++; }
+    if (nadj == 1) { Mob *m = &G.mobs[adj]; bool boss = MOB_DEFS[m->type].flags & MD_BOSS;
+      if (getenv("TELEADJ") && !boss && h->HP * 3 < h->HT * 2) { int ws = -1; for (int sl = -1; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl); if (it->kind == IK_WND_TELEPORT && item_known(IK_WND_TELEPORT) && it->ench > 0) ws = sl; }
+        double hd = hero_dpt(m), cost = m->HP / (hd > 0.1 ? hd : 0.1) * foe_dpt(m);
+        if (ws >= 0 && cost > h->HP * 0.5) { s_did[0] = 0; DID("teleport the %s away (finishing it would cost ~%.0f of my %d)", mob_name(m->type), cost, h->HP); walk(game_zap(ws, m->pos)); return true; } }
+      static int s_dance_on, s_dance_n, s_dance_g = -1; if (s_dance_g != cur_game) { s_dance_g = cur_game; s_dance_on = 0; s_dance_n = 0; }
+      int lo = getenv("DANCELO") ? atoi(getenv("DANCELO")) : 50, hi = getenv("DANCEHI") ? atoi(getenv("DANCEHI")) : 75;
+      bool want = h->HP * 100 < h->HT * (s_dance_on ? hi : lo);
+      if (getenv("DANCEDBG")) printf("DANCE? step %d hp %d/%d want %d oth %d starving %d mag %d mc %d/%d n %d\n", s_bot_steps, h->HP, h->HT, want, oth, game_starving(), magic_shooter(m->type), mob_move_cost(m), hero_move_cost(), s_dance_n);
+      if (getenv("DANCE") && want && !boss && oth == 0 && !game_starving() && !magic_shooter(m->type) && m->type != MT_SCORPIO && mob_move_cost(m) >= hero_move_cost() && s_dance_n < 300) {
+        int bq = -1, bo = 0; for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || char_at(q) || PWATER(q) || distance(q, m->pos) < 2) continue;
+          int open = 0; for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && PASSABLE(G.map[r]) && !(TFLAGS(G.map[r]) & F_AVOID) && distance(r, m->pos) >= 2) open++; } if (open > bo) { bo = open; bq = q; } }
+        if (bq >= 0 && bo >= 2) { s_dance_on = 1; s_dance_n++; s_did[0] = 0; DID("dance: a step away from the %s (it follows instead of striking; I mend meanwhile)", mob_name(m->type)); walk(tap_safe(bq)); return true; } }
+      if (!want) s_dance_on = 0; } }
   int best = -1, bk = 1 << 30;
   for (int i = 0; i < G.n_mobs; i++) {
     Mob *m = &G.mobs[i];
