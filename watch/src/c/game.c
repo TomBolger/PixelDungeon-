@@ -409,10 +409,8 @@ void mark_chars(bool only_visible) {
   BIT_CLR(s_pass, G.hero.pos);
 }
 // BFS distances from 'from' through s_pass (from itself always allowed); stops at 'stop' if >= 0
-bool distance_map(int from, int stop) {
-  for (int i = 0; i < MAP_LEN; i++) s_dist[i] = 0x7FFF;
-  int qh = 0, qt = 0;
-  s_dist[from] = 0; s_queue[qt++] = from;
+static bool bfs_run(int qt, int stop) {         // BFS over s_pass from the seeded s_queue[0..qt)
+  int qh = 0;
   while (qh < qt) {
     int c = s_queue[qh++];
     if (c == stop) return true;
@@ -424,6 +422,11 @@ bool distance_map(int from, int stop) {
     }
   }
   return stop < 0;
+}
+bool distance_map(int from, int stop) {
+  for (int i = 0; i < MAP_LEN; i++) s_dist[i] = 0x7FFF;
+  s_dist[from] = 0; s_queue[0] = from;
+  return bfs_run(1, stop);
 }
 static int get_step(int from, int to) {                // PathFinder.getStep
   if (from == to || !distance_map(to, from)) return -1;
@@ -452,13 +455,13 @@ int mob_flee_step(int i, int from) {            // Dungeon.flee / PathFinder.get
   pass_terrain(pass_need(i));
   mark_chars(false);
   BIT_SET(s_pass, cur);
-  distance_map(from, -1);
-  int best = -1, max = s_dist[cur] == 0x7FFF ? 0 : s_dist[cur];
-  for (int k = 0; k < 8; k++) {
-    int n = cur + N8[k];
-    if (!nb_ok(cur, n) || !BIT_GET(s_pass, n) || s_dist[n] == 0x7FFF) continue;
-    if (s_dist[n] > max) { max = s_dist[n]; best = n; }
-  }
+  distance_map(from, -1);                       // 0.92 (audit): PathFinder.getStepBack: the cells 2 x (distance) + 1 from the threat are the goals,
+  int d = s_dist[cur] == 0x7FFF ? 0x7FFE : s_dist[cur] * 2 + 1, qt = 0, mx = 0;   // and a real path to the nearest of them (round the threat too)
+  for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < 0x7FFF && s_dist[c] > mx && s_dist[c] <= d) mx = s_dist[c];
+  for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] == mx) { s_queue[qt++] = c; s_dist[c] = 0; } else s_dist[c] = 0x7FFF;
+  bfs_run(qt, -1);
+  int best = -1, mn = s_dist[cur];
+  for (int k = 0; k < 8; k++) { int n = cur + N8[k]; if (nb_ok(cur, n) && BIT_GET(s_pass, n) && s_dist[n] < mn) { mn = s_dist[n]; best = n; } }
   return best;
 }
 
