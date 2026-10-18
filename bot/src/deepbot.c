@@ -795,6 +795,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
   int s;
   if ((s = find_kind(IK_POT_STRENGTH)) >= 0 && item_known(IK_POT_STRENGTH) && (getenv("OLDWELL") || !(G.well_pos >= 0 && G.well_kind == 2 && G.map[G.well_pos] == T_WELL && BIT_GET(G.visited, G.well_pos)))) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }
   if ((s = find_kind(IK_POT_MIGHT)) >= 0 && item_known(IK_POT_MIGHT)) { do_item(s, ACN_DRINK); return true; }
+  if (s_pztest && !getenv("NOTORCH") && G.depth >= 22 && G.depth <= 25 && !h->light && (s = find_kind(IK_TORCH)) >= 0 && s < BAG_SIZE) { if (!s_rollout) DID("light a torch (sight here is %d; the eyes, succubi and scorpios see 4)", 25 - G.depth); do_item(s, ACN_LIGHT); return true; }   // 0.93 (audit): HallsLevel.viewDistance = 25 - depth
   if ((s = find_kind(IK_POT_EXPERIENCE)) >= 0 && item_known(IK_POT_EXPERIENCE)) { do_item(s, ACN_DRINK); return true; }
   if (!getenv("OLDGEARFIX") && (s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE)) {   // 0.52 (audit): worn gear about to break (1/6 left, its level known): upgrade it now: +1 and mended (broken, it would only be mended)
     for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl > 0 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur * 6 <= item_max_dur(it) && game_pick_ok(PICK_UPGRADE, w)) {
@@ -1754,6 +1755,8 @@ static bool goo_open(int mi) {                           // bot3 (owner): bombs,
 static bool dm_open(int mi) {                            // 0.93 (DM-300 deaths with 2-5 missiles and bombs unused): while it comes, everything that flies: bombs first (20-40 here), then the heavy missiles, then the wands
   Hero *h = &G.hero; Mob *m = &G.mobs[mi]; bool hit; if (ballistica(h->pos, m->pos, &hit) != m->pos) return false; int d = distance(m->pos, h->pos);
   if (d < 2 || !BIT_GET(G.fov, m->pos) || m->state != ST_HUNTING) return false;
+  if (!getenv("NODMPARA") && !m->b.paralysis && d >= 5 && item_known(IK_POT_PARALYTIC) && find_kind(IK_POT_PARALYTIC) >= 0 && find_kind(IK_POT_PARALYTIC) < BAG_SIZE && !blob_at(BLOB_PARALYTIC, h->pos)) {   // (audit: not immune; a potion's cloud holds it ~12 turns, the buff ~10 more; damage breaks it ~1 time in 20)
+    s_did[0] = 0; DID("DM-300: paralytic gas on it from 5 away"); walk(game_throw(find_kind(IK_POT_PARALYTIC), m->pos)); return true; }
   static const uint8_t KIT[] = { IK_BOMB, IK_POT_FLAME, IK_CURARE_DART, IK_JAVELIN, IK_TOMAHAWK, IK_INCENDIARY_DART, IK_SHURIKEN, IK_BOOMERANG };   // (no plain darts: its armour eats them; no gas: the arena fills)
   for (unsigned k = 0; k < sizeof KIT; k++) { int sl = find_kind(KIT[k]); if (sl < 0 || sl >= BAG_SIZE) continue; if (item_cat(KIT[k]) == CAT_POTION && !item_known(KIT[k])) continue; if ((KIT[k] == IK_BOMB && d < 2) || (KIT[k] == IK_INCENDIARY_DART && d < 3)) continue;
     s_did[0] = 0; DID("DM-300: while it comes, the %s", KIT[k] == IK_BOMB ? "bomb" : item_cat(KIT[k]) == CAT_POTION ? "potion" : "missile"); walk(game_throw(sl, m->pos)); return true; }
@@ -2041,6 +2044,9 @@ static bool fight(void) {
         if (h->pos != P) { bfs(h->pos, false); if (b_dist[P] <= 12 && !char_at(P)) { int32_t t0 = h->time; ActResult rr = tap_safe(P); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("King: onto the pedestal he wants next (no army from there)"); walk(rr); return true; } } }
         else if (!adjacent(m->pos, h->pos)) { if (!ranged_try(best)) { s_did[0] = 0; DID("King: hold the pedestal"); walk(game_rest(false)); } return true; } } } }
   if (m->type == MT_DM300 && s_pztest && !getenv("NODMOPEN") && dm_open((int)(m - G.mobs))) return true;
+  if (m->type == MT_DM300 && s_pztest && !getenv("NODMPARA") && m->b.paralysis && !adjacent(m->pos, h->pos) && ({ bool gas = blob_at(BLOB_PARALYTIC, m->pos); for (int k = 0; k < 8 && !gas; k++) { int c = m->pos + N8[k]; if (nb_ok(m->pos, c) && blob_at(BLOB_PARALYTIC, c)) gas = true; } gas; })) {   // 0.93 (audit): held in the cloud: wait outside it (its own gas: 3+ straight steps off); in once the cloud round it is gone
+    if (blob_at(BLOB_PARALYTIC, h->pos) || blob_at(BLOB_TOXIC, h->pos)) return false;   // (the gas code moves me out)
+    if (!ranged_try(best)) { s_did[0] = 0; DID("DM-300 held in the paralytic cloud: wait for the cloud to thin"); walk(game_rest(false)); } return true; }
   if (m->type == MT_DM300 && !getenv("OLDDM")) {     // 0.53 (boss audit D1/D2): it repairs on dead traps and vents gas: meet it on a cell with no trap on it or beside it; hold it
     if (adjacent(m->pos, h->pos) && dm_plan() && !getenv("DMP_NODRINK") && h->HP <= 30) { int s = find_kind(IK_POT_HEALING); if (s >= 0 && item_known(IK_POT_HEALING)) { s_did[0] = 0; DID("DM-300: drink before its next blow (up to 29)"); do_item(s, ACN_DRINK); return true; }
       for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_POTION && !item_known(h->bag[i].kind) && s_pot_guess[h->bag[i].kind] == IK_POT_HEALING) { s_did[0] = 0; DID("DM-300: the Sungrass brew (Healing, likely)"); do_item(i, ACN_DRINK); return true; } }
