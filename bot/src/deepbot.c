@@ -4005,6 +4005,18 @@ static bool lookahead(void) {
   if (getenv("LADBG")) for (int i = 0; i < n; i++) { char nm[64] = ""; if (c[i].t >= C_ITEM) item_name(game_slot(c[i].a), nm, sizeof nm); printf("    cand %-7s %-24s %4d -> %ld (%d)%s\n", CNAME[c[i].t], nm, c[i].t == C_TAP ? c[i].a : c[i].b, tot[i] / cnt[i], cnt[i], i == bi ? " <==" : ""); }
   if (bi == 0 || bm < tot[0] / cnt[0] + 150) return false;   // not clearly better: the rules
   st_la_changed++;
+  if (getenv("LATEACH") && !s_rollout && !s_is_child) {   // 0.93 (owner: the look-ahead as a teacher): what it chose over the rules, and in what situation
+    Hero *h = &G.hero; int nf = nearest_hostile(), fp = nf >= 0 ? G.mobs[nf].pos : -1; char what[96] = "?", nm[64] = "";
+    if (c[bi].t >= C_ITEM) { Item *it = game_slot(c[bi].a); if (item_known(it->kind) || item_cat(it->kind) > CAT_SCROLL) item_name(it, nm, sizeof nm); else snprintf(nm, sizeof nm, "unknown %s", item_cat(it->kind) == CAT_POTION ? "potion" : "scroll"); }
+    if (c[bi].t == C_REST) snprintf(what, sizeof what, "rest");
+    else if (c[bi].t == C_TAP) { int q = c[bi].a, mi = mob_at(q);
+      if (q == h->pos) snprintf(what, sizeof what, "stairs");
+      else if (mi >= 0 && !ally(mi)) snprintf(what, sizeof what, "attack %s%s", mob_name(G.mobs[mi].type), mi == nf ? "" : " (not the nearest)");
+      else { int d0 = fp >= 0 ? distance(h->pos, fp) : 0, d1 = fp >= 0 ? distance(q, fp) : 0; snprintf(what, sizeof what, "step %s%s", d1 > d0 ? "away" : d1 < d0 ? "toward" : "aside", q == G.exit || q == G.entrance ? " onto stairs" : IS_WATER(G.map[q]) ? " into water" : G.map[q] == T_DOOR || G.map[q] == T_OPEN_DOOR ? " into a doorway" : ""); } }
+    else { int mi = c[bi].b >= 0 && c[bi].b < MAP_LEN ? mob_at(c[bi].b) : -1; snprintf(what, sizeof what, "%s %s%s%s", CNAME[c[bi].t], nm, mi >= 0 ? " at " : "", mi >= 0 ? mob_name(G.mobs[mi].type) : ""); }
+    printf("LAT d%d c%d hp%d%% lvl%d foes", G.depth, h->hclass & 3, h->HP * 100 / (h->HT ? h->HT : 1), h->lvl);
+    for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state != ST_PASSIVE) printf(" %s:%d:%d%%", mob_name(m->type), distance(m->pos, h->pos), m->HP * 100 / (m->HT ? m->HT : 1)); }
+    printf(" | pick %s | gain %ld\n", what, bm - tot[0] / cnt[0]); }
   { char nm[64] = ""; if (c[bi].t >= C_ITEM) item_name(game_slot(c[bi].a), nm, sizeof nm); DID("look-ahead: %s %s%s%d (%ld vs %ld)", CNAME[c[bi].t], nm, nm[0] ? " " : "", c[bi].t == C_TAP ? c[bi].a : c[bi].b, bm, tot[0] / cnt[0]); }
   apply_cand(c[bi]);
   return true;
