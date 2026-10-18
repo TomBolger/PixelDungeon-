@@ -174,7 +174,7 @@ static bool s_long_press;                          // the tap being handled was 
 int s_sheet_tab;                            // WndHero: 0 stats, 1 buffs
 static AppTimer *s_timer; static uint32_t s_timer_ms;
 int s_w, s_h;
-static int s_zoom = 1;                    // 0: 8px tiles, 1: 16px, 2: 32px
+static int s_zoom = 1, s_zuser = 1;       // 0: 8px tiles, 1: 16px, 2: 32px (0.93: s_zoom is what's drawn; s_zuser the player's choice, Max may zoom out from it)
 int s_pick = -1, s_pick_pending = -1;      // PickMode while the bag is an item selector
 int s_opt;                                  // WndOptions: 0 chasm jump, 1 harmful drink, 2 beneficial throw
 int s_item_slot;                    // slot shown in the item window / being thrown
@@ -208,11 +208,19 @@ static int cam_x(void) { return s_vis_hero.x + cam_ox() + shake(); }
 static int cam_y(void) { return s_vis_hero.y + cam_oy(); }
 static bool cam_free(void) { return s_cam_dx || s_cam_dy; }
 static void cam_glide(void) { s_glide_x = cam_ox(); s_glide_y = cam_oy(); s_glide_t0 = now_ms() | 1; }
-static void cam_center(void) { if (cam_free()) cam_glide(); s_cam_dx = s_cam_dy = 0; }
+static void cam_center(void) { if (cam_free()) cam_glide(); s_cam_dx = s_cam_dy = 0; s_zoom = s_zuser; }
 static void pan_to(int dx, int dy);
-static void cam_to(int c) {                        // 0.76 (owner): Assist Max: a quick swoop that puts the target mid-screen (same zoom)
-  int x = s_cam_dx, y = s_cam_dy; s_cam_dx = s_cam_dy = 0;
-  if (c >= 0) pan_to((c % MAP_W - G.hero.pos % MAP_W) * TS, (c / MAP_W - G.hero.pos / MAP_W) * TS);
+static const int8_t FIT[3][2] = {             // 0.93: farthest the target may be (across, up/down) for both to fit with a tile spare, per zoom
+#ifdef PBL_ROUND
+  { 24, 14 }, { 10, 6 }, { 4, 1 } };   // (closest: a tile up or down, the top buttons cover the edge)
+#else
+  { 16, 14 }, { 6, 6 }, { 2, 1 } };
+#endif
+static void cam_to(int c) {                        // 0.76 (owner): Assist Max: a quick swoop to the target; 0.93 (owner): zoomed out as far as it takes to show the hero and
+  int x = s_cam_dx, y = s_cam_dy, h = G.hero.pos, z = s_zuser + 1, f; if (c < 0) c = h;   // the target with a tile to spare, centred between them (none fits: the target, farthest out)
+  int dx = (c & 31) - (h & 31), dy = (c >> 5) - (h >> 5);
+  do f = abs(dx) <= FIT[--z][0] && abs(dy) <= FIT[z][1]; while (!f && z);
+  s_zoom = z; pan_to(dx * TS >> f, dy * TS >> f);
   if (s_cam_dx != x || s_cam_dy != y) { int nx = s_cam_dx, ny = s_cam_dy; s_cam_dx = x; s_cam_dy = y; cam_glide(); s_cam_dx = nx; s_cam_dy = ny; }
 }
 typedef struct { int16_t cell; uint32_t t0; GColor color; char text[12]; } Floater;   // t0: when it appeared
@@ -301,11 +309,11 @@ static const uint8_t VIEW[3][4] = { { 12, 8, 8, 9 }, { 6, 4, 4, 4 }, { 3, 2, 2, 
 static int16_t s_tg = -1, s_tg0 = -1; static uint8_t s_tgk, s_tgu, s_tgn, s_tgi, s_tgk0;   // the chosen target's cell and kind (an enemy: its uid)
 static void tg_refresh(int dir) {                 // keep the chosen target while it's in the list, else the best; dir: +1 next, -1 back
   static int32_t s_now = -1, s_t0; static int16_t s_pos; static int8_t s_z;   // the list only changes when time passes, the hero moves or the zoom changes
-  if (!dir && G.now == s_now && G.hero.pos == s_pos && s_zoom == s_z) return;
+  if (!dir && G.now == s_now && G.hero.pos == s_pos && s_zuser == s_z) return;
   if (G.hero.pos != s_pos) g_from = s_t0 == G.level_t0 ? s_pos : -1;   // 0.39: the way the hero went: the targets ahead first, then clockwise (0.47: not from the last floor)
   if (s_t0 != G.level_t0) { g_goal = -1; memset(g_drop, 0xFF, sizeof g_drop); g_ovr.on &= ~4; }   // 0.77: a new floor: no goal, drops or skipped grass from the last
   s_t0 = G.level_t0;
-  s_now = G.now; s_pos = G.hero.pos; s_z = s_zoom;
+  s_now = G.now; s_pos = G.hero.pos; s_z = s_zuser;   // (0.93: the player's zoom, not Max's)
   if (s_walking && !dir) { s_now = -1; return; }     // 0.43 (audio): not on every step of a walk (Select/taps stop it first): when it ends
   memcpy(g_view, VIEW[s_zoom], 4);                   // 0.36: only what's on screen
   if (AS_OFFCAM) memset(g_view, 0, 4);              // 0.75: Max (0.80: off-screen targets): anywhere
@@ -325,14 +333,9 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   if (AS_OFFCAM) cam_to(s_tg);              // 0.76: Max: the camera on whatever is chosen, cycled to or not
 }
 void hero_spend(int t); void process(void);
-static int cheb(int a, int b) { int dx = abs((a & 31) - (b & 31)), dy = abs((a >> 5) - (b >> 5)); return dx > dy ? dx : dy; }
-static void pass_hands(int c) {                   // the player chose otherwise than plan A (c: where): the hands' suggestion passed over (0.53), and
-  G.tgm.ra = 0;                                      // (0.77: the interrupted walk isn't taken up again over the player's choice)
-  if (s_tgk0 == TK_BAG || s_tgk0 == TK_REST) { int i = G.tgm.dn++ & 7; G.tgm.dk[i] = s_tgk0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; G.tgm.da[i] = s_tgk0 == TK_REST ? 255 : g_ovr.ha; G.tgm.dd = G.depth; }   // (0.67: 8 remembered, not just the last)
-  if (s_tgk0 == TK_ITEM && (unsigned)g_tgobj[0] < MAP_LEN && cheb(c, g_tgobj[0]) >= cheb(G.hero.pos, g_tgobj[0])) g_drop[g_drop_i++ & 3] = g_tgobj[0];   // 0.78 (owner): a thing passed over (not walked towards): not offered again
-  if (s_tgk0 == TK_ENEMY && abs((c & 31) - (G.hero.pos & 31)) <= 1 && abs((c >> 5) - (G.hero.pos >> 5)) <= 1) return;   // (a step back from an enemy: the doorway fight, still on)
-  int m = s_tgk0 == TK_ENEMY && s_tg0 >= 0 ? mob_at(s_tg0) : -1;   // 0.66 (owner: "I cannot be fighting the assist"): what made plan A
-  G.tgm.vs = G.tgm.src0; G.tgm.vu = m >= 0 ? G.mobs[m].uid : 255; G.tgm.vt = G.now + 15 * TICK;   // (an enemy: that one) is vetoed 15 turns (ovl/tgt)
+static void pass_hands(int c) {                   // the player chose otherwise than plan A (c: where): the hands' suggestion passed over (0.53; 0.93: in ovl/tgt4, room)
+  const OvlHeader *o = ovl_load(RESOURCE_ID_OVL_TGT4); if (!o) return;
+  ((void (*)(int, int, int))o->fn[1])(c, s_tgk0, s_tg0); ovl_free(o);
 }
 static ActResult tg_do(void) {                    // Select: as a tap on the target (0.36: rooted, 0.40: the hero's own cell: search)
   int c = s_tg, k = s_tgk, hp = G.hero.pos;
@@ -902,8 +905,8 @@ static int16_t screen_to_cell(int x, int y) {
 }
 
 uint8_t g_assist = ASSIST_NEW;
-static void zoom_save(void) { persist_write_int(KEY_ZOOM, s_zoom | (g_assist | 8) << 4); }   // 0.51: the assist rides along (0.80: its switches, bit 7: that form)
-static void zoom_cycle(void) { s_zoom = (s_zoom + 1) % 3; zoom_save(); redraw(); }   // combat: Up
+static void zoom_save(void) { persist_write_int(KEY_ZOOM, s_zuser | (g_assist | 8) << 4); }   // 0.51: the assist rides along (0.80: its switches, bit 7: that form)
+static void zoom_cycle(void) { s_zoom = s_zuser = (s_zuser + 1) % 3; zoom_save(); redraw(); }   // combat: Up
 static void combat_cycle(int dir) {                // Down: the next target (0.26: long press, the one before), the camera on it
   int c;
   if (s_scene == SC_TARGET) {
@@ -1838,7 +1841,7 @@ static void init(void) {
 #ifdef WHATIF
   int floor_op(int, int, void *); if (!persist_exists(1)) floor_op(9, 0, NULL);   // FO_WHATIF (game_int.h)   // 0.51 what-if build: no save: the frozen bot game (0.70: in the save overlay)
 #endif
-  if (persist_exists(KEY_ZOOM)) { int v = persist_read_int(KEY_ZOOM); s_zoom = v & 15; int a = (v >> 4) & 15, o = (a & 7) ^ ASSIST_DEF; g_assist = (a & 8) ? a & 7 : o == 4 ? 0 : o == 3 ? 7 : o == 2 ? 3 : 1; if (s_zoom > 2) s_zoom = 1; }   // (0.80: an old level: Low, Medium: on; High: + items; Max: + off-screen; Off)
+  if (persist_exists(KEY_ZOOM)) { int v = persist_read_int(KEY_ZOOM); s_zoom = v & 15; int a = (v >> 4) & 15, o = (a & 7) ^ ASSIST_DEF; g_assist = (a & 8) ? a & 7 : o == 4 ? 0 : o == 3 ? 7 : o == 2 ? 3 : 1; if (s_zoom > 2) s_zoom = 1; s_zuser = s_zoom; }   // (0.80: an old level: Low, Medium: on; High: + items; Max: + off-screen; Off)
   sheet_load(&s_chrome, RESOURCE_ID_IMAGE_CHROME);
   s_font_tiny = fonts_get_system_font(FONT_KEY_GOTHIC_09);
   s_font_hud = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);

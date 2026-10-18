@@ -429,6 +429,15 @@ static __attribute__((noinline)) int mind(int hp) {
   return pr;
 }
 #if TGT_PART == 3                                       // (0.74: escape and tactics moved to tgt3; 0.78: tgt4, room)
+static int pcheb(int a, int b) { int dx = abs((a & 31) - (b & 31)), dy = abs((a >> 5) - (b >> 5)); return dx > dy ? dx : dy; }
+static void pass_hands(int c, int k0, int c0) {    // main.c (0.93: moved here, room): the player chose otherwise than plan A (c: where; k0, c0: plan A): the hands' suggestion
+  G.tgm.ra = 0;                                      // passed over (0.53) (0.77: the interrupted walk isn't taken up again over the player's choice)
+  if (k0 == TK_BAG || k0 == TK_REST) { int i = G.tgm.dn++ & 7; G.tgm.dk[i] = k0 == TK_REST ? 0 : game_slot(g_ovr.hs)->kind; G.tgm.da[i] = k0 == TK_REST ? 255 : g_ovr.ha; G.tgm.dd = G.depth; }   // (0.67: 8 remembered, not just the last)
+  if (k0 == TK_ITEM && (unsigned)g_tgobj[0] < MAP_LEN && pcheb(c, g_tgobj[0]) >= pcheb(G.hero.pos, g_tgobj[0])) g_drop[g_drop_i++ & 3] = g_tgobj[0];   // 0.78 (owner): a thing passed over (not walked towards): not offered again
+  if (k0 == TK_ENEMY && pcheb(c, G.hero.pos) <= 1) return;   // (a step back from an enemy: the doorway fight, still on)
+  int m = k0 == TK_ENEMY && c0 >= 0 ? mob_at(c0) : -1;   // 0.66 (owner: "I cannot be fighting the assist"): what made plan A
+  G.tgm.vs = G.tgm.src0; G.tgm.vu = m >= 0 ? G.mobs[m].uid : 255; G.tgm.vt = G.now + 15 * TICK;   // (an enemy: that one) is vetoed 15 turns (ovl/tgt)
+}
 static int escape(void) {                              // 0.64 (moved from first(): room): the hero in gas or fire, or eaten by Goo's ooze
   int hp = G.hero.pos, best = -1, bk = 0x7FFF;
   if (XENV("FOUL", 1) && (foul(hp) || G.hero.b.burning)) {   // 0.64 (the Assist alone died in the gas of a potion it had drunk to learn it):
@@ -899,7 +908,7 @@ OVL_ENTRY(tgt2, (void *)targets_t);
 #elif TGT_PART == 2
 OVL_ENTRY(tgt3, (void *)targets_t);
 #else
-OVL_ENTRY(tgt4, (void *)targets_t);
+OVL_ENTRY(tgt4, (void *)targets_t, (void *)pass_hands);
 #endif
 #elif TGT_PART == 0
 OVL_ENTRY(tgt, (void *)targets);
@@ -908,5 +917,5 @@ OVL_ENTRY(tgt2, (void *)targets);
 #elif TGT_PART == 2
 OVL_ENTRY(tgt3, (void *)targets);
 #else
-OVL_ENTRY(tgt4, (void *)targets);
+OVL_ENTRY(tgt4, (void *)targets, (void *)pass_hands);
 #endif
