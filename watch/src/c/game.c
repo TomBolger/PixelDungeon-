@@ -611,8 +611,7 @@ void affect_burning(int who) {                  // Buff.affect(Burning).reignite
 void affect_paralysis(int who, int turns) {
   Buffs *b = buffs_of(who);
   if (b->gas_immune || mob_immune(who, MD_I_PARA)) return;   // GasesImmunity; FetidRat, King...
-  turns = elem_duration(who, turns);
-  bool add = !b->paralysis;                             // Buff.prolong: a new one only
+  bool add = !b->paralysis;                             // (0.93 audit: only the gas scales by the Ring of Elements: Paralysis.duration)                             // Buff.prolong: a new one only
   if (turns > b->paralysis) b->paralysis = turns;
   if (who < 0 && add) { ui_log("You are paralysed!", C_WARN); interrupt(); G.action = HA_NONE; }
   else if (BIT_GET(G.fov, pos_of(who))) ui_fx(FX_TEXT, pos_of(who), who, "paralysed");
@@ -804,7 +803,7 @@ static void blob_affect(int b, int who) {
     if (who >= 0) g_dmg_src = DS_GAS;
     char_damage(who, elem_resist(who, dmg), TXC(TX_C_GAS));
     if (who < 0 && G.hero.HP <= 0) ui_log(txt(TX_L_GAS), C_BAD);
-  } else if (b == BLOB_PARALYTIC) affect_paralysis(who, 10);
+  } else if (b == BLOB_PARALYTIC) affect_paralysis(who, elem_duration(who, 10));
   else if (b == BLOB_CONFUSION) {                      // ConfusionGas: Buff.prolong(Vertigo, Vertigo.duration)
     if (bf->gas_immune || mob_immune(who, MD_I_VERTIGO)) return;
     int d = elem_duration(who, 10);

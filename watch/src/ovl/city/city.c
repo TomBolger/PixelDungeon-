@@ -174,7 +174,7 @@ static int attack_proc(int i, int def, int dmg) {
   return B->attack_proc ? B->attack_proc(i, def, dmg) : dmg;
 }
 static int damage(int i, int dmg, int src) {
-  if (M_(i)->type == MT_UNDEAD && src == DS_GAS) blob_clear(BLOB_TOXIC, M_(i)->pos);   // Undead.damage: it soaks the gas up
+  // (0.93 audit: Undead.damage's ToxicGas.clear lands on the frame the swap throws away: the cloud is untouched)
   return B->damage ? B->damage(i, dmg, src) : dmg;
 }
 static void die(int i) {

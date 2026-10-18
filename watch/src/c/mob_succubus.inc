@@ -5,7 +5,7 @@ static int succubus_attack_proc(int i, int def, int dmg) {
     Buffs *b = buffs_of(def);
     int t = elem_duration(def, rnd_range(3, 7));
     if (def < 0) { G.charm_uid = M_(i)->uid; if (!b->charm) ui_log(txt(TX_L_CHARMED), C_WARN); }   // Hero.add(Charm): a new one only
-    if (t > b->charm) b->charm = t;
+    b->charm = b->charm + t > 255 ? 255 : b->charm + t;   // (0.93 audit: Buff.affect on a FlavourBuff spends the time on top)
     ui_sound(SND_CHARMS);
     if (seen(pos_of(def))) ui_fx(FX_TEXT, pos_of(def), def, "charmed");
   }
