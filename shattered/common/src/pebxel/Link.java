@@ -31,6 +31,13 @@ public final class Link {
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
 	public static final int NONE = 0xFFFF;
+	/** The command format's version; the watch app sends its own in its hello. */
+	public static final int PROTOCOL = 2;
+
+	/** What to show on a watch whose app speaks another version of the commands. */
+	public static byte[] wrongVersion(int watch) {
+		return errorScreen("This watch app doesn't match\nthe phone app.\n\nPlease install the watch app\nthat came with this phone app.\n\n(watch " + watch + ", phone " + PROTOCOL + ")");
+	}
 
 	// moving parts of a picture: position x8, alpha 0-255, scale x256, angle in 1/64 degree, water offset x8
 	static final int D_X = 0, D_Y = 1, D_A = 2, D_SX = 3, D_SY = 4, D_ANG = 5, D_OX = 6, D_OY = 7, N = 8;

@@ -116,6 +116,13 @@ public class Server {
 							case 'A': if (queueEmpty()) inFlight = false; else sendNext(); break;
 							case 'H':
 								maxMsg = Math.max(200, ((f[1] & 255) << 8 | (f[2] & 255)) - 16);
+								int ver = f.length > 3 ? f[3] & 255 : 1;
+								if (ver != Link.PROTOCOL) {
+									System.out.println("watch app speaks version " + ver + ", phone " + Link.PROTOCOL);
+									byte[] e = Link.wrongVersion(ver);
+									synchronized (Server.class) { outStream.writeShort(e.length + 1); outStream.write('D'); outStream.write(e); outStream.flush(); }
+									break;
+								}
 								System.out.println("watch says hello, messages up to " + maxMsg + " bytes");
 								helloPending = true; connected = true; break;
 							case 'B': synchronized (buttons) { buttons.add(f[1] & 255); } break;

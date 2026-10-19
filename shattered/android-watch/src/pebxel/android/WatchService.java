@@ -19,7 +19,7 @@ import java.util.function.Consumer;
  */
 public class WatchService extends BaseJavaPebbleListenerService {
 	public static final UUID APP = UUID.fromString("84d52e02-b98a-4d9c-b021-a9e3c442d0ca");
-	static final int KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3;
+	static final int KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_VERSION = 5;
 
 	private JavaPebbleSender sender;
 	private static WatchSession session;
@@ -65,8 +65,12 @@ public class WatchService extends BaseJavaPebbleListenerService {
 	protected void onMessageReceived(UUID app, Map<Integer, ? extends PebbleDictionaryItem> data, String watch, Consumer<ReceiveResult> responder) {
 		if (!APP.equals(app)) { responder.accept(ReceiveResult.Nack.INSTANCE); return; }
 		WatchSession s = session();
-		Integer hello = number(data.get(KEY_HELLO)), button = number(data.get(KEY_BUTTON));
-		if (hello != null) s.hello(hello);
+		Integer hello = number(data.get(KEY_HELLO)), button = number(data.get(KEY_BUTTON)), version = number(data.get(KEY_VERSION));
+		if (hello != null) {
+			int v = version == null ? 1 : version;
+			if (v != pebxel.Link.PROTOCOL) send(pebxel.Link.wrongVersion(v), ok -> { });
+			else s.hello(hello);
+		}
 		if (button != null) s.button(button);
 		responder.accept(ReceiveResult.Ack.INSTANCE);
 	}

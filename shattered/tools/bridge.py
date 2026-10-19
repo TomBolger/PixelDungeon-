@@ -29,7 +29,7 @@ def main():
 
     def on_msg(tid, app, data):
         if app != APP: return
-        if KEY_HELLO in data: to_server(b'H', struct.pack('>H', data[KEY_HELLO])); print('watch hello', data[KEY_HELLO])
+        if KEY_HELLO in data: to_server(b'H', struct.pack('>HB', data[KEY_HELLO], data.get(5, 1))); print('watch hello', data[KEY_HELLO], 'version', data.get(5, 1))
         if KEY_BUTTON in data: to_server(b'B', bytes([data[KEY_BUTTON] & 255])); print('button', data[KEY_BUTTON])
     am.register_handler('appmessage', on_msg)
     def ack(tid, app):

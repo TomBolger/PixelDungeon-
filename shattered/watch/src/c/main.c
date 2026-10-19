@@ -4,7 +4,8 @@
 #include "art.h"
 #include "draw.h"
 
-enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4 };
+enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5 };
+#define PROTOCOL 2   // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -110,7 +111,13 @@ static void clicks(void *ctx) {
 static void hello(void *data) {
   // tell the phone how big a message may be; it resends the whole screen. Repeat until it answers.
   if (s_connected) return;
-  send_u32(KEY_HELLO, app_message_inbox_size_maximum() > 8000 ? 8000 : app_message_inbox_size_maximum());
+  DictionaryIterator *it;
+  if (app_message_outbox_begin(&it) == APP_MSG_OK) {
+    uint32_t in = app_message_inbox_size_maximum();
+    dict_write_int32(it, KEY_HELLO, in > 8000 ? 8000 : (int32_t)in);
+    dict_write_int32(it, KEY_VERSION, PROTOCOL);
+    app_message_outbox_send();
+  }
   app_timer_register(2000, hello, NULL);
 }
 
