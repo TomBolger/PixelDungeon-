@@ -16,8 +16,11 @@ public class WatchApp implements Application {
 	private final String prefDir;
 	public volatile boolean exited;
 
-	public WatchApp(ApplicationListener l, String prefDir) {
+	public WatchApp(ApplicationListener l, String prefDir) { this(l, prefDir, false); }
+
+	public WatchApp(ApplicationListener l, String prefDir, boolean pictures) {
 		listener = l; this.prefDir = prefDir;
+		if (pictures) graphics.useSoftGL();
 		HeadlessNativesLoader.load();
 		Gdx.app = this; Gdx.files = new HeadlessFiles(); Gdx.net = new HeadlessNet(new HeadlessApplicationConfiguration());
 		Gdx.audio = new MockAudio(); Gdx.input = new MockInput();
