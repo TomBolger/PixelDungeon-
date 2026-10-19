@@ -12,6 +12,18 @@ public final class Explorer {
 	static Set<Integer> searched = new HashSet<>();
 	private static int depth = -1;
 
+	/** The nearest reachable known cell next to unknown ground (dist from Controls.walk), or -1. */
+	public static int nearestUnexplored(Level L, int hero, int[] dist) {
+		int best = -1;
+		for (int c = 0; c < dist.length; c++) {
+			if (dist[c] <= 1 || !L.passable[c]) continue;
+			boolean edge = false;
+			for (int d : PathFinder.NEIGHBOURS8) { int n = c + d; if (n >= 0 && n < dist.length && !L.visited[n] && !L.mapped[n]) { edge = true; break; } }
+			if (edge && (best < 0 || dist[c] < dist[best])) best = c;
+		}
+		return best;
+	}
+
 	/** The cell to act on, or -2 to search where you stand. */
 	public static int choose(Set<Integer> bad) {
 		if (Dungeon.depth != depth) { depth = Dungeon.depth; searched.clear(); }
