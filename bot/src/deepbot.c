@@ -4061,6 +4061,8 @@ static bool lookahead(void) {
     const char *ctx = boss ? "boss" : !strncmp(dflt, "fight ", 6) ? "fight" : "other";
     if (!strstr(getenv("LACTX"), ctx)) return false; }
   st_la_changed++;
+  if (getenv("LARANDSTEP") && c[bi].t == C_TAP && mob_at(c[bi].a) < 0 && c[bi].a != G.hero.pos) {   // 0.93 diagnostic: is it the cell, or just not doing the rules' move? a random step instead
+    int m[16], nm = 0; for (int i = 1; i < n && nm < 16; i++) if (c[i].t == C_TAP && mob_at(c[i].a) < 0 && c[i].a != G.hero.pos && distance(c[i].a, G.hero.pos) == 1) m[nm++] = i; if (nm) bi = m[rand() % nm]; }
   if (getenv("LATEACH") && !s_rollout && !s_is_child) {   // 0.93 (owner: the look-ahead as a teacher): what it chose over the rules, and in what situation
     Hero *h = &G.hero; int nf = nearest_hostile(), fp = nf >= 0 ? G.mobs[nf].pos : -1; char what[96] = "?", nm[64] = "";
     if (c[bi].t >= C_ITEM) { Item *it = game_slot(c[bi].a); if (item_known(it->kind) || item_cat(it->kind) > CAT_SCROLL) item_name(it, nm, sizeof nm); else snprintf(nm, sizeof nm, "unknown %s", item_cat(it->kind) == CAT_POTION ? "potion" : "scroll"); }
