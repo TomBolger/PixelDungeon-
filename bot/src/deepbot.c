@@ -569,14 +569,14 @@ static int upg_plan(bool *hold) {                         // bot3: which item th
   bool plan = !getenv("UPG_GREEDY");
   double bsc = 1e18, bnow = 0;
   for (int sl = -2; sl < BAG_SIZE; sl++) { Item *it = game_slot(sl); int c = item_cat(it->kind); if (!it->kind || !game_pick_ok(p, sl)) continue;
-    if (it->kind == IK_BOOMERANG && hunt2()) {         // 0.54: her boomerang (never heavier, every throw comes back)
+    if (it->kind == IK_BOOMERANG && hunt2() && !getenv("HUNTNOUPG")) {         // 0.54: her boomerang (never heavier, every throw comes back)
       s_boom_plus = n; double now = gear_cost(&h->weapon, &h->armor); s_boom_plus = n + F; s_str_plus = Sg; double cp = gear_cost(&h->weapon, &h->armor); s_boom_plus = 0; s_str_plus = 0;
       if (!plan) { if (base - now > bg) { bg = base - now; bs = sl; } continue; }
       double sc = 0.4 * (now < base ? now : base) + 0.6 * cp;
       if (getenv("UPGDBG") && !s_rollout) printf("  upgrade plan (%d in hand): boomerang+%d now %.1f -> %.1f, at the boss %.1f: score %.1f\n", n, it->lvl, base, now, cp, sc);
       if (sc < bsc) { bsc = sc; bs = sl; bnow = now; } continue; }
     if ((c != CAT_WEAPON && c != CAT_ARMOR) || it->kind == IK_PICKAXE || cursed_known(it)) continue;
-    if (hunt2() && c == CAT_WEAPON && item_tier(it->kind) <= 1) continue;   // (her dagger: the worst use of a scroll)
+    if (hunt2() && !getenv("HUNTNOUPG") && c == CAT_WEAPON && item_tier(it->kind) <= 1) continue;   // (her dagger: the worst use of a scroll)
     Item t = *it; if (!(t.flags & IF_LEVEL_KNOWN)) t.lvl = getenv("OLDGEARFIX") ? (t.lvl > 0 ? t.lvl : 0) : 0;   // (0.52 audit: no peeking at an unknown level)
     if (item_broken(it) && !getenv("OLDGEARFIX")) { t.dur = item_max_dur(it); t.lvl += (plan ? n : 1) - 1; } else   // a broken piece: the first scroll only mends it
     t.lvl += plan ? n : 1;
@@ -2356,7 +2356,7 @@ static bool fight(void) {
   // (attack: def 0). So: through a door, wait beside it; the door shuts behind you; it steps into the doorway blind and
   // your blow can't miss. A 1-HP wraith dies to it. (Not for the fast ones: they step in and strike in one turn.)
   bool kfast = MOB_DEFS[m->type].move_cost < hero_move_cost();   // (owner: almost every fight goes through a door: the fast ones too: in the doorway they come one at a time)
-  if (hunt2() && distance(m->pos, h->pos) >= 2 && boom_slot() >= 0 && !(m->type == MT_TENGU || m->type == MT_EYE || m->type == MT_SCORPIO || m->type == MT_ACIDIC) && !h->b.blind) {   // 0.54: the boomerang every turn while it comes (it's back in the bag at once)
+  if (hunt2() && !getenv("HUNTNORANGE") && distance(m->pos, h->pos) >= 2 && boom_slot() >= 0 && !(m->type == MT_TENGU || m->type == MT_EYE || m->type == MT_SCORPIO || m->type == MT_ACIDIC) && !h->b.blind) {   // 0.54: the boomerang every turn while it comes (it's back in the bag at once)
     bool hit; if (ballistica(h->pos, m->pos, &hit) == m->pos) { st_boom++; st_uses[ACN_THROW]++; s_did[0] = 0; DID("boomerang at the %s, %d away", mob_name(m->type), distance(m->pos, h->pos)); walk(game_throw(boom_slot(), m->pos)); return true; } }
   if (s_pztest && !getenv("NOCLOSEIN") && (m->type == MT_SHAMAN || m->type == MT_WARLOCK) && m->state == ST_HUNTING && distance(m->pos, h->pos) >= 2 && !h->b.roots) {   // 0.92 (seed 84 d7: ten turns of dodged darts while its lightning took 28 HP): it shoots and stands; close in, it dies in two blows
     bfs(m->pos, false); int st = -1, sd = b_dist[h->pos];
@@ -2397,7 +2397,7 @@ static bool fight(void) {
       else if (++s_boss_hits == 250) viol("BOSS_UNKILLABLE", "%s: 250 blows in a row and its HP stays at %d/%d or more", mob_name(m->type), s_boss_min, m->HT);
     }
     if ((m->type == MT_TENGU || ((m->type == MT_ROTTING_FIST || m->type == MT_BURNING_FIST) && !getenv("OLDYOG"))) && !getenv("OLDTENGU2") && m->b.paralysis <= 1) { int cs = find_kind(IK_CURARE_DART); if (cs >= 0 && cs < BAG_SIZE) { st_uses[ACN_THROW]++; s_did[0] = 0; DID("Tengu: a curare dart (paralysed it can't leap, every blow lands)"); walk(game_throw(cs, m->pos)); return true; } }
-    if (hunt2() && boom_slot() >= 0 && !h->b.blind && boom_dpt_vs(mst(m, STAT_DEF, MOB_DEFS[m->type].def), mst(m, STAT_DR, MOB_DEFS[m->type].dr), 0, true) > hero_dpt(m) * 1.15) { st_boom++; st_uses[ACN_THROW]++; s_did[0] = 0; DID("boomerang point-blank at the %s (beats my blade)", mob_name(m->type)); walk(game_throw(boom_slot(), m->pos)); return true; }
+    if (hunt2() && !getenv("HUNTNOPB") && boom_slot() >= 0 && !h->b.blind && boom_dpt_vs(mst(m, STAT_DEF, MOB_DEFS[m->type].def), mst(m, STAT_DR, MOB_DEFS[m->type].dr), 0, true) > hero_dpt(m) * 1.15) { st_boom++; st_uses[ACN_THROW]++; s_did[0] = 0; DID("boomerang point-blank at the %s (beats my blade)", mob_name(m->type)); walk(game_throw(boom_slot(), m->pos)); return true; }
     int32_t t = h->time; ActResult r = tap_safe(m->pos);
     if (r == ACT_NONE && h->time == t) { ignore_mob(best, 5); walk(game_rest(false)); return true; }
     walk(r); return true;
@@ -4216,7 +4216,7 @@ static bool curse_sim_ok(void) {
 static int strategic_upgrade(int scroll) {              // 1: read on the best target, 0: hold it, -1: no choice to make
   int tg[24], nt = 0;
   for (int sl = -2; sl < BAG_SIZE && nt < 23; sl++) { if (sl == 0 && 0) continue; Item *it = game_slot(sl); int c = item_cat(it->kind);
-    if (!it->kind || ((c != CAT_WEAPON && c != CAT_ARMOR && c != CAT_WAND) && !(it->kind == IK_BOOMERANG && hunt2())) || !game_pick_ok(PICK_UPGRADE, sl)) continue; if (hunt2() && c == CAT_WEAPON && item_tier(it->kind) <= 1) continue;
+    if (!it->kind || ((c != CAT_WEAPON && c != CAT_ARMOR && c != CAT_WAND) && !(it->kind == IK_BOOMERANG && hunt2() && !getenv("HUNTNOUPG"))) || !game_pick_ok(PICK_UPGRADE, sl)) continue; if (hunt2() && !getenv("HUNTNOUPG") && c == CAT_WEAPON && item_tier(it->kind) <= 1) continue;
     if (c == CAT_WEAPON && it->kind == IK_PICKAXE) continue;
     if (s_pztest && sl >= 0 && (c == CAT_WEAPON || c == CAT_ARMOR) && ({ Item *eq = c == CAT_WEAPON ? &G.hero.weapon : &G.hero.armor; c == CAT_WEAPON ? weapon_score(it) <= weapon_score(eq) : armor_score(it) <= armor_score(eq); })) continue;   // 0.92 (seed 84: the spare cloth armour upgraded, scale armour on): a spare that's worse than what's on isn't a target
     tg[nt++] = sl; }
