@@ -3,7 +3,11 @@
 set -e
 cd "$(dirname "$0")"
 TAG=v4.0.2
-[ -d spd ] || git -c advice.detachedHead=false clone -q --depth 1 --branch $TAG https://github.com/00-Evan/shattered-pixel-dungeon spd
+if [ ! -d spd ]; then
+  git -c advice.detachedHead=false clone -q --depth 1 --branch $TAG https://github.com/00-Evan/shattered-pixel-dungeon spd
+  # our changes to Shattered itself (kept small, so new Shattered versions merge easily)
+  (cd spd && git apply ../patches/spd.patch)
+fi
 mkdir -p lib && cd lib
 M=https://repo1.maven.org/maven2/com/badlogicgames
 for p in gdx/gdx/1.14.0/gdx-1.14.0.jar gdx/gdx-backend-headless/1.14.0/gdx-backend-headless-1.14.0.jar \

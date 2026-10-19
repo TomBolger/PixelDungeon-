@@ -35,6 +35,18 @@ public class WatchPlatform extends PlatformSupport {
 		return ASIAN.matcher(s).find() ? asian : basic;
 	}
 
+	/** Shattered asks for a font in phone pixels (UI zoom 2); answer with the watch font for that size. */
+	@Override
+	public com.badlogic.gdx.graphics.g2d.BitmapFont getFont(int size, String text, boolean flipped, boolean border) {
+		return WatchFonts.font(font(size), 2);
+	}
+
+	// Shattered's text layout, with the watch's font sizes (see the patch to RenderedText/RenderedTextBlock)
+	@Override public float textHeight(int size) { return (WatchFonts.line(font(size)) - 2) * 2; }
+	@Override public float textSpace(int size) { return WatchFonts.advance(font(size), ' '); }
+	@Override public float textKern(int size) { return 0; }
+	private static int font(int size) { return WatchFonts.forSize(Math.round(size / 2f)); }
+
 	private static final Pattern SPLIT = Pattern.compile("(?<=\n)|(?=\n)|(?<=_)|(?=_)|(?<=\\*\\*)|(?=\\*\\*)");
 	private static final Pattern SPLIT_ML = Pattern.compile("(?<= )|(?= )|(?<=\n)|(?=\n)|(?<=_)|(?=_)|(?<=\\*\\*)|(?=\\*\\*)");
 	@Override public String[] splitforTextBlock(String text, boolean multiline) {

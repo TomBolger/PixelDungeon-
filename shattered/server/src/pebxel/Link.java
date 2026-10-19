@@ -286,7 +286,8 @@ public final class Link {
 			String s = g instanceof RenderedText ? ((RenderedText) g).text() : ((BitmapText) g).text();
 			if (s == null || s.isEmpty()) return null;
 			int size = g instanceof RenderedText ? fontSize((RenderedText) g) : 6;
-			s8(K_TEXT); s8(cam); s8(Math.round(size * m[5])); color(v);
+			// which watch font (WatchFonts), the same one Shattered measured this text with
+			s8(K_TEXT); s8(cam); s8(WatchFonts.forSize(Math.round(size * m[5]))); color(v);
 			byte[] txt = s.getBytes(StandardCharsets.UTF_8);
 			int n = Math.min(255, txt.length); s8(n); sb.write(txt, 0, n);
 		} else if (g instanceof Tilemap) {

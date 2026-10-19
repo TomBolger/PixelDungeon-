@@ -4,7 +4,8 @@ set -e
 cd "$(dirname "$0")"
 [ -d spd ] || ./fetch-spd.sh
 CP="lib/*"
-if [ ! -d build/spd ]; then
+if [ ! -d build/spd ] || [ patches/spd.patch -nt build/spd ]; then
+  rm -rf build/spd
   mkdir -p build/spd
   find spd/SPD-classes/src/main/java spd/core/src/main/java spd/services/src/main/java \
     spd/services/news/debugNews/src spd/services/updates/debugUpdates/src -name '*.java' > build/spd.txt

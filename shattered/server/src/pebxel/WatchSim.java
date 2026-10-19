@@ -335,11 +335,12 @@ public final class WatchSim {
 		put(px, py, r, g, bb, Math.min(1, a));
 	}
 
+	// like the watch: see-through pixels are dithered with a 4x4 ordered pattern, not blended
+	private static final int[] BAYER = {8, 136, 40, 168, 200, 72, 232, 104, 56, 184, 24, 152, 248, 120, 216, 88};
 	private void put(int px, int py, float r, float g, float b, float a) {
-		int d = fb[py * W + px];
-		float dr = ((d >> 16) & 255) / 255f, dg = ((d >> 8) & 255) / 255f, db = (d & 255) / 255f;
-		int R = q(r * a + dr * (1 - a)), G = q(g * a + dg * (1 - a)), B = q(b * a + db * (1 - a));
-		fb[py * W + px] = 0xFF000000 | (R << 16) | (G << 8) | B;
+		int A = Math.round(a * 255);
+		if (A <= 247 && A <= BAYER[((py & 3) << 2) | (px & 3)]) return;
+		fb[py * W + px] = 0xFF000000 | (q(r) << 16) | (q(g) << 8) | q(b);
 	}
 
 	private static int q(float v) { return Math.round(Math.max(0, Math.min(1, v)) * 3) * 85; }
@@ -383,20 +384,30 @@ public final class WatchSim {
 		}
 	}
 
-	private static final Font FONT = new Font(Font.SANS_SERIF, Font.PLAIN, 9);
+	private final HashMap<Integer, BufferedImage> fontPics = new HashMap<>();
 
+	/** Text the way the watch draws it: Pebble's Gothic glyphs (captured from the watch), capitals at y. */
 	private void text(float x, float y, byte[] s) {
-		int size = s[2] & 255, len = s[10] & 255;
-		String str = new String(s, 11, len, StandardCharsets.UTF_8);
-		BufferedImage im = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
-		Graphics2D g = im.createGraphics();
-		g.setFont(FONT.deriveFont((float) Math.max(6, size + 2)));
-		g.setColor(Color.WHITE);
-		g.drawString(str.replace("_", ""), x, y + size);
-		g.dispose();
-		for (int py = clipY0; py < clipY1; py++) for (int px = clipX0; px < clipX1; px++) {
-			int a = im.getRGB(px, py) >>> 24;
-			if (a > 100) put(px, py, (s[3] & 255) / 255f + (s[6] & 255) / 255f, (s[4] & 255) / 255f + (s[7] & 255) / 255f, (s[5] & 255) / 255f + (s[8] & 255) / 255f, alpha);
+		int font = s[2] & 255, len = s[10] & 255;
+		String str = new String(s, 11, len, StandardCharsets.UTF_8).replace("_", "");
+		BufferedImage pic = fontPics.computeIfAbsent(font, f -> {
+			try { return ImageIO.read(new File(WatchFonts.dir, WatchFonts.NAMES[f] + ".png")); } catch (Exception e) { return null; }
+		});
+		if (pic == null || alpha < 0.25f) return;
+		org.json.JSONObject gl;
+		try { gl = new org.json.JSONObject(new String(java.nio.file.Files.readAllBytes(new File(WatchFonts.dir, "fonts.json").toPath()))).getJSONObject(WatchFonts.NAMES[font]).getJSONObject("glyphs"); }
+		catch (Exception e) { return; }
+		int top = Math.round(y) - WatchFonts.capTop(font), px = Math.round(x);
+		float r = Math.min(1, (s[3] & 255) / 255f + (s[6] & 255) / 255f), g = Math.min(1, (s[4] & 255) / 255f + (s[7] & 255) / 255f), b = Math.min(1, (s[5] & 255) / 255f + (s[8] & 255) / 255f);
+		for (char ch : str.toCharArray()) {
+			if (!gl.has("" + (int) ch)) ch = '?';
+			int gx = gl.getJSONArray("" + (int) ch).getInt(0), gw = gl.getJSONArray("" + (int) ch).getInt(1);
+			for (int yy = 0; yy < pic.getHeight(); yy++) for (int xx = 0; xx < gw; xx++) {
+				int X = px + xx, Y = top + yy;
+				if (X < clipX0 || Y < clipY0 || X >= clipX1 || Y >= clipY1) continue;
+				if ((pic.getRGB(gx + xx, yy) >>> 24) > 128) put(X, Y, r, g, b, 1);
+			}
+			px += gw;
 		}
 	}
 

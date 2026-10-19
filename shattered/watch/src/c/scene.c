@@ -96,7 +96,7 @@ static void read_static(Obj *o) {
       break;
     }
     case K_TEXT: {
-      o->w = u8();            // font size in watch px
+      o->w = u8();            // which watch font (0..6)
       read_col(o);
       int n = u8();
       char *s = malloc(n + 1);

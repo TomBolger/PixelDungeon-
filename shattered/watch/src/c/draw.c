@@ -30,28 +30,21 @@ static void colour_setup(const uint8_t *col, int alpha) {
   }
 }
 
-static inline void put(uint8_t *d, uint8_t c) {
+// see-through pixels are dithered (a 4x4 ordered pattern) rather than blended: with only four levels
+// per colour, blending would turn dimmed areas (fog of war over remembered rooms) to plain black
+static const uint8_t BAYER[16] = {8, 136, 40, 168, 200, 72, 232, 104, 56, 184, 24, 152, 248, 120, 216, 88};
+static inline void put(uint8_t *d, uint8_t c, int x, int y) {
+  int A;
   if (s_plain) {
-    int a = c >> 6;
-    if (a == 3) { *d = c; return; }
-    if (!a) return;
-    // 1/3 or 2/3 see-through
-    int A = a * 85, o = *d;
-    int r = (((c >> 4) & 3) * A + ((o >> 4) & 3) * (255 - A) + 127) / 255;
-    int g = (((c >> 2) & 3) * A + ((o >> 2) & 3) * (255 - A) + 127) / 255;
-    int b = ((c & 3) * A + (o & 3) * (255 - A) + 127) / 255;
-    *d = 0xC0 | (r << 4) | (g << 2) | b;
-    return;
+    A = c >> 6;
+    if (A == 3) { *d = c; return; }
+    if (!A) return;
+    A *= 85;
+  } else {
+    A = s_la[c]; c = s_lc[c];
+    if (A > 247) { *d = c; return; }
   }
-  int A = s_la[c];
-  if (A < 43) return;
-  uint8_t s = s_lc[c];
-  if (A > 212) { *d = s; return; }
-  int o = *d;
-  int r = (((s >> 4) & 3) * A + ((o >> 4) & 3) * (255 - A) + 127) / 255;
-  int g = (((s >> 2) & 3) * A + ((o >> 2) & 3) * (255 - A) + 127) / 255;
-  int b = ((s & 3) * A + (o & 3) * (255 - A) + 127) / 255;
-  *d = 0xC0 | (r << 4) | (g << 2) | b;
+  if (A > BAYER[((y & 3) << 2) | (x & 3)]) *d = c | 0xC0;
 }
 
 // ---- camera ----
@@ -86,12 +79,12 @@ static void blit(int tex, int tx, int ty, int tw, int th, int32_t L, int32_t T, 
     if (s_plain && du == 65536 && !fx) {
       // the common case: no scaling, no colour change
       const uint8_t *sp = row + (u >> 16);
-      for (int x = x0; x < x1; x++, d++) { uint8_t c = *sp++; if ((c >> 6) == 3) *d = c; else if (c >> 6) put(d, c); }
+      for (int x = x0; x < x1; x++, d++) { uint8_t c = *sp++; if ((c >> 6) == 3) *d = c; else if (c >> 6) put(d, c, x, y); }
       continue;
     }
     for (int x = x0; x < x1; x++, u += du, d++) {
       int su = u >> 16; if (su >= tw) su = tw - 1;
-      put(d, row[fx ? tw - 1 - su : su]);
+      put(d, row[fx ? tw - 1 - su : su], x, y);
     }
   }
 }
@@ -139,13 +132,13 @@ static void turned(Obj *o, const Face *f, int32_t X, int32_t Y, int32_t sx, int3
     int32_t u = rx * 256 / sx + ox, v = ry * 256 / sy + oy;
     if (u < 0 || v < 0 || u >= w || v >= h) continue;
     uint8_t *d = s_fb + py * s_stride + px;
-    if (f->solid) { put(d, f->solid); continue; }
+    if (f->solid) { put(d, f->solid, px, py); continue; }
     int su = (int)((int64_t)u * f->tw / w), sv = (int)((int64_t)v * f->th / h);
     if (f->fx) su = f->tw - 1 - su;
     if (f->fy) sv = f->th - 1 - sv;
     su /= k; sv /= k;
     const uint8_t *row = art_row(&src, sv);
-    if (row) put(d, row[su]);
+    if (row) put(d, row[su], px, py);
   }
 }
 
@@ -156,7 +149,7 @@ static void fill(int32_t L, int32_t T, int32_t R, int32_t B, uint8_t c) {
   int x0 = (L + 4) >> 3, x1 = (R + 4) >> 3, y0 = (T + 4) >> 3, y1 = (B + 4) >> 3;
   if (x0 < s_cx0) x0 = s_cx0; if (x1 > s_cx1) x1 = s_cx1;
   if (y0 < s_cy0) y0 = s_cy0; if (y1 > s_cy1) y1 = s_cy1;
-  for (int y = y0; y < y1; y++) { uint8_t *d = s_fb + y * s_stride + x0; for (int x = x0; x < x1; x++) put(d++, c); }
+  for (int y = y0; y < y1; y++) { uint8_t *d = s_fb + y * s_stride + x0; for (int x = x0; x < x1; x++) put(d++, c, x, y); }
 }
 
 // ---- kinds ----
@@ -203,7 +196,7 @@ static void draw_skin(Obj *o) {
     for (int x = x0; x < x1; x++, d++) {
       int32_t cx = (int32_t)((int64_t)(x * 8 + 4 - s_cam->x) * 65536 / z / 256) + s_cam->sx / 256;
       int su = ((cx - X + ox) / 8) % tw; if (su < 0) su += tw;
-      put(d, row[su]);
+      put(d, row[su], x, y);
     }
   }
 }
@@ -229,12 +222,9 @@ static GBitmap *s_bmp;
 static void fb_take(void) { s_bmp = graphics_capture_frame_buffer(s_ctx); s_fb = gbitmap_get_data(s_bmp); s_stride = gbitmap_get_bytes_per_row(s_bmp); }
 static void fb_give(void) { graphics_release_frame_buffer(s_ctx, s_bmp); s_bmp = NULL; }
 
-static GFont font_for(int size) {
-  if (size <= 7) return fonts_get_system_font(FONT_KEY_GOTHIC_09);
-  if (size <= 11) return fonts_get_system_font(FONT_KEY_GOTHIC_14);
-  if (size <= 15) return fonts_get_system_font(FONT_KEY_GOTHIC_18);
-  return fonts_get_system_font(FONT_KEY_GOTHIC_24);
-}
+// the phone picks the font (server WatchFonts) and lays the text out with its exact letter widths
+static const char *FONTS[] = {FONT_KEY_GOTHIC_09, FONT_KEY_GOTHIC_14, FONT_KEY_GOTHIC_14_BOLD, FONT_KEY_GOTHIC_18, FONT_KEY_GOTHIC_18_BOLD, FONT_KEY_GOTHIC_24, FONT_KEY_GOTHIC_24_BOLD};
+static const int8_t CAP_TOP[] = {3, 5, 5, 7, 7, 10, 10};   // pixels above the capitals in each font
 
 static void draw_text(Obj *o) {
   const char *s = o->ext; if (!s || !*s) return;
@@ -248,9 +238,8 @@ static void draw_text(Obj *o) {
   int r = clamp255(o->col[0] + o->col[3]), g = clamp255(o->col[1] + o->col[4]), b = clamp255(o->col[2] + o->col[5]);
   fb_give();
   graphics_context_set_text_color(s_ctx, GColorFromRGB(r, g, b));
-  GFont f = font_for(o->w);
-  int top = o->w <= 7 ? 3 : o->w <= 11 ? 4 : 5;   // Pebble fonts leave room above the letters
-  graphics_draw_text(s_ctx, buf, f, GRect(x, y - top, 200, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  int fi = o->w < 7 ? o->w : 1;
+  graphics_draw_text(s_ctx, buf, fonts_get_system_font(FONTS[fi]), GRect(x, y - CAP_TOP[fi], 200, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
   fb_take();
 }
 

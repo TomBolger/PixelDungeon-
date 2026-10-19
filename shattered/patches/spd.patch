@@ -1,0 +1,69 @@
+diff --git a/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java b/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
+index c82cc00..eeaa939 100644
+--- a/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
++++ b/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
+@@ -122,7 +122,7 @@ public class RenderedText extends Image {
+ 			}
+ 			
+ 			//this is identical to l.height in most cases, but we force this for consistency.
+-			height = Math.round(size*0.75f);
++			height = Game.platform.textHeight(size);
+ 			renderedHeight = glyphs.height;
+ 		}
+ 	}
+diff --git a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java b/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
+index 863b15b..4ef5ba4 100644
+--- a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
++++ b/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
+@@ -141,6 +141,20 @@ public abstract class PlatformSupport {
+ 		}
+ 	}
+ 
++	//text metrics used by RenderedText and RenderedTextBlock; a platform with its own fonts can change them
++	//(the Pebble watch app lays text out with the watch's fonts)
++	public float textHeight( int size ){
++		return Math.round(size*0.75f);
++	}
++
++	public float textSpace( int size ){
++		return 1.667f;
++	}
++
++	public float textKern( int size ){
++		return 0.667f;
++	}
++
+ 	//flipped is needed because Shattered's graphics are y-down, while GDX graphics are y-up.
+ 	//this is very confusing, I know.
+ 	public BitmapFont getFont(int size, String text, boolean flipped, boolean border) {
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java
+index 2dc7887..b2ee4df 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java
+@@ -217,7 +217,7 @@ public class RenderedTextBlock extends Component {
+ 		for (int i = 0; i < words.size(); i++){
+ 			RenderedText word = words.get(i);
+ 			if (word == SPACE){
+-				x += 1.667f;
++				x += Game.platform.textSpace(size);
+ 			} else if (word == NEWLINE) {
+ 				//newline
+ 				y += height+2f;
+@@ -236,7 +236,7 @@ public class RenderedTextBlock extends Component {
+ 				while (Messages.lang() != Languages.CHI_SMPL && Messages.lang() != Languages.CHI_TRAD
+ 						&& Messages.lang() != Languages.JAPANESE
+ 						&& j < words.size() && words.get(j) != SPACE && words.get(j) != NEWLINE){
+-					fullWidth += words.get(j).width() - 0.667f;
++					fullWidth += words.get(j).width() - Game.platform.textKern(size);
+ 					j++;
+ 				}
+ 
+@@ -258,7 +258,7 @@ public class RenderedTextBlock extends Component {
+ 				
+ 				//Note that spacing currently doesn't factor in halfwidth and fullwidth characters
+ 				//(e.g. Ideographic full stop)
+-				x -= 0.667f;
++				x -= Game.platform.textKern(size);
+ 
+ 			}
+ 		}
