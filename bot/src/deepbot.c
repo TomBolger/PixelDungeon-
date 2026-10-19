@@ -2056,10 +2056,36 @@ static bool curse_fight(int mi) {
   if (d >= 2 && (m->b.burning || !trade || !line)) { s_did[0] = 0; DID(m->b.burning ? "the curse: let it burn" : "the curse: let it come (no standing trade; it's slow)"); walk(game_rest(false)); return true; }
   return false;                                         // (melee, as usual)
 }
+// 0.93 STEP2 (teacher: the look-ahead's chosen step beats a random one by ~0.5 floors, and no single feature explains it):
+// a deterministic two-turn evaluation from what's visible, cheap enough for the watch. For staying to fight and for each
+// step: the hero acts, then each foe in sight acts on its real speed (attack if beside me, else a step toward me; a fast
+// one gets two actions), twice over; damage taken against damage dealt (a kill worth the blows it saves).
+static double step2_eval(int hp, bool stay) {
+  Hero *h = &G.hero; int ix[24], ps[24], n = 0; double mh[24];
+  for (int i = 0; i < G.n_mobs && n < 24; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state != ST_HUNTING || distance(m->pos, h->pos) > 6) continue; ix[n] = i; ps[n] = m->pos; mh[n] = m->HP; n++; }
+  double taken = 0, value = 0;
+  for (int turn = 0; turn < 2; turn++) {
+    if (turn > 0 || stay) { int t = -1; for (int k = 0; k < n; k++) if (mh[k] > 0 && distance(ps[k], hp) <= 1 && (t < 0 || mh[k] < mh[t])) t = k;   // the hero strikes the weakest beside him
+      if (t >= 0) { Mob *m = &G.mobs[ix[t]]; double d = hero_dpt(m); if (d > mh[t]) d = mh[t]; mh[t] -= d; value += d / (m->HT ? m->HT : 1) * foe_dpt(m) * 6; if (mh[t] <= 0.5) value += foe_dpt(m) * 3; } }
+    for (int k = 0; k < n; k++) { if (mh[k] <= 0) continue; Mob *m = &G.mobs[ix[k]]; int acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; double fd = foe_dpt(m);
+      if (magic_shooter(m->type) && distance(ps[k], hp) > 1) { taken += fd; continue; }
+      for (int a = 0; a < acts; a++) {
+        if (distance(ps[k], hp) <= 1) { taken += fd / acts; continue; }
+        int bq = ps[k], bd = distance(ps[k], hp); for (int j = 0; j < 8; j++) { int q = ps[k] + N8[j]; if (!nb_ok(ps[k], q) || !PASSABLE(G.map[q]) || q == hp) continue; bool occ = false; for (int o = 0; o < n; o++) if (o != k && ps[o] == q && mh[o] > 0) occ = true; if (occ) continue; int dd = distance(q, hp); if (dd < bd) { bd = dd; bq = q; } }
+        ps[k] = bq; } } }
+  double hpv = h->HP, risk = taken > hpv * 0.5 ? (taken - hpv * 0.5) * (getenv("STEP2K") ? atof(getenv("STEP2K")) : 6.0) : 0;   // (near the edge, a blow costs far more than its points: the look-ahead's score is mostly deaths)
+  return value - taken - risk;
+}
 static bool fight(void) {
   Hero *h = &G.hero;
   if (soures() && !getenv("NOFIGHTMEND") && !h->b.blind && !s_rollout) { int s = find_kind(IK_SCR_UPGRADE); if (s >= 0 && item_known(IK_SCR_UPGRADE))   // 0.93 (owner: a broken piece is only mended, the level is lost): a piece a few uses from breaking mid-fight: read it now
     for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl >= 2 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur <= 3 && game_pick_ok(PICK_UPGRADE, w)) { s_force_pick = w; s_did[0] = 0; DID("the %s is about to break: upgrade it now, before it does", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
+  if (getenv("STEP2") && !s_rollout && !h->b.roots && !h->b.paralysis) {
+    bool near = false, boss = false; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && BIT_GET(G.fov, o->pos) && o->state == ST_HUNTING) { if (distance(o->pos, h->pos) <= 2) near = true; if (MOB_DEFS[o->type].flags & MD_BOSS) boss = true; } }
+    if (near && !boss) { double s0 = step2_eval(h->pos, true), bsv = s0 + (getenv("STEP2M") ? atof(getenv("STEP2M")) : 1.0); int bq = -1;
+      for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || char_at(q) || PWATER(q)) continue; double v = step2_eval(q, false); if (v > bsv) { bsv = v; bq = q; } }
+      if (getenv("STEP2DBG")) printf("STEP2 step %d hp %d/%d stay %.1f best %.1f at %d\n", s_bot_steps, h->HP, h->HT, s0, bsv, bq);
+      if (bq >= 0) { s_did[0] = 0; DID("step2: a step scores %.1f against %.1f for standing", bsv, s0); walk(tap_safe(bq)); return true; } } }
   if (getenv("CHOKE") && !s_rollout && !h->b.roots && !h->b.paralysis) {   // 0.93 (teacher: a second foe coming and the one beside me still healthy: the look-ahead steps first, 77%): to where fewer can reach me at once
     int na = 0, nh = 0, ai = -1; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP <= 0 || ally(i) || !BIT_GET(G.fov, o->pos) || o->state != ST_HUNTING || (MOB_DEFS[o->type].flags & MD_BOSS)) continue; int d = distance(o->pos, h->pos); if (d <= 1) { na++; ai = i; } if (d <= 4) nh++; }
     if (na >= 1 && nh >= 2 && G.mobs[ai].HP * 4 > G.mobs[ai].HT * 3) {
