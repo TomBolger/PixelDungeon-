@@ -69,13 +69,11 @@ public class Server {
 			controls.frame();
 			sinceSync += Game.elapsed;
 			if (helloPending) { helloPending = false; synchronized (queue) { queue.clear(); } link.reset(); inFlight = false; }
-			if (connected && !inFlight && queueEmpty()) {
-				byte[] cmds = link.sync(sinceSync); sinceSync = 0;
-				if (cmds.length > 0) {
-					List<byte[]> ps = link.packets(cmds, maxMsg);
-					synchronized (queue) { queue.addAll(ps); }
-					sendNext();
-				}
+			if (connected) link.frame(sinceSync); sinceSync = 0;
+			if (connected && !inFlight && queueEmpty() && link.pending()) {
+				List<byte[]> ps = link.take(maxMsg);
+				synchronized (queue) { queue.addAll(ps); }
+				sendNext();
 			}
 			next += frameNs;
 			long sleep = next - System.nanoTime();

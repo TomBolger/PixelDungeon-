@@ -87,7 +87,7 @@ public class HandoffTest {
 	}
 
 	/** The story screen before a floor waits for its button. */
-	static void pressOn() {
+	public static void pressOn() {
 		for (Ui.Part p : Ui.parts(Game.scene()))
 			if (p.button && !p.text.isEmpty() && !p.text.equals("Button")) { Ui.press(p.g); break; }
 	}

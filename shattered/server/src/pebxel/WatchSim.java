@@ -20,7 +20,7 @@ public final class WatchSim {
 	private static final class Anim { int tex, delayMs; boolean looped; int[] rects; }
 	private static final class Obj {
 		int kind; byte[] st; int[] tiles; int prev = Link.NONE, next = Link.NONE;
-		float[] dyn = new float[Link.N], vel = new float[Link.N]; float at;
+		float[] dyn = new float[Link.N], vel = new float[Link.N]; float at, until;
 		int frame; float timer; // animation
 	}
 
@@ -43,6 +43,7 @@ public final class WatchSim {
 		for (float left = dt; left > 1e-6f; left -= 1 / 30f) {
 			float step = Math.min(left, 1 / 30f);
 			now += step;
+			if (!q.isEmpty()) pump();
 			for (Cam c : cams) if (c != null && c.mode != 0) follow(c, step);
 		}
 	}
@@ -66,17 +67,57 @@ public final class WatchSim {
 
 	// ---------------- applying commands ----------------
 
-	private byte[] b; private int p;
+	private byte[] b; private int p; private float applyAt;
 	private int u8() { return b[p++] & 255; }
 	private int u16() { int v = (b[p] & 255) | ((b[p + 1] & 255) << 8); p += 2; return v; }
 	private int s16() { return (short) u16(); }
 	private static int s16(byte[] a, int i) { return (short) ((a[i] & 255) | ((a[i + 1] & 255) << 8)); }
 
-	public void apply(byte[] cmds) {
-		b = cmds; p = 0;
+	public void apply(byte[] cmds) { apply(cmds, 0, false); }
+
+	// ---- play-out, as on the watch (main.c): messages wait and each stamped frame plays at its time ----
+	private final ArrayDeque<int[]> qPos = new ArrayDeque<>();
+	private final ArrayDeque<byte[]> q = new ArrayDeque<>();
+	private float off, curAt; private boolean haveOff;
+	static final float MARGIN = 0.040f;
+	private static long stamp(byte[] d, int i) { return (d[i + 1] & 255L) | (d[i + 2] & 255L) << 8 | (d[i + 3] & 255L) << 16 | (d[i + 4] & 255L) << 24; }
+
+	/** A message arrives from the phone now. */
+	public void receive(byte[] msg) {
+		if (msg.length >= 5 && msg[0] == Link.C_TIME) {
+			float want = now - stamp(msg, 0) / 1000f + MARGIN;
+			if (!haveOff || want > off) off = want; else off -= (off - want) / 8;
+			haveOff = true;
+			if (System.getenv("OFFS") != null) System.out.printf("recv at %.3f stamp %.3f want %.3f off %.3f len %d%n", now, stamp(msg, 0) / 1000f, want, off, msg.length);
+		}
+		q.add(msg); qPos.add(new int[]{0});
+		pump();
+	}
+
+	private void pump() {
+		while (!q.isEmpty()) {
+			byte[] m = q.peek(); int[] pos = qPos.peek();
+			if (pos[0] < m.length && m[pos[0]] == Link.C_TIME) {
+				float due = stamp(m, pos[0]) / 1000f + off;
+				if (due > now + 1e-4f) return;
+				curAt = due;
+			}
+			int used = apply(m, pos[0], true);
+			pos[0] = used > pos[0] ? used : m.length;
+			if (pos[0] >= m.length) { q.poll(); qPos.poll(); }
+		}
+	}
+
+	/** Applies commands from start; with stopAtTime, only up to the next frame's stamp. Returns where it stopped. */
+	private int apply(byte[] cmds, int from, boolean stopAtTime) {
+		b = cmds; p = from;
+		float at = stopAtTime ? curAt : now;
+		applyAt = at;
 		while (p < b.length) {
+			if (stopAtTime && b[p] == Link.C_TIME && p > from) return p;
 			int c = u8();
 			switch (c) {
+				case Link.C_TIME: p += 4; break;
 				case Link.C_RESET: objs.clear(); head = Link.NONE; dyn.clear(); anims.clear(); Arrays.fill(cams, null); break;
 				case Link.C_CAM: {
 					int id = u8(); Cam k = new Cam(); k.x = s16(); k.y = s16(); k.w = s16(); k.h = s16(); k.zoom = u16(); k.sx = s16(); k.sy = s16();
@@ -117,6 +158,7 @@ public final class WatchSim {
 				default: throw new IllegalStateException("bad command " + c + " at " + (p - 1));
 			}
 		}
+		return p;
 	}
 
 	/** One picture's unchanging part (its length depends on its kind). */
@@ -145,9 +187,10 @@ public final class WatchSim {
 		if ((m & 32) != 0) o.vel[Link.D_A] = s16();
 		if ((m & 64) != 0) { o.vel[Link.D_SX] = s16(); o.vel[Link.D_SY] = s16(); }
 		if ((m & 128) != 0) o.vel[Link.D_ANG] = s16();
+		o.until = (m & 0xF0) != 0 ? u8() / 100f : 0;
 		if (o.kind == Link.K_SKIN) { o.dyn[Link.D_OX] = s16(); o.dyn[Link.D_OY] = s16(); o.vel[Link.D_OX] = s16(); o.vel[Link.D_OY] = s16(); }
 		if (animated(o)) { o.frame = u8(); o.timer = u8() / 256f; }
-		o.at = now;
+		o.at = applyAt;
 	}
 
 	private static boolean animated(Obj o) { return (o.kind == Link.K_IMG || o.kind == Link.K_SKIN) && (o.st[3] & Link.F_ANIM) != 0; }
@@ -183,7 +226,7 @@ public final class WatchSim {
 		}
 	}
 
-	private float d(Obj o, int i) { return o.dyn[i] + o.vel[i] * (now - o.at); }
+	private float d(Obj o, int i) { float t = now - o.at; if (o.until > 0) t = Math.min(t, o.until); return o.dyn[i] + o.vel[i] * t; }
 
 	// the picture being drawn: camera, place, turn and scale (local units -> camera units x8)
 	private Cam cam; private float px0, py0, orx, ory, scx, scy, cs, sn;

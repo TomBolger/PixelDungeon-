@@ -156,6 +156,60 @@ index 1c02505..9254077 100644
  		if (hero != null && (hero.isAlive() || WndResurrect.instance != null)) {
  			
  			Actor.fixTime();
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/CellSelector.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/CellSelector.java
+index 1debaec..6c12a86 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/CellSelector.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/CellSelector.java
+@@ -129,7 +129,8 @@ public class CellSelector extends ScrollArea {
+ 	private float zoom( float value ) {
+ 
+ 		value = GameMath.gate( PixelScene.minZoom, value, PixelScene.maxZoom );
+-		SPDSettings.zoom((int) (value - PixelScene.defaultZoom));
++		if (PixelScene.pebxelZoom > 0) PixelScene.pebxelMapZoom = (int) (value - PixelScene.defaultZoom);
++		else SPDSettings.zoom((int) (value - PixelScene.defaultZoom));
+ 		camera.zoom( value );
+ 
+ 		//Resets char and item sprite positions with the new camera zoom
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
+index 179e9e8..21d3ef8 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
+@@ -234,7 +234,7 @@ public class GameScene extends PixelScene {
+ 		SPDSettings.lastClass(Dungeon.hero.heroClass.ordinal());
+ 		
+ 		super.create();
+-		Camera.main.zoom( GameMath.gate(minZoom, defaultZoom + SPDSettings.zoom(), maxZoom));
++		Camera.main.zoom( GameMath.gate(minZoom, defaultZoom + (pebxelZoom > 0 ? pebxelMapZoom : SPDSettings.zoom()), maxZoom));
+ 		Camera.main.edgeScroll.set(1);
+ 
+ 		switch (SPDSettings.cameraFollow()) {
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
+index 86c9dfb..afe1af3 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
+@@ -64,6 +64,13 @@ import java.util.ArrayList;
+ public class PixelScene extends Scene {
+ 
+ 	// Minimum virtual display size for mobile portrait orientation
++	/** Pebxel: the watch's interface zoom (bigger than Shattered would pick for so small a screen). */
++	public static int pebxelZoom = 0;
++	/** Pebxel: the watch's map zoom, apart from the phone's setting (-1 at zoom 3: 16 pixel tiles, as in the Pixel Dungeon port). */
++	public static int pebxelMapZoom = -1;
++	/** Pebxel: screens laid out for more room than the watch has at that zoom; they use zoom 2. */
++	public static final java.util.Set<String> pebxelSmaller = new java.util.HashSet<>();
++
+ 	public static final float MIN_WIDTH_P = 135;
+ 	public static final float MIN_HEIGHT_P = 225;
+ 
+@@ -141,6 +148,8 @@ public class PixelScene extends Scene {
+ 			}
+ 		}
+ 
++		if (pebxelZoom > 0) defaultZoom = pebxelSmaller.contains(getClass().getSimpleName()) ? Math.min(2, pebxelZoom) : pebxelZoom;
++
+ 		minZoom = 1;
+ 		maxZoom = defaultZoom * 2;
+ 
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java
 index 2dc7887..b2ee4df 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java

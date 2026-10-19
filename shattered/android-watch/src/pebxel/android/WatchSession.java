@@ -146,13 +146,11 @@ class WatchSession extends Thread {
 				Shared.release(Shared.WATCH);
 			}
 			if (retryAt != 0 && System.currentTimeMillis() > retryAt) { retryAt = 0; helloPending = true; }
-			if (!inFlight && isEmpty() && retryAt == 0) {
-				byte[] cmds = link.sync(sinceSync); sinceSync = 0;
-				if (cmds.length > 0) {
-					List<byte[]> ps = link.packets(cmds, maxMsg);
-					synchronized (queue) { queue.addAll(ps); }
-					sendNext();
-				}
+			if (retryAt == 0) link.frame(sinceSync); sinceSync = 0;
+			if (!inFlight && isEmpty() && retryAt == 0 && link.pending()) {
+				List<byte[]> ps = link.take(maxMsg);
+				synchronized (queue) { queue.addAll(ps); }
+				sendNext();
 			}
 			next += frameNs;
 			long sleep = next - System.nanoTime();

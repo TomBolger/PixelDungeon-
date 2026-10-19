@@ -3,7 +3,7 @@
 #include <pebble.h>
 
 // commands
-enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_COMMIT = 15 };
+enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_COMMIT = 15 };
 // picture kinds
 enum { K_IMG = 1, K_RECT, K_NINE, K_TILES, K_TEXT, K_SKIN, K_QUADS };
 enum { F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16 };
@@ -23,6 +23,7 @@ typedef struct Obj {
   // moving parts and their speeds per second: x, y (x8), alpha, scale x/y (x256), angle (1/64 deg), water offset x/y (x8)
   int16_t dyn[8], vel[8];
   uint32_t at;                   // when they were told (ms)
+  uint16_t until;                // the speeds stop this long after (ms; 0: they don't)
   void *ext;                     // text (char*), tile cells, nine margins, rect colour
 } Obj;
 
@@ -68,7 +69,8 @@ extern Cam g_cam[MAX_CAM];
 extern uint16_t g_head;
 extern bool g_dirty;             // a complete update arrived: redraw
 
-void scene_apply(const uint8_t *data, int len, uint32_t now);
+// applies commands up to the next time stamp (C_TIME) after the start; returns the bytes used
+int scene_apply(const uint8_t *data, int len, uint32_t now);
 void scene_reset(void);
 Anim *scene_anim(int id);
 DynTex *scene_dyntex(int id);

@@ -4,7 +4,15 @@ import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 
 /** Shattered PD exactly as shipped, except it never draws. */
 public class WatchGame extends ShatteredPixelDungeon {
-	public WatchGame() { super(new WatchPlatform()); }
+	public WatchGame() {
+		super(new WatchPlatform());
+		String z = System.getenv("PEBXEL_ZOOM");
+		// one and a half times Shattered's own size on the watch (like the Pixel Dungeon port's big buttons); the
+		// title screen, first-run welcome and credits need more room than that leaves, so they stay at 2
+		com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.pebxelZoom = z != null ? Integer.parseInt(z) : 3;
+		java.util.Collections.addAll(com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.pebxelSmaller,
+				"TitleScene", "WelcomeScene", "AboutScene", "ChangesScene", "NewsScene", "SupporterScene");
+	}
 	/** Set to draw the next frame (only when taking pictures); normally nothing is drawn. */
 	public boolean drawNext;
 	/** Run the drawing code every frame (with the do-nothing graphics chip): some pictures, like

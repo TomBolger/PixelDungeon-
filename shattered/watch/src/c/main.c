@@ -5,7 +5,7 @@
 #include "draw.h"
 
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5 };
-#define PROTOCOL 2   // must match Link.PROTOCOL on the phone
+#define PROTOCOL 3   // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -51,11 +51,75 @@ static void tick(void *data) {
   // power saving (as in the Pixel Dungeon port): idle animations stop 10 s after the last button
   // press, unless the game is still sending something new
   bool awake = now - s_input_at < 10000 || now - s_data_at < 1500;
-  if (awake && scene_moving(now)) s_timer = app_timer_register(50, tick, NULL);
+  if (awake && scene_moving(now)) s_timer = app_timer_register(40, tick, NULL);
 #endif
 }
 
 static void kick(void) { if (!s_timer) { s_last = now_ms(); s_timer = app_timer_register(1, tick, NULL); } }
+
+// ---- play-out: each frame's changes at the pace they happened on the phone ----
+// Messages arrive in bursts (one per radio round trip), each holding several game frames stamped with
+// the phone's clock. They wait here and are played a little behind, so movements come out smooth
+// rather than in jumps.
+typedef struct Msg { struct Msg *next; uint16_t len, pos; uint8_t data[]; } Msg;
+static Msg *s_q, *s_qtail;
+static int s_qbytes;
+static int32_t s_off;        // watch time = phone time + s_off (enough to have heard of a frame before playing it)
+static bool s_have_off;
+static uint32_t s_cur_at;    // when the frame being played happened, in watch time
+static AppTimer *s_ptimer;
+#define MARGIN 40            // ms of slack for uneven radio
+#define QMAX 6000            // more waiting than this (or memory running short): catch up at once
+
+static uint32_t stamp_at(const uint8_t *d) { return d[1] | d[2] << 8 | d[3] << 16 | (uint32_t)d[4] << 24; }
+
+static void queue_clear(void) {
+  while (s_q) { Msg *m = s_q; s_q = m->next; free(m); }
+  s_qtail = NULL; s_qbytes = 0; s_have_off = false;
+}
+
+static void pump(void *data);
+
+static void pump_at(uint32_t due, uint32_t now) {
+  if (s_ptimer) app_timer_cancel(s_ptimer);
+  s_ptimer = app_timer_register(due > now ? due - now : 1, pump, NULL);
+}
+
+// play every frame that is due
+static void pump(void *data) {
+  s_ptimer = NULL;
+  uint32_t now = now_ms();
+  bool rush = s_qbytes > QMAX || heap_bytes_free() < 10000;
+  while (s_q) {
+    Msg *m = s_q;
+    if (m->pos < m->len && m->data[m->pos] == C_TIME && m->len - m->pos >= 5) {
+      uint32_t due = stamp_at(m->data + m->pos) + s_off;
+      if ((int32_t)(due - now) > 0 && !rush) { pump_at(due, now); return; }
+      s_cur_at = rush ? now : due;
+    }
+    int used = scene_apply(m->data + m->pos, m->len - m->pos, s_cur_at);
+    m->pos = used > 0 ? m->pos + used : m->len;
+    if (g_dirty) { g_dirty = false; kick(); }
+    if (m->pos >= m->len) { s_q = m->next; if (!s_q) s_qtail = NULL; s_qbytes -= m->len; free(m); }
+  }
+}
+
+static void enqueue(const uint8_t *data, int len, uint32_t now) {
+  if (len > 0 && data[0] == C_TIME && len >= 5) {
+    // how late did this arrive? play everything at least that late (coming down slowly when it gets quicker)
+    int32_t want = (int32_t)(now - stamp_at(data)) + MARGIN;
+    if (!s_have_off || want > s_off) s_off = want;
+    else s_off -= (s_off - want) / 8;
+    s_have_off = true;
+  }
+  Msg *m = malloc(sizeof(Msg) + len);
+  if (!m) { pump(NULL); m = malloc(sizeof(Msg) + len); }   // short of memory: play what's waiting first
+  if (!m) { s_cur_at = now; scene_apply(data, len, now); return; }
+  m->next = NULL; m->len = len; m->pos = 0; memcpy(m->data, data, len);
+  if (s_qtail) s_qtail->next = m; else s_q = m;
+  s_qtail = m; s_qbytes += len;
+  pump(NULL);
+}
 
 static void dropped(AppMessageResult r, void *ctx) { APP_LOG(APP_LOG_LEVEL_WARNING, "message dropped: %d", (int)r); }
 
@@ -70,8 +134,7 @@ static void inbox(DictionaryIterator *it, void *ctx) {
   Tuple *t = dict_find(it, KEY_DATA);
   if (t && t->type == TUPLE_BYTE_ARRAY) {
     s_data_at = now_ms();
-    scene_apply(t->value->data, t->length, s_data_at);
-    if (g_dirty) { g_dirty = false; kick(); }
+    enqueue(t->value->data, t->length, s_data_at);
   }
 }
 
@@ -111,6 +174,7 @@ static void clicks(void *ctx) {
 static void hello(void *data) {
   // tell the phone how big a message may be; it resends the whole screen. Repeat until it answers.
   if (s_connected) return;
+  queue_clear();
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) == APP_MSG_OK) {
     uint32_t in = app_message_inbox_size_maximum();
@@ -141,6 +205,7 @@ static void init(void) {
 int main(void) {
   init();
   app_event_loop();
+  queue_clear();
   scene_reset();
   layer_destroy(s_layer);
   window_destroy(s_win);

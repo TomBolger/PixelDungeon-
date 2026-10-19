@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_COMMIT = 15;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_COMMIT = 15;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 2;
+	public static final int PROTOCOL = 3;
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -50,12 +50,17 @@ public final class Link {
 	private static final class Obj {
 		int id, kind; byte[] stat; int[] tiles;
 		float[] dyn = new float[N], vel = new float[N];   // see D_* below
-		float sentAt;
+		float sentAt, until;                                 // speeds last until (0: no end)
+		com.watabou.noosa.tweeners.Tweener tw;              // the movement/fade those speeds came from
 		float[] prev; float prevAt;                          // last frame's real values, for speeds
 		MovieClip.Animation anim; int frame; float timer;   // animation the watch is playing
 	}
 
 	private final IdentityHashMap<Gizmo, Obj> objs = new IdentityHashMap<>();
+	static final boolean DEBUG_NEW = System.getenv("DEBUG_NEW") != null;
+	static final boolean NO_UNTIL = System.getenv("NOUNTIL") != null;   // for comparing (LagTest)
+	/** Movements, fades and growths in progress this round, by picture: they say exactly where it is heading and when it arrives. */
+	private final IdentityHashMap<Gizmo, com.watabou.noosa.tweeners.Tweener> tweens = new IdentityHashMap<>();
 	private final HashMap<Integer, Integer> shadowPrev = new HashMap<>(), shadowNext = new HashMap<>();
 	private int shadowHead = NONE;
 	private final ArrayDeque<Integer> freeIds = new ArrayDeque<>();
@@ -76,7 +81,13 @@ public final class Link {
 	/** Pictures that are pure scenery and cost more radio time than they are worth (none by default). */
 	public final Set<String> skip = new HashSet<>(Arrays.asList(
 			"BusyIndicator",  // the phone's 'thinking' spinner: meaningless on the watch
-			"CellSelector"    // an invisible touch area
+			"CellSelector",   // an invisible touch area
+			// each floor's background decoration (dripping sewer pipes, prison torches, cave sparkles, city
+			// flames and smoke, hall fire streams) and water ripples: a steady stream of tiny pictures that
+			// would hold up what matters on a slow radio link
+			"Sink", "Torch", "Vein", "GreenFlame", "Smoke", "Stream", "Ripple",
+			// the menus' drifting rubble background: busy behind text, and always moving
+			"TitleBackground"
 	));
 
 	public final Set<String> unknown = new TreeSet<>();
@@ -90,7 +101,7 @@ public final class Link {
 		objs.clear(); shadowPrev.clear(); shadowNext.clear(); shadowHead = NONE;
 		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); nextDyn = 200;
 		anims.clear(); animsByContent.clear();
-		out.reset(); marks.clear(); cmd(C_RESET);
+		out.reset(); marks.clear(); dropPending(); cmd(C_RESET);
 	}
 
 	/** Compare the scene with the watch's copy; returns the commands to send (may be empty). */
@@ -102,6 +113,7 @@ public final class Link {
 		Scene scene = Game.scene();
 		if (scene != null) {
 			List<Gizmo> order = new ArrayList<>();
+			tweens.clear();
 			walk(scene, order);
 			// removed pictures
 			Set<Gizmo> present = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -121,6 +133,7 @@ public final class Link {
 				if (o == null) {
 					o = new Obj(); o.id = freeIds.isEmpty() ? nextId++ : freeIds.poll(); o.kind = st[0];
 					objs.put(g, o);
+					if (DEBUG_NEW && g instanceof RenderedText) System.out.println("NEWTEXT " + ((RenderedText) g).text() + " in " + g.parent.getClass().getName());
 					cmd(C_NEW); u16(o.id); u16(prev); out.write(st, 0, st.length); o.stat = st;
 					sendDyn(g, o, dyn); stat(g, "new", out.size() - before);
 					link(o.id, prev);
@@ -134,7 +147,8 @@ public final class Link {
 						}
 						cmd(C_SET); u16(o.id); out.write(st, 0, st.length); o.stat = st;
 						sendDyn(g, o, dyn); stat(g, "set", out.size() - before);
-					} else if (drifted(g, o, dyn)) {
+					} else if (drifted(g, o, dyn) || (tweens.get(g) != null && tweens.get(g) != o.tw && !NO_UNTIL)) {
+						// (a new movement starting is sent at once, not a frame later when it shows as a drift)
 						cmd(C_MOVE); u16(o.id); sendDyn(g, o, dyn); stat(g, "move", out.size() - before);
 					}
 				}
@@ -146,8 +160,15 @@ public final class Link {
 		cameras(dt);
 		if (out.size() == 0) { marks.clear(); return new byte[0]; }
 		cmd(C_COMMIT);
-		byte[] b = out.toByteArray(); out.reset();
-		lastMarks = new ArrayList<>(marks); marks.clear();
+		// stamped with the game clock: the watch plays each frame's changes at the same pace they happened
+		int ms = Math.round(now * 1000);
+		byte[] body = out.toByteArray(); out.reset();
+		byte[] b = new byte[body.length + 5];
+		b[0] = C_TIME; b[1] = (byte) ms; b[2] = (byte) (ms >> 8); b[3] = (byte) (ms >> 16); b[4] = (byte) (ms >> 24);
+		System.arraycopy(body, 0, b, 5, body.length);
+		lastMarks = new ArrayList<>(); lastMarks.add(0);
+		for (int mk : marks) lastMarks.add(mk + 5);
+		marks.clear();
 		bytesTotal += b.length; syncs++;
 		return b;
 	}
@@ -212,6 +233,7 @@ public final class Link {
 	/** Does the watch's guess (last values plus speed x time) differ visibly from the real picture? */
 	private boolean drifted(Gizmo g, Obj o, float[] dyn) {
 		float t = now - o.sentAt;
+		if (o.until > 0) t = Math.min(t, o.until);
 		for (int i = 0; i < N; i++) {
 			float guess = o.dyn[i] + o.vel[i] * t;
 			if (i == D_A) guess = Math.max(0, Math.min(255, guess));
@@ -252,10 +274,38 @@ public final class Link {
 		// motion SPD integrates itself is exact; use it (acceleration is left to corrections)
 		if (v.speed.x != 0 || v.speed.y != 0) { vel[D_X] = v.speed.x * 8; vel[D_Y] = v.speed.y * 8; }
 		if (v.angularSpeed != 0) vel[D_ANG] = v.angularSpeed * 64;
+		// a movement, fade or growth in progress: exactly to where it ends, stopping there (no overshoot
+		// while the watch waits to hear that it stopped)
+		float until = 0;
+		com.watabou.noosa.tweeners.Tweener tw = NO_UNTIL ? null : tweens.get(g);
+		if (tw == null && o.tw != null) {
+			// a movement just ended: it stopped where it was going (any next one is its own movement)
+			vel[D_X] = vel[D_Y] = vel[D_A] = vel[D_SX] = vel[D_SY] = 0;
+		}
+		o.tw = tw;
+		if (tw != null) {
+			float left = tw.interval - tw.elapsed;
+			if (left > 0.005f) {
+				until = left;
+				if (tw instanceof com.watabou.noosa.tweeners.PosTweener) {
+					com.watabou.utils.PointF e = ((com.watabou.noosa.tweeners.PosTweener) tw).end;
+					vel[D_X] = (e.x - v.x) * 8 / left; vel[D_Y] = (e.y - v.y) * 8 / left;
+				} else if (tw instanceof com.watabou.noosa.tweeners.AlphaTweener) {
+					com.watabou.noosa.tweeners.AlphaTweener a = (com.watabou.noosa.tweeners.AlphaTweener) tw;
+					vel[D_A] = Math.max(0, Math.min(255, (a.start + a.delta) * 255)) - dyn[D_A]; vel[D_A] /= left;
+				} else if (tw instanceof com.watabou.noosa.tweeners.ScaleTweener) {
+					com.watabou.utils.PointF e = ((com.watabou.noosa.tweeners.ScaleTweener) tw).end;
+					vel[D_SX] = (e.x * 256 - dyn[D_SX]) / left; vel[D_SY] = (e.y * 256 - dyn[D_SY]) / left;
+				}
+			}
+		}
 		for (int i = 0; i < N; i++) if (Math.abs(vel[i]) > 30000) vel[i] = 0;  // a jump, not a movement
 		// blinking (alpha jumping between levels) is not a fade: hold the new value
 		if (o.prev != null && Math.abs(dyn[D_A] - o.prev[D_A]) > 60) vel[D_A] = 0;
 		o.dyn = dyn.clone(); o.vel = vel; o.sentAt = now;
+		int untilMs = until > 0 ? Math.max(1, Math.min(255, (int) Math.ceil(until * 100))) : 0;   // 10 ms units
+		o.until = untilMs / 100f;
+		if (DEBUG_NEW && g.getClass().getSimpleName().equals("HeroSprite")) System.out.printf("HERO at %.3f x %.1f vel %.0f until %d tween %s%n", now, dyn[D_X] / 8, vel[D_X] / 8, untilMs, tw == null ? "-" : tw.getClass().getSimpleName() + " " + tw.elapsed + "/" + tw.interval);
 		int mask = 1;
 		if (dyn[D_A] != 255) mask |= 2;
 		if (dyn[D_SX] != 256 || dyn[D_SY] != 256) mask |= 4;
@@ -273,6 +323,7 @@ public final class Link {
 		if ((mask & 32) != 0) s16o(r(vel[D_A]));
 		if ((mask & 64) != 0) { s16o(r(vel[D_SX])); s16o(r(vel[D_SY])); }
 		if ((mask & 128) != 0) s16o(r(vel[D_ANG]));
+		if ((mask & 0xF0) != 0) u8(untilMs);
 		if (o.kind == K_SKIN) { s16o(r(dyn[D_OX])); s16o(r(dyn[D_OY])); s16o(r(vel[D_OX])); s16o(r(vel[D_OY])); }
 		// what the watch will believe (values as rounded on the wire, missing ones at their defaults)
 		for (int i = 0; i < N; i++) { o.dyn[i] = r(o.dyn[i]); o.vel[i] = r(o.vel[i]); }
@@ -280,6 +331,7 @@ public final class Link {
 		if ((mask & 32) == 0) o.vel[D_A] = 0;
 		if ((mask & 64) == 0) { o.vel[D_SX] = o.vel[D_SY] = 0; }
 		if ((mask & 128) == 0) o.vel[D_ANG] = 0;
+		if ((mask & 0xF0) == 0) o.until = 0;
 		if ((o.kind == K_IMG || o.kind == K_SKIN) && (o.stat[3] & F_ANIM) != 0) {
 			MovieClip mc = (MovieClip) g;
 			o.anim = NoosaAccess.curAnim(mc); o.frame = NoosaAccess.curFrame(mc); o.timer = NoosaAccess.frameTimer(mc);
@@ -297,7 +349,24 @@ public final class Link {
 			if (!skip.isEmpty() && skip.contains(g.getClass().getSimpleName())) continue;
 			if (g instanceof Group) { walk((Group) g, order); continue; }
 			if (g instanceof Visual) order.add(g);
+			else if (g instanceof com.watabou.noosa.tweeners.Tweener) {
+				com.watabou.noosa.tweeners.Tweener t = (com.watabou.noosa.tweeners.Tweener) g;
+				Gizmo v = t instanceof com.watabou.noosa.tweeners.PosTweener ? ((com.watabou.noosa.tweeners.PosTweener) t).visual
+						: t instanceof com.watabou.noosa.tweeners.AlphaTweener ? ((com.watabou.noosa.tweeners.AlphaTweener) t).image
+						: t instanceof com.watabou.noosa.tweeners.ScaleTweener ? ((com.watabou.noosa.tweeners.ScaleTweener) t).visual : null;
+				if (v != null && t.elapsed >= 0 && t.elapsed < t.interval) {
+					com.watabou.noosa.tweeners.Tweener had = tweens.get(v);
+					// a movement wins over a fade; otherwise the one ending first
+					if (had == null || (t instanceof com.watabou.noosa.tweeners.PosTweener && !(had instanceof com.watabou.noosa.tweeners.PosTweener))
+							|| (t.getClass() == had.getClass() && t.interval - t.elapsed < had.interval - had.elapsed)) tweens.put(v, t);
+				}
+			}
 		}
+	}
+
+	private static boolean inWindow(Gizmo g) {
+		for (Group p = g.parent; p != null; p = p.parent) if (p instanceof com.shatteredpixel.shatteredpixeldungeon.ui.Window) return true;
+		return false;
 	}
 
 	// ---- picture state ----
@@ -349,6 +418,14 @@ public final class Link {
 			String key = key(im.texture);
 			if (key != null && key.startsWith("1x1:")) {
 				int col = (int) Long.parseLong(key.substring(4));
+				float alpha = ((col >>> 24) / 255f) * v.alpha();
+				if (alpha > 0.05f && alpha < 0.95f && inWindow(g)) {
+					// see-through panels inside windows (item slots, list rows) dither into a noisy check on the
+					// watch: make them solid, black or light grey by how light they are
+					int lum = (((col >> 16) & 255) * 3 + ((col >> 8) & 255) * 5 + (col & 255) * 2) / 10;
+					col = lum < 128 ? 0xFF000000 : 0xFFAAAAAA;
+					dyn[D_A] = 255;
+				}
 				s8(K_RECT); s8(cam); origin(v); size(im.width, im.height);
 				s8((col >> 16) & 255); s8((col >> 8) & 255); s8(col & 255); s8(col >>> 24);
 				color(v);
@@ -661,6 +738,31 @@ public final class Link {
 	private void cmd(int c) { marks.add(out.size()); out.write(c); }
 	private final List<Integer> marks = new ArrayList<>();
 	private List<Integer> lastMarks = new ArrayList<>();
+
+	// ---- the outbox: every frame's changes, kept until the watch can take more ----
+	private final ByteArrayOutputStream pend = new ByteArrayOutputStream();
+	private final List<Integer> pendMarks = new ArrayList<>();
+
+	/** Call every game frame: notes this frame's changes (with their time) for the watch. */
+	public void frame(float dt) {
+		byte[] b = sync(dt);
+		if (b.length == 0) return;
+		int base = pend.size();
+		for (int mk : lastMarks) pendMarks.add(base + mk);
+		pend.write(b, 0, b.length);
+	}
+
+	public boolean pending() { return pend.size() > 0; }
+
+	/** Everything noted since the last call, cut into messages of at most max bytes. */
+	public List<byte[]> take(int max) {
+		byte[] all = pend.toByteArray(); pend.reset();
+		lastMarks = new ArrayList<>(pendMarks); pendMarks.clear();
+		return all.length == 0 ? new ArrayList<>() : packets(all, max);
+	}
+
+	/** Forget what was waiting (the watch starts over). */
+	public void dropPending() { pend.reset(); pendMarks.clear(); }
 
 	/** The last sync's bytes cut into messages of at most max bytes, each holding whole commands. */
 	public List<byte[]> packets(byte[] all, int max) {

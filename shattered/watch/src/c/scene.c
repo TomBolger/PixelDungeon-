@@ -123,6 +123,7 @@ int32_t obj_dyn(const Obj *o, int i, uint32_t now) {
   int32_t v = o->dyn[i];
   if (o->vel[i]) {
     uint32_t dt = now - o->at; if (dt > 60000) dt = 60000;
+    if (o->until && dt > o->until) dt = o->until;
     v += (int32_t)((int64_t)o->vel[i] * dt / 1000);
   }
   if (i == 2) v = v < 0 ? 0 : v > 255 ? 255 : v;
@@ -141,6 +142,7 @@ static void read_dyn(Obj *o, uint32_t now) {
   if (m & 32) o->vel[2] = s16();
   if (m & 64) { o->vel[3] = s16(); o->vel[4] = s16(); }
   if (m & 128) o->vel[5] = s16();
+  o->until = (m & 0xF0) ? u8() * 10 : 0;   // the speeds stop then (ms; 0: they don't)
   if (o->kind == K_SKIN) { o->dyn[6] = s16(); o->dyn[7] = s16(); o->vel[6] = s16(); o->vel[7] = s16(); }
   if ((o->kind == K_IMG || o->kind == K_SKIN) && (o->flags & F_ANIM)) { o->frame = u8(); o->timer = u8(); }
   o->at = now;
@@ -160,6 +162,7 @@ bool scene_moving(uint32_t now) {
   for (int id = g_head; id != NONE; id = g_obj[id]->next) {
     Obj *o = g_obj[id];
     if (o->flags & F_ANIM) return true;
+    if (o->until && now - o->at > o->until) continue;   // arrived
     for (int i = 0; i < 8; i++) if (o->vel[i]) return true;
   }
   for (int i = 0; i < MAX_CAM; i++) if (g_cam[i].used && g_cam[i].mode) return true;
@@ -243,29 +246,31 @@ void cams_follow(uint32_t now, uint32_t dt) {
 
 // ---- the command stream ----
 
-void scene_apply(const uint8_t *data, int len, uint32_t now) {
+int scene_apply(const uint8_t *data, int len, uint32_t now) {
   p = data; end = data + len;
   while (p < end) {
+    if (*p == C_TIME && p > data) break;   // the next frame's changes: they wait for their time
     int c = u8();
     switch (c) {
+      case C_TIME: p += 4; break;
       case C_RESET: scene_reset(); break;
       case C_CAM: read_cam(); break;
       case C_NEW: {
         int id = u16(), after = u16();
-        if (id >= MAX_ID) return;
+        if (id >= MAX_ID) return len;
         free_obj(g_obj[id]);
         Obj *o = calloc(1, sizeof(Obj));
         g_obj[id] = o;
-        if (!o) return;   // out of memory: the phone will resend after a reset
+        if (!o) return len;   // out of memory: the phone will resend after a reset
         o->prev = o->next = NONE;
         read_static(o); read_dyn(o, now);
         link_after(id, after);
         break;
       }
-      case C_SET: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return; read_static(g_obj[id]); read_dyn(g_obj[id], now); break; }
-      case C_MOVE: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return; read_dyn(g_obj[id], now); break; }
-      case C_DEL: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return; unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; break; }
-      case C_ORDER: { int id = u16(), after = u16(); if (id >= MAX_ID || !g_obj[id]) return; unlink_obj(id); link_after(id, after); break; }
+      case C_SET: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return len; read_static(g_obj[id]); read_dyn(g_obj[id], now); break; }
+      case C_MOVE: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return len; read_dyn(g_obj[id], now); break; }
+      case C_DEL: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return len; unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; break; }
+      case C_ORDER: { int id = u16(), after = u16(); if (id >= MAX_ID || !g_obj[id]) return len; unlink_obj(id); link_after(id, after); break; }
       case C_TILES: {
         int id = u16(), start = u16(), n = u8();
         Obj *o = id < MAX_ID ? g_obj[id] : NULL;
@@ -292,7 +297,8 @@ void scene_apply(const uint8_t *data, int len, uint32_t now) {
         break;
       }
       case C_COMMIT: g_dirty = true; break;
-      default: APP_LOG(APP_LOG_LEVEL_ERROR, "bad command %d", c); return;
+      default: APP_LOG(APP_LOG_LEVEL_ERROR, "bad command %d", c); return len;
     }
   }
+  return p - data;
 }
