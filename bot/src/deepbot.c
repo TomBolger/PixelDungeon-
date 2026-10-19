@@ -2060,6 +2060,17 @@ static bool fight(void) {
   Hero *h = &G.hero;
   if (soures() && !getenv("NOFIGHTMEND") && !h->b.blind && !s_rollout) { int s = find_kind(IK_SCR_UPGRADE); if (s >= 0 && item_known(IK_SCR_UPGRADE))   // 0.93 (owner: a broken piece is only mended, the level is lost): a piece a few uses from breaking mid-fight: read it now
     for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl >= 2 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur <= 3 && game_pick_ok(PICK_UPGRADE, w)) { s_force_pick = w; s_did[0] = 0; DID("the %s is about to break: upgrade it now, before it does", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
+  if (getenv("CHOKE") && !s_rollout && !h->b.roots && !h->b.paralysis) {   // 0.93 (teacher: a second foe coming and the one beside me still healthy: the look-ahead steps first, 77%): to where fewer can reach me at once
+    int na = 0, nh = 0, ai = -1; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP <= 0 || ally(i) || !BIT_GET(G.fov, o->pos) || o->state != ST_HUNTING || (MOB_DEFS[o->type].flags & MD_BOSS)) continue; int d = distance(o->pos, h->pos); if (d <= 1) { na++; ai = i; } if (d <= 4) nh++; }
+    if (na >= 1 && nh >= 2 && G.mobs[ai].HP * 4 > G.mobs[ai].HT * 3) {
+      int slots0 = 0; for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (nb_ok(h->pos, q) && PASSABLE(G.map[q]) && !(TFLAGS(G.map[q]) & F_AVOID)) slots0++; }
+      int bq = -1, bsl = slots0 - 2;   // (worth a step only if it shuts at least two ways in)
+      for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || char_at(q) || PWATER(q)) continue;
+        int adjf = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && distance(o->pos, q) <= 1) adjf++; }
+        if (adjf > na) continue;
+        int sl = 0; for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && PASSABLE(G.map[r]) && !(TFLAGS(G.map[r]) & F_AVOID)) sl++; }
+        if (sl <= bsl) { bsl = sl; bq = q; } }
+      if (bq >= 0) { s_did[0] = 0; DID("choke: a step to where only %d can reach me (was %d)", bsl, slots0); walk(tap_safe(bq)); return true; } } }
   if ((getenv("DANCE") || getenv("TELEADJ")) && !s_rollout && !h->b.roots && !h->b.paralysis) {   // 0.93 (teacher: the look-ahead's commonest pick was a step away from the one beside me)
     int adj = -1, nadj = 0, oth = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP <= 0 || ally(i) || !BIT_GET(G.fov, o->pos) || o->state == ST_PASSIVE) continue; int d = distance(o->pos, h->pos); if (d <= 1 && o->state == ST_HUNTING) { nadj++; adj = i; } else if (d <= 6 && o->state == ST_HUNTING) oth++; }
     if (nadj == 1) { Mob *m = &G.mobs[adj]; bool boss = MOB_DEFS[m->type].flags & MD_BOSS;
