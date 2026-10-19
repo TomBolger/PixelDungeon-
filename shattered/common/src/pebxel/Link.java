@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_COMMIT = 15;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_COMMIT = 15;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 3;
+	public static final int PROTOCOL = 4;
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -587,7 +587,7 @@ public final class Link {
 			Visual f = NoosaAccess.followTarget(c);
 			Obj fo = f != null && f.visible ? objs.get(f) : null;
 			int mode = pan[2] <= 0 ? 0 : fo != null ? 1 : f == null ? 2 : 0;
-			b.write(mode);
+			b.write(mode | (c == Camera.main ? 0x80 : 0));   // 0x80: the map (touch drags pan it)
 			if (mode == 1) { b.write(fo.id & 255); b.write(fo.id >> 8); w16(b, c.centerOffset.x * 8); w16(b, c.centerOffset.y * 8); }
 			if (mode == 2) { w16(b, pan[0] * 8); w16(b, pan[1] * 8); }
 			if (mode != 0) { b.write(Math.min(255, Math.round(pan[2] * 16))); b.write(Math.min(255, Math.round(pan[3] * 255))); }
@@ -752,6 +752,7 @@ public final class Link {
 	/** Call every game frame: notes this frame's changes (with their time) for the watch. */
 	public void frame(float dt) {
 		byte[] b = sync(dt);
+		remember();
 		if (b.length == 0) return;
 		int base = pend.size();
 		for (int mk : lastMarks) pendMarks.add(base + mk);
@@ -759,6 +760,48 @@ public final class Link {
 	}
 
 	public boolean pending() { return pend.size() > 0; }
+
+	// ---- touch: placing a tap on what the watch was showing ----
+	private static final class Snap { int ms; Object top; Map<Integer, float[]> cams = new HashMap<>(); }
+	private final ArrayDeque<Snap> hist = new ArrayDeque<>();
+
+	private static Object top() {
+		com.shatteredpixel.shatteredpixeldungeon.ui.Window w = Ui.topWindow();
+		return w != null ? w : Game.scene();
+	}
+
+	/** Cameras as they are this frame (kept 3 seconds). */
+	private void remember() {
+		Snap sn = new Snap(); sn.ms = Math.round(now * 1000); sn.top = top();
+		for (Map.Entry<Camera, Integer> e : camIds.entrySet()) {
+			Camera c = e.getKey();
+			sn.cams.put(e.getValue(), new float[]{c.x, c.y, c.zoom, c.scroll.x, c.scroll.y});
+		}
+		hist.add(sn);
+		while (!hist.isEmpty() && sn.ms - hist.peek().ms > 3000) hist.poll();
+	}
+
+	/**
+	 * A point the watch touched while showing its frame `stamp` (phone pixels), moved to where that same spot
+	 * is now (the map may have scrolled since). Null: the window or screen it was aimed at has gone.
+	 */
+	public int[] remap(int camId, int stamp, int px, int py) {
+		if (camId == 0xFF) return new int[]{px, py};
+		Camera cur = null;
+		for (Map.Entry<Camera, Integer> e : camIds.entrySet()) if (e.getValue() == camId) cur = e.getKey();
+		if (cur == null) return null;
+		Snap then = null;
+		for (Snap sn : hist) if (sn.ms <= stamp) then = sn;
+		if (then == null) return new int[]{px, py};
+		if (then.top != top()) return null;
+		float[] c = then.cams.get(camId);
+		if (c == null) return null;
+		float wx = (px - c[0]) / c[2] + c[3], wy = (py - c[1]) / c[2] + c[4];
+		return new int[]{Math.round((wx - cur.scroll.x) * cur.zoom + cur.x), Math.round((wy - cur.scroll.y) * cur.zoom + cur.y)};
+	}
+
+	/** Tell the watch a touch has been applied (in this frame's changes). */
+	public void ack(int seq) { cmd(C_INPUT); out.write(seq & 255); }
 
 	/** Everything noted since the last call, cut into messages of at most max bytes. */
 	public List<byte[]> take(int max) {

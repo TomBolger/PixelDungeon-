@@ -31,6 +31,8 @@ class WatchSession extends Thread {
 
 	void hello(int size) { maxMsg = Math.max(200, size - 16); helloPending = true; opening = true; }
 	void button(int code) { synchronized (buttons) { buttons.add(code); } }
+	private final Touches touches = new Touches();
+	void touch(byte[] b) { touches.add(b); }
 	void watchClosed() { closing = true; opening = false; }
 	/** The watch app opened again while this game was still running. */
 	void watchOpened() { opening = true; closing = false; }
@@ -135,6 +137,7 @@ class WatchSession extends Thread {
 			Integer b;
 			synchronized (buttons) { b = buttons.poll(); }
 			if (b != null) controls.button(b);
+			touches.frame(link, controls, Game.elapsed);
 			app.frame();
 			controls.frame();
 			sinceSync += Game.elapsed;

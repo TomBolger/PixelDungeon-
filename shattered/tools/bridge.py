@@ -31,6 +31,7 @@ def main():
         if app != APP: return
         if KEY_HELLO in data: to_server(b'H', struct.pack('>HB', data[KEY_HELLO], data.get(5, 1))); print('watch hello', data[KEY_HELLO], 'version', data.get(5, 1))
         if KEY_BUTTON in data: to_server(b'B', bytes([data[KEY_BUTTON] & 255])); print('button', data[KEY_BUTTON])
+        if 6 in data: to_server(b'T', bytes(data[6])); print('touch', bytes(data[6]).hex())
     am.register_handler('appmessage', on_msg)
     def ack(tid, app):
         if '-v' in sys.argv: print('ack', tid)

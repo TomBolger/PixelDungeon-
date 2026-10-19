@@ -4,8 +4,8 @@
 #include "art.h"
 #include "draw.h"
 
-enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5 };
-#define PROTOCOL 3   // must match Link.PROTOCOL on the phone
+enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6 };
+#define PROTOCOL 4   // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -67,6 +67,7 @@ static int s_qbytes;
 static int32_t s_off;        // watch time = phone time + s_off (enough to have heard of a frame before playing it)
 static bool s_have_off;
 static uint32_t s_cur_at;    // when the frame being played happened, in watch time
+static uint32_t s_cur_stamp; // ... and in phone time
 static AppTimer *s_ptimer;
 #define MARGIN 40            // ms of slack for uneven radio
 #define QMAX 6000            // more waiting than this (or memory running short): catch up at once
@@ -96,6 +97,7 @@ static void pump(void *data) {
       uint32_t due = stamp_at(m->data + m->pos) + s_off;
       if ((int32_t)(due - now) > 0 && !rush) { pump_at(due, now); return; }
       s_cur_at = rush ? now : due;
+      s_cur_stamp = stamp_at(m->data + m->pos);
     }
     int used = scene_apply(m->data + m->pos, m->len - m->pos, s_cur_at);
     m->pos = used > 0 ? m->pos + used : m->len;
@@ -138,22 +140,126 @@ static void inbox(DictionaryIterator *it, void *ctx) {
   }
 }
 
-static void send_u32(uint32_t key, uint32_t v) {
+// ---- to the phone: buttons and touches, one message at a time (a small queue; drags coalesce) ----
+enum { T_BUTTON = 0, T_TAP = 1, T_PAN, T_DOWN, T_MOVE, T_UP };
+typedef struct { uint8_t b[12]; } TMsg;
+static TMsg s_tq[8];
+static int s_ntq;
+static bool s_sending;
+static uint8_t s_seq;
+typedef struct { uint8_t seq; int16_t dx, dy; } PanDelta;   // map drags the phone hasn't applied yet
+static PanDelta s_pd[8];
+static int s_npd;
+
+static void tq_send(void *data) {
+  if (s_sending || !s_ntq) return;
   DictionaryIterator *it;
-  if (app_message_outbox_begin(&it) != APP_MSG_OK) return;
-  dict_write_int32(it, key, (int32_t)v);   // the phone library reads signed numbers most easily
-  app_message_outbox_send();
+  if (app_message_outbox_begin(&it) != APP_MSG_OK) { app_timer_register(50, tq_send, NULL); return; }
+  if (s_tq[0].b[0] == T_BUTTON) dict_write_int32(it, KEY_BUTTON, s_tq[0].b[4]);   // the phone library reads signed numbers most easily
+  else dict_write_data(it, KEY_TOUCH, s_tq[0].b, 12);
+  if (app_message_outbox_send() == APP_MSG_OK) { s_sending = true; s_ntq--; memmove(s_tq, s_tq + 1, s_ntq * sizeof(TMsg)); }
+  else app_timer_register(50, tq_send, NULL);
+}
+static void sent(DictionaryIterator *it, void *ctx) { s_sending = false; tq_send(NULL); }
+static void failed(DictionaryIterator *it, AppMessageResult r, void *ctx) { s_sending = false; app_timer_register(100, tq_send, NULL); }
+
+static int s_tcam = -1;
+static uint32_t s_tstamp;
+static void put16(uint8_t *p, int v) { p[0] = v; p[1] = v >> 8; }
+
+static void out_msg(int kind, int x, int y, bool lng) {
+  TMsg *last = s_ntq ? &s_tq[s_ntq - 1] : NULL;
+  if (last && last->b[0] == kind && (kind == T_PAN || kind == T_MOVE)) {   // still waiting: fold into it
+    if (kind == T_PAN) { x += (int16_t)(last->b[4] | last->b[5] << 8); y += (int16_t)(last->b[6] | last->b[7] << 8); }
+  } else {
+    if (s_ntq == 8) return;
+    last = &s_tq[s_ntq++]; memset(last->b, 0, 12); last->b[1] = ++s_seq;
+  }
+  uint8_t *b = last->b;
+  b[0] = kind; b[2] = s_tcam < 0 ? 0xFF : s_tcam; b[3] = lng;
+  put16(b + 4, x); put16(b + 6, y);
+  b[8] = s_tstamp; b[9] = s_tstamp >> 8; b[10] = s_tstamp >> 16; b[11] = s_tstamp >> 24;
+  if (kind == T_PAN) {
+    if (s_npd && s_pd[s_npd - 1].seq == b[1]) { s_pd[s_npd - 1].dx = x; s_pd[s_npd - 1].dy = y; }
+    else if (s_npd < 8) s_pd[s_npd++] = (PanDelta){ b[1], x, y };
+  }
+  tq_send(NULL);
+}
+
+static void send_button(int code) { out_msg(T_BUTTON, code, 0, false); }
+
+// the map follows the finger at once; the phone's own scroll takes over when it has applied the drag
+static void pan_preview(void) {
+  int dx = 0, dy = 0;
+  for (int i = 0; i < s_npd; i++) { dx += s_pd[i].dx; dy += s_pd[i].dy; }
+  Cam *c = g_map_cam >= 0 ? &g_cam[g_map_cam] : NULL;
+  g_pan_x = c && c->zoom ? -(int32_t)((int64_t)dx * 8 * 65536 / c->zoom) : 0;
+  g_pan_y = c && c->zoom ? -(int32_t)((int64_t)dy * 8 * 65536 / c->zoom) : 0;
+  kick();
+}
+
+void touch_acked(uint8_t seq) {
+  int k = 0;
+  for (int i = 0; i < s_npd; i++) if ((int8_t)(s_pd[i].seq - seq) > 0) s_pd[k++] = s_pd[i];
+  if (k != s_npd) { s_npd = k; pan_preview(); }
 }
 
 static void button(ClickRecognizerRef r, void *ctx) {
-  int code = (int)ctx;
   s_input_at = now_ms();
-  send_u32(KEY_BUTTON, code);
+  send_button((int)ctx);
 }
 
 static void button_long(ClickRecognizerRef r, void *ctx) {
   s_input_at = now_ms();
-  send_u32(KEY_BUTTON, (int)ctx | B_LONG);
+  send_button((int)ctx | B_LONG);
+}
+
+// ---- touch (as in Pebble PD: under 40 px of movement is a tap, held 500 ms a long one; 24 px drags the map) ----
+#define TAP_SLOP 32
+#define PAN_START 24
+#define LONG_MS 500
+static int16_t s_tx, s_ty, s_lx, s_ly, s_moved;
+static bool s_down, s_drag, s_map;
+static uint32_t s_tms;
+
+static void touch_start(int x, int y, uint32_t now) {
+  s_tstamp = s_cur_stamp + (now - s_cur_at);   // what was on screen, in the phone's time
+  s_tcam = scene_hit(x, y, now);
+  s_map = s_tcam >= 0 && s_tcam == g_map_cam;
+}
+
+static void touch(const TouchEvent *e, void *ctx) {
+  uint32_t now = now_ms();
+  s_input_at = now;
+  switch (e->type) {
+    case TouchEvent_Touchdown:
+      s_down = true; s_drag = false; s_tx = s_lx = e->x; s_ty = s_ly = e->y; s_moved = 0; s_tms = now;
+      touch_start(e->x, e->y, now);
+      break;
+    case TouchEvent_PositionUpdate: {
+      if (!s_down) break;
+      int m = abs(e->x - s_tx) + abs(e->y - s_ty);
+      if (m > s_moved) s_moved = m;
+      if (!s_drag && s_moved >= (s_map ? PAN_START : TAP_SLOP)) {
+        s_drag = true;
+        if (!s_map) out_msg(T_DOWN, s_tx, s_ty, false);
+      }
+      if (s_drag) {
+        if (s_map) { out_msg(T_PAN, e->x - s_lx, e->y - s_ly, false); pan_preview(); }
+        else out_msg(T_MOVE, e->x, e->y, false);
+        s_lx = e->x; s_ly = e->y;
+      }
+      break;
+    }
+    case TouchEvent_Liftoff:
+      if (s_drag) { if (!s_map) out_msg(T_UP, e->x, e->y, false); }
+      else if (!s_down) { touch_start(e->x, e->y, now); out_msg(T_TAP, e->x, e->y, false); }   // a quick tap can come as a lone liftoff
+      else out_msg(T_TAP, s_tx, s_ty, now - s_tms >= LONG_MS);
+      s_down = s_drag = false;
+      break;
+    default: break;
+  }
+  kick();
 }
 
 static void clicks(void *ctx) {
@@ -175,6 +281,7 @@ static void hello(void *data) {
   // tell the phone how big a message may be; it resends the whole screen. Repeat until it answers.
   if (s_connected) return;
   queue_clear();
+  s_ntq = 0; s_npd = 0; g_pan_x = g_pan_y = 0;
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) == APP_MSG_OK) {
     uint32_t in = app_message_inbox_size_maximum();
@@ -197,6 +304,9 @@ static void init(void) {
   layer_add_child(root, s_layer);
   app_message_register_inbox_received(inbox);
   app_message_register_inbox_dropped(dropped);
+  app_message_register_outbox_sent(sent);
+  app_message_register_outbox_failed(failed);
+  if (touch_service_is_enabled()) touch_service_subscribe(touch, NULL);
   uint32_t in = app_message_inbox_size_maximum(); if (in > 8200) in = 8200;
   app_message_open(in, 64);
   app_timer_register(300, hello, NULL);
@@ -205,6 +315,7 @@ static void init(void) {
 int main(void) {
   init();
   app_event_loop();
+  touch_service_unsubscribe();
   queue_clear();
   scene_reset();
   layer_destroy(s_layer);

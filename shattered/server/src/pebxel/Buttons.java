@@ -10,7 +10,8 @@ import java.io.File;
 
 /**
  * Presses watch buttons in a script and saves what the watch would show after each press.
- * Args: picture-folder, then presses: u d s b (up down select back), U D S (long), or a number = wait that many frames.
+ * Args: picture-folder, then presses: u d s b (up down select back), U D S (long), tX,Y a tap (tlX,Y long),
+ * or a number = wait that many frames.
  * SEED=n NEWGAME=class to start straight in a new game.
  */
 public class Buttons {
@@ -25,6 +26,7 @@ public class Buttons {
 		Link link = new Link(new Assets());
 		WatchSim sim = new WatchSim(new File("."), new Assets());
 		Controls controls = new Controls();
+		Touches touches = new Touches(); int seq = 0;
 		for (int i = 0; i < 5; i++) app.frame();
 		if (System.getenv("NEWGAME") != null) {
 			SPDSettings.intro(false);
@@ -41,6 +43,13 @@ public class Buttons {
 			String p = a[i];
 			int wait = 30;
 			if (p.matches("\\d+")) wait = Integer.parseInt(p);
+			else if (p.startsWith("t") && p.contains(",")) {
+				// a tap at watch x,y (tl: a long one)
+				String[] xy = p.substring(p.startsWith("tl") ? 2 : 1).split(",");
+				int x = Integer.parseInt(xy[0]), y = Integer.parseInt(xy[1]);
+				byte[] t = {1, (byte) ++seq, (byte) 0xFF, (byte) (p.startsWith("tl") ? 1 : 0), (byte) x, (byte) (x >> 8), (byte) y, (byte) (y >> 8), 0, 0, 0, 0};
+				touches.add(t);
+			}
 			else {
 				int code = 0;
 				switch (p.toLowerCase().charAt(0)) { case 'u': code = 1; break; case 'd': code = 2; break; case 's': code = 3; break; case 'b': code = 4; break; }
@@ -48,9 +57,10 @@ public class Buttons {
 				controls.button(code);
 			}
 			for (int f = 0; f < wait; f++) {
+				touches.frame(link, controls, Game.elapsed);
 				app.frame(); controls.frame();
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
-				sim.advance(Game.elapsed); sim.apply(link.sync(Game.elapsed));
+				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) sim.apply(m);
 			}
 			sim.render();
 			sim.save(new File(dir, String.format("%02d-%s.png", shot++, p)), 2);

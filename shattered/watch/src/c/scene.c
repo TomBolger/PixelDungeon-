@@ -30,7 +30,11 @@ static void free_obj(Obj *o) {
   free(o);
 }
 
+int8_t g_map_cam = -1;
+int32_t g_pan_x, g_pan_y;
+
 void scene_reset(void) {
+  g_map_cam = -1;
   for (int i = 0; i < MAX_ID; i++) { free_obj(g_obj[i]); g_obj[i] = NULL; }
   for (int i = 0; i < MAX_ANIM; i++) { free(s_anim[i]); s_anim[i] = NULL; }
   for (int i = 0; i < MAX_DYN; i++) { free(s_dyn[i]); s_dyn[i] = NULL; }
@@ -210,7 +214,8 @@ static void read_cam(void) {
   Cam *k = &g_cam[id < MAX_CAM ? id : 0];
   k->x = s16(); k->y = s16(); k->w = s16(); k->h = s16(); k->zoom = u16();
   k->sx = s16() * 256; k->sy = s16() * 256;
-  k->mode = u8();
+  int m = u8(); k->mode = m & 0x7F;
+  if (m & 0x80) g_map_cam = id; else if (g_map_cam == id) g_map_cam = -1;
   if (k->mode == 1) { k->follow = u16(); k->ofx = s16(); k->ofy = s16(); }
   if (k->mode == 2) { k->px = s16(); k->py = s16(); }
   if (k->mode) { k->intensity = u8(); k->dead = u8(); }
@@ -296,6 +301,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
         } else free(a);
         break;
       }
+      case C_INPUT: touch_acked(u8()); break;
       case C_COMMIT: g_dirty = true; break;
       default: APP_LOG(APP_LOG_LEVEL_ERROR, "bad command %d", c); return len;
     }

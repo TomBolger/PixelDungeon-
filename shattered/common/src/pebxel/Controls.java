@@ -50,7 +50,12 @@ public class Controls {
 	private boolean targetsStale = true;
 	private int lastPos = -1, lastDepth = -1;
 
+	/** A finger is in use: the button frames step aside until the next button press (as in Pebble PD). */
+	public void touched() { onToolbar = false; touching = true; }
+	private boolean touching;
+
 	public void button(int code) {
+		touching = false;
 		boolean held = (code & LONG) != 0;
 		int b = code & 15;
 		Window w = Ui.topWindow();
@@ -88,7 +93,7 @@ public class Controls {
 
 	// ---- windows taller than the screen (long texts with big letters) ----
 
-	private static boolean tall(Window w) { return w.camera != null && w.camera.screenHeight() > Game.height + 1; }
+	static boolean tall(Window w) { return w.camera != null && w.camera.screenHeight() > Game.height + 1; }
 
 	/** Is the component fully on screen (window camera units -> phone pixels)? */
 	private static boolean visible(Window w, Component c) {
@@ -97,7 +102,7 @@ public class Controls {
 	}
 
 	/** Move a tall window up (negative) or down by some phone pixels, within its ends. */
-	private static void scroll(Window w, int dy) {
+	static void scroll(Window w, int dy) {
 		int min = (int) (Game.height - w.camera.screenHeight()), max = 0;
 		w.camera.y = Math.max(min, Math.min(max, w.camera.y + dy));
 	}
@@ -284,6 +289,7 @@ public class Controls {
 	// ---- every frame: keep the frame where it belongs ----
 
 	public void frame() {
+		if (touching) { frame.hide(); return; }
 		Window w = Ui.topWindow();
 		Group menu = w != null ? w : !(Game.scene() instanceof GameScene) ? Game.scene() : null;
 		if (menu != null) {

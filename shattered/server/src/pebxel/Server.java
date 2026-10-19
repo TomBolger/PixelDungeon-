@@ -20,12 +20,13 @@ import java.util.List;
  * TCP frames, both ways: u16 length (big-endian), then a type byte and its data.
  *   server -> bridge: 'D' + one AppMessage worth of link commands
  *   bridge -> server: 'A' the watch took the last message, 'H' + u16 size: the watch (re)started,
- *                     'B' + u8 button code
+ *                     'B' + u8 button code, 'T' + 12 bytes: a touch (see Touches)
  */
 public class Server {
 	static WatchApp app;
 	static Link link;
 	static Controls controls;
+	static final Touches touches = new Touches();
 	static final ArrayDeque<byte[]> queue = new ArrayDeque<>();
 	static volatile boolean inFlight, connected;
 	static volatile int maxMsg = 2000;
@@ -65,6 +66,7 @@ public class Server {
 			Integer b;
 			synchronized (buttons) { b = buttons.poll(); }
 			if (b != null) controls.button(b);
+			touches.frame(link, controls, Game.elapsed);
 			app.frame();
 			controls.frame();
 			sinceSync += Game.elapsed;
@@ -124,6 +126,7 @@ public class Server {
 								System.out.println("watch says hello, messages up to " + maxMsg + " bytes");
 								helloPending = true; connected = true; break;
 							case 'B': synchronized (buttons) { buttons.add(f[1] & 255); } break;
+							case 'T': touches.add(java.util.Arrays.copyOfRange(f, 1, f.length)); break;
 						}
 					}
 				} catch (IOException e) {

@@ -261,6 +261,8 @@ static void draw_text(Obj *o) {
 static void draw_obj(Obj *o) {
   if (o->cam >= MAX_CAM || !g_cam[o->cam].used) return;
   s_cam = &g_cam[o->cam];
+  static Cam s_panned;   // the map, moved by a finger ahead of the phone
+  if (o->cam == g_map_cam && (g_pan_x || g_pan_y)) { s_panned = *s_cam; s_panned.sx += g_pan_x; s_panned.sy += g_pan_y; s_cam = &s_panned; }
   s_cx0 = s_cam->x >> 3; s_cy0 = s_cam->y >> 3; s_cx1 = (s_cam->x + s_cam->w) >> 3; s_cy1 = (s_cam->y + s_cam->h) >> 3;
   if (s_cx0 < 0) s_cx0 = 0; if (s_cy0 < 0) s_cy0 = 0; if (s_cx1 > s_W) s_cx1 = s_W; if (s_cy1 > s_H) s_cy1 = s_H;
   int alpha = obj_dyn(o, 2, s_now);
@@ -329,4 +331,28 @@ void draw_scene(GContext *ctx, GRect bounds, uint32_t now) {
 #endif
   }
   fb_give();
+}
+
+// ---- touch: which camera's picture is under a point (the same maths as drawing) ----
+int scene_hit(int x, int y, uint32_t now) {
+  int cam = -1;
+  for (int id = g_head; id != NONE; id = g_obj[id]->next) {   // in drawing order: the last hit is on top
+    Obj *o = g_obj[id];
+    if (o->cam >= MAX_CAM || !g_cam[o->cam].used) continue;
+    Cam *c = &g_cam[o->cam];
+    if (o->cam == g_map_cam) {   // the map: anywhere in its view
+      if (x >= c->x >> 3 && y >= c->y >> 3 && x < (c->x + c->w) >> 3 && y < (c->y + c->h) >> 3) cam = o->cam;
+      continue;
+    }
+    if (o->kind == K_TILES || o->kind == K_TEXT || o->kind == K_QUADS) continue;
+    if (obj_dyn(o, 2, now) < 30) continue;
+    s_cam = c;
+    int32_t X = obj_dyn(o, 0, now), Y = obj_dyn(o, 1, now), sx = obj_dyn(o, 3, now), sy = obj_dyn(o, 4, now);
+    int32_t l = X + o->ox - o->ox * sx / 256, t = Y + o->oy - o->oy * sy / 256;
+    int32_t L = scx(l) >> 3, T = scy(t) >> 3, R = scx(l + o->w * sx / 256) >> 3, B = scy(t + o->h * sy / 256) >> 3;
+    if (L > R) { int32_t k = L; L = R; R = k; }
+    if (T > B) { int32_t k = T; T = B; B = k; }
+    if (x >= L && x < R && y >= T && y < B) cam = o->cam;
+  }
+  return cam;
 }

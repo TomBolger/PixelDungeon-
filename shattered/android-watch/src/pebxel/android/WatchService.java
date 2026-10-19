@@ -19,7 +19,7 @@ import java.util.function.Consumer;
  */
 public class WatchService extends BaseJavaPebbleListenerService {
 	public static final UUID APP = UUID.fromString("84d52e02-b98a-4d9c-b021-a9e3c442d0ca");
-	static final int KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_VERSION = 5;
+	static final int KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_VERSION = 5, KEY_TOUCH = 6;
 
 	private JavaPebbleSender sender;
 	private static WatchSession session;
@@ -76,6 +76,8 @@ public class WatchService extends BaseJavaPebbleListenerService {
 			else s.hello(hello);
 		}
 		if (button != null) s.button(button);
+		PebbleDictionaryItem t = data.get(KEY_TOUCH);
+		if (t instanceof PebbleDictionaryItem.Bytes) s.touch(((PebbleDictionaryItem.Bytes) t).getValue());
 		responder.accept(ReceiveResult.Ack.INSTANCE);
 	}
 

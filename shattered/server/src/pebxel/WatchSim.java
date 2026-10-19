@@ -121,7 +121,7 @@ public final class WatchSim {
 				case Link.C_RESET: objs.clear(); head = Link.NONE; dyn.clear(); anims.clear(); Arrays.fill(cams, null); break;
 				case Link.C_CAM: {
 					int id = u8(); Cam k = new Cam(); k.x = s16(); k.y = s16(); k.w = s16(); k.h = s16(); k.zoom = u16(); k.sx = s16(); k.sy = s16();
-					k.mode = u8();
+					k.mode = u8() & 0x7F;
 					if (k.mode == 1) { k.follow = u16(); k.ofx = s16() / 8f; k.ofy = s16() / 8f; }
 					if (k.mode == 2) { k.px = s16() / 8f; k.py = s16() / 8f; }
 					if (k.mode != 0) { k.intensity = u8() / 16f; k.dead = u8() / 255f; }
@@ -154,6 +154,7 @@ public final class WatchSim {
 					a.rects = new int[n * 4]; for (int i = 0; i < n * 4; i++) a.rects[i] = u16();
 					anims.put(id, a); break;
 				}
+				case Link.C_INPUT: p++; break;
 				case Link.C_COMMIT: break;
 				default: throw new IllegalStateException("bad command " + c + " at " + (p - 1));
 			}
