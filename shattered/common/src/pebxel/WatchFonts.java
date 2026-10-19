@@ -18,7 +18,11 @@ public final class WatchFonts {
 	 * Which watch font draws Shattered's text of a given size (in watch pixels; SPD's body text is 6,
 	 * titles 9). The watch's pixels are small, so body text goes up a size for reading on the wrist.
 	 */
+	/** Smaller text: Shattered's own proportions (body text in Gothic 9), more fits on the screen. */
+	public static boolean small = "small".equals(System.getProperty("pebxel.text", System.getenv("PEBXEL_TEXT")));
+
 	public static int forSize(int size) {
+		if (small) return size <= 7 ? 0 : size <= 10 ? 2 : size <= 13 ? 4 : 6;
 		if (size <= 5) return 0;      // tiny labels: quantities, levels
 		if (size <= 8) return 1;      // body text
 		if (size <= 10) return 2;     // titles

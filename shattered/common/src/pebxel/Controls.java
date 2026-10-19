@@ -65,12 +65,52 @@ public class Controls {
 	private void menuButton(Group menu, int b, boolean held, Window w) {
 		List<Ui.Part> bs = buttons(menu);
 		if (b == BACK) { if (w != null) w.onBackPressed(); else com.watabou.noosa.NoosaAccess.back(Game.scene()); return; }
-		if (bs.isEmpty()) return;
 		if (focusOwner != menu) { focusOwner = menu; focus = 0; }
+		if (b == UP || b == DOWN) {
+			// a window taller than the screen scrolls half a screen at a time towards the next button
+			int next = bs.isEmpty() ? -1 : b == UP ? (focus + bs.size() - 1) % bs.size() : (focus + 1) % bs.size();
+			if (w != null && tall(w)) {
+				Component n = next < 0 ? null : (Component) bs.get(next).g;
+				boolean wraps = next >= 0 && (b == DOWN ? next < focus : next > focus);
+				if (n == null || (!wraps && !visible(w, n))) {
+					scroll(w, b == DOWN ? -Game.height / 2 : Game.height / 2);
+					if (n == null || !visible(w, n)) return;   // keep reading; the button comes into view later
+				}
+				if (wraps) scroll(w, b == DOWN ? 100000 : -100000);
+			}
+			if (next >= 0) focus = next;
+			return;
+		}
+		if (bs.isEmpty()) return;
 		focus = Math.max(0, Math.min(bs.size() - 1, focus));
-		if (b == UP) focus = (focus + bs.size() - 1) % bs.size();
-		if (b == DOWN) focus = (focus + 1) % bs.size();
 		if (b == SELECT) { if (held) Ui.hold(bs.get(focus).g); else Ui.press(bs.get(focus).g); }
+	}
+
+	// ---- windows taller than the screen (long texts with big letters) ----
+
+	private static boolean tall(Window w) { return w.camera != null && w.camera.screenHeight() > Game.height + 1; }
+
+	/** Is the component fully on screen (window camera units -> phone pixels)? */
+	private static boolean visible(Window w, Component c) {
+		float top = w.camera.y + c.top() * w.camera.zoom, bottom = w.camera.y + c.bottom() * w.camera.zoom;
+		return top >= 0 && bottom <= Game.height;
+	}
+
+	/** Move a tall window up (negative) or down by some phone pixels, within its ends. */
+	private static void scroll(Window w, int dy) {
+		int min = (int) (Game.height - w.camera.screenHeight()), max = 0;
+		w.camera.y = Math.max(min, Math.min(max, w.camera.y + dy));
+	}
+
+	/** Keep a tall window inside its ends and its framed button on screen. */
+	private static void keepInView(Window w, Component c) {
+		if (!tall(w)) return;
+		scroll(w, 0);
+		if (c != null && !visible(w, c)) {
+			float top = w.camera.y + c.top() * w.camera.zoom, bottom = w.camera.y + c.bottom() * w.camera.zoom;
+			if (bottom > Game.height && top > 0) scroll(w, (int) -Math.min(top, bottom - Game.height));
+			else if (top < 0 && bottom < Game.height) scroll(w, (int) Math.min(-top, Game.height - bottom));
+		}
 	}
 
 	/** Pressable things in reading order (top to bottom, then left to right). */
@@ -249,9 +289,13 @@ public class Controls {
 		if (menu != null) {
 			onToolbar = false;
 			List<Ui.Part> bs = buttons(menu);
-			if (bs.isEmpty()) { frame.hide(); return; }
-			if (focusOwner != menu) { focusOwner = menu; focus = 0; }
+			if (focusOwner != menu) {
+				focusOwner = menu; focus = 0;
+				if (w != null && tall(w)) scroll(w, 100000);   // a new tall window starts at its top
+			}
+			if (bs.isEmpty()) { frame.hide(); if (w != null) keepInView(w, null); return; }
 			Component c = (Component) bs.get(Math.max(0, Math.min(bs.size() - 1, focus))).g;
+			if (w != null && keptFor != w) { keptFor = w; keepInView(w, c); }
 			frame.around(menu, c.left() - 1, c.top() - 1, c.width() + 2, c.height() + 2, 0xFFFFFF44);
 			return;
 		}
@@ -273,6 +317,7 @@ public class Controls {
 		frame.inWorld(x, y, DungeonTilemap.SIZE, DungeonTilemap.SIZE, aiming() ? 0xFFFF6644 : 0xFFFFFF44);
 	}
 
+	private Window keptFor;
 	private Group overlay;
 
 	/** A group on top of the scene, seen through the interface camera (for frames around toolbar buttons). */
