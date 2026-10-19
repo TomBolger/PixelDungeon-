@@ -42,7 +42,7 @@ public class Server {
 		SPDSettings.set(app.getPreferences(SPDSettings.DEFAULT_PREFS_FILE));
 		FileUtils.setDefaultFileProperties(Files.FileType.External, ".pebxel-server/");
 		app.create();
-		Assets assets = new Assets(new File("."));
+		Assets assets = new Assets();
 		link = new Link(assets);
 		controls = new Controls();
 		if (System.getenv("NEWGAME") != null) {

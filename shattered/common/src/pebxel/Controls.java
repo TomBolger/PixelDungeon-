@@ -39,7 +39,7 @@ public class Controls {
 		switch (b) {
 			case SELECT:
 				if (!Dungeon.hero.ready) return;
-				int t = Smoke.choose(new HashSet<>());
+				int t = Explorer.choose(new HashSet<>());
 				if (t == -2) Dungeon.hero.search(true);
 				else if (t >= 0 && Dungeon.hero.handle(t)) Dungeon.hero.next();
 				break;

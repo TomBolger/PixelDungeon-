@@ -36,6 +36,109 @@ index 863b15b..4ef5ba4 100644
  	//flipped is needed because Shattered's graphics are y-down, while GDX graphics are y-up.
  	//this is very confusing, I know.
  	public BitmapFont getFont(int size, String text, boolean flipped, boolean border) {
+diff --git a/android/build.gradle b/android/build.gradle
+index 02bf6f5..8ecee1f 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -5,7 +5,10 @@ android {
+     compileSdk appAndroidCompileSDK
+     compileOptions.sourceCompatibility = compileOptions.targetCompatibility = appJavaCompatibility
+ 
+-    sourceSets.main.assets.srcDirs = [new File(project(':core').projectDir, "/src/main/assets")]
++    sourceSets.main.assets.srcDirs = [new File(project(':core').projectDir, "/src/main/assets"),
++                                      new File(rootDir, "../common/assets")]
++    //the watch link (shared with the computer test tools) and the Pebble service
++    sourceSets.main.java.srcDirs += [new File(rootDir, "../common/src"), new File(rootDir, "../android-watch/src")]
+ 
+     androidResources {
+         localeFilters += ['en', 'zh-rCN', 'ko', 'ru', 'es', 'pt', 'fr', 'de', 'zh-rTW', 'ja', 'pl',
+@@ -25,7 +28,7 @@ android {
+ 
+     buildTypes {
+         debug {
+-            applicationIdSuffix ".indev"
++            //no suffix: the watch app names this exact package as its companion
+             versionNameSuffix '-INDEV'
+             dependencies {
+                 debugImplementation project(':services:updates:debugUpdates')
+@@ -72,6 +75,10 @@ dependencies {
+     natives "com.badlogicgames.gdx:gdx-freetype-platform:$gdxVersion:natives-x86"
+     natives "com.badlogicgames.gdx:gdx-freetype-platform:$gdxVersion:natives-x86_64"
+     implementation "com.badlogicgames.gdx-controllers:gdx-controllers-android:$gdxControllersVersion"
++
++    //the watch: talking to the Pebble app, and libGDX's screenless pieces for the game the watch shows
++    implementation "io.rebble.pebblekit2:client-java:1.3.2"
++    implementation "com.badlogicgames.gdx:gdx-backend-headless:$gdxVersion"
+ }
+ 
+ // called every time gradle gets executed, takes the native dependencies of
+diff --git a/android/src/main/AndroidManifest.xml b/android/src/main/AndroidManifest.xml
+index aa2044b..ea905eb 100644
+--- a/android/src/main/AndroidManifest.xml
++++ b/android/src/main/AndroidManifest.xml
+@@ -42,6 +42,16 @@
+ 		<activity
+ 			android:name=".AndroidMissingNativesHandler">
+ 		</activity>
++
++		<!-- the watch: the Pebble app wakes this when Shattered is opened on the watch -->
++		<service
++			android:name="pebxel.android.WatchService"
++			android:process=":watch"
++			android:exported="true">
++			<intent-filter>
++				<action android:name="io.rebble.pebblekit2.RECEIVE_DATA_FROM_WATCH" />
++			</intent-filter>
++		</service>
+ 	</application>
+ 
+ </manifest>
+diff --git a/android/src/main/java/com/shatteredpixel/shatteredpixeldungeon/android/AndroidLauncher.java b/android/src/main/java/com/shatteredpixel/shatteredpixeldungeon/android/AndroidLauncher.java
+index e9d32f9..13a7870 100644
+--- a/android/src/main/java/com/shatteredpixel/shatteredpixeldungeon/android/AndroidLauncher.java
++++ b/android/src/main/java/com/shatteredpixel/shatteredpixeldungeon/android/AndroidLauncher.java
+@@ -183,6 +183,14 @@ public class AndroidLauncher extends AndroidApplication {
+ 			finishAndRemoveTask();
+ 		}
+ 		super.onResume();
++		//the watch: it may have played on since this screen last saw the game
++		pebxel.android.Handoff.phoneResumed(this);
++	}
++
++	@Override
++	protected void onPause() {
++		super.onPause();
++		pebxel.android.Handoff.phonePaused(this);
+ 	}
+ 
+ 	@SuppressLint("GestureBackNavigation")
+diff --git a/build.gradle b/build.gradle
+index 70d287f..122b04f 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -11,8 +11,9 @@ buildscript {
+ allprojects {
+ 
+     ext {
+-        appName = 'Shattered Pixel Dungeon'
+-        appPackageName = 'com.shatteredpixel.shatteredpixeldungeon'
++        //a fork for Pebble watches: its own name and package, as Shattered's licence and author ask
++        appName = 'Shattered Pebxel'
++        appPackageName = 'com.pebxel.shatteredwatch'
+ 
+         //Full releases gets +2 on version code, needed for an F-Droid quirk
+         appVersionCode = 922
+@@ -20,8 +21,8 @@ allprojects {
+ 
+         appJavaCompatibility = JavaVersion.VERSION_11
+ 
+-        appAndroidCompileSDK = 36   //Android 15
+-        appAndroidMinSDK = 21       //Android 5.0
++        appAndroidCompileSDK = 37   //the Pebble companion library needs 37
++        appAndroidMinSDK = 24       //Android 7.0 (the Pebble companion library needs it)
+         appAndroidTargetSDK = 36    //Android 15
+ 
+         gdxVersion = '1.14.0'
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java
 index 2dc7887..b2ee4df 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java

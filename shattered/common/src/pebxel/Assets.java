@@ -1,7 +1,6 @@
 package pebxel;
 
 import com.badlogic.gdx.graphics.Pixmap;
-import java.io.File;
 import java.util.*;
 
 /**
@@ -9,23 +8,17 @@ import java.util.*;
  * number (sorted by path, starting at 1); the watch app is built with the same list.
  */
 public final class Assets {
-	public static final String[] DIRS = {"effects", "environment", "fonts", "interfaces", "splashes", "sprites"};
 	public final List<String> paths = new ArrayList<>();
 	private final HashMap<String, Integer> ids = new HashMap<>();
 
-	public Assets(File root) {
-		for (String d : DIRS) scan(new File(root, d), d);
-		Collections.sort(paths);
+	/** The list made by tools/pack_art.py (pebxel/art.txt): one picture path per line, id = line number. */
+	public Assets() {
+		for (String line : WatchFiles.get("pebxel/art.txt").readString("UTF-8").split("\n")) {
+			line = line.trim();
+			if (!line.isEmpty()) paths.add(line);
+		}
 		for (int i = 0; i < paths.size(); i++) ids.put(paths.get(i), i + 1);
 		if (paths.size() > 199) throw new IllegalStateException("too many pictures for one-byte ids: " + paths.size());
-	}
-
-	private void scan(File dir, String rel) {
-		File[] fs = dir.listFiles(); if (fs == null) return;
-		for (File f : fs) {
-			if (f.isDirectory()) scan(f, rel + "/" + f.getName());
-			else if (f.getName().endsWith(".png") || f.getName().endsWith(".jpg")) paths.add(rel + "/" + f.getName());
-		}
 	}
 
 	public Integer id(String path) { return ids.get(path); }

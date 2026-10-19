@@ -69,7 +69,7 @@ static void inbox(DictionaryIterator *it, void *ctx) {
 static void send_u32(uint32_t key, uint32_t v) {
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) != APP_MSG_OK) return;
-  dict_write_uint32(it, key, v);
+  dict_write_int32(it, key, (int32_t)v);   // the phone library reads signed numbers most easily
   app_message_outbox_send();
 }
 

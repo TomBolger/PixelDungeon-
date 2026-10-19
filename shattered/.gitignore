@@ -2,3 +2,4 @@ spd/
 lib/
 build/
 watch/build/
+dist/

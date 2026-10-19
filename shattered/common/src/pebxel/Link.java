@@ -159,6 +159,33 @@ public final class Link {
 		return true;
 	}
 
+	/** A whole watch screen holding just a message (white text, top left), for reporting a crash. */
+	public static byte[] errorScreen(String message) {
+		ByteArrayOutputStream b = new ByteArrayOutputStream();
+		b.write(C_RESET);
+		// camera 0: the whole 200x228 screen, 1:1
+		b.write(C_CAM); b.write(0);
+		int[] cam = {0, 0, 200 * 8, 228 * 8, 256, 0, 0};
+		for (int v : cam) { b.write(v & 255); b.write((v >> 8) & 255); }
+		b.write(0);
+		int id = 0, y = 2;
+		for (String line : message.split("\n")) {
+			while (!line.isEmpty() && y < 220 && id < 30) {
+				String part = line.length() > 34 ? line.substring(0, 34) : line;
+				line = line.substring(part.length());
+				byte[] t = part.getBytes(StandardCharsets.UTF_8);
+				b.write(C_NEW); b.write(id & 255); b.write(id >> 8); int after = id == 0 ? NONE : id - 1; b.write(after & 255); b.write(after >> 8);
+				b.write(K_TEXT); b.write(0); b.write(0);        // camera 0, the smallest font
+				b.write(255); b.write(255); b.write(255); b.write(0); b.write(0); b.write(0); b.write(0);
+				b.write(t.length); b.write(t, 0, t.length);
+				b.write(1); int x8 = 2 * 8, y8 = y * 8; b.write(x8 & 255); b.write(x8 >> 8); b.write(y8 & 255); b.write(y8 >> 8);
+				id++; y += 9;
+			}
+		}
+		b.write(C_COMMIT);
+		return b.toByteArray();
+	}
+
 	/** For tests: each picture's id, class and real moving parts right now. */
 	public Map<Integer, Object[]> truth() {
 		Map<Integer, Object[]> m = new HashMap<>();

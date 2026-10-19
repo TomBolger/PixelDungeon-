@@ -64,6 +64,9 @@ if __name__ == '__main__':
     offs.append(pos)
     with open(DST, 'wb') as f:
         f.write(struct.pack('<H', len(ps)) + struct.pack('<%dI' % len(offs), *offs) + b''.join(blocks))
+    # the same numbering for the phone side (common/src/pebxel/Assets.java)
+    with open(os.path.join(HERE, '..', 'common', 'assets', 'pebxel', 'art.txt'), 'w') as f:
+        f.write('\n'.join(ps) + '\n')
     print('art.bin', pos, 'bytes,', len(ps), 'pictures')
     if '-v' in sys.argv:
         for p, b in sorted(zip(ps, blocks), key=lambda x: -len(x[1]))[:15]: print('  %7d %s' % (len(b), p))

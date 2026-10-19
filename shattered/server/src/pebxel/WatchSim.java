@@ -391,17 +391,14 @@ public final class WatchSim {
 		int font = s[2] & 255, len = s[10] & 255;
 		String str = new String(s, 11, len, StandardCharsets.UTF_8).replace("_", "");
 		BufferedImage pic = fontPics.computeIfAbsent(font, f -> {
-			try { return ImageIO.read(new File(WatchFonts.dir, WatchFonts.NAMES[f] + ".png")); } catch (Exception e) { return null; }
+			try { return ImageIO.read(WatchFiles.get("pebxel/fonts/" + WatchFonts.NAMES[f] + ".png").file()); } catch (Exception e) { return null; }
 		});
 		if (pic == null || alpha < 0.25f) return;
-		org.json.JSONObject gl;
-		try { gl = new org.json.JSONObject(new String(java.nio.file.Files.readAllBytes(new File(WatchFonts.dir, "fonts.json").toPath()))).getJSONObject(WatchFonts.NAMES[font]).getJSONObject("glyphs"); }
-		catch (Exception e) { return; }
 		int top = Math.round(y) - WatchFonts.capTop(font), px = Math.round(x);
 		float r = Math.min(1, (s[3] & 255) / 255f + (s[6] & 255) / 255f), g = Math.min(1, (s[4] & 255) / 255f + (s[7] & 255) / 255f), b = Math.min(1, (s[5] & 255) / 255f + (s[8] & 255) / 255f);
 		for (char ch : str.toCharArray()) {
-			if (!gl.has("" + (int) ch)) ch = '?';
-			int gx = gl.getJSONArray("" + (int) ch).getInt(0), gw = gl.getJSONArray("" + (int) ch).getInt(1);
+			int[] gg = WatchFonts.glyph(font, ch); if (gg == null) gg = WatchFonts.glyph(font, '?');
+			int gx = gg[0], gw = gg[1];
 			for (int yy = 0; yy < pic.getHeight(); yy++) for (int xx = 0; xx < gw; xx++) {
 				int X = px + xx, Y = top + yy;
 				if (X < clipX0 || Y < clipY0 || X >= clipX1 || Y >= clipY1) continue;

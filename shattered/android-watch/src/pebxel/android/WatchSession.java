@@ -1,0 +1,149 @@
+package pebxel.android;
+
+import android.content.Context;
+import com.badlogic.gdx.Files;
+import com.badlogic.gdx.backends.android.DefaultAndroidFiles;
+import android.content.ContextWrapper;
+import com.badlogic.gdx.backends.android.AndroidPreferences;
+import com.badlogic.gdx.utils.GdxNativesLoader;
+import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
+import com.watabou.noosa.Game;
+import com.watabou.utils.FileUtils;
+import java.util.ArrayDeque;
+import java.util.List;
+import pebxel.*;
+
+/**
+ * One game for the watch: Shattered PD running with no screen, in real time, its pictures going to the
+ * watch through the link. Uses the same saves and settings as the phone's own Shattered screen.
+ */
+class WatchSession extends Thread {
+	private final WatchService service;
+	private volatile boolean running = true, closing, helloPending, inFlight;
+	private volatile int maxMsg = 1000;
+	private volatile long retryAt;
+	private final ArrayDeque<Integer> buttons = new ArrayDeque<>();
+	private final ArrayDeque<byte[]> queue = new ArrayDeque<>();
+	private WatchApp app;
+
+	WatchSession(WatchService s) { super("Watch game"); service = s; }
+
+	void hello(int size) { maxMsg = Math.max(200, size - 16); helloPending = true; }
+	void button(int code) { synchronized (buttons) { buttons.add(code); } }
+	void watchClosed() { closing = true; }
+
+	private volatile Boolean phoneChange;
+	private boolean phoneHas, wasPlaying;
+	/** The phone's own screen opened (true) or closed (false). */
+	void phoneActive(boolean active) { phoneChange = active; }
+	void stopSession() { running = false; }
+	void stopNow() { running = false; interrupt(); }
+
+	@Override
+	public void run() {
+		try { play(); }
+		catch (Throwable t) {
+			// show what went wrong on the watch, so it can be reported
+			android.util.Log.e("PebxelWatch", "watch game crashed", t);
+			java.io.StringWriter w = new java.io.StringWriter(); t.printStackTrace(new java.io.PrintWriter(w));
+			String msg = w.toString().replace("com.shatteredpixel.shatteredpixeldungeon.", "").replace("\t", " ");
+			service.send(Link.errorScreen("Shattered stopped:\n" + msg), ok -> { });
+		}
+	}
+
+	private void play() {
+		Context c = service.getApplicationContext();
+		try {
+			Game.version = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+			Game.versionCode = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionCode;
+		} catch (Exception e) { Game.version = "???"; Game.versionCode = 0; }
+
+		WatchGame game = new WatchGame();
+		game.drawAlways = true;
+		Files files = new DefaultAndroidFiles(c.getAssets(), new ContextWrapper(c), false);
+		app = new WatchApp(game, "", false, files, GdxNativesLoader::load,
+				name -> new AndroidPreferences(c.getSharedPreferences(name, Context.MODE_PRIVATE)));
+		WatchFiles.inApp = true;
+		FileUtils.setDefaultFileProperties(Files.FileType.Local, "");
+		SPDSettings.set(app.getPreferences("ShatteredPixelDungeon"));
+		app.create();
+		Link link = new Link(new Assets());
+		Controls controls = new Controls();
+
+		long frameNs = 1_000_000_000L / 30, next = System.nanoTime();
+		float sinceSync = 0;
+		Handoff.watchSaved(c);
+		while (running && !app.exited) {
+			Boolean pc = phoneChange;
+			if (pc != null) {
+				phoneChange = null;
+				if (pc && !phoneHas) {
+					// save and step aside while the phone plays
+					phoneHas = true;
+					wasPlaying = com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero != null && Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+					game.pause();
+					Handoff.watchSaved(c);
+					synchronized (queue) { queue.clear(); }
+					service.send(Link.errorScreen("Playing on your phone.\n\nLeave the game there\nto carry on here."), ok -> { });
+				} else if (!pc && phoneHas) {
+					// back to the watch: load what the phone saved
+					phoneHas = false;
+					if (wasPlaying && com.shatteredpixel.shatteredpixeldungeon.GamesInProgress.check(com.shatteredpixel.shatteredpixeldungeon.GamesInProgress.curSlot) != null) {
+						com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero = null;
+						com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.mode = com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.Mode.CONTINUE;
+						Game.switchScene(com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.class);
+					} else Game.switchScene(com.shatteredpixel.shatteredpixeldungeon.scenes.TitleScene.class);
+					helloPending = true;
+				}
+			}
+			if (phoneHas) { try { Thread.sleep(100); } catch (InterruptedException e) { break; } continue; }
+			Integer b;
+			synchronized (buttons) { b = buttons.poll(); }
+			if (b != null) controls.button(b);
+			app.frame();
+			controls.frame();
+			sinceSync += Game.elapsed;
+			if (helloPending) { helloPending = false; synchronized (queue) { queue.clear(); } link.reset(); inFlight = false; }
+			if (closing) {
+				// the watch app was closed: save, like the phone does when it goes to the background
+				closing = false;
+				game.pause();
+				Handoff.watchSaved(c);
+			}
+			if (retryAt != 0 && System.currentTimeMillis() > retryAt) { retryAt = 0; helloPending = true; }
+			if (!inFlight && isEmpty() && retryAt == 0) {
+				byte[] cmds = link.sync(sinceSync); sinceSync = 0;
+				if (cmds.length > 0) {
+					List<byte[]> ps = link.packets(cmds, maxMsg);
+					synchronized (queue) { queue.addAll(ps); }
+					sendNext();
+				}
+			}
+			next += frameNs;
+			long sleep = next - System.nanoTime();
+			try {
+				if (sleep > 0) Thread.sleep(sleep / 1_000_000, (int) (sleep % 1_000_000));
+				else next = System.nanoTime();
+			} catch (InterruptedException e) { break; }
+		}
+		game.pause();
+	}
+
+	private boolean isEmpty() { synchronized (queue) { return queue.isEmpty(); } }
+
+	private void sendNext() {
+		byte[] p;
+		synchronized (queue) { p = queue.poll(); }
+		if (p == null) { inFlight = false; return; }
+		inFlight = true;
+		service.send(p, ok -> {
+			if (ok) sendNext();
+			else {
+				// the watch didn't take it (closed, out of range): send it the whole screen again in a moment
+				synchronized (queue) { queue.clear(); }
+				retryAt = System.currentTimeMillis() + 2000;
+				inFlight = false;
+			}
+		});
+	}
+}

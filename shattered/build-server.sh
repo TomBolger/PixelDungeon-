@@ -12,5 +12,5 @@ if [ ! -d build/spd ] || [ patches/spd.patch -nt build/spd ]; then
   javac -nowarn -encoding UTF-8 --release 11 -cp "$CP" -d build/spd @build/spd.txt
 fi
 rm -rf build/server && mkdir -p build/server
-javac -nowarn -encoding UTF-8 --release 11 -cp "build/spd:$CP" -d build/server $(find server/src -name '*.java')
+javac -nowarn -encoding UTF-8 --release 11 -cp "build/spd:$CP" -d build/server $(find common/src server/src -name '*.java')
 echo built

@@ -31,7 +31,7 @@ public class Smoke {
 		if (measure) { app.graphics.soft.raster = false; app.graphics.soft.record = new ArrayList<>(); }
 		if (linkDir != null) {
 			java.io.File root = new java.io.File(".");
-			Assets as = new Assets(root);
+			Assets as = new Assets();
 			link = new Link(as); sim = new WatchSim(root, as); shotDir = new java.io.File(linkDir); shotDir.mkdirs();
 		}
 		SPDSettings.set(app.getPreferences(SPDSettings.DEFAULT_PREFS_FILE));
@@ -70,7 +70,7 @@ public class Smoke {
 			if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) continue;
 			if (!Dungeon.hero.isAlive()) { System.out.println("DIED on depth " + Dungeon.depth + " turns " + (int) Statistics.duration); break; }
 			if (Dungeon.depth != lastDepth) {
-				lastDepth = Dungeon.depth; bad.clear(); searched.clear();
+				lastDepth = Dungeon.depth; bad.clear(); Explorer.searched.clear();
 				System.out.printf("depth %d  frame %d  %.1fs  hp %d/%d%n", Dungeon.depth, f, (System.currentTimeMillis() - t0) / 1000.0, Dungeon.hero.HP, Dungeon.hero.HT);
 				if (Dungeon.depth > depthGoal) { try { Dungeon.saveAll(); } catch (Exception e) { throw new RuntimeException(e); } System.out.println("saved and quit on depth " + Dungeon.depth + ", hp " + Dungeon.hero.HP + ", gold " + Dungeon.gold); break; }
 			}
@@ -202,45 +202,5 @@ public class Smoke {
 
 	static void sleep(int ms) { try { Thread.sleep(ms); } catch (InterruptedException e) { } }
 
-	static int choose(Set<Integer> bad) {
-		Level L = Dungeon.level; int h = Dungeon.hero.pos, W = L.width();
-		for (Mob m : L.mobs)
-			if (m.alignment == Char.Alignment.ENEMY && L.heroFOV[m.pos] && Dungeon.level.adjacent(h, m.pos)) return m.pos;
-		boolean[] known = new boolean[L.length()];
-		for (int i = 0; i < known.length; i++) known[i] = L.visited[i] || L.mapped[i];
-		int[] dist = new int[L.length()]; Arrays.fill(dist, -1);
-		ArrayDeque<Integer> q = new ArrayDeque<>(); q.add(h); dist[h] = 0;
-		while (!q.isEmpty()) {
-			int c = q.poll();
-			if (c != h && !bad.contains(c)) {
-				if (L.heaps.get(c) != null) return c;
-				for (int d : PathFinder.NEIGHBOURS8) { int n = c + d; if (n >= 0 && n < known.length && !known[n]) return c; }
-			}
-			for (int d : PathFinder.NEIGHBOURS8) {
-				int n = c + d;
-				if (n < 0 || n >= known.length || dist[n] >= 0 || !known[n] || !(L.passable[n] || L.avoid[n])) continue;
-				dist[n] = dist[c] + 1; q.add(n);
-			}
-		}
-		if (L.visited[L.exit()] || L.mapped[L.exit()]) return L.exit();
-		//nothing left to explore: walk the walls searching for hidden doors (SPD searches 1 tile around you)
-		q.clear(); Arrays.fill(dist, -1); q.add(h); dist[h] = 0;
-		while (!q.isEmpty()) {
-			int c = q.poll();
-			if (!searched.contains(c)) {
-				boolean wall = false;
-				for (int d : PathFinder.NEIGHBOURS8) { int n = c + d; if (n >= 0 && n < known.length && L.solid[n] && !L.passable[n]) wall = true; }
-				if (wall) { if (c == h) { searched.add(c); return -2; } return c; }
-			}
-			for (int d : PathFinder.NEIGHBOURS8) {
-				int n = c + d;
-				if (n < 0 || n >= known.length || dist[n] >= 0 || !known[n] || !L.passable[n]) continue;
-				dist[n] = dist[c] + 1; q.add(n);
-			}
-		}
-		searched.clear();
-		return -2;
-	}
-	static Set<Integer> searched = new HashSet<>();
-	static int searches;
+	static int choose(Set<Integer> bad) { return Explorer.choose(bad); }
 }

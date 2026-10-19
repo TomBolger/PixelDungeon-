@@ -1,19 +1,14 @@
 package pebxel;
 
-import com.badlogic.gdx.Gdx;
-import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
-import java.io.File;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import org.json.JSONObject;
 
 /**
- * The watch's own fonts (Pebble's system Gothic), measured on the watch (tools: fonts.json and glyph
- * pictures in server/fonts). Shattered measures and wraps every text with these, so its windows are
+ * The watch's own fonts (Pebble's system Gothic), measured on the watch (pebxel/fonts: fonts.json and glyph pictures). Shattered measures and wraps every text with these, so its windows are
  * laid out for exactly the letters the watch will draw.
  */
 public final class WatchFonts {
@@ -31,23 +26,41 @@ public final class WatchFonts {
 		return 6;
 	}
 
-	static File dir = new File(System.getProperty("pebxel.fonts", "../../../../../server/fonts"));
-	private static JSONObject json;
 	private static final HashMap<Integer, BitmapFont> fonts = new HashMap<>();
 
-	private static JSONObject meta() {
-		if (json == null) {
-			try { json = new JSONObject(new String(java.nio.file.Files.readAllBytes(new File(dir, "fonts.json").toPath()), StandardCharsets.UTF_8)); }
-			catch (Exception e) { throw new RuntimeException("watch fonts not found in " + dir.getAbsolutePath(), e); }
+	/** One font's numbers: line height, cell height, cap top, baseline, and per character (x in picture, width). */
+	private static final class Metrics { int line, cell, capTop, base; HashMap<Integer, int[]> glyphs = new HashMap<>(); }
+	private static Metrics[] metrics;
+
+	// (Android's org.json declares checked exceptions; read everything once, here)
+	private static Metrics m(int font) {
+		if (metrics == null) {
+			try {
+				JSONObject j = new JSONObject(WatchFiles.get("pebxel/fonts/fonts.json").readString("UTF-8"));
+				Metrics[] ms = new Metrics[NAMES.length];
+				for (int i = 0; i < NAMES.length; i++) {
+					JSONObject f = j.getJSONObject(NAMES[i]);
+					Metrics m = new Metrics();
+					m.line = f.getInt("line"); m.cell = f.getInt("cell"); m.capTop = f.getInt("capTop"); m.base = f.getInt("base");
+					JSONObject gl = f.getJSONObject("glyphs");
+					for (java.util.Iterator<String> it = gl.keys(); it.hasNext(); ) {
+						String k = it.next();
+						m.glyphs.put(Integer.parseInt(k), new int[]{gl.getJSONArray(k).getInt(0), gl.getJSONArray(k).getInt(1)});
+					}
+					ms[i] = m;
+				}
+				metrics = ms;
+			} catch (Exception e) { throw new RuntimeException("watch fonts", e); }
 		}
-		return json;
+		return metrics[font];
 	}
 
-	public static int line(int font) { return meta().getJSONObject(NAMES[font]).getInt("line"); }
-	public static int advance(int font, char c) { return meta().getJSONObject(NAMES[font]).getJSONObject("glyphs").getJSONArray("" + (int) c).getInt(1); }
+	public static int[] glyph(int font, char c) { return m(font).glyphs.get((int) c); }
+	public static int line(int font) { return m(font).line; }
+	public static int advance(int font, char c) { int[] g = m(font).glyphs.get((int) c); return g == null ? 0 : g[1]; }
 
 	/** Pixels above the capital letters in the watch font (the watch draws text that much higher). */
-	public static int capTop(int font) { return meta().getJSONObject(NAMES[font]).getInt("capTop"); }
+	public static int capTop(int font) { return m(font).capTop; }
 
 	/**
 	 * A libGDX font for Shattered's text code, at the phone's scale (zoom x watch pixels).
@@ -58,9 +71,9 @@ public final class WatchFonts {
 		int key = font * 16 + zoom;
 		BitmapFont f = fonts.get(key);
 		if (f != null) return f;
-		JSONObject m = meta().getJSONObject(NAMES[font]);
-		int cell = m.getInt("cell"), cap = m.getInt("capTop"), base = m.getInt("base"), line = m.getInt("line");
-		Pixmap src = new Pixmap(new FileHandle(new File(dir, NAMES[font] + ".png")));
+		Metrics m = m(font);
+		int cell = m.cell, cap = m.capTop, base = m.base, line = m.line;
+		Pixmap src = new Pixmap(WatchFiles.get("pebxel/fonts/" + NAMES[font] + ".png"));
 		Pixmap pm = new Pixmap(src.getWidth() * zoom, src.getHeight() * zoom, Pixmap.Format.RGBA8888);
 		pm.setBlending(Pixmap.Blending.None);
 		for (int y = 0; y < src.getHeight(); y++) for (int x = 0; x < src.getWidth(); x++) {
@@ -76,15 +89,13 @@ public final class WatchFonts {
 		d.ascent = 0;
 		d.descent = -(cell - base - 1) * zoom;
 		d.down = d.lineHeight;
-		JSONObject gl = m.getJSONObject("glyphs");
-		for (String k : gl.keySet()) {
-			int ch = Integer.parseInt(k);
+		for (java.util.Map.Entry<Integer, int[]> e : m.glyphs.entrySet()) {
 			BitmapFont.Glyph g = new BitmapFont.Glyph();
-			g.id = ch;
-			g.srcX = gl.getJSONArray(k).getInt(0) * zoom; g.srcY = cap * zoom;
-			g.width = gl.getJSONArray(k).getInt(1) * zoom; g.height = (cell - cap) * zoom;
+			g.id = e.getKey();
+			g.srcX = e.getValue()[0] * zoom; g.srcY = cap * zoom;
+			g.width = e.getValue()[1] * zoom; g.height = (cell - cap) * zoom;
 			g.xadvance = g.width; g.xoffset = 0; g.yoffset = 0;
-			d.setGlyph(ch, g);
+			d.setGlyph(g.id, g);
 		}
 		d.spaceXadvance = d.getGlyph(' ').xadvance;
 		d.missingGlyph = d.getGlyph('?');

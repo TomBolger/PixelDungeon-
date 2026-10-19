@@ -14,15 +14,22 @@ public class WatchApp implements Application {
 	private final Array<Runnable> runnables = new Array<>(), running = new Array<>();
 	private final java.util.HashMap<String, Preferences> prefs = new java.util.HashMap<>();
 	private final String prefDir;
+	private final java.util.function.Function<String, Preferences> prefsMaker;
 	public volatile boolean exited;
 
 	public WatchApp(ApplicationListener l, String prefDir) { this(l, prefDir, false); }
 
+	/** On a computer: desktop native libraries, files from the working folder. */
 	public WatchApp(ApplicationListener l, String prefDir, boolean pictures) {
-		listener = l; this.prefDir = prefDir;
+		this(l, prefDir, pictures, new HeadlessFiles(), HeadlessNativesLoader::load, null);
+	}
+
+	/** Anywhere: the platform supplies files, native libraries and (optionally) preferences. */
+	public WatchApp(ApplicationListener l, String prefDir, boolean pictures, Files files, Runnable natives, java.util.function.Function<String, Preferences> prefsMaker) {
+		listener = l; this.prefDir = prefDir; this.prefsMaker = prefsMaker;
 		if (pictures) graphics.useSoftGL();
-		HeadlessNativesLoader.load();
-		Gdx.app = this; Gdx.files = new HeadlessFiles(); Gdx.net = new HeadlessNet(new HeadlessApplicationConfiguration());
+		natives.run();
+		Gdx.app = this; Gdx.files = files; Gdx.net = new HeadlessNet(new HeadlessApplicationConfiguration());
 		Gdx.audio = new MockAudio(); Gdx.input = new MockInput();
 		Gdx.graphics = graphics; Gdx.gl = Gdx.gl20 = graphics.getGL20();
 	}
@@ -41,12 +48,14 @@ public class WatchApp implements Application {
 	@Override public Input getInput() { return Gdx.input; }
 	@Override public Files getFiles() { return Gdx.files; }
 	@Override public Net getNet() { return Gdx.net; }
-	@Override public ApplicationType getType() { return ApplicationType.HeadlessDesktop; }
+	/** Android when running inside the phone app (Shattered checks this for a few phone-only behaviours). */
+	public ApplicationType type = ApplicationType.HeadlessDesktop;
+	@Override public ApplicationType getType() { return type; }
 	@Override public int getVersion() { return 0; }
 	@Override public long getJavaHeap() { return Runtime.getRuntime().totalMemory(); }
 	@Override public long getNativeHeap() { return 0; }
 	@Override public Preferences getPreferences(String name) {
-		return prefs.computeIfAbsent(name, n -> new HeadlessPreferences(n, prefDir));
+		return prefs.computeIfAbsent(name, n -> prefsMaker != null ? prefsMaker.apply(n) : new HeadlessPreferences(n, prefDir));
 	}
 	private String clip = "";
 	@Override public Clipboard getClipboard() { return new Clipboard() {
