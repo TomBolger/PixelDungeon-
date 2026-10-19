@@ -46,14 +46,18 @@ public class WatchService extends BaseJavaPebbleListenerService {
 	@Override
 	public int onStartCommand(android.content.Intent intent, int flags, int startId) {
 		if (intent != null && Handoff.ACTION_PHONE.equals(intent.getAction()) && session != null)
-			session.phoneActive(intent.getBooleanExtra(Handoff.EXTRA_ACTIVE, false));
+			session.phoneActive(intent.getBooleanExtra(Handoff.EXTRA_ACTIVE, false), intent.getLongExtra(Handoff.EXTRA_ASK, 0));
 		if (session == null) stopSelf(startId);
 		return START_NOT_STICKY;
 	}
 
 	@Override
 	protected void onAppOpened(UUID app, String watch) {
-		if (APP.equals(app)) session();
+		if (!APP.equals(app)) return;
+		boolean had;
+		synchronized (this) { had = session != null; }
+		WatchSession s = session();
+		if (had) s.watchOpened();
 	}
 
 	@Override

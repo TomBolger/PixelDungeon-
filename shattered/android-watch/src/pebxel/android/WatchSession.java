@@ -12,6 +12,7 @@ import com.watabou.utils.FileUtils;
 import java.util.ArrayDeque;
 import java.util.List;
 import pebxel.*;
+import pebxel.Shared;
 
 /**
  * One game for the watch: Shattered PD running with no screen, in real time, its pictures going to the
@@ -28,14 +29,18 @@ class WatchSession extends Thread {
 
 	WatchSession(WatchService s) { super("Watch game"); service = s; }
 
-	void hello(int size) { maxMsg = Math.max(200, size - 16); helloPending = true; }
+	void hello(int size) { maxMsg = Math.max(200, size - 16); helloPending = true; opening = true; }
 	void button(int code) { synchronized (buttons) { buttons.add(code); } }
-	void watchClosed() { closing = true; }
+	void watchClosed() { closing = true; opening = false; }
+	/** The watch app opened again while this game was still running. */
+	void watchOpened() { opening = true; closing = false; }
+	private volatile boolean opening;
 
 	private volatile Boolean phoneChange;
-	private boolean phoneHas, wasPlaying;
-	/** The phone's own screen opened (true) or closed (false). */
-	void phoneActive(boolean active) { phoneChange = active; }
+	private volatile long phoneAsk;
+	private boolean phoneHas;
+	/** The phone's own screen opened (true: it waits for us to save, see Handoff) or closed (false). */
+	void phoneActive(boolean active, long ask) { if (active) phoneAsk = ask; phoneChange = active; }
 	void stopSession() { running = false; }
 	void stopNow() { running = false; interrupt(); }
 
@@ -70,33 +75,63 @@ class WatchSession extends Thread {
 		Link link = new Link(new Assets());
 		Controls controls = new Controls();
 
+		Shared.mark(Shared.WATCH_ON, true);
+		try { loop(c, game, link, controls); }
+		finally {
+			// stopping: save unless the phone has the game
+			if (!phoneHas) { game.pause(); Shared.release(Shared.WATCH); }
+			Shared.mark(Shared.WATCH_ON, false);
+		}
+	}
+
+	private void standAside() {
+		synchronized (queue) { queue.clear(); }
+		service.send(Link.errorScreen("Playing on your phone.\n\nLeave the game there\nto carry on here."), ok -> { });
+	}
+
+	private void loop(Context c, WatchGame game, Link link, Controls controls) {
 		long frameNs = 1_000_000_000L / 30, next = System.nanoTime();
 		float sinceSync = 0;
-		Handoff.watchSaved(c);
+		if (Shared.marked(Shared.PHONE_ON)) {
+			// the phone screen has the game: wait for it (our copy in memory is nothing yet)
+			phoneHas = true;
+			com.shatteredpixel.shatteredpixeldungeon.Dungeon.pebxelHold = true;
+			standAside();
+		} else {
+			// carry on whatever the phone played last
+			Shared.takeOver(Shared.WATCH);
+		}
 		while (running && !app.exited) {
 			Boolean pc = phoneChange;
 			if (pc != null) {
 				phoneChange = null;
-				if (pc && !phoneHas) {
-					// save and step aside while the phone plays
-					phoneHas = true;
-					wasPlaying = com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero != null && Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-					game.pause();
-					Handoff.watchSaved(c);
-					synchronized (queue) { queue.clear(); }
-					service.send(Link.errorScreen("Playing on your phone.\n\nLeave the game there\nto carry on here."), ok -> { });
-				} else if (!pc && phoneHas) {
-					// back to the watch: load what the phone saved
+				if (pc) {
+					if (!phoneHas) {
+						// save and step aside while the phone plays
+						phoneHas = true;
+						game.pause();
+						Shared.release(Shared.WATCH);
+						standAside();
+					}
+					Shared.writeText(Shared.WATCH_ACK, Long.toString(phoneAsk));   // the phone may go ahead
+				} else if (phoneHas) {
+					// back to the watch: carry on from what the phone saved
 					phoneHas = false;
-					if (wasPlaying && com.shatteredpixel.shatteredpixeldungeon.GamesInProgress.check(com.shatteredpixel.shatteredpixeldungeon.GamesInProgress.curSlot) != null) {
-						com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero = null;
-						com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.mode = com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.Mode.CONTINUE;
-						Game.switchScene(com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.class);
-					} else Game.switchScene(com.shatteredpixel.shatteredpixeldungeon.scenes.TitleScene.class);
+					Shared.takeOver(Shared.WATCH);
 					helloPending = true;
 				}
 			}
-			if (phoneHas) { try { Thread.sleep(100); } catch (InterruptedException e) { break; } continue; }
+			if (phoneHas) {
+				// still standing aside; if the phone screen went away without telling us, notice from its file
+				if (!Shared.marked(Shared.PHONE_ON)) phoneChange = false;
+				try { Thread.sleep(100); } catch (InterruptedException e) { break; }
+				continue;
+			}
+			if (opening) {
+				// the watch app came back: the phone may have played meanwhile (or not: then nothing changes)
+				opening = false;
+				Shared.takeOver(Shared.WATCH);
+			}
 			Integer b;
 			synchronized (buttons) { b = buttons.poll(); }
 			if (b != null) controls.button(b);
@@ -108,7 +143,7 @@ class WatchSession extends Thread {
 				// the watch app was closed: save, like the phone does when it goes to the background
 				closing = false;
 				game.pause();
-				Handoff.watchSaved(c);
+				Shared.release(Shared.WATCH);
 			}
 			if (retryAt != 0 && System.currentTimeMillis() > retryAt) { retryAt = 0; helloPending = true; }
 			if (!inFlight && isEmpty() && retryAt == 0) {
@@ -126,7 +161,6 @@ class WatchSession extends Thread {
 				else next = System.nanoTime();
 			} catch (InterruptedException e) { break; }
 		}
-		game.pause();
 	}
 
 	private boolean isEmpty() { synchronized (queue) { return queue.isEmpty(); } }

@@ -139,6 +139,23 @@ index 70d287f..122b04f 100644
          appAndroidTargetSDK = 36    //Android 15
  
          gdxVersion = '1.14.0'
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java
+index 1c02505..9254077 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java
+@@ -703,7 +703,12 @@ public class Dungeon {
+ 		FileUtils.bundleToFile(GamesInProgress.depthFile( save, depth, branch ), bundle);
+ 	}
+ 	
++	/** Pebxel: the game in memory is out of date (the other screen, phone or watch, played on since):
++	 *  don't save it over the newer save. */
++	public static volatile boolean pebxelHold;
++
+ 	public static void saveAll() throws IOException {
++		if (pebxelHold) return;
+ 		if (hero != null && (hero.isAlive() || WndResurrect.instance != null)) {
+ 			
+ 			Actor.fixTime();
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java
 index 2dc7887..b2ee4df 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java
