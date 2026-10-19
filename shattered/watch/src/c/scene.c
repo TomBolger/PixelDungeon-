@@ -146,6 +146,16 @@ static void read_dyn(Obj *o, uint32_t now) {
   o->at = now;
 }
 
+void scene_stats(int *objs, int *tiles, int *anims, int *dyns) {
+  *objs = *tiles = *anims = *dyns = 0;
+  for (int i = 0; i < MAX_ID; i++) if (g_obj[i]) {
+    (*objs)++;
+    if (g_obj[i]->kind == K_TILES && g_obj[i]->ext) { Tiles *t = g_obj[i]->ext; *tiles += t->mw * t->mh * (t->wide ? 2 : 1); }
+  }
+  for (int i = 0; i < MAX_ANIM; i++) if (s_anim[i]) *anims += sizeof(Anim) + s_anim[i]->n * 8;
+  for (int i = 0; i < MAX_DYN; i++) if (s_dyn[i]) *dyns += (s_dyn[i]->w * s_dyn[i]->h * s_dyn[i]->bits + 7) / 8;
+}
+
 bool scene_moving(uint32_t now) {
   for (int id = g_head; id != NONE; id = g_obj[id]->next) {
     Obj *o = g_obj[id];
@@ -159,23 +169,34 @@ bool scene_moving(uint32_t now) {
 // ---- run-time pictures ----
 
 static void read_dtex(void) {
-  int id = u8(), w = u16(), h = u16(), piece = u16(), len = u16();
+  int id = u8(), w = u16(), h = u16(), piece = u16();
+  int ncol = u8(); uint8_t pal[16] = {0};
+  for (int i = 0; i < ncol; i++) { int c = u8(); if (i < 16) pal[i] = c; }
+  int len = u16();
   const uint8_t *stop = p + len; if (stop > end) stop = end;
   if (id < 200 || id >= 200 + MAX_DYN) { p = stop; return; }
+  int bits = ncol == 0 || ncol > 16 ? 8 : ncol <= 4 ? 2 : 4;
   DynTex *d = s_dyn[id - 200];
-  if (!d || d->w != w || d->h != h) {
+  int bytes = (w * h * bits + 7) / 8;
+  if (!d || d->w != w || d->h != h || d->bits != bits) {
     free(d);
-    d = malloc(sizeof(DynTex) + w * h);
-    if (d) { d->w = w; d->h = h; memset(d->px, 0, w * h); }
+    d = malloc(sizeof(DynTex) + bytes);
+    if (d) { d->w = w; d->h = h; d->bits = bits; memset(d->px, 0, bytes); }
     s_dyn[id - 200] = d;
   }
   if (!d) { p = stop; return; }
+  d->ncol = ncol; memcpy(d->pal, pal, 16);
   int k = piece * 1024, n = w * h;
+  #define PUT(v) do { if (k < n) { int vv = (v); \
+      if (bits == 8) d->px[k] = vv; \
+      else if (bits == 4) d->px[k >> 1] = (d->px[k >> 1] & ~(15 << ((k & 1) * 4))) | ((vv & 15) << ((k & 1) * 4)); \
+      else d->px[k >> 2] = (d->px[k >> 2] & ~(3 << ((k & 3) * 2))) | ((vv & 3) << ((k & 3) * 2)); } k++; } while (0)
   while (p < stop) {
     int c = *p++;
-    if (c > 128) { int v = p < stop ? *p++ : 0; for (int i = 0; i < c - 127 && k < n; i++) d->px[k++] = v; }
-    else for (int i = 0; i < c && p < stop; i++) { int v = *p++; if (k < n) d->px[k++] = v; }
+    if (c > 128) { int v = p < stop ? *p++ : 0; for (int i = 0; i < c - 127; i++) PUT(v); }
+    else for (int i = 0; i < c && p < stop; i++) { int v = *p++; PUT(v); }
   }
+  #undef PUT
   art_forget(id);
 }
 

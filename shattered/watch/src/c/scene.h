@@ -51,8 +51,17 @@ typedef struct {                 // a tile map's cells
 
 typedef struct {                 // a picture made at run time (fog of war, glows)
   uint16_t w, h;
+  uint8_t bits;                  // 2 or 4: palette indices packed per byte; 8: plain colour bytes
+  uint8_t ncol;
+  uint8_t pal[16];
   uint8_t px[];
 } DynTex;
+// one pixel of a run-time picture, as a Pebble colour
+static inline uint8_t dyn_px(const DynTex *d, int i) {
+  if (d->bits == 8) return d->px[i];
+  if (d->bits == 4) return d->pal[(d->px[i >> 1] >> ((i & 1) * 4)) & 15];
+  return d->pal[(d->px[i >> 2] >> ((i & 3) * 2)) & 3];
+}
 
 extern Obj *g_obj[MAX_ID];
 extern Cam g_cam[MAX_CAM];

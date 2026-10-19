@@ -111,6 +111,8 @@ static void evict_one(void) {
   s_cache_bytes -= v->w * v->h; free(v);
 }
 
+int art_cache_bytes(void) { return s_cache_bytes; }
+
 void art_forget(int tex) {
   for (CacheEnt **e = &s_cache; *e;) {
     if ((*e)->tex == tex) { CacheEnt *v = *e; *e = v->next; hash_remove(v); s_cache_bytes -= v->w * v->h; free(v); } else e = &(*e)->next;
@@ -123,23 +125,28 @@ void art_forget_dynamic(void) { for (int t = 200; t < 255; t++) art_forget(t); }
 bool art_open(ArtSrc *s, int tex, int x, int y, int w, int h) {
   s->tex = tex; s->x = x; s->y = y; s->w = w; s->h = h; s->px = NULL; s->stride = w;
   if (w <= 0 || h <= 0) return false;
+  DynTex *d = NULL;
+  Head *hd = NULL;
   if (tex >= 200) {
-    DynTex *d = scene_dyntex(tex); if (!d) return false;
+    d = scene_dyntex(tex); if (!d) return false;
     if (x < 0 || y < 0 || x + w > d->w || y + h > d->h) return false;
-    s->px = d->px + y * d->w + x; s->stride = d->w; return true;
+    if (d->bits == 8) { s->px = d->px + y * d->w + x; s->stride = d->w; return true; }
+  } else {
+    hd = head(tex); if (!hd) return false;
+    if (x < 0 || y < 0 || x + w > hd->w || y + h > hd->h) return false;
   }
-  Head *hd = head(tex); if (!hd) return false;
-  if (x < 0 || y < 0 || x + w > hd->w || y + h > hd->h) return false;
   s_tick++;
   for (CacheEnt *e = s_hash[hkey(tex, x, y)]; e; e = e->hnext)
     if (e->tex == tex && e->x == x && e->y == y && e->w == w && e->h == h) { e->used = s_tick; s->px = e->px; return true; }
   if (w * h > CACHE_ONE) return true;   // too big to keep: rows are decoded as they are drawn
-  while (s_cache && s_cache_bytes + w * h > CACHE_MAX) evict_one();
+  // keep the cache within its budget, and give memory back when the screen needs it (big floors, long windows)
+  while (s_cache && (s_cache_bytes + w * h > CACHE_MAX || (int)heap_bytes_free() < 12000 + w * h)) evict_one();
   CacheEnt *e = malloc(sizeof(CacheEnt) + w * h);
   while (!e && s_cache) { evict_one(); e = malloc(sizeof(CacheEnt) + w * h); }
   if (!e) return true;
   for (int r = 0; r < h; r++) {
     int yy = y + r;
+    if (d) { for (int c = 0; c < w; c++) e->px[r * w + c] = dyn_px(d, yy * d->w + x + c); continue; }
     const uint8_t *st = strip(tex, yy / hd->strip_h);
     if (st) memcpy(e->px + r * w, st + (yy % hd->strip_h) * s_sw + x, w);
     else memset(e->px + r * w, 0, w);
@@ -151,9 +158,19 @@ bool art_open(ArtSrc *s, int tex, int x, int y, int w, int h) {
   return true;
 }
 
+static uint8_t *s_rowbuf;
+
 const uint8_t *art_row(ArtSrc *s, int row) {
   if (row < 0 || row >= s->h) return NULL;
   if (s->px) return s->px + row * s->stride;
+  if (s->tex >= 200) {
+    // a packed run-time picture (fog): unpack one row
+    DynTex *d = scene_dyntex(s->tex); if (!d || s->w > 512) return NULL;
+    if (!s_rowbuf) s_rowbuf = malloc(512);
+    if (!s_rowbuf) return NULL;
+    for (int c = 0; c < s->w; c++) s_rowbuf[c] = dyn_px(d, (s->y + row) * d->w + s->x + c);
+    return s_rowbuf;
+  }
   Head *hd = head(s->tex); if (!hd) return NULL;
   int yy = s->y + row;
   const uint8_t *st = strip(s->tex, yy / hd->strip_h);

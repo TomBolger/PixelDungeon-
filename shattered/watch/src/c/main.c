@@ -61,7 +61,11 @@ static void dropped(AppMessageResult r, void *ctx) { APP_LOG(APP_LOG_LEVEL_WARNI
 static void inbox(DictionaryIterator *it, void *ctx) {
   s_connected = true;
   static int n;
-  if (++n % 20 == 1) APP_LOG(APP_LOG_LEVEL_INFO, "message %d, heap free %d", n, (int)heap_bytes_free());
+  if (++n % 20 == 1) {
+    extern void scene_stats(int *, int *, int *, int *); extern int art_cache_bytes(void);
+    int o, t, a, d; scene_stats(&o, &t, &a, &d);
+    APP_LOG(APP_LOG_LEVEL_INFO, "msg %d free %d pics %d tiles %d anim %d dyn %d cache %d", n, (int)heap_bytes_free(), o, t, a, d, art_cache_bytes());
+  }
   Tuple *t = dict_find(it, KEY_DATA);
   if (t && t->type == TUPLE_BYTE_ARRAY) {
     s_data_at = now_ms();

@@ -63,6 +63,7 @@ public final class Link {
 	private final Assets assets;
 	private final IdentityHashMap<SmartTexture, Integer> dynTex = new IdentityHashMap<>();
 	private final HashMap<Integer, byte[]> dynPixels = new HashMap<>();
+	private final HashMap<Integer, int[]> dynPal = new HashMap<>();
 	private int nextDyn = 200;
 
 	/** Pictures that are pure scenery and cost more radio time than they are worth (none by default). */
@@ -80,7 +81,7 @@ public final class Link {
 	/** Forget everything the watch had (it restarted, or a new connection). */
 	public void reset() {
 		objs.clear(); shadowPrev.clear(); shadowNext.clear(); shadowHead = NONE;
-		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); nextDyn = 200;
+		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); nextDyn = 200;
 		anims.clear(); animsByContent.clear();
 		out.reset(); marks.clear(); cmd(C_RESET);
 	}
@@ -559,18 +560,46 @@ public final class Link {
 		Pixmap p = t.bitmap;
 		if (p != null) {
 			byte[] px = Assets.pebble(p);
-			if (!Arrays.equals(px, dynPixels.get(d))) {
+			if (k != null && k.startsWith("FogOfWar")) lighten(px);
+			byte[] old = dynPixels.get(d);
+			if (!Arrays.equals(px, old)) {
 				dynPixels.put(d, px);
+				// few colours (fog of war: black at four strengths) are sent and kept as a palette and small indices
+				TreeSet<Integer> cols = new TreeSet<>();
+				for (byte v : px) { cols.add(v & 255); if (cols.size() > 16) break; }
+				int[] pal = cols.size() <= 16 ? cols.stream().mapToInt(Integer::intValue).toArray() : new int[0];
+				boolean samePal = Arrays.equals(pal, dynPal.get(d)) && old != null && old.length == px.length;
+				dynPal.put(d, pal);
+				byte[] idx = px;
+				if (pal.length > 0) {
+					idx = new byte[px.length];
+					for (int i = 0; i < px.length; i++) idx[i] = (byte) Arrays.binarySearch(pal, px[i] & 255);
+				}
 				for (int at = 0; at < px.length; at += DTEX_PIECE) {
+					int end = Math.min(px.length, at + DTEX_PIECE);
+					if (samePal && Arrays.equals(Arrays.copyOfRange(px, at, end), Arrays.copyOfRange(old, at, end))) continue;
 					cmd(C_DTEX); u8(d); u16(p.getWidth()); u16(p.getHeight()); u16(at / DTEX_PIECE);
-					rle(Arrays.copyOfRange(px, at, Math.min(px.length, at + DTEX_PIECE)));
+					u8(pal.length); for (int c : pal) u8(c);
+					rle(Arrays.copyOfRange(idx, at, end));
 				}
 			}
 		}
 		return d;
 	}
 
-	/** Run-time pictures go in pieces of this many pixels (C_DTEX: id, w, h, piece number, length, data). */
+	/**
+	 * Fog over remembered places: one alpha level lighter than on a phone. The watch dithers see-through
+	 * pixels, and Shattered's dimming at full strength hides remembered rooms in 64 colours.
+	 */
+	private static void lighten(byte[] px) {
+		for (int i = 0; i < px.length; i++) {
+			int a = (px[i] >> 6) & 3;
+			if (a == 2 || a == 1) px[i] = (byte) ((px[i] & 0x3F) | ((a - 1) << 6));
+		}
+	}
+
+	/** Run-time pictures go in pieces of this many pixels.
+	 *  C_DTEX: id, w, h, piece number, palette size n (0 = plain colour bytes), n colours, length, run-length data. */
 	static final int DTEX_PIECE = 1024;
 
 	/** Pebble colours, run-length coded: count byte (1-128 literal, 129-255 = repeat next byte count-127 times). */

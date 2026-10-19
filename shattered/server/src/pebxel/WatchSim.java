@@ -99,11 +99,13 @@ public final class WatchSim {
 					break;
 				}
 				case Link.C_DTEX: {
-					int id = u8(), w = u16(), h = u16(), piece = u16(), len = u16(); int end = p + len;
+					int id = u8(), w = u16(), h = u16(), piece = u16();
+					int[] pal = new int[u8()]; for (int i = 0; i < pal.length; i++) pal[i] = u8();
+					int len = u16(); int end = p + len;
 					int[] px = dyn.get(id);
 					if (px == null || px[0] != w || px[1] != h) { px = new int[2 + w * h]; px[0] = w; px[1] = h; }
 					int k = 2 + piece * Link.DTEX_PIECE;
-					while (p < end) { int n = u8(); if (n > 128) { int v = u8(); for (int i = 0; i < n - 127; i++) px[k++] = v; } else for (int i = 0; i < n; i++) px[k++] = u8(); }
+					while (p < end) { int n = u8(); if (n > 128) { int v = u8(); for (int i = 0; i < n - 127; i++) px[k++] = pal.length > 0 ? pal[v] : v; } else for (int i = 0; i < n; i++) { int v = u8(); px[k++] = pal.length > 0 ? pal[v] : v; } }
 					dyn.put(id, px); texCache.remove(id); break;
 				}
 				case Link.C_ANIM: {
