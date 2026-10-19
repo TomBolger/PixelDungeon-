@@ -29,5 +29,7 @@ public final class NoosaAccess {
 	public static Visual followTarget(Camera c) { return c.followTarget; }
 	public static float[] pan(Camera c) { return new float[]{c.panTarget.x, c.panTarget.y, c.panIntensity, c.followDeadzone}; }
 
+	public static void back(Scene s) { s.onBackPressed(); }
+
 	public static float[] skin(SkinnedBlock s) { return new float[]{s.offsetX, s.offsetY, s.scaleX, s.scaleY}; }
 }

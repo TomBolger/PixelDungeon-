@@ -58,6 +58,7 @@ public final class Link {
 	private final HashMap<Integer, byte[]> camState = new HashMap<>();
 
 	private final IdentityHashMap<MovieClip.Animation, Integer> anims = new IdentityHashMap<>();
+	private final HashMap<String, Integer> animsByContent = new HashMap<>();
 
 	private final Assets assets;
 	private final IdentityHashMap<SmartTexture, Integer> dynTex = new IdentityHashMap<>();
@@ -79,8 +80,8 @@ public final class Link {
 	public void reset() {
 		objs.clear(); shadowPrev.clear(); shadowNext.clear(); shadowHead = NONE;
 		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); nextDyn = 200;
-		anims.clear();
-		out.reset(); u8(C_RESET);
+		anims.clear(); animsByContent.clear();
+		out.reset(); marks.clear(); cmd(C_RESET);
 	}
 
 	/** Compare the scene with the watch's copy; returns the commands to send (may be empty). */
@@ -98,7 +99,7 @@ public final class Link {
 			present.addAll(order);
 			for (Iterator<Map.Entry<Gizmo, Obj>> it = objs.entrySet().iterator(); it.hasNext(); ) {
 				Map.Entry<Gizmo, Obj> e = it.next();
-				if (!present.contains(e.getKey())) { Obj o = e.getValue(); u8(C_DEL); u16(o.id); unlink(o.id); freeIds.add(o.id); it.remove(); }
+				if (!present.contains(e.getKey())) { Obj o = e.getValue(); cmd(C_DEL); u16(o.id); unlink(o.id); freeIds.add(o.id); it.remove(); }
 			}
 			// new, moved and changed pictures, in draw order
 			int prev = NONE;
@@ -111,21 +112,21 @@ public final class Link {
 				if (o == null) {
 					o = new Obj(); o.id = freeIds.isEmpty() ? nextId++ : freeIds.poll(); o.kind = st[0];
 					objs.put(g, o);
-					u8(C_NEW); u16(o.id); u16(prev); out.write(st, 0, st.length); o.stat = st;
+					cmd(C_NEW); u16(o.id); u16(prev); out.write(st, 0, st.length); o.stat = st;
 					sendDyn(g, o, dyn); stat(g, "new", out.size() - before);
 					link(o.id, prev);
 				} else {
-					if (!Objects.equals(shadowPrev.get(o.id), prev)) { u8(C_ORDER); u16(o.id); u16(prev); unlink(o.id); link(o.id, prev); }
+					if (!Objects.equals(shadowPrev.get(o.id), prev)) { cmd(C_ORDER); u16(o.id); u16(prev); unlink(o.id); link(o.id, prev); }
 					if (!Arrays.equals(st, o.stat) && !(colourOnly(st, o.stat) && now - o.sentAt < COLOUR_GAP)) {
 						if (System.getenv("WHY") != null && g.getClass().getSimpleName().equals(System.getenv("WHY"))) {
 							StringBuilder w = new StringBuilder("why " + (st.length > 2 && st[0] != K_RECT ? assets.paths.get(Math.max(0, (st[2] & 255) - 1)) : "") + " bytes");
 							for (int i = 0; i < Math.min(st.length, o.stat.length); i++) if (st[i] != o.stat[i]) w.append(" ").append(i).append(":").append(o.stat[i]).append("->").append(st[i]);
 							System.out.println(w);
 						}
-						u8(C_SET); u16(o.id); out.write(st, 0, st.length); o.stat = st;
+						cmd(C_SET); u16(o.id); out.write(st, 0, st.length); o.stat = st;
 						sendDyn(g, o, dyn); stat(g, "set", out.size() - before);
 					} else if (drifted(g, o, dyn)) {
-						u8(C_MOVE); u16(o.id); sendDyn(g, o, dyn); stat(g, "move", out.size() - before);
+						cmd(C_MOVE); u16(o.id); sendDyn(g, o, dyn); stat(g, "move", out.size() - before);
 					}
 				}
 				o.prev = dyn; o.prevAt = now;
@@ -134,9 +135,10 @@ public final class Link {
 			}
 		}
 		cameras(dt);
-		if (out.size() == 0) return new byte[0];
-		u8(C_COMMIT);
+		if (out.size() == 0) { marks.clear(); return new byte[0]; }
+		cmd(C_COMMIT);
 		byte[] b = out.toByteArray(); out.reset();
+		lastMarks = new ArrayList<>(marks); marks.clear();
 		bytesTotal += b.length; syncs++;
 		return b;
 	}
@@ -362,9 +364,15 @@ public final class Link {
 	private int anim(MovieClip.Animation a, int tx, SmartTexture t) {
 		Integer id = anims.get(a);
 		if (id != null) return id;
-		id = anims.size();
+		// many monsters share the same animation: send each distinct one once
+		StringBuilder k = new StringBuilder().append(tx).append(':').append(a.delay).append(':').append(a.looped);
+		for (RectF r : a.frames) k.append(':').append(r.left).append(',').append(r.top).append(',').append(r.right).append(',').append(r.bottom);
+		id = animsByContent.get(k.toString());
+		if (id != null) { anims.put(a, id); return id; }
+		id = animsByContent.size();
+		animsByContent.put(k.toString(), id);
 		anims.put(a, id);
-		u8(C_ANIM); u16(id); u8(tx); u8(a.frames.length); u16(Math.round(a.delay * 1000)); u8(a.looped ? 1 : 0);
+		cmd(C_ANIM); u16(id); u8(tx); u8(a.frames.length); u16(Math.round(a.delay * 1000)); u8(a.looped ? 1 : 0);
 		for (RectF r : a.frames) {
 			u16(Math.round(r.left * t.width)); u16(Math.round(r.top * t.height));
 			u16(Math.round(r.width() * t.width)); u16(Math.round(r.height() * t.height));
@@ -385,7 +393,7 @@ public final class Link {
 			if (cur[i] == o.tiles[i]) { i++; continue; }
 			int j = i;
 			while (j < n && j - i < 120 && (cur[j] != o.tiles[j] || (j + 1 < n && cur[j + 1] != o.tiles[j + 1]))) j++;
-			u8(C_TILES); u16(o.id); u16(i); u8(j - i);
+			cmd(C_TILES); u16(o.id); u16(i); u8(j - i);
 			for (int k = i; k < j; k++) { u16(cur[k]); o.tiles[k] = cur[k]; }
 			i = j;
 		}
@@ -442,7 +450,7 @@ public final class Link {
 			if (!Arrays.equals(fixed, k.fixed) || Math.abs(k.sx - sx) > TOL_CAM || Math.abs(k.sy - sy) > TOL_CAM) {
 				k.fixed = fixed; k.sx = Math.round(sx); k.sy = Math.round(sy);
 				int b0 = out.size();
-				u8(C_CAM); u8(id); out.write(fixed, 0, 10); s16o(Math.round(sx)); s16o(Math.round(sy)); out.write(fixed, 10, fixed.length - 10);
+				cmd(C_CAM); u8(id); out.write(fixed, 0, 10); s16o(Math.round(sx)); s16o(Math.round(sy)); out.write(fixed, 10, fixed.length - 10);
 				stats.computeIfAbsent("camera", x -> new long[2]); stats.get("camera")[0]++; stats.get("camera")[1] += out.size() - b0;
 			}
 		}
@@ -484,12 +492,17 @@ public final class Link {
 			byte[] px = Assets.pebble(p);
 			if (!Arrays.equals(px, dynPixels.get(d))) {
 				dynPixels.put(d, px);
-				u8(C_DTEX); u8(d); u16(p.getWidth()); u16(p.getHeight());
-				rle(px);
+				for (int at = 0; at < px.length; at += DTEX_PIECE) {
+					cmd(C_DTEX); u8(d); u16(p.getWidth()); u16(p.getHeight()); u16(at / DTEX_PIECE);
+					rle(Arrays.copyOfRange(px, at, Math.min(px.length, at + DTEX_PIECE)));
+				}
 			}
 		}
 		return d;
 	}
+
+	/** Run-time pictures go in pieces of this many pixels (C_DTEX: id, w, h, piece number, length, data). */
+	static final int DTEX_PIECE = 1024;
 
 	/** Pebble colours, run-length coded: count byte (1-128 literal, 129-255 = repeat next byte count-127 times). */
 	private void rle(byte[] px) {
@@ -538,6 +551,24 @@ public final class Link {
 	// ---- bytes ----
 
 	private void u8(int v) { out.write(v); }
+
+	/** Starts a command (remembers where, so messages can be cut between commands). */
+	private void cmd(int c) { marks.add(out.size()); out.write(c); }
+	private final List<Integer> marks = new ArrayList<>();
+	private List<Integer> lastMarks = new ArrayList<>();
+
+	/** The last sync's bytes cut into messages of at most max bytes, each holding whole commands. */
+	public List<byte[]> packets(byte[] all, int max) {
+		List<byte[]> res = new ArrayList<>();
+		int start = 0;
+		List<Integer> m = new ArrayList<>(lastMarks); m.add(all.length);
+		for (int i = 1; i < m.size(); i++) {
+			if (m.get(i) - start > max && m.get(i - 1) > start) { res.add(Arrays.copyOfRange(all, start, m.get(i - 1))); start = m.get(i - 1); }
+			if (m.get(i) - start > max) throw new IllegalStateException("command too big: " + (m.get(i) - start));
+		}
+		if (start < all.length) res.add(Arrays.copyOfRange(all, start, all.length));
+		return res;
+	}
 	private void u16(int v) { out.write(v & 255); out.write((v >> 8) & 255); }
 	private void s16o(int v) { v = Math.max(-32768, Math.min(32767, v)); out.write(v & 255); out.write((v >> 8) & 255); }
 	private void s8(int v) { sb.write(v); }

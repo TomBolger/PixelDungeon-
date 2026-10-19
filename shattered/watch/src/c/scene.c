@@ -1,0 +1,266 @@
+// Applies the phone's commands to the watch's copy of the screen (format: server/src/pebxel/Link.java).
+#include "scene.h"
+#include "art.h"
+
+Obj *g_obj[MAX_ID];
+Cam g_cam[MAX_CAM];
+uint16_t g_head = NONE;
+bool g_dirty;
+
+#define MAX_ANIM 512
+static Anim *s_anim[MAX_ANIM];
+#define MAX_DYN 55
+static DynTex *s_dyn[MAX_DYN];   // ids 200..254
+
+Anim *scene_anim(int id) { return id >= 0 && id < MAX_ANIM ? s_anim[id] : NULL; }
+DynTex *scene_dyntex(int id) { return id >= 200 && id < 200 + MAX_DYN ? s_dyn[id - 200] : NULL; }
+
+// ---- reading ----
+
+static const uint8_t *p, *end;
+static int u8(void) { return p < end ? *p++ : 0; }
+static int u16(void) { int v = u8(); return v | (u8() << 8); }
+static int s16(void) { return (int16_t)u16(); }
+
+// ---- objects ----
+
+static void free_obj(Obj *o) {
+  if (!o) return;
+  free(o->ext);
+  free(o);
+}
+
+void scene_reset(void) {
+  for (int i = 0; i < MAX_ID; i++) { free_obj(g_obj[i]); g_obj[i] = NULL; }
+  for (int i = 0; i < MAX_ANIM; i++) { free(s_anim[i]); s_anim[i] = NULL; }
+  for (int i = 0; i < MAX_DYN; i++) { free(s_dyn[i]); s_dyn[i] = NULL; }
+  memset(g_cam, 0, sizeof(g_cam));
+  g_head = NONE;
+  art_forget_dynamic();
+}
+
+static void link_after(int id, int after) {
+  Obj *o = g_obj[id];
+  int nx = after == NONE ? g_head : g_obj[after]->next;
+  o->prev = after; o->next = nx;
+  if (after == NONE) g_head = id; else g_obj[after]->next = id;
+  if (nx != NONE) g_obj[nx]->prev = id;
+}
+
+static void unlink_obj(int id) {
+  Obj *o = g_obj[id];
+  if (o->prev == NONE) g_head = o->next; else g_obj[o->prev]->next = o->next;
+  if (o->next != NONE) g_obj[o->next]->prev = o->prev;
+  o->prev = o->next = NONE;
+}
+
+static void read_col(Obj *o) { for (int i = 0; i < 7; i++) o->col[i] = u8(); }
+
+// the unchanging part of a picture
+static void read_static(Obj *o) {
+  int kind = u8();
+  if (kind != o->kind || kind == K_TEXT) { free(o->ext); o->ext = NULL; }
+  o->kind = kind; o->cam = u8();
+  switch (kind) {
+    case K_IMG: case K_SKIN:
+      o->tex = u8(); o->flags = u8();
+      o->ox = s16(); o->oy = s16(); o->w = s16(); o->h = s16();
+      o->tx = s16(); o->ty = s16(); o->tw = s16(); o->th = s16();
+      read_col(o); break;
+    case K_RECT:
+      o->flags = 0; o->ox = s16(); o->oy = s16(); o->w = s16(); o->h = s16();
+      o->tx = u8(); o->ty = u8(); o->tw = u8(); o->th = u8();   // base colour r g b a
+      read_col(o); break;
+    case K_NINE: {
+      o->tex = u8(); o->flags = u8();
+      o->ox = s16(); o->oy = s16(); o->w = s16(); o->h = s16();
+      o->tx = s16(); o->ty = s16(); o->tw = s16(); o->th = s16();
+      if (!o->ext) o->ext = malloc(4);
+      uint8_t *m = o->ext; for (int i = 0; i < 4; i++) { int v = u8(); if (m) m[i] = v; }
+      read_col(o); break;
+    }
+    case K_TILES: {
+      o->tex = u8();
+      int cw = u8(), ch = u8(), fw = u8(), fh = u8(), mw = u8(), mh = u8();
+      read_col(o);
+      Tiles *t = o->ext;
+      bool wide = art_cells(o->tex, fw, fh) > 255;
+      if (!t || t->mw != mw || t->mh != mh || t->wide != wide) {
+        free(t);
+        int n = mw * mh * (wide ? 2 : 1);
+        t = malloc(sizeof(Tiles) + n);
+        if (t) memset(t->cells, 0xFF, n);
+        o->ext = t;
+      }
+      if (t) { t->cw = cw; t->ch = ch; t->fw = fw; t->fh = fh; t->mw = mw; t->mh = mh; t->wide = wide; }
+      break;
+    }
+    case K_TEXT: {
+      o->w = u8();            // font size in watch px
+      read_col(o);
+      int n = u8();
+      char *s = malloc(n + 1);
+      for (int i = 0; i < n; i++) { int c = u8(); if (s) s[i] = c; }
+      if (s) s[n] = 0;
+      o->ext = s;
+      break;
+    }
+  }
+}
+
+int32_t obj_dyn(const Obj *o, int i, uint32_t now) {
+  int32_t v = o->dyn[i];
+  if (o->vel[i]) {
+    uint32_t dt = now - o->at; if (dt > 60000) dt = 60000;
+    v += (int32_t)((int64_t)o->vel[i] * dt / 1000);
+  }
+  if (i == 2) v = v < 0 ? 0 : v > 255 ? 255 : v;
+  return v;
+}
+
+// the moving part (see Link.sendDyn)
+static void read_dyn(Obj *o, uint32_t now) {
+  int m = u8();
+  memset(o->vel, 0, sizeof(o->vel));
+  o->dyn[0] = s16(); o->dyn[1] = s16();
+  o->dyn[2] = (m & 2) ? u8() : 255;
+  if (m & 4) { o->dyn[3] = s16(); o->dyn[4] = s16(); } else o->dyn[3] = o->dyn[4] = 256;
+  o->dyn[5] = (m & 8) ? s16() : 0;
+  if (m & 16) { o->vel[0] = s16(); o->vel[1] = s16(); }
+  if (m & 32) o->vel[2] = s16();
+  if (m & 64) { o->vel[3] = s16(); o->vel[4] = s16(); }
+  if (m & 128) o->vel[5] = s16();
+  if (o->kind == K_SKIN) { o->dyn[6] = s16(); o->dyn[7] = s16(); o->vel[6] = s16(); o->vel[7] = s16(); }
+  if ((o->kind == K_IMG || o->kind == K_SKIN) && (o->flags & F_ANIM)) { o->frame = u8(); o->timer = u8(); }
+  o->at = now;
+}
+
+bool scene_moving(uint32_t now) {
+  for (int id = g_head; id != NONE; id = g_obj[id]->next) {
+    Obj *o = g_obj[id];
+    if (o->flags & F_ANIM) return true;
+    for (int i = 0; i < 8; i++) if (o->vel[i]) return true;
+  }
+  for (int i = 0; i < MAX_CAM; i++) if (g_cam[i].used && g_cam[i].mode) return true;
+  return false;
+}
+
+// ---- run-time pictures ----
+
+static void read_dtex(void) {
+  int id = u8(), w = u16(), h = u16(), piece = u16(), len = u16();
+  const uint8_t *stop = p + len; if (stop > end) stop = end;
+  if (id < 200 || id >= 200 + MAX_DYN) { p = stop; return; }
+  DynTex *d = s_dyn[id - 200];
+  if (!d || d->w != w || d->h != h) {
+    free(d);
+    d = malloc(sizeof(DynTex) + w * h);
+    if (d) { d->w = w; d->h = h; memset(d->px, 0, w * h); }
+    s_dyn[id - 200] = d;
+  }
+  if (!d) { p = stop; return; }
+  int k = piece * 1024, n = w * h;
+  while (p < stop) {
+    int c = *p++;
+    if (c > 128) { int v = p < stop ? *p++ : 0; for (int i = 0; i < c - 127 && k < n; i++) d->px[k++] = v; }
+    else for (int i = 0; i < c && p < stop; i++) { int v = *p++; if (k < n) d->px[k++] = v; }
+  }
+  art_forget(id);
+}
+
+// ---- cameras ----
+
+static void read_cam(void) {
+  int id = u8();
+  Cam *k = &g_cam[id < MAX_CAM ? id : 0];
+  k->x = s16(); k->y = s16(); k->w = s16(); k->h = s16(); k->zoom = u16();
+  k->sx = s16() * 256; k->sy = s16() * 256;
+  k->mode = u8();
+  if (k->mode == 1) { k->follow = u16(); k->ofx = s16(); k->ofy = s16(); }
+  if (k->mode == 2) { k->px = s16(); k->py = s16(); }
+  if (k->mode) { k->intensity = u8(); k->dead = u8(); }
+  k->used = 1;
+}
+
+static int32_t dead(int32_t p, int32_t dz) { return p > dz ? p - dz : p < -dz ? p + dz : 0; }
+
+// SPD's camera easing (Camera.update): move a share of the way to the target each step
+void cams_follow(uint32_t now, uint32_t dt) {
+  for (int i = 0; i < MAX_CAM; i++) {
+    Cam *c = &g_cam[i];
+    if (!c->used || !c->mode || !c->zoom) continue;
+    // camera size in its own units x8
+    int32_t cw = (int32_t)c->w * 256 / c->zoom, ch = (int32_t)c->h * 256 / c->zoom;
+    int32_t tx = c->px, ty = c->py, dzx = 0, dzy = 0;
+    if (c->mode == 1) {
+      if (c->follow >= MAX_ID || !g_obj[c->follow]) continue;
+      Obj *o = g_obj[c->follow];
+      int32_t w = (o->kind == K_IMG || o->kind == K_SKIN) ? o->w : 0, h = (o->kind == K_IMG || o->kind == K_SKIN) ? o->h : 0;
+      tx = obj_dyn(o, 0, now) + w * obj_dyn(o, 3, now) / 256 / 2 + c->ofx;
+      ty = obj_dyn(o, 1, now) + h * obj_dyn(o, 4, now) / 256 / 2 + c->ofy;
+      dzx = cw * c->dead / 255 / 2; dzy = ch * c->dead / 255 / 2;
+    }
+    // scroll is kept x256 for smooth easing
+    int32_t panx = dead(tx * 256 - (c->sx + cw * 128), dzx * 256), pany = dead(ty * 256 - (c->sy + ch * 128), dzy * 256);
+    int32_t share = (int32_t)dt * c->intensity / 16;   // per mille
+    if (share > 1000) share = 1000;
+    c->sx += (int32_t)((int64_t)panx * share / 1000);
+    c->sy += (int32_t)((int64_t)pany * share / 1000);
+  }
+}
+
+// ---- the command stream ----
+
+void scene_apply(const uint8_t *data, int len, uint32_t now) {
+  p = data; end = data + len;
+  while (p < end) {
+    int c = u8();
+    switch (c) {
+      case C_RESET: scene_reset(); break;
+      case C_CAM: read_cam(); break;
+      case C_NEW: {
+        int id = u16(), after = u16();
+        if (id >= MAX_ID) return;
+        free_obj(g_obj[id]);
+        Obj *o = calloc(1, sizeof(Obj));
+        g_obj[id] = o;
+        if (!o) return;   // out of memory: the phone will resend after a reset
+        o->prev = o->next = NONE;
+        read_static(o); read_dyn(o, now);
+        link_after(id, after);
+        break;
+      }
+      case C_SET: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return; read_static(g_obj[id]); read_dyn(g_obj[id], now); break; }
+      case C_MOVE: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return; read_dyn(g_obj[id], now); break; }
+      case C_DEL: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return; unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; break; }
+      case C_ORDER: { int id = u16(), after = u16(); if (id >= MAX_ID || !g_obj[id]) return; unlink_obj(id); link_after(id, after); break; }
+      case C_TILES: {
+        int id = u16(), start = u16(), n = u8();
+        Obj *o = id < MAX_ID ? g_obj[id] : NULL;
+        Tiles *t = o ? o->ext : NULL;
+        int total = t ? t->mw * t->mh : 0;
+        for (int i = 0; i < n; i++) {
+          int v = u16();
+          if (t && start + i < total) {
+            if (t->wide) ((uint16_t *)t->cells)[start + i] = v;
+            else t->cells[start + i] = v > 254 ? 255 : v;
+          }
+        }
+        break;
+      }
+      case C_DTEX: read_dtex(); break;
+      case C_ANIM: {
+        int id = u16(), tex = u8(), n = u8(), delay = u16(), looped = u8();
+        Anim *a = malloc(sizeof(Anim) + n * 8);
+        for (int i = 0; i < n * 4; i++) { int v = u16(); if (a) a->rects[i] = v; }
+        if (id < MAX_ANIM) {
+          free(s_anim[id]); s_anim[id] = a;
+          if (a) { a->tex = tex; a->n = n; a->delay_ms = delay; a->looped = looped; }
+        } else free(a);
+        break;
+      }
+      case C_COMMIT: g_dirty = true; break;
+      default: APP_LOG(APP_LOG_LEVEL_ERROR, "bad command %d", c); return;
+    }
+  }
+}

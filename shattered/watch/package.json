@@ -1,0 +1,30 @@
+{
+  "name": "shattered-pd-watch",
+  "author": "Thomas",
+  "version": "0.1.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Shattered PD",
+    "uuid": "84d52e02-b98a-4d9c-b021-a9e3c442d0ca",
+    "projectType": "native",
+    "sdkVersion": "3",
+    "enableMultiJS": false,
+    "targetPlatforms": ["emery"],
+    "watchapp": { "watchface": false },
+    "messageKeys": [],
+    "companionApp": {
+      "android": {
+        "apps": [{ "package": "com.pebxel.shatteredwatch" }],
+        "required": true
+      }
+    },
+    "resources": {
+      "media": [
+        { "type": "bitmap", "name": "IMAGE_MENU_ICON", "file": "menu_icon.png", "menuIcon": true },
+        { "type": "raw", "name": "ART", "file": "data/art.bin" }
+      ]
+    }
+  }
+}
