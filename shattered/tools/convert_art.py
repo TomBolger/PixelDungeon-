@@ -10,14 +10,19 @@ SRC = os.path.join(HERE, '..', 'spd', 'core', 'src', 'main', 'assets')
 OUT = os.path.join(HERE, '..', 'build', 'art')
 DIRS = ["effects", "environment", "fonts", "interfaces", "splashes", "sprites"]
 
+PD = os.path.join(HERE, '..', 'common', 'assets')   # Pebble PD's own interface art (pebxel/pd/), already in Pebble colours
+
+def src(p):
+    return os.path.join(PD if p.startswith('pebxel/') else SRC, p)
+
 def paths():
-    out = []
+    out = ['pebxel/pd/' + f for f in sorted(os.listdir(os.path.join(PD, 'pebxel', 'pd'))) if f.endswith('.png')]
     for d in DIRS:
         for root, _, files in os.walk(os.path.join(SRC, d)):
             for f in files:
                 if f.endswith('.png') or f.endswith('.jpg'):
                     out.append(os.path.relpath(os.path.join(root, f), SRC).replace(os.sep, '/'))
-    return sorted(out)
+    return out[:0] + sorted(x for x in out if not x.startswith('pebxel/')) + [x for x in out if x.startswith('pebxel/')]
 
 def levels(p):
     if p.startswith('environment/'): return TILES
@@ -61,9 +66,10 @@ if __name__ == '__main__':
     ps = paths()
     for p in ps:
         dst = os.path.join(OUT, p.rsplit('.', 1)[0] + '.png')
-        if '-f' not in sys.argv and os.path.exists(dst) and os.path.getmtime(dst) > os.path.getmtime(os.path.join(SRC, p)): continue
+        if '-f' not in sys.argv and os.path.exists(dst) and os.path.getmtime(dst) > os.path.getmtime(src(p)): continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        im = Image.open(os.path.join(SRC, p)).convert('RGBA')
+        im = Image.open(src(p)).convert('RGBA')
+        if p.startswith('pebxel/'): im.save(dst); continue   # already converted
         out = pebbleize(greys(im.copy(), levels(p)) if not p.startswith(('environment/', 'splashes/')) else im.copy(), levels(p), alpha_cut=1)
         # keep see-through pixels (shadows, glows) as Pebble's four alpha levels
         a, o = im.load(), out.load()

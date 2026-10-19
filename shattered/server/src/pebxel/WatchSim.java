@@ -447,7 +447,12 @@ public final class WatchSim {
 
 	/** Text the way the watch draws it: Pebble's Gothic glyphs (captured from the watch), capitals at y. */
 	private void text(float x, float y, byte[] s) {
-		int font = s[2] & 255, len = s[10] & 255;
+		int font = s[2] & 127, len = s[10] & 255;
+		if ((s[2] & 128) != 0) {
+			// outlined: black copies around it first (as the watch does)
+			byte[] k = s.clone(); k[2] = (byte) font; for (int i = 3; i < 9; i++) k[i] = 0;
+			text(x - 1, y, k); text(x + 1, y, k); text(x, y - 1, k); text(x, y + 1, k);
+		}
 		String str = new String(s, 11, len, StandardCharsets.UTF_8).replace("_", "");
 		BufferedImage pic = fontPics.computeIfAbsent(font, f -> {
 			try { return ImageIO.read(WatchFiles.get("pebxel/fonts/" + WatchFonts.NAMES[f] + ".png").file()); } catch (Exception e) { return null; }

@@ -244,8 +244,17 @@ static void draw_text(Obj *o) {
   int r = clamp255(o->col[0] + o->col[3]), g = clamp255(o->col[1] + o->col[4]), b = clamp255(o->col[2] + o->col[5]);
   fb_give();
   graphics_context_set_text_color(s_ctx, GColorFromRGB(r, g, b));
-  int fi = o->w < 7 ? o->w : 1;
-  graphics_draw_text(s_ctx, buf, fonts_get_system_font(FONTS[fi]), GRect(x, y - CAP_TOP[fi], 200, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  int fi = (o->w & 0x7F) < 7 ? (o->w & 0x7F) : 1;
+  GFont font = fonts_get_system_font(FONTS[fi]);
+  if (o->w & 0x80) {
+    // outlined (Pebble PD's HUD and log): black copies around it first
+    graphics_context_set_text_color(s_ctx, GColorBlack);
+    static const int8_t OX[4] = {-1, 1, 0, 0}, OY[4] = {0, 0, -1, 1};
+    for (int k = 0; k < 4; k++)
+      graphics_draw_text(s_ctx, buf, font, GRect(x + OX[k], y - CAP_TOP[fi] + OY[k], 200, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    graphics_context_set_text_color(s_ctx, GColorFromRGB(r, g, b));
+  }
+  graphics_draw_text(s_ctx, buf, font, GRect(x, y - CAP_TOP[fi], 200, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
   fb_take();
 }
 

@@ -388,7 +388,13 @@ public final class Link {
 			dyn[D_X] = v.x * 8; dyn[D_Y] = v.y * 8;
 			dyn[D_SX] = v.scale.x * 256; dyn[D_SY] = v.scale.y * 256; dyn[D_ANG] = v.angle * 64;
 		}
-		if (g instanceof RenderedText || g instanceof BitmapText) {
+		if (g instanceof pebxel.ui.WatchText) {
+			pebxel.ui.WatchText wt = (pebxel.ui.WatchText) g;
+			if (wt.text().isEmpty()) return null;
+			s8(K_TEXT); s8(cam); s8(wt.font | (wt.outline ? 0x80 : 0)); color(v);
+			byte[] txt = wt.text().getBytes(StandardCharsets.UTF_8);
+			int n = Math.min(255, txt.length); s8(n); sb.write(txt, 0, n);
+		} else if (g instanceof RenderedText || g instanceof BitmapText) {
 			String s = g instanceof RenderedText ? ((RenderedText) g).text() : ((BitmapText) g).text();
 			if (s == null || s.isEmpty()) return null;
 			int size = g instanceof RenderedText ? fontSize((RenderedText) g) : 6;
