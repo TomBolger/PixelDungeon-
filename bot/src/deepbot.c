@@ -4042,6 +4042,13 @@ static bool lookahead(void) {
       const char *pick = bi == 0 || bm < tot[0] / cnt[0] + 150 ? "rules" : (c[bi].t == C_TAP && mob_at(c[bi].a) < 0) ? "step" : "other";
       printf("LAF d%d c%d hp%d ht%d lvl%d na%d no%d foe=%s fhp%d fht%d fast%d hd%.2f fd%.2f ad%.2f od%.2f tkill%.1f tdie%.1f o0 %d o1 %d starv%d pick=%s stepgain=%ld\n", G.depth, h->hclass & 3, h->HP, h->HT, h->lvl, na, no, mob_name(m->type), m->HP, m->HT, mob_move_cost(m) < hero_move_cost(), hd, fd, adpt, odpt,
         m->HP / (hd > 0.01 ? hd : 0.01), h->HP / (adpt + odpt > 0.01 ? adpt + odpt : 0.01), o0, o1, game_starving(), pick, bs >= 0 ? bsv - tot[0] / cnt[0] : -999999L); } }
+  if (getenv("LACELL") && !s_rollout && !s_is_child) {   // 0.93 (teacher: where it steps): every step candidate's features and score, in one decision, beside staying (the rules)
+    Hero *h = &G.hero; int nh = 0, adj = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && BIT_GET(G.fov, o->pos) && o->state == ST_HUNTING && !(MOB_DEFS[o->type].flags & MD_BOSS)) { nh++; if (distance(o->pos, h->pos) <= 1) adj++; } }
+    static int dec; if (adj) { dec++; printf("LCD %d d%d hp%d%% nh%d adj%d stay %ld\n", dec, G.depth, h->HP * 100 / (h->HT ? h->HT : 1), nh, adj, tot[0] / cnt[0]);
+      for (int i = 1; i < n; i++) { if (c[i].t != C_TAP || mob_at(c[i].a) >= 0 || c[i].a == h->pos) continue; int q = c[i].a, open = 0, reach = 0, near = 0, mind = 99, sumd = 0;
+        for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && PASSABLE(G.map[r]) && !(TFLAGS(G.map[r]) & F_AVOID)) open++; }
+        for (int k = 0; k < G.n_mobs; k++) { Mob *o = &G.mobs[k]; if (o->HP <= 0 || ally(k) || !BIT_GET(G.fov, o->pos) || o->state != ST_HUNTING) continue; int d = distance(o->pos, q); if (d <= 1) near++; if (d <= 2) reach++; if (d < mind) mind = d; sumd += d; }
+        printf("LCC %d step=%d dist=%d open=%d near=%d reach=%d mind=%d sumd=%d water=%d door=%d stairs=%d score=%ld\n", dec, distance(q, h->pos), b_dist[q], open, near, reach, mind, sumd, IS_WATER(G.map[q]) ? 1 : 0, (G.map[q] == T_DOOR || G.map[q] == T_OPEN_DOOR) ? 1 : 0, (q == G.exit || q == G.entrance) ? 1 : 0, tot[i] / cnt[i]); } } }
   if (bi == 0 || bm < tot[0] / cnt[0] + 150) return false;   // not clearly better: the rules
   if (getenv("LAONLY")) {   // 0.93 diagnostic (teacher): let only one kind of override through, to find which kind carries the gain
     const char *o = getenv("LAONLY"); int t = c[bi].t; bool mob = t == C_TAP && mob_at(c[bi].a) >= 0 && !ally(mob_at(c[bi].a));
