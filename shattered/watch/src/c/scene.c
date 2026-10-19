@@ -59,7 +59,7 @@ static void read_col(Obj *o) { for (int i = 0; i < 7; i++) o->col[i] = u8(); }
 // the unchanging part of a picture
 static void read_static(Obj *o) {
   int kind = u8();
-  if (kind != o->kind || kind == K_TEXT) { free(o->ext); o->ext = NULL; }
+  if (kind != o->kind || kind == K_TEXT || kind == K_QUADS) { free(o->ext); o->ext = NULL; }
   o->kind = kind; o->cam = u8();
   switch (kind) {
     case K_IMG: case K_SKIN:
@@ -93,6 +93,17 @@ static void read_static(Obj *o) {
         o->ext = t;
       }
       if (t) { t->cw = cw; t->ch = ch; t->fw = fw; t->fh = fh; t->mw = mw; t->mh = mh; t->wide = wide; }
+      break;
+    }
+    case K_QUADS: {
+      // a picture that draws itself its own way, as a list of pieces: n x (texture x, y, w, h; place x, y, w, h)
+      o->tex = u8();
+      int n = u8();
+      int16_t *q = malloc(2 + n * 16);
+      if (q) q[0] = n;
+      for (int i = 0; i < n * 8; i++) { int v = s16(); if (q) q[1 + i] = v; }
+      o->ext = q;
+      read_col(o);
       break;
     }
     case K_TEXT: {

@@ -99,14 +99,19 @@ public final class SoftGL {
 
 	private static int c8(float f) { return Math.max(0, Math.min(255, Math.round(f * 255))); }
 
+	/** False on the phone: only sizes are kept (no pictures are drawn there, only captured as quads). */
+	public boolean keepPixels = true;
+
 	private void texImage(Object[] a) {
-		Tex t = new Tex(); t.w = (Integer) a[3]; t.h = (Integer) a[4]; t.px = new int[t.w * t.h];
+		Tex t = new Tex(); t.w = (Integer) a[3]; t.h = (Integer) a[4];
 		tex.put(boundTex, t);
+		if (!keepPixels) return;
+		t.px = new int[t.w * t.h];
 		if (a[8] != null) upload(t, 0, 0, t.w, t.h, (Integer) a[6], (Integer) a[7], (Buffer) a[8]);
 	}
 
 	private void texSub(Object[] a) {
-		Tex t = tex.get(boundTex); if (t == null || a[8] == null) return;
+		Tex t = tex.get(boundTex); if (t == null || t.px == null || a[8] == null) return;
 		upload(t, (Integer) a[2], (Integer) a[3], (Integer) a[4], (Integer) a[5], (Integer) a[6], (Integer) a[7], (Buffer) a[8]);
 	}
 
@@ -168,6 +173,13 @@ public final class SoftGL {
 	public java.util.List<String> record;
 	public boolean raster = true;
 
+	/**
+	 * When set, every quad drawn is added here as {GL texture, u, v, w, h (texels), x0, y0, x1, y1 (the
+	 * picture's camera units), colour multiply r g b a, add r g b a}: how the link mirrors pictures
+	 * that draw themselves in unusual ways (the key display).
+	 */
+	public java.util.List<float[]> capture;
+
 	private void draw(Object[] a) {
 		int count = (Integer) a[1];
 		ShortBuffer idx; int first;
@@ -192,7 +204,18 @@ public final class SoftGL {
 						+ Math.round(mx0) + "," + Math.round(my0) + "," + Math.round(mx2) + "," + Math.round(my2) + "|" + col);
 			}
 		}
-		if (!raster) return;
+		if (capture != null) {
+			for (int k = 0; k + 5 < count; k += 6) {
+				int v0 = idx.get(first + k) & 0xFFFF, v2 = idx.get(first + k + 2) & 0xFFFF;
+				float x0 = attr(0, v0, 0), y0 = attr(0, v0, 1), x2 = attr(0, v2, 0), y2 = attr(0, v2, 1);
+				float u0 = attr(1, v0, 0) * t.w, w0 = attr(1, v0, 1) * t.h, u2 = attr(1, v2, 0) * t.w, w2 = attr(1, v2, 1) * t.h;
+				capture.add(new float[]{boundTex, Math.min(u0, u2), Math.min(w0, w2), Math.abs(u2 - u0), Math.abs(w2 - w0),
+						mod[0] * x0 + mod[4] * y0 + mod[12], mod[1] * x0 + mod[5] * y0 + mod[13],
+						mod[0] * x2 + mod[4] * y2 + mod[12], mod[1] * x2 + mod[5] * y2 + mod[13],
+						cm[0], cm[1], cm[2], cm[3], ca[0], ca[1], ca[2], ca[3]});
+			}
+		}
+		if (!raster || t.px == null) return;
 		for (int k = 0; k + 2 < count; k += 3) {
 			float[] xs = new float[3], ys = new float[3], us = new float[3], vs = new float[3];
 			for (int j = 0; j < 3; j++) {

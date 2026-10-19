@@ -262,6 +262,14 @@ static void draw_obj(Obj *o) {
   if (o->kind == K_SKIN) { draw_skin(o); return; }
   int32_t X = obj_dyn(o, 0, s_now), Y = obj_dyn(o, 1, s_now), sx = obj_dyn(o, 3, s_now), sy = obj_dyn(o, 4, s_now), ang = obj_dyn(o, 5, s_now);
   if (o->kind == K_NINE) { draw_nine(o, X, Y, sx, sy); return; }
+  if (o->kind == K_QUADS) {
+    int16_t *q = o->ext; if (!q) return;
+    for (int i = 0; i < q[0]; i++) {
+      int16_t *e = q + 1 + i * 8;
+      blit(o->tex, e[0], e[1], e[2], e[3], scx(e[4]), scy(e[5]), scx(e[4] + e[6]), scy(e[5] + e[7]), false, false);
+    }
+    return;
+  }
   Face f = {0};
   if (o->kind == K_RECT) {
     int r = o->tx, g = o->ty, b = o->tw, a = o->th;   // base colour

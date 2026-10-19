@@ -126,6 +126,7 @@ public final class WatchSim {
 			case Link.K_NINE: p += 31; break;
 			case Link.K_TILES: p += 16; break;
 			case Link.K_TEXT: p += 11 + (b[p + 10] & 255); break;
+			case Link.K_QUADS: p += 4 + (b[p + 3] & 255) * 16 + 7; break;
 			default: throw new IllegalStateException("bad kind " + kind);
 		}
 		return Arrays.copyOfRange(b, start, p);
@@ -237,6 +238,19 @@ public final class WatchSim {
 				break;
 			}
 			case Link.K_NINE: nine(s); break;
+			case Link.K_QUADS: {
+				int tex = s[2] & 255, n = s[3] & 255;
+				col = s; ci = 4 + n * 16;
+				BufferedImage t = tex(tex); if (t == null) break;
+				for (int i = 0; i < n; i++) {
+					int at = 4 + i * 16;
+					final int TX = s16(s, at), TY = s16(s, at + 2), TW = s16(s, at + 4), TH = s16(s, at + 6);
+					px0 = s16(s, at + 8) / 8f; py0 = s16(s, at + 10) / 8f; float w = s16(s, at + 12) / 8f, h = s16(s, at + 14) / 8f;
+					orx = ory = 0; scx = scy = 1; cs = 1; sn = 0;
+					quad(w, h, (u, v) -> { int x = TX + (int) (u / w * TW), y = TY + (int) (v / h * TH); return x < t.getWidth() && y < t.getHeight() ? t.getRGB(x, y) : 0; });
+				}
+				break;
+			}
 			case Link.K_TILES: tiles(c, o); break;
 			case Link.K_TEXT: text(sx(c, d(o, Link.D_X)), sy(c, d(o, Link.D_Y)), s); break;
 		}

@@ -27,7 +27,7 @@ public class WatchApp implements Application {
 	/** Anywhere: the platform supplies files, native libraries and (optionally) preferences. */
 	public WatchApp(ApplicationListener l, String prefDir, boolean pictures, Files files, Runnable natives, java.util.function.Function<String, Preferences> prefsMaker) {
 		listener = l; this.prefDir = prefDir; this.prefsMaker = prefsMaker;
-		if (pictures) graphics.useSoftGL();
+		if (pictures) graphics.useSoftGL(); else graphics.useTrackingGL();
 		natives.run();
 		Gdx.app = this; Gdx.files = files; Gdx.net = new HeadlessNet(new HeadlessApplicationConfiguration());
 		Gdx.audio = new MockAudio(); Gdx.input = new MockInput();

@@ -15,6 +15,9 @@ public class WatchGraphics extends MockGraphics {
 
 	public void useSoftGL() { soft = new SoftGL(w, h); gl = soft.proxy(); }
 
+	/** On the phone: the software chip only keeps track (no pictures), so the link can capture odd pictures. */
+	public void useTrackingGL() { useSoftGL(); soft.keepPixels = false; soft.raster = false; }
+
 	@Override public GL20 getGL20() { return gl; }
 	@Override public int getWidth() { return w; }
 	@Override public int getHeight() { return h; }

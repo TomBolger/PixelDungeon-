@@ -98,7 +98,7 @@ public class Smoke {
 		if (link != null) link.stats.entrySet().stream().sorted((x, y) -> Long.compare(y.getValue()[1], x.getValue()[1])).limit(25)
 				.forEach(e -> System.out.printf("  %-40s %7d times %9d bytes%n", e.getKey(), e.getValue()[0], e.getValue()[1]));
 		if (link != null) System.out.printf("link: %d bytes over %.0f game seconds = %.0f bytes/s; %d sends, %.0f%% non-empty, biggest %d%n  unknown %s%n", link.bytesTotal, gameTime, link.bytesTotal / gameTime, linkFrames, 100.0 * linkBusy / linkFrames, linkMax, link.unknown);
-		if (app.graphics.soft != null && link == null) System.out.printf("quads/frame %.0f  changed/frame %.1f  frames with change %.0f%%  (game frames %d)%n", qTotal / (double) qFrames, qChanged / (double) qFrames, 100.0 * qBusyFrames / qFrames, qFrames);
+		if (app.graphics.soft.record != null && link == null) System.out.printf("quads/frame %.0f  changed/frame %.1f  frames with change %.0f%%  (game frames %d)%n", qTotal / (double) qFrames, qChanged / (double) qFrames, 100.0 * qBusyFrames / qFrames, qFrames);
 		System.out.printf("END frame %d  %.1fs  depth %d  decisions %d  windows %s%n", f, (System.currentTimeMillis() - t0) / 1000.0, Dungeon.depth, decisions, seenWnd);
 		System.exit(0);
 	}
@@ -164,7 +164,7 @@ public class Smoke {
 			((WatchGame) com.watabou.noosa.Game.instance).drawAlways = true; app.frame();
 			linkFrame(pic); return;
 		}
-		if (app.graphics.soft == null) { app.frame(); return; }
+		if (app.graphics.soft.record == null) { app.frame(); return; }
 		app.graphics.soft.record.clear(); ((WatchGame) com.watabou.noosa.Game.instance).drawNext = true; app.frame();
 		Map<String, Integer> cur = new HashMap<>();
 		for (String q : app.graphics.soft.record) cur.merge(q, 1, Integer::sum);

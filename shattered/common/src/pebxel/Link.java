@@ -28,7 +28,7 @@ public final class Link {
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
 			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_COMMIT = 15;
 	// ---- picture kinds ----
-	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6;
+	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
 	public static final int NONE = 0xFFFF;
 
@@ -149,13 +149,14 @@ public final class Link {
 
 	/** Where the 7 colour bytes start in each kind's unchanging part. */
 	private static int colourAt(int kind) {
-		switch (kind) { case K_IMG: case K_SKIN: return 20; case K_RECT: return 14; case K_NINE: return 24; case K_TILES: return 9; case K_TEXT: return 3; }
+		switch (kind) { case K_IMG: case K_SKIN: return 20; case K_RECT: return 14; case K_NINE: return 24; case K_TILES: return 9; case K_TEXT: return 3; case K_QUADS: return -1; }
 		return -1;
 	}
 
 	private static boolean colourOnly(byte[] a, byte[] b) {
 		if (a.length != b.length || a[0] != b[0]) return false;
 		int c = colourAt(a[0]);
+		if (c < 0) return false;
 		for (int i = 0; i < a.length; i++) if (a[i] != b[i] && (i < c || i >= c + 7)) return false;
 		return true;
 	}
@@ -357,10 +358,44 @@ public final class Link {
 				color(v);
 			}
 		} else {
-			unknown.add(g.getClass().getName());
-			return null;
+			// a picture that draws itself its own way: watch what it draws
+			List<float[]> qs = capture(v);
+			if (qs == null) { unknown.add(g.getClass().getName()); return null; }
+			if (qs.isEmpty()) return null;
+			SmartTexture t = byHandle((int) qs.get(0)[0]);
+			if (t == null) { unknown.add(g.getClass().getName() + " (texture)"); return null; }
+			int n = Math.min(40, qs.size());
+			s8(K_QUADS); s8(cam); s8(tex(t)); s8(n);
+			for (int i = 0; i < n; i++) {
+				float[] q = qs.get(i);
+				s16(Math.round(q[1])); s16(Math.round(q[2])); s16(Math.round(q[3])); s16(Math.round(q[4]));
+				s16(Math.round(q[5] * 8)); s16(Math.round(q[6] * 8)); s16(Math.round((q[7] - q[5]) * 8)); s16(Math.round((q[8] - q[6]) * 8));
+			}
+			float[] q = qs.get(0);
+			s8(c(q[9])); s8(c(q[10])); s8(c(q[11])); s8(c(q[13])); s8(c(q[14])); s8(c(q[15])); s8(c(q[16]));
+			dyn[D_X] = 0; dyn[D_Y] = 0; dyn[D_A] = Math.max(0, Math.min(255, q[12] * 255));
 		}
 		return sb.toByteArray();
+	}
+
+	/** Runs a picture's own drawing on the software chip and returns its quads (null if it can't be watched). */
+	private static List<float[]> capture(Visual v) {
+		if (!(com.badlogic.gdx.Gdx.graphics instanceof WatchGraphics)) return null;
+		SoftGL soft = ((WatchGraphics) com.badlogic.gdx.Gdx.graphics).soft;
+		if (soft == null) return null;
+		soft.capture = new ArrayList<>();
+		try { v.draw(); } catch (Exception e) { soft.capture = null; return null; }
+		List<float[]> r = soft.capture;
+		soft.capture = null;
+		return r;
+	}
+
+	private SmartTexture byHandle(int handle) {
+		key(null);
+		synchronized (TextureCache.class) {
+			for (SmartTexture t : cacheMap.values()) if (t.id == handle) return t;
+		}
+		return null;
 	}
 
 	/** Unscaled size in the camera's units, x8. */
@@ -496,6 +531,11 @@ public final class Link {
 
 	@SuppressWarnings("unchecked")
 	private String key(SmartTexture t) {
+		if (t == null) {
+			try { if (cacheMap == null) { Field f = TextureCache.class.getDeclaredField("all"); f.setAccessible(true); cacheMap = (HashMap<Object, SmartTexture>) f.get(null); } }
+			catch (Exception e) { throw new RuntimeException(e); }
+			return null;
+		}
 		String k = keys.get(t);
 		if (k != null || keys.containsKey(t)) return k;
 		try {

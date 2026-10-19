@@ -5,7 +5,7 @@
 // commands
 enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_COMMIT = 15 };
 // picture kinds
-enum { K_IMG = 1, K_RECT, K_NINE, K_TILES, K_TEXT, K_SKIN };
+enum { K_IMG = 1, K_RECT, K_NINE, K_TILES, K_TEXT, K_SKIN, K_QUADS };
 enum { F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16 };
 #define NONE 0xFFFF
 
