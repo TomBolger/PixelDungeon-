@@ -188,15 +188,21 @@ static void draw_skin(Obj *o) {
   if (x0 >= x1 || y0 >= y1) return;
   ArtSrc src; if (!art_open(&src, o->tex, 0, 0, tw, th)) return;
   int32_t z = s_cam->zoom;
+  // source x in 1/256 texel steps: one screen pixel is 256*256/zoom of them
+  int32_t step = 65536 / z;                          // texels x256 per screen pixel
   for (int y = y0; y < y1; y++) {
     int32_t cy = (int32_t)((int64_t)(y * 8 + 4 - s_cam->y) * 65536 / z / 256) + s_cam->sy / 256;
     int sv = ((cy - Y + oy) / 8) % th; if (sv < 0) sv += th;
     const uint8_t *row = art_row(&src, sv); if (!row) continue;
     uint8_t *d = s_fb + y * s_stride + x0;
+    int32_t cx = (int32_t)((int64_t)(x0 * 8 + 4 - s_cam->x) * 65536 / z / 256) + s_cam->sx / 256;
+    int32_t u = (cx - X + ox) * 32;                    // texels x256
+    int32_t span = tw * 256;
+    u %= span; if (u < 0) u += span;
     for (int x = x0; x < x1; x++, d++) {
-      int32_t cx = (int32_t)((int64_t)(x * 8 + 4 - s_cam->x) * 65536 / z / 256) + s_cam->sx / 256;
-      int su = ((cx - X + ox) / 8) % tw; if (su < 0) su += tw;
-      put(d, row[su], x, y);
+      uint8_t c = row[u >> 8];
+      if (s_plain && (c >> 6) == 3) *d = c; else put(d, c, x, y);
+      u += step; if (u >= span) u -= span;
     }
   }
 }
@@ -288,11 +294,22 @@ static void draw_obj(Obj *o) {
   blit(f.tex, f.tx, f.ty, f.tw, f.th, scx(l), scy(t), scx(r), scy(b), f.fx, f.fy);
 }
 
+#ifdef PROFILE
+static uint32_t ms(void) { time_t s; uint16_t m; time_ms(&s, &m); return (uint32_t)s * 1000 + m; }
+uint32_t g_prof[8];
+#endif
+
 void draw_scene(GContext *ctx, GRect bounds, uint32_t now) {
   s_ctx = ctx; s_now = now; s_W = bounds.size.w; s_H = bounds.size.h;
   fb_take();
   if (!s_fb) return;
   for (int y = 0; y < s_H; y++) memset(s_fb + y * s_stride, GColorBlackARGB8, s_W);
-  for (int id = g_head; id != NONE; id = g_obj[id]->next) draw_obj(g_obj[id]);
+  for (int id = g_head; id != NONE; id = g_obj[id]->next) {
+#ifdef PROFILE
+    uint32_t t0 = ms(); draw_obj(g_obj[id]); g_prof[g_obj[id]->kind & 7] += ms() - t0;
+#else
+    draw_obj(g_obj[id]);
+#endif
+  }
   fb_give();
 }

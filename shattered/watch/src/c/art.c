@@ -89,8 +89,14 @@ static const uint8_t *strip(int tex, int k) {
 }
 
 // ---- cache of rectangles ----
-typedef struct CacheEnt { struct CacheEnt *next; uint16_t tex, x, y, w, h; uint32_t used; uint8_t px[]; } CacheEnt;
+typedef struct CacheEnt { struct CacheEnt *next, *hnext; uint16_t tex, x, y, w, h; uint32_t used; uint8_t px[]; } CacheEnt;
 static CacheEnt *s_cache;
+#define HASH 128
+static CacheEnt *s_hash[HASH];
+static inline int hkey(int tex, int x, int y) { return (tex * 31 + x * 7 + y * 13) & (HASH - 1); }
+static void hash_remove(CacheEnt *v) {
+  for (CacheEnt **e = &s_hash[hkey(v->tex, v->x, v->y)]; *e; e = &(*e)->hnext) if (*e == v) { *e = v->hnext; return; }
+}
 static int s_cache_bytes;
 static uint32_t s_tick;
 #define CACHE_MAX (26 * 1024)
@@ -101,12 +107,13 @@ static void evict_one(void) {
   for (CacheEnt **e = &s_cache; *e; e = &(*e)->next) if (!best || (*e)->used < (*best)->used) best = e;
   if (!best) return;
   CacheEnt *v = *best; *best = v->next;
+  hash_remove(v);
   s_cache_bytes -= v->w * v->h; free(v);
 }
 
 void art_forget(int tex) {
   for (CacheEnt **e = &s_cache; *e;) {
-    if ((*e)->tex == tex) { CacheEnt *v = *e; *e = v->next; s_cache_bytes -= v->w * v->h; free(v); } else e = &(*e)->next;
+    if ((*e)->tex == tex) { CacheEnt *v = *e; *e = v->next; hash_remove(v); s_cache_bytes -= v->w * v->h; free(v); } else e = &(*e)->next;
   }
   if (s_stex == tex) s_stex = -1;
 }
@@ -124,7 +131,7 @@ bool art_open(ArtSrc *s, int tex, int x, int y, int w, int h) {
   Head *hd = head(tex); if (!hd) return false;
   if (x < 0 || y < 0 || x + w > hd->w || y + h > hd->h) return false;
   s_tick++;
-  for (CacheEnt *e = s_cache; e; e = e->next)
+  for (CacheEnt *e = s_hash[hkey(tex, x, y)]; e; e = e->hnext)
     if (e->tex == tex && e->x == x && e->y == y && e->w == w && e->h == h) { e->used = s_tick; s->px = e->px; return true; }
   if (w * h > CACHE_ONE) return true;   // too big to keep: rows are decoded as they are drawn
   while (s_cache && s_cache_bytes + w * h > CACHE_MAX) evict_one();
@@ -139,6 +146,7 @@ bool art_open(ArtSrc *s, int tex, int x, int y, int w, int h) {
   }
   e->tex = tex; e->x = x; e->y = y; e->w = w; e->h = h; e->used = s_tick;
   e->next = s_cache; s_cache = e; s_cache_bytes += w * h;
+  int hk = hkey(tex, x, y); e->hnext = s_hash[hk]; s_hash[hk] = e;
   s->px = e->px;
   return true;
 }

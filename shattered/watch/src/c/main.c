@@ -29,7 +29,14 @@ static void update(Layer *l, GContext *ctx) {
   draw_scene(ctx, layer_get_bounds(l), now);
   static int frames; static uint32_t spent;
   spent += now_ms() - now;
-  if (++frames % 20 == 0) { APP_LOG(APP_LOG_LEVEL_INFO, "draw: %d ms per frame", (int)(spent / 20)); spent = 0; }
+  if (++frames % 20 == 0) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "draw: %d ms per frame", (int)(spent / 20)); spent = 0;
+#ifdef PROFILE
+    extern uint32_t g_prof[8];
+    APP_LOG(APP_LOG_LEVEL_INFO, "img %d rect %d nine %d tiles %d text %d skin %d", (int)g_prof[1] / 20, (int)g_prof[2] / 20, (int)g_prof[3] / 20, (int)g_prof[4] / 20, (int)g_prof[5] / 20, (int)g_prof[6] / 20);
+    memset(g_prof, 0, sizeof(g_prof));
+#endif
+  }
 }
 
 // keep drawing while something moves or animates; stop (and save power) when the screen is still
