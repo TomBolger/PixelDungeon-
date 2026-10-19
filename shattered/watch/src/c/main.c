@@ -10,7 +10,7 @@ enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 static Window *s_win;
 static Layer *s_layer;
 static AppTimer *s_timer;
-static uint32_t s_last;
+static uint32_t s_last, s_input_at, s_data_at;
 static bool s_connected;
 
 static uint32_t now_ms(void) { time_t s; uint16_t ms; time_ms(&s, &ms); return (uint32_t)s * 1000 + ms; }
@@ -47,7 +47,10 @@ static void tick(void *data) {
   cams_follow(now, dt);
   layer_mark_dirty(s_layer);
 #ifndef STILL
-  if (scene_moving(now)) s_timer = app_timer_register(50, tick, NULL);
+  // power saving (as in the Pixel Dungeon port): idle animations stop 10 s after the last button
+  // press, unless the game is still sending something new
+  bool awake = now - s_input_at < 10000 || now - s_data_at < 1500;
+  if (awake && scene_moving(now)) s_timer = app_timer_register(50, tick, NULL);
 #endif
 }
 
@@ -61,7 +64,8 @@ static void inbox(DictionaryIterator *it, void *ctx) {
   if (++n % 20 == 1) APP_LOG(APP_LOG_LEVEL_INFO, "message %d, heap free %d", n, (int)heap_bytes_free());
   Tuple *t = dict_find(it, KEY_DATA);
   if (t && t->type == TUPLE_BYTE_ARRAY) {
-    scene_apply(t->value->data, t->length, now_ms());
+    s_data_at = now_ms();
+    scene_apply(t->value->data, t->length, s_data_at);
     if (g_dirty) { g_dirty = false; kick(); }
   }
 }
@@ -75,18 +79,28 @@ static void send_u32(uint32_t key, uint32_t v) {
 
 static void button(ClickRecognizerRef r, void *ctx) {
   int code = (int)ctx;
-  if (click_recognizer_is_repeating(r)) code |= 32;
+  s_input_at = now_ms();
   send_u32(KEY_BUTTON, code);
 }
 
+static void button_long(ClickRecognizerRef r, void *ctx) {
+  s_input_at = now_ms();
+  send_u32(KEY_BUTTON, (int)ctx | B_LONG);
+}
+
 static void clicks(void *ctx) {
-  window_single_click_subscribe(BUTTON_ID_UP, button); window_set_click_context(BUTTON_ID_UP, (void *)B_UP);
-  window_single_click_subscribe(BUTTON_ID_DOWN, button); window_set_click_context(BUTTON_ID_DOWN, (void *)B_DOWN);
-  window_single_click_subscribe(BUTTON_ID_SELECT, button); window_set_click_context(BUTTON_ID_SELECT, (void *)B_SELECT);
-  window_single_click_subscribe(BUTTON_ID_BACK, button); window_set_click_context(BUTTON_ID_BACK, (void *)B_BACK);
-  window_long_click_subscribe(BUTTON_ID_SELECT, 400, button, NULL);
-  window_long_click_subscribe(BUTTON_ID_UP, 400, button, NULL);
-  window_long_click_subscribe(BUTTON_ID_DOWN, 400, button, NULL);
+  window_single_click_subscribe(BUTTON_ID_UP, button);
+  window_single_click_subscribe(BUTTON_ID_DOWN, button);
+  window_single_click_subscribe(BUTTON_ID_SELECT, button);
+  window_single_click_subscribe(BUTTON_ID_BACK, button);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 400, button_long, NULL);
+  window_long_click_subscribe(BUTTON_ID_UP, 400, button_long, NULL);
+  window_long_click_subscribe(BUTTON_ID_DOWN, 400, button_long, NULL);
+  // the context (which button) goes with every recognizer of that button, so set it last
+  window_set_click_context(BUTTON_ID_UP, (void *)B_UP);
+  window_set_click_context(BUTTON_ID_DOWN, (void *)B_DOWN);
+  window_set_click_context(BUTTON_ID_SELECT, (void *)B_SELECT);
+  window_set_click_context(BUTTON_ID_BACK, (void *)B_BACK);
 }
 
 static void hello(void *data) {

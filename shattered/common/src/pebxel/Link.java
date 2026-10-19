@@ -67,7 +67,8 @@ public final class Link {
 
 	/** Pictures that are pure scenery and cost more radio time than they are worth (none by default). */
 	public final Set<String> skip = new HashSet<>(Arrays.asList(
-			"BusyIndicator"   // the phone's 'thinking' spinner: meaningless on the watch
+			"BusyIndicator",  // the phone's 'thinking' spinner: meaningless on the watch
+			"CellSelector"    // an invisible touch area
 	));
 
 	public final Set<String> unknown = new TreeSet<>();
