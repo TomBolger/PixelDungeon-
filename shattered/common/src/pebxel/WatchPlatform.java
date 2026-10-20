@@ -16,6 +16,13 @@ public class WatchPlatform extends PlatformSupport {
 	@Override public boolean supportsVibration() { return true; }
 	@Override public void vibrate(int ms) { Watch.event("vibe", ms); }
 
+	/** A round screen has no corners: Shattered's full-screen menus keep their top and bottom rows clear of them
+	 *  (windows, which centre themselves, aren't moved). Phone pixels. */
+	@Override public com.watabou.utils.RectF getSafeInsets(int level) {
+		if (Screen.round && level == INSET_ALL) return new com.watabou.utils.RectF(0, 52, 0, 52);
+		return new com.watabou.utils.RectF();
+	}
+
 	private static FreeTypeFontGenerator basic, asian;
 
 	@Override public void setupFontGenerators(int pageSize, boolean systemfont) {
