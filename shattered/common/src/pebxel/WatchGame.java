@@ -11,7 +11,7 @@ public class WatchGame extends ShatteredPixelDungeon {
 		// title screen, first-run welcome and credits need more room than that leaves, so they stay at 2
 		com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.pebxelZoom = z != null ? Integer.parseInt(z) : 3;
 		java.util.Collections.addAll(com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.pebxelSmaller,
-				"TitleScene", "WelcomeScene", "AboutScene", "ChangesScene", "NewsScene", "SupporterScene", "WatchTitleScene", "WatchHeroSelect");
+				"TitleScene", "WelcomeScene", "AboutScene", "ChangesScene", "NewsScene", "SupporterScene", "WatchTitleScene", "WatchHeroSelect", "WatchWelcome");
 		// Pebble PD's own windows in place of some of Shattered's
 		com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.pebxelWindows = pebxel.ui.Swaps::window;
 		com.watabou.noosa.Game.pebxelScenes = pebxel.ui.Swaps::scene;

@@ -78,9 +78,17 @@ public class Tour {
 		scenes.put("changes", ChangesScene.class); scenes.put("welcome", WelcomeScene.class);
 		for (Map.Entry<String, Class<? extends Scene>> e : scenes.entrySet()) {
 			if (!only.isEmpty() && !only.contains(e.getKey())) continue;
+			if (e.getKey().equals("welcome")) SPDSettings.intro(true);   // (else it goes straight on to the title)
 			Game.switchScene(e.getValue());
 			frames(60);
 			shot(e.getKey());
+			if (e.getKey().equals("welcome")) {
+				// its later pages
+				for (int k = 1; k < 4 && Game.scene() instanceof pebxel.ui.WatchWelcome; k++) {
+					for (Ui.Part p : Controls.buttons(Game.scene())) Ui.press(p.g);
+					frames(30); shot("welcome" + k);
+				}
+			}
 		}
 		System.out.println(n + " pictures");
 		System.exit(0);

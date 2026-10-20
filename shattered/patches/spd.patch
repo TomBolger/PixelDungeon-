@@ -1,5 +1,5 @@
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/Game.java b/SPD-classes/src/main/java/com/watabou/noosa/Game.java
-index 40183d8..c9f63a1 100644
+index 40183d8..30d6981 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/Game.java
 +++ b/SPD-classes/src/main/java/com/watabou/noosa/Game.java
 @@ -213,7 +213,11 @@ public class Game implements ApplicationListener {
@@ -14,6 +14,15 @@ index 40183d8..c9f63a1 100644
  		instance.sceneClass = c;
  		instance.requestedReset = true;
  		instance.onChange = callback;
+@@ -232,7 +236,7 @@ public class Game implements ApplicationListener {
+ 		if (requestedReset) {
+ 			requestedReset = false;
+ 			
+-			requestedScene = Reflection.newInstance(sceneClass);
++			requestedScene = Reflection.newInstance(pebxelScenes != null ? pebxelScenes.apply(sceneClass) : sceneClass);
+ 			if (requestedScene != null){
+ 				switchScene();
+ 			}
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java b/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
 index c82cc00..eeaa939 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
