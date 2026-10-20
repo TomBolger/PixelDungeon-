@@ -43,6 +43,7 @@ public class Tour {
 			frames(1); Thread.sleep(2);
 			if (Game.scene() instanceof InterlevelScene) HandoffTest.pressOn();
 		}
+		controls = new Controls();
 		frames(30);
 		LinkedHashMap<String, Supplier<Window>> wins = new LinkedHashMap<>();
 		Item weapon = Dungeon.hero.belongings.weapon;
@@ -55,6 +56,9 @@ public class Tour {
 		wins.put("settings", WndSettings::new);
 		wins.put("options", () -> new WndOptions("A question", "Do you want to do the thing? It is a long question with some words.", "Yes", "No"));
 		wins.put("challenges", () -> new WndChallenges(0, false));
+		wins.put("story", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndStory("The Dungeon lies right beneath the City, its upper levels actually constitute the City's sewer system. As dark energy has crept up from below the usually harmless sewer creatures have become more and more dangerous. The city sends guard patrols down here to try and maintain safety for those above, but they are slowly failing."));
+		wins.put("mob", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoMob(new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat()));
+		wins.put("message", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndMessage("You found a secret door! Secrets like this one can hide all sorts of things."));
 		shot("map");
 		for (Map.Entry<String, Supplier<Window>> e : wins.entrySet()) {
 			if (!only.isEmpty() && !only.contains(e.getKey())) continue;
@@ -62,6 +66,8 @@ public class Tour {
 			GameScene.show(w);
 			frames(40);
 			shot(e.getKey());
+			Window tw = Ui.topWindow();
+			if (tw != null) System.out.println("window " + e.getKey() + " " + tw.getClass().getSimpleName() + " at " + tw.camera.x / 2 + "," + tw.camera.y / 2 + " size " + tw.camera.width * tw.camera.zoom / 2 + "x" + tw.camera.height * tw.camera.zoom / 2);
 			if (System.getenv("DUMPWIN") != null) sim.dump();
 			while (Ui.topWindow() != null) { Ui.topWindow().hide(); frames(2); }
 			frames(10);
@@ -80,9 +86,11 @@ public class Tour {
 		System.exit(0);
 	}
 
+	static Controls controls;   // (the watch's HUD and its window handling, as in a real game)
+
 	static void frames(int k) {
 		for (int f = 0; f < k; f++) {
-			app.frame();
+			app.frame(); if (controls != null) controls.frame();
 			sim.advance(Game.elapsed); sim.apply(link.sync(Game.elapsed));
 		}
 	}

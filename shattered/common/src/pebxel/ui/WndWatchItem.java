@@ -39,7 +39,7 @@ public class WndWatchItem extends WatchWindow {
 		// (on a round screen the text's lines depend on where the window sits: settle it)
 		for (int k = 0; k < 3; k++) {
 			resize(w, h);
-			place(pebxel.Screen.round ? 22 : 10, Math.max(4, (WatchHud.H - h) / 2));
+			place(pebxel.Screen.round ? 22 : 10, Math.max(pebxel.Screen.round ? 30 : 4, (WatchHud.H - h) / 2));
 			int h2 = build();
 			if (h2 == h) break;
 			h = h2;
@@ -75,7 +75,7 @@ public class WndWatchItem extends WatchWindow {
 		int th = flowHeight(info, WatchText.G14, tx, head + 2, tw);
 		if (round) {
 			// keep the window inside the circle's middle: the description gives way (cut short with "...")
-			int rows = (acts().size() + 1) / 2, max = 200 - head - 2 - rows * (BTN_H + GAP);
+			int rows = (acts().size() + 1) / 2, max = 186 - head - 2 - rows * (BTN_H + GAP);
 			while (th > max && info.length() > 20) {
 				int cut = info.lastIndexOf(' ', info.length() - 2);
 				if (cut < 10) break;

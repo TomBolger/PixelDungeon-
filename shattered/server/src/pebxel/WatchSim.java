@@ -24,7 +24,7 @@ public final class WatchSim {
 		int frame; float timer; // animation
 	}
 
-	private final Cam[] cams = new Cam[32];
+	private final Cam[] cams = new Cam[16];   // (as many as the watch keeps: MAX_CAM)
 	private final HashMap<Integer, Obj> objs = new HashMap<>();
 	private final HashMap<Integer, Anim> anims = new HashMap<>();
 	private int head = Link.NONE;

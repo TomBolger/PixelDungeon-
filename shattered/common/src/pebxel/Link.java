@@ -517,7 +517,12 @@ public final class Link {
 	}
 
 	/** Colour multiply (r, g, b) and add (r, g, b, a); alpha multiply moves separately. */
-	private void color(Visual v) { s8(c(v.rm)); s8(c(v.gm)); s8(c(v.bm)); s8(c(v.ra)); s8(c(v.ga)); s8(c(v.ba)); s8(c(v.aa)); }
+	private void color(Visual v) {
+		// (the watch only adds and multiplies by 0..1: "inverted" text, white times -0.77 plus 0.77, is sent as what it
+		// comes to, black)
+		s8(c(v.rm)); s8(c(v.gm)); s8(c(v.bm));
+		s8(c(v.rm < 0 ? v.ra + v.rm : v.ra)); s8(c(v.gm < 0 ? v.ga + v.gm : v.ga)); s8(c(v.bm < 0 ? v.ba + v.bm : v.ba)); s8(c(v.aa));
+	}
 
 	/** Colour amounts to 16 steps: the watch shows only 4 levels per channel, finer pulses would be wasted radio time. */
 	private static int c(float f) { return Math.max(0, Math.min(255, Math.round(f * 15)) * 17); }
@@ -580,7 +585,12 @@ public final class Link {
 
 	private int cam(Camera c) {
 		Integer id = camIds.get(c);
-		if (id == null) { id = camIds.size(); camIds.put(c, id); }
+		if (id == null) {
+			// the lowest number free (cameras come and go with windows; the watch keeps only MAX_CAM)
+			java.util.Collection<Integer> used = camIds.values();
+			id = 0; while (used.contains(id)) id++;
+			camIds.put(c, id); camObjs.remove(id);
+		}
 		camsThisRound.put(id, c);
 		return id;
 	}
@@ -625,6 +635,8 @@ public final class Link {
 				stats.computeIfAbsent("camera", x -> new long[2]); stats.get("camera")[0]++; stats.get("camera")[1] += out.size() - b0;
 			}
 		}
+		// cameras nothing was drawn with this time (a closed window's) give up their numbers
+		camIds.values().removeIf(id -> !camsThisRound.containsKey(id));
 		camsThisRound.clear();
 	}
 

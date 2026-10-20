@@ -31,16 +31,18 @@ public class WatchHeroSelect extends PixelScene {
 		com.shatteredpixel.shatteredpixeldungeon.Badges.loadGlobal();
 		com.shatteredpixel.shatteredpixeldungeon.journal.Journal.loadGlobal();
 		WatchTitleScene.arches(this);
-		Image banner = PdArt.image("banner_select", 0, 0, 128, 21, 1); banner.x = 36; banner.y = 4; add(banner);
+		boolean round = pebxel.Screen.round;
+		Image banner = PdArt.image("banner_select", 0, 0, 128, 21, 1); banner.x = (pebxel.Screen.w - 128) / 2; banner.y = round ? 22 : 4; add(banner);
 		HeroClass[] cls = HeroClass.values();
 		for (int i = 0; i < cls.length && i < 6; i++) {
-			Cell c = new Cell(cls[i], 4 + (i % 3) * 64, 28 + (i / 3) * 78);
+			// (round: narrower cells, closer together, so the top row's corners stay inside the circle)
+			Cell c = round ? new Cell(cls[i], 42 + (i % 3) * 60, 46 + (i / 3) * 76, 56) : new Cell(cls[i], 4 + (i % 3) * 64, 28 + (i / 3) * 78, 64);
 			cells.add(c); add(c);
 		}
 		WatchButton start = new WatchButton("New Game") {
 			@Override protected void onClick() { start(); }
 		};
-		start.setRect(4, 186, 192, 38);
+		if (round) start.setRect(60, 200, 140, 38); else start.setRect(4, 186, 192, 38);
 		add(start);
 		if (GamesInProgress.selectedClass == null) GamesInProgress.selectedClass = HeroClass.WARRIOR;
 		refresh();
@@ -67,18 +69,19 @@ public class WatchHeroSelect extends PixelScene {
 		private final WatchText name;
 		private final ColorBlock[] box = new ColorBlock[4];
 		private boolean chosen;
-		Cell(HeroClass cls, int x, int y) {
+		Cell(HeroClass cls, int x, int y, int w) {
 			super();
 			this.cls = cls;
-			Image av = new Image(Assets.Sprites.AVATARS, cls.ordinal() * 32, 0, 32, 32);
-			av.scale.set(2); av.x = x; av.y = y;
+			// (the portraits are 24x32)
+			Image av = new Image(Assets.Sprites.AVATARS, cls.ordinal() * 24, 0, 24, 32);
+			av.scale.set(2); av.x = x + (w - 48) / 2; av.y = y;
 			if (!cls.isUnlocked()) av.tint(0x555555, 1f);   // locked: a grey shape
 			add(av);
 			name = new WatchText(WatchText.G09, Messages.titleCase(cls.title()).toUpperCase(), 0xAAAAAA);
-			WatchHud.place(name, x, y + 66, 64, 1); add(name);
-			int[][] r = {{x - 1, y - 1, 66, 3}, {x - 1, y + 74, 66, 3}, {x - 1, y - 1, 3, 78}, {x + 62, y - 1, 3, 78}};
+			WatchHud.place(name, x, y + 66, w, 1); add(name);
+			int[][] r = {{x - 1, y - 1, w + 2, 3}, {x - 1, y + 74, w + 2, 3}, {x - 1, y - 1, 3, 78}, {x + w - 2, y - 1, 3, 78}};
 			for (int i = 0; i < 4; i++) { box[i] = WatchHud.block(0xFFFF00, r[i][0], r[i][1], r[i][2], r[i][3]); box[i].visible = false; add(box[i]); }
-			setRect(x, y, 64, 76);
+			setRect(x, y, w, 76);
 		}
 		void chosen(boolean on) { chosen = on; for (ColorBlock b : box) b.visible = on; name.color(on ? 0xFFFFFF : 0xAAAAAA); }
 		public void focus(boolean on) { if (on && !chosen) { GamesInProgress.selectedClass = cls; refresh(); } }

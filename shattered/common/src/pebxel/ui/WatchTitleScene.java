@@ -24,11 +24,13 @@ public class WatchTitleScene extends PixelScene {
 		com.shatteredpixel.shatteredpixeldungeon.journal.Journal.loadGlobal();
 		arches(this);
 		Image logo = BannerSprites.get(BannerSprites.Type.TITLE_PORT);
-		float s = logo.width > 200 ? 0.5f : 1f;   // whole pixels only
+		boolean round = pebxel.Screen.round;
+		float s = logo.width > pebxel.Screen.w ? 0.5f : 1f;   // whole pixels only
 		logo.scale.set(s);
-		logo.x = Math.round((200 - logo.width * s) / 2); logo.y = 6;
+		// (round: low enough that the circle's top doesn't cut its corners)
+		logo.x = Math.round((pebxel.Screen.w - logo.width * s) / 2); logo.y = round ? 26 : 6;
 		add(logo);
-		add(new Big(26, 104, 0, "Play") {
+		add(new Big(round ? 56 : 26, round ? 128 : 104, 0, "Play") {
 			@Override protected void onClick() {
 				if (GamesInProgress.checkAll().size() == 0) {
 					GamesInProgress.selectedClass = null;
@@ -37,18 +39,19 @@ public class WatchTitleScene extends PixelScene {
 				} else ShatteredPixelDungeon.switchNoFade(StartScene.class);
 			}
 		});
-		add(new Big(110, 104, 1, "Rankings") {
+		add(new Big(round ? 140 : 110, round ? 128 : 104, 1, "Rankings") {
 			@Override protected void onClick() { ShatteredPixelDungeon.switchNoFade(RankingsScene.class); }
 		});
 		WatchText v = new WatchText(WatchText.G14B, "v" + Game.version, 0xAAAAAA);
-		WatchHud.place(v, 0, 228 - 18, 196, 2);
+		if (round) WatchHud.place(v, 0, 220, 150, 2);
+		else WatchHud.place(v, 0, 228 - 18, 196, 2);
 		add(v);
 		fadeIn();
 	}
 
 	/** The arches background (Pebble PD's arcs.png, 64 px tiles). */
 	static void arches(com.watabou.noosa.Group g) {
-		for (int y = 0; y < 228; y += 64) for (int x = 0; x < 200; x += 64) {
+		for (int y = 0; y < pebxel.Screen.h; y += 64) for (int x = 0; x < pebxel.Screen.w; x += 64) {
 			Image a = PdArt.image("arcs", 0, 0, 64, 64, 1); a.x = x; a.y = y; g.add(a);
 		}
 	}
@@ -65,7 +68,7 @@ public class WatchTitleScene extends PixelScene {
 			Image im = PdArt.image("play", pic * 32, 0, 32, 32, 2); im.x = x; im.y = y; add(im);
 			label = new WatchText(WatchText.G18B, text, 0xAAAAAA);
 			WatchHud.place(label, x, y + 62, 64, 1); add(label);
-			line = WatchHud.block(0xFFFFFF, x + 12, 188, 40, 2); line.visible = false; add(line);
+			line = WatchHud.block(0xFFFFFF, x + 12, y + 84, 40, 2); line.visible = false; add(line);
 			setRect(x, y, 64, 84);
 		}
 		public void focus(boolean on) { label.color(on ? 0xFFFFFF : 0xAAAAAA); line.visible = on; }

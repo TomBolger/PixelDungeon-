@@ -160,7 +160,7 @@ public class Controls {
 				Component n = next < 0 ? null : (Component) bs.get(next).g;
 				boolean wraps = next >= 0 && (b == DOWN ? next < focus : next > focus);
 				if (n == null || (!wraps && !visible(w, n))) {
-					scroll(w, b == DOWN ? -Game.height / 2 : Game.height / 2);
+					scroll(w, (b == DOWN ? -1 : 1) * (viewBottom() - viewTop()) / 2);
 					if (n == null || !visible(w, n)) return;   // keep reading; the button comes into view later
 				}
 				if (wraps) scroll(w, b == DOWN ? 100000 : -100000);
@@ -175,18 +175,35 @@ public class Controls {
 
 	// ---- windows taller than the screen (long texts with big letters) ----
 
-	static boolean tall(Window w) { return w.camera != null && w.camera.screenHeight() > Game.height + 1; }
+	// (a round screen's corners are gone: there, windows are read in the band across its middle)
+	static int viewTop() { return Screen.round ? 72 : 0; }
+	static int viewBottom() { return Screen.round ? Game.height - 72 : Game.height; }
+
+	static boolean tall(Window w) { return w.camera != null && w.camera.screenHeight() > viewBottom() - viewTop() + 1; }
 
 	/** Is the component fully on screen (window camera units -> phone pixels)? */
 	private static boolean visible(Window w, Component c) {
 		float top = w.camera.y + c.top() * w.camera.zoom, bottom = w.camera.y + c.bottom() * w.camera.zoom;
-		return top >= 0 && bottom <= Game.height;
+		return top >= viewTop() && bottom <= viewBottom();
 	}
 
 	/** Move a tall window up (negative) or down by some phone pixels, within its ends. */
 	static void scroll(Window w, int dy) {
-		int min = (int) (Game.height - w.camera.screenHeight()), max = 0;
-		w.camera.y = Math.max(min, Math.min(max, w.camera.y + dy));
+		int min = (int) (viewBottom() - w.camera.screenHeight()), max = viewTop();
+		int y = Math.max(min, Math.min(max, w.camera.y + dy)), moved = y - w.camera.y;
+		w.camera.y = y;
+		if (moved != 0) moveInner(w, moved);
+	}
+
+	/** Lists inside a window have cameras of their own, placed when laid out: they move with it. */
+	private static void moveInner(Group g, int dy) {
+		for (com.watabou.noosa.Gizmo m : com.watabou.noosa.GroupAccess.members(g)) {
+			if (m instanceof com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane) {
+				Camera c = ((com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane) m).content().camera;
+				if (c != null) c.y += dy;
+			}
+			if (m instanceof Group) moveInner((Group) m, dy);
+		}
 	}
 
 	/** Keep a tall window inside its ends and its framed button on screen. */
@@ -195,8 +212,9 @@ public class Controls {
 		scroll(w, 0);
 		if (c != null && !visible(w, c)) {
 			float top = w.camera.y + c.top() * w.camera.zoom, bottom = w.camera.y + c.bottom() * w.camera.zoom;
-			if (bottom > Game.height && top > 0) scroll(w, (int) -Math.min(top, bottom - Game.height));
-			else if (top < 0 && bottom < Game.height) scroll(w, (int) Math.min(-top, Game.height - bottom));
+			int vt = viewTop(), vb = viewBottom();
+			if (bottom > vb && top > vt) scroll(w, (int) -Math.min(top - vt, bottom - vb));
+			else if (top < vt && bottom < vb) scroll(w, (int) Math.min(vt - top, vb - bottom));
 		}
 	}
 
