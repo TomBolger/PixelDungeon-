@@ -13,6 +13,7 @@
 #include "ui_int.h"
 
 int map_sx(int wx), map_sy(int wy), map_tpx(void);   // main.c: world units to the screen; a tile's size on it
+GBitmapDataRowInfo blit_row(int y);                 // blit.c: a screen row while drawing (min_x > max_x: none)
 
 enum { FXE_RIPPLE, FXE_BLOOD, FXE_LEAVES, FXE_SPLASH };
 typedef struct { uint8_t kind, n; int8_t dir; uint8_t col; int16_t cell; uint32_t t0; } Burst;

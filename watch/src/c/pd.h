@@ -458,7 +458,6 @@ void blit(const Sheet *s, int sx, int sy, int w, int h, int dx, int dy, int zoom
 void blit_spr4(const uint8_t *spr, int dx, int dy, int zoom);   // 16 palette bytes + 16x16 4-bit pixels
 void blit_fog(int dx, int dy, int size);
 void blit_fill(int dx, int dy, int w, int h, uint8_t argb);
-GBitmapDataRowInfo blit_row(int y);              // a screen row while drawing (ovl/fx); min_x > max_x: none
 void blit_nine(const Sheet *s, int sx, int sy, int sw, int sh, int b, int dx, int dy, int dw, int dh);
 void blit_nine4(const Sheet *s, int sx, int sy, int sw, int sh, int ml, int mt, int mr, int mb, int dx, int dy, int dw, int dh);
 void blit_box(int x, int y, int w, int h, int t, uint8_t argb);
