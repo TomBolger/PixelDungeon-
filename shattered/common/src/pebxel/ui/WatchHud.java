@@ -289,7 +289,27 @@ public class WatchHud extends Group {
 	@Override
 	public void update() {
 		refresh();
+		placeBossBar();
 		super.update();
+	}
+
+	/** Shattered's boss health bar: under the status pane, centred (Shattered put it where the buffs are). */
+	private com.shatteredpixel.shatteredpixeldungeon.ui.BossHealthBar bossBar;
+	private void placeBossBar() {
+		try {
+			if (bossBar == null) {
+				if (!(Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene)) return;
+				java.lang.reflect.Field f = com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.class.getDeclaredField("boss");
+				f.setAccessible(true);
+				bossBar = (com.shatteredpixel.shatteredpixeldungeon.ui.BossHealthBar) f.get(Game.scene());
+				if (bossBar == null) return;
+			}
+			Camera c = bossBar.camera(); if (c == null) return;
+			float k = c.zoom / 2f;   // watch pixels per unit of its camera
+			float wx = Math.round((W - bossBar.width() * k) / 2), wy = round ? 47 : SC(SP_H) + 3;
+			float x = Math.round((wx * 2 - c.x) / c.zoom + c.scroll.x), y = Math.round((wy * 2 - c.y) / c.zoom + c.scroll.y);
+			if (bossBar.left() != x || bossBar.top() != y) bossBar.setPos(x, y);
+		} catch (Exception e) { bossBar = null; }
 	}
 
 	private void refresh() {
