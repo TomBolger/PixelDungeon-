@@ -44,6 +44,40 @@ def greys(im, lv):
                 px[x, y] = (q, q, q, 254 if a == 255 else a)   # 254: pebbleize keeps it as is
     return im
 
+CUT = {'interfaces': 128, 'sprites': 100, 'effects/spell_icons.png': 100, 'effects/text_icons.png': 100}
+
+def frame_widths():
+    """Monster sheets and their frame widths, from Shattered's sprite classes (new TextureFilm(texture, w, ...)):
+    those get Pebble PD's black outline. (Heroes, items and NPC-free sheets don't, as in Pebble PD.)"""
+    import re, glob
+    j = os.path.join(HERE, '..', 'spd', 'core', 'src', 'main', 'java', 'com', 'shatteredpixel', 'shatteredpixeldungeon')
+    consts = dict(re.findall(r'public static final String (\w+)\s*=\s*"(sprites/[^"]+)"', open(os.path.join(j, 'Assets.java')).read()))
+    out = {}
+    for f in glob.glob(os.path.join(j, 'sprites', '*.java')):
+        s = open(f).read()
+        films = re.findall(r'new TextureFilm\(\s*texture\s*,\s*(\d+)\s*,', s)
+        for t in re.findall(r'texture\(\s*Assets\.Sprites\.(\w+)\s*\)', s):
+            if t in consts and films and consts[t] not in NO_OUTLINE: out[consts[t]] = int(films[0])
+    return out
+
+NO_OUTLINE = {'sprites/items.png', 'sprites/item_icons.png', 'sprites/avatars.png', 'sprites/amulet.png', 'sprites/pet.png',
+              'sprites/warrior.png', 'sprites/mage.png', 'sprites/rogue.png', 'sprites/huntress.png', 'sprites/duelist.png', 'sprites/cleric.png'}
+
+def outline(im, fw, col=(0, 0, 0, 255)):
+    """Pebble PD's monster outline (convert_lib.outlined): every see-through pixel touching (4 ways) a solid one in
+    the same frame column turns black. Goo, being black, gets grey."""
+    src = im.copy().load(); px = im.load(); w, h = im.size
+    for y in range(h):
+        for x in range(w):
+            if src[x, y][3]: continue
+            f0 = x // fw * fw
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if f0 <= nx < min(w, f0 + fw) and 0 <= ny < h and src[nx, ny][3]:
+                    px[x, y] = col; break
+
+FRAME_W = {}
+
 def simple_frames(im):
     """Pebble PD's window frames in place of Shattered's (its bevelled, tinted frames turn to noise in Pebble's
     few colours): each region is Pebble PD's frame, nine-sliced to Shattered's size."""
@@ -71,6 +105,7 @@ def simple_frames(im):
     nine(58, 0, 6, 6, 2, 38, 0, 6, 6, 2)        # red button
 
 if __name__ == '__main__':
+    FRAME_W.update(frame_widths())
     ps = paths()
     for p in ps:
         dst = os.path.join(OUT, p.rsplit('.', 1)[0] + '.png')
@@ -79,14 +114,23 @@ if __name__ == '__main__':
         im = Image.open(src(p)).convert('RGBA')
         if p.startswith('pebxel/'): im.save(dst); continue   # already converted
         out = pebbleize(greys(im.copy(), levels(p)) if not p.startswith(('environment/', 'splashes/')) else im.copy(), levels(p), alpha_cut=1)
-        # keep see-through pixels (shadows, glows) as Pebble's four alpha levels
         a, o = im.load(), out.load()
-        for y in range(im.height):
-            for x in range(im.width):
-                al = a[x, y][3]
-                if 0 < al < 255:
-                    q = min(3, (al + 42) // 85)
-                    o[x, y] = o[x, y][:3] + ((0, 85, 170, 255)[q],)
+        cut = CUT.get(p.split('/')[0], CUT.get(p))
+        if cut:
+            # Pebble PD's rule: a pixel is there or it isn't (see-through edges and glows dither into a grey fuzz)
+            for y in range(im.height):
+                for x in range(im.width):
+                    al = a[x, y][3]
+                    o[x, y] = o[x, y][:3] + ((255,) if al >= cut else (0,))
+        else:
+            # keep see-through pixels (shadows, fog, gas) as Pebble's four alpha levels
+            for y in range(im.height):
+                for x in range(im.width):
+                    al = a[x, y][3]
+                    if 0 < al < 255:
+                        q = min(3, (al + 42) // 85)
+                        o[x, y] = o[x, y][:3] + ((0, 85, 170, 255)[q],)
+        if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255))
         if p == 'interfaces/chrome.png': simple_frames(out)
         out.save(dst)
     print(len(ps), 'pictures converted')
