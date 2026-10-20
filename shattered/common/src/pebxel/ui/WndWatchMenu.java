@@ -21,12 +21,28 @@ import com.watabou.noosa.Image;
  * labels in Gothic 18 bold) with its pages on tabs underneath: the game (return, save and leave), records
  * (catalogue, journal). When the hero is dead: one page, new game, rankings, main menu.
  */
-public class WndWatchMenu extends WatchWindow {
+public class WndWatchMenu extends WatchWindow implements Navigable {
 	static final int W = 179, HEAD = 16, ROW = 64, GAP = 2, TAB_W = 61, TAB_H = 42;
 	public static int lastPage = 0;
 	private final Group page = new Group(), tabs = new Group();
 	private final boolean dead;
 	private int pageNo;
+	/** The page's buttons in order (not the tabs), and which one has the focus. */
+	private final java.util.List<WatchButton> pageButtons = new java.util.ArrayList<>();
+	private int focusIdx;
+
+	public void nav(int dir) {
+		if (pageNo < 0) { if (!pageButtons.isEmpty()) focusIdx = (focusIdx + dir + pageButtons.size()) % pageButtons.size(); return; }
+		focusIdx += dir;
+		// past the page's ends: on to the next page (round the three), focus on its first or last button
+		if (focusIdx >= pageButtons.size()) { show((pageNo + 1) % 3); focusIdx = 0; }
+		else if (focusIdx < 0) { show((pageNo + 2) % 3); focusIdx = pageButtons.size() - 1; }
+	}
+
+	public com.watabou.noosa.ui.Component focused() {
+		if (pageButtons.isEmpty()) return null;
+		return pageButtons.get(Math.max(0, Math.min(pageButtons.size() - 1, focusIdx)));
+	}
 
 	public WndWatchMenu() {
 		super(WatchWindow.left(W), 0, W, HEAD + 2 * ROW + GAP, false);
@@ -48,6 +64,7 @@ public class WndWatchMenu extends WatchWindow {
 		pageNo = p; if (p >= 0) lastPage = p;
 		page.clear();
 		tabs.clear();
+		pageButtons.clear();
 		String title = p < 0 ? "Game Over" : p == 0 ? "Shattered PD" : p == 1 ? "Catalogue & Journal" : "Watch";
 		WatchText t = new WatchText(WatchText.G14B, title, ICTERINE);
 		WatchHud.place(t, 0, -4, W, 1); page.add(t);
@@ -85,7 +102,7 @@ public class WndWatchMenu extends WatchWindow {
 			tabArt(tabs, x, y - 1, tw, TAB_H, k == p);
 			Image ic = PdArt.image("menu_icons", k * 16, 0, 16, 16, 2);
 			ic.x = x + (tw - 32) / 2; ic.y = y + (k == p ? 3 : 5) + (pebxel.Screen.round ? 1 : 0); tabs.add(ic);
-			Button b = new Button() { @Override protected void onClick() { show(kk); } };
+			Button b = new Button() { @Override protected void onClick() { show(kk); focusIdx = 0; } };
 			b.setRect(x, y, tw, TAB_H - 4); tabs.add(b);
 		}
 	}
@@ -120,7 +137,7 @@ public class WndWatchMenu extends WatchWindow {
 		com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite bagIc = new com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite(
 				com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet.BACKPACK, null);
 		bagIc.scale.set(2);
-		tile(half + GAP + 1, y, half, TH, bagIc, !items || a == 0, "Item assist: " + (items ? "On" : "Off"),
+		tile(half + GAP + 1, y, half, TH, bagIc, !items || a == 0, "Items: " + (items ? "On" : "Off"),
 				() -> { pebxel.WatchSettings.itemAssist(!pebxel.WatchSettings.itemAssist()); show(2); }, a > 0);
 	}
 
@@ -139,7 +156,7 @@ public class WndWatchMenu extends WatchWindow {
 		b.icon(icon);
 		b.label(label);
 		if (!enabled) b.labelColor = LIGHT;
-		page.add(b);
+		page.add(b); pageButtons.add(b);
 		if (decorate != null) { decorate.run(); decorate = null; }
 		if (off) {
 			// switched off: Pebble PD crosses the picture out
@@ -155,7 +172,7 @@ public class WndWatchMenu extends WatchWindow {
 		fit(b);
 		b.icon(PdArt.image("menu_icons", icon * 16, 0, 16, 16, 2));
 		b.label(label);
-		page.add(b);
+		page.add(b); pageButtons.add(b);
 		return b;
 	}
 }

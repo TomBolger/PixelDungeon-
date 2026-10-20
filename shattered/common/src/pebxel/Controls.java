@@ -158,6 +158,12 @@ public class Controls {
 		List<Ui.Part> bs = buttons(menu);
 		if (b == BACK) { if (w != null) w.onBackPressed(); else com.watabou.noosa.NoosaAccess.back(Game.scene()); return; }
 		if (focusOwner != menu) { focusOwner = menu; focus = 0; }
+		if (menu instanceof pebxel.ui.Navigable) {
+			pebxel.ui.Navigable n = (pebxel.ui.Navigable) menu;
+			if (b == UP || b == DOWN) n.nav(b == UP ? -1 : 1);
+			else if (b == SELECT && n.focused() != null) { if (held) Ui.hold(n.focused()); else Ui.press(n.focused()); }
+			return;
+		}
 		if (b == UP || b == DOWN) {
 			// a window taller than the screen scrolls half a screen at a time towards the next button
 			int next = bs.isEmpty() ? -1 : b == UP ? (focus + bs.size() - 1) % bs.size() : (focus + 1) % bs.size();
@@ -467,6 +473,7 @@ public class Controls {
 			}
 			if (bs.isEmpty()) { frame.hide(); if (w != null) keepInView(w, null); return; }
 			Component c = (Component) bs.get(Math.max(0, Math.min(bs.size() - 1, focus))).g;
+			if (menu instanceof pebxel.ui.Navigable && ((pebxel.ui.Navigable) menu).focused() != null) c = ((pebxel.ui.Navigable) menu).focused();
 			// (a tall window opens at its top for reading, even when its first button is further down)
 			if (w != null && keptFor != w) { keptFor = w; keepInView(w, tall(w) ? null : c); }
 			for (Ui.Part p : bs) if (p.g instanceof pebxel.ui.Focusable) ((pebxel.ui.Focusable) p.g).focus(p.g == c);
