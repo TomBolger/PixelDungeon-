@@ -58,7 +58,7 @@ public class AssistBot {
 		String end = "turn limit";
 		long planNs = 0, plans = 0, maxPlanNs = 0;
 		Window lastWnd = null; int wndFrames = 0;
-		long t0 = System.currentTimeMillis();
+		long t0 = System.currentTimeMillis(); readyAt = t0 + 60000;
 		for (long f = 0; f < 20_000_000; f++) {
 			app.frame();
 			if (Dungeon.hero == null || !Dungeon.hero.ready || Ui.topWindow() != null) sleep(1);   // (Game.elapsed is in whole ms: animations need time to pass)
@@ -86,7 +86,16 @@ public class AssistBot {
 				continue;
 			}
 			lastWnd = null;
-			if (!Dungeon.hero.ready) continue;
+			if (!Dungeon.hero.ready) {
+				if (System.currentTimeMillis() - readyAt > 15000) {
+					end = "hung (hero not ready for 15 s)";
+					System.out.println("HUNG: action " + Dungeon.hero.curAction + " sprite " + Dungeon.hero.sprite + " anim " + (Dungeon.hero.sprite == null ? null : Dungeon.hero.sprite.parent));
+					for (Map.Entry<Thread, StackTraceElement[]> e : Thread.getAllStackTraces().entrySet()) { System.out.println(" thread " + e.getKey().getName()); for (int i = 0; i < Math.min(12, e.getValue().length); i++) System.out.println("    " + e.getValue()[i]); }
+					break;
+				}
+				continue;
+			}
+			readyAt = System.currentTimeMillis();
 			if (Controls.aiming()) {   // (left over: aim at plan A of the aiming list, else cancel)
 				List<Assist.Target> al = Assist.plan(true, null);
 				if (!al.isEmpty() && al.get(0).kind == Assist.ENEMY) Assist.act(al.get(0)); else GameScene.cancelCellSelector();
@@ -109,7 +118,11 @@ public class AssistBot {
 			whys.merge(t.why, 1, Integer::sum);
 			if (v) System.out.printf("  t%.0f pos %d hp %d/%d: %s%s%n", Actor.now(), Dungeon.hero.pos, Dungeon.hero.HP, Dungeon.hero.HT, t, plan.size() > 1 ? "   | B: " + plan.get(1) : "");
 			if (t.kind == Assist.PICKUP) { Heap hh = Dungeon.level.heaps.get(t.cell); if (hh != null && t.cell == Dungeon.hero.pos) { pickHeap = hh; pickSize = hh.size(); } }
-			if (!Assist.act(t)) { actFails++; if (Assist.lastError != null) { System.out.println("  ACT ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; } Dungeon.hero.rest(false); }
+			float tn = Actor.now(); int pn = Dungeon.hero.pos;
+			boolean ok = Assist.act(t);
+			// (the actor thread picks the action up on a later frame: until then hero.ready still reads true)
+			for (int k = 0; k < 150 && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn && Ui.topWindow() == null && Dungeon.hero.isAlive(); k++) { app.frame(); sleep(1); }
+			if (!ok) { actFails++; if (Assist.lastError != null) { System.out.println("  ACT ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; } Dungeon.hero.rest(false); }
 		}
 		if (Dungeon.hero != null) System.out.println("state: ready " + Dungeon.hero.ready + " action " + Dungeon.hero.curAction + " aiming " + Controls.aiming() + " window " + Ui.topWindow() + " scene " + Game.scene() + " resting " + Dungeon.hero.resting + " now " + Actor.now());
 		String cause = "";
@@ -122,5 +135,6 @@ public class AssistBot {
 		System.exit(0);
 	}
 
+	static long readyAt;
 	static void sleep(int ms) { try { Thread.sleep(ms); } catch (InterruptedException e) { } }
 }
