@@ -74,6 +74,7 @@ public class Gallery {
 			free(() -> { try { Game.switchScene(Class.forName(P + "scenes." + name.substring(6)).asSubclass(com.watabou.noosa.Scene.class)); } catch (Exception e) { e.printStackTrace(); } });
 			return;
 		}
+		if (name.equals("duelist")) { steps.add(() -> { try { dress(HeroClass.DUELIST, 1); } catch (Exception e) { e.printStackTrace(); } }); return; }
 		if (name.equals("die")) {
 			free(() -> { com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat k = new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat(); Dungeon.hero.HP = 1; Dungeon.fail(k); Dungeon.hero.die(k); });
 			return;
@@ -356,6 +357,7 @@ public class Gallery {
 			case "mob": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoMob(new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat());
 			case "bag": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndBag(h.belongings.backpack);
 			case "hero": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndHero();
+			case "gameinfo": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndGameInProgress(1);
 			case "sadghost": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndSadGhost(new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost(), 1);
 			default: return new com.shatteredpixel.shatteredpixeldungeon.windows.WndMessage(n);
 		}
