@@ -75,7 +75,7 @@ pebble install --emulator emery build/watch.pbw
 pebble logs --emulator emery          # the app's log output
 ```
 
-On a headless Linux server, `scripts/emu_install.sh <pbw> [wipe]` starts a virtual display and installs the app, retrying if needed. `scripts/emu_shot.sh emery <name> [buttons…]` presses buttons and saves a screenshot.
+On a headless Linux server, `scripts/emu_install.sh <pbw> [emery|gabbro] [wipe]` starts a virtual display and installs the app, retrying if needed. The emulator never reclaims the room an installed app took, so after about 32 installs every install fails ("Failed" on its screen); the script then wipes the emulators' storage and installs again. `scripts/emu_shot.sh emery <name> [buttons…]` presses buttons and saves a screenshot.
 
 ## 5. Releases
 
