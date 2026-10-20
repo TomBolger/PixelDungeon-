@@ -206,6 +206,16 @@ def cave_grit(p, src, out):
                     n = sum(cell[(y + dy) % 16][(x + dx) % 16] == dark for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
                     if n >= 2: op[cx + x, cy + y] = (0, 0, 0, 255)
 
+def warm_stone(p, src, out):
+    """Pebble PD's tile_rules.warm_stone: light tan and beige stone (the prison's and city's walls, door frames, stairs)
+    snapped to pink (255,170,170), since the palette has no cream between pale yellow and pink. Khaki keeps the hue."""
+    if region(p) in (None, 'sewer'): return
+    sp, op = src.load(), out.load()
+    for y in range(src.height):
+        for x in range(src.width):
+            r, g, b, a = sp[x, y]
+            if a == 255 and op[x, y][:3] == (255, 170, 170) and r - b >= 15 and g - b >= 6: op[x, y] = (170, 170, 85, 255)
+
 def pd_water(p, im):
     """Pebble PD's water (convert_art.py, convert_regions.py): a few shades by brightness, each region's own colours.
     Snapped pixel by pixel, the prison's water came out one flat grey (it read as metal), the caves' black (it vanished
@@ -261,7 +271,7 @@ if __name__ == '__main__':
             pd_items(im.copy()).save(dst); continue
         pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else im.copy()
         out = pebbleize(greys(pre, levels(p)) if not p.startswith(('environment/', 'splashes/')) else pre, levels(p), alpha_cut=1)
-        if p.startswith('environment/'): cave_grit(p, im, out)
+        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out)
         a, o = im.load(), out.load()
         cut = CUT.get(p.split('/')[0], CUT.get(p))
         if cut:
