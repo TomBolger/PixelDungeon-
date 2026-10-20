@@ -270,7 +270,7 @@ index 1debaec..6c12a86 100644
  
  		//Resets char and item sprite positions with the new camera zoom
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
-index 179e9e8..40b7de4 100644
+index 179e9e8..a9d66a1 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
 @@ -234,7 +234,7 @@ public class GameScene extends PixelScene {
@@ -282,7 +282,23 @@ index 179e9e8..40b7de4 100644
  		Camera.main.edgeScroll.set(1);
  
  		switch (SPDSettings.cameraFollow()) {
-@@ -1431,7 +1431,11 @@ public class GameScene extends PixelScene {
+@@ -1152,10 +1152,13 @@ public class GameScene extends PixelScene {
+ 	
+ 	private void showBanner( Banner banner ) {
+ 		banner.camera = uiCamera;
++		//pebxel: one watch pixel per pixel of the art, as Pebble PD drew its banners (the interface zoom made them 1.5x,
++		// uneven and wider than the screen)
++		if (pebxelZoom > 0) banner.scale.set(2f / uiCamera.zoom);
+ 
+ 		float offset = Camera.main.centerOffset.y;
+-		banner.x = align( uiCamera, (uiCamera.width - banner.width) / 2 );
+-		banner.y = align( uiCamera, (uiCamera.height - banner.height) / 2 - 32 - offset );
++		banner.x = align( uiCamera, (uiCamera.width - banner.width()) / 2 );
++		banner.y = align( uiCamera, (uiCamera.height - banner.height()) / 2 - 32 - offset );
+ 
+ 		addToFront( banner );
+ 	}
+@@ -1431,7 +1434,11 @@ public class GameScene extends PixelScene {
  		}
  	}
  	
