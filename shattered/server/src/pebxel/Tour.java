@@ -86,6 +86,19 @@ public class Tour {
 			while (Ui.topWindow() != null) { Ui.topWindow().hide(); frames(2); }
 			frames(10);
 		}
+		if (only.isEmpty() || only.contains("death")) {
+			// the end of a game: the banner, then any button opens the menu's last page; then the rankings entry
+			com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat killer = new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat();
+			Dungeon.fail(killer);   // (what a killing blow does: the rankings entry)
+			Dungeon.hero.die(killer);
+			frames(90); shot("death");
+			controls.button(Controls.SELECT); frames(40); shot("death-menu");
+			while (Ui.topWindow() != null) { Ui.topWindow().hide(); frames(2); }
+			Game.switchScene(RankingsScene.class); frames(60); shot("rankings-entry");
+			List<Ui.Part> rs = Controls.buttons(Game.scene());
+			if (!rs.isEmpty()) { Ui.press(rs.get(0).g); frames(40); shot("ranking"); }
+			while (Ui.topWindow() != null) { Ui.topWindow().hide(); frames(2); }
+		}
 		LinkedHashMap<String, Class<? extends Scene>> scenes = new LinkedHashMap<>();
 		scenes.put("title", TitleScene.class); scenes.put("start", StartScene.class); scenes.put("heroselect", HeroSelectScene.class);
 		scenes.put("rankings", RankingsScene.class); scenes.put("journalscene", JournalScene.class); scenes.put("about", AboutScene.class);

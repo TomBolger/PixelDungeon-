@@ -143,6 +143,11 @@ public class Controls {
 		Window w = Ui.topWindow();
 		Group menu = w != null ? w : !(Game.scene() instanceof GameScene) ? Game.scene() : null;
 		if (menu != null) { menuButton(menu, b, held, w); return; }
+		if (Dungeon.hero != null && !Dungeon.hero.isAlive() && Game.scene() instanceof GameScene) {
+			// the game is over: any button opens the menu's last page (New Game, Rankings, Main Menu), as in Pebble PD
+			GameScene.show(new com.shatteredpixel.shatteredpixeldungeon.windows.WndGame());
+			return;
+		}
 		if (Dungeon.hero == null || !Dungeon.hero.isAlive()) return;
 		dungeonButton(b, held);
 	}
@@ -225,7 +230,8 @@ public class Controls {
 	/** Pressable things in reading order (top to bottom, then left to right). */
 	static List<Ui.Part> buttons(Group g) {
 		List<Ui.Part> out = new ArrayList<>();
-		for (Ui.Part p : Ui.parts(g)) if (p.button && p.g instanceof Component) out.add(p);
+		// (a screen's exit button is left out: Back does that, and Select shouldn't start on it)
+		for (Ui.Part p : Ui.parts(g)) if (p.button && p.g instanceof Component && !(p.g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.ExitButton)) out.add(p);
 		out.sort((a, c) -> {
 			Component x = (Component) a.g, y = (Component) c.g;
 			if (Math.abs(x.top() - y.top()) > 4) return Float.compare(x.top(), y.top());

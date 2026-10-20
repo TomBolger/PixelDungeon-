@@ -19,7 +19,7 @@ public class WatchPlatform extends PlatformSupport {
 	/** A round screen has no corners: Shattered's full-screen menus keep their top and bottom rows clear of them
 	 *  (windows, which centre themselves, aren't moved). Phone pixels. */
 	@Override public com.watabou.utils.RectF getSafeInsets(int level) {
-		if (Screen.round && level == INSET_ALL) return new com.watabou.utils.RectF(0, 52, 0, 52);
+		if (Screen.round) return level == INSET_ALL ? new com.watabou.utils.RectF(24, 52, 24, 52) : new com.watabou.utils.RectF(24, 0, 24, 0);
 		return new com.watabou.utils.RectF();
 	}
 
