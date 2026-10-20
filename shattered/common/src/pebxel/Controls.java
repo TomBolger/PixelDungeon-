@@ -386,7 +386,8 @@ public class Controls {
 			if (bs.isEmpty()) { frame.hide(); if (w != null) keepInView(w, null); return; }
 			Component c = (Component) bs.get(Math.max(0, Math.min(bs.size() - 1, focus))).g;
 			if (w != null && keptFor != w) { keptFor = w; keepInView(w, c); }
-			frame.around(menu, c.left() - 1, c.top() - 1, c.width() + 2, c.height() + 2, 0xFFFFFF44);
+			if (menu instanceof pebxel.ui.WatchWindow) frame.around(menu, c.left(), c.top(), c.width(), c.height(), 0xFFFFAA00, 2);   // Pebble PD: a 2 px yellow box
+			else frame.around(menu, c.left() - 1, c.top() - 1, c.width() + 2, c.height() + 2, 0xFFFFFF44, 1);
 			return;
 		}
 		frame.hide();
@@ -436,7 +437,7 @@ public class Controls {
 		private final ColorBlock[] bar = new ColorBlock[4];
 		private final int[] colour = new int[4];
 
-		void around(Group owner, float x, float y, float w, float h, int color) {
+		void around(Group owner, float x, float y, float w, float h, int color, float t) {
 			for (int i = 0; i < 4; i++) {
 				if (bar[i] == null || bar[i].parent != owner || colour[i] != color) {
 					if (bar[i] != null) bar[i].killAndErase();
@@ -446,7 +447,7 @@ public class Controls {
 				bar[i].visible = true;
 				owner.bringToFront(bar[i]);
 			}
-			place(x, y, w, h, 1);
+			place(x, y, w, h, t);
 		}
 
 		void inWorld(float x, float y, float w, float h, int color) {

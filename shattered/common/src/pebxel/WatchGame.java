@@ -12,6 +12,8 @@ public class WatchGame extends ShatteredPixelDungeon {
 		com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.pebxelZoom = z != null ? Integer.parseInt(z) : 3;
 		java.util.Collections.addAll(com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.pebxelSmaller,
 				"TitleScene", "WelcomeScene", "AboutScene", "ChangesScene", "NewsScene", "SupporterScene");
+		// Pebble PD's own windows in place of some of Shattered's
+		com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.pebxelWindows = pebxel.ui.Swaps::window;
 	}
 	/** Set to draw the next frame (only when taking pictures); normally nothing is drawn. */
 	public boolean drawNext;

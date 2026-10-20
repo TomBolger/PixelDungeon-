@@ -45,22 +45,30 @@ def greys(im, lv):
     return im
 
 def simple_frames(im):
-    """Plainer window frames for the small screen: a black edge, a light band, a dark grey inside
-    (Shattered's bevelled, riveted frames turn to noise in Pebble's few colours)."""
+    """Pebble PD's window frames in place of Shattered's (its bevelled, tinted frames turn to noise in Pebble's
+    few colours): each region is Pebble PD's frame, nine-sliced to Shattered's size."""
+    pd = Image.open(os.path.join(PD, 'pebxel', 'pd', 'chrome.png')).convert('RGBA').load()
     px = im.load()
-    def frame(x0, y0, w, h, rings):
+    def nine(sx, sy, sw, sh, sm, dx, dy, dw, dh, dm):
+        def pick(d, size, m, ssize, sm):
+            if d < m: return d * sm // m if m else 0                      # the near corner/edge band
+            if d >= size - m: return ssize - (size - d) * sm // m if m else ssize - 1
+            return sm + (d - m) * (ssize - 2 * sm) // max(1, size - 2 * m)   # the middle, stretched
+        for y in range(dh):
+            for x in range(dw):
+                px[dx + x, dy + y] = pd[sx + pick(x, dw, dm, sw, sm), sy + pick(y, dh, dm, sh, sm)]
+    nine(0, 0, 22, 22, 7, 0, 0, 20, 20, 6)      # window: light frame, black body (Pebble PD's WELL)
+    nine(64, 0, 22, 22, 7, 64, 0, 20, 20, 6)    # window with tabs: grey body
+    nine(0, 0, 22, 22, 7, 86, 0, 22, 22, 7)     # silver window: as the window
+    def rings(x0, y0, w, h, cs):                # small frames: plain rings of grey
         for y in range(h):
             for x in range(w):
-                d = min(x, y, w - 1 - x, h - 1 - y)
-                c = rings[d] if d < len(rings) else rings[-1]
+                c = cs[min(min(x, y, w - 1 - x, h - 1 - y), len(cs) - 1)]
                 px[x0 + x, y0 + y] = (c, c, c, 255)
-    K, D, L, W = 0, 85, 170, 255
-    frame(0, 0, 20, 20, [K, L, L, K, D])      # window
-    frame(64, 0, 20, 20, [K, L, L, K, D])     # window with tabs
-    frame(86, 0, 22, 22, [K, W, W, K, D])     # silver window (rankings, special)
-    frame(20, 0, 9, 9, [K, L, D])             # toast
-    frame(20, 9, 9, 9, [D, K])                # see-through toast / grey button: solid black, grey edge
-    frame(29, 9, 9, 9, [L, K])                # heavier one
+    rings(20, 0, 9, 9, [0, 170, 85])            # toast
+    rings(20, 9, 9, 9, [85, 0])                 # see-through toast / grey-button tag: solid black, grey edge
+    rings(29, 9, 9, 9, [170, 0])                # the heavier one
+    nine(58, 0, 6, 6, 2, 38, 0, 6, 6, 2)        # red button
 
 if __name__ == '__main__':
     ps = paths()

@@ -1,3 +1,19 @@
+diff --git a/SPD-classes/src/main/java/com/watabou/noosa/Game.java b/SPD-classes/src/main/java/com/watabou/noosa/Game.java
+index 40183d8..c9f63a1 100644
+--- a/SPD-classes/src/main/java/com/watabou/noosa/Game.java
++++ b/SPD-classes/src/main/java/com/watabou/noosa/Game.java
+@@ -213,7 +213,11 @@ public class Game implements ApplicationListener {
+ 		switchScene(c, null);
+ 	}
+ 	
++	/** Pebxel: the watch puts its own screens in place of some of Shattered's. */
++	public static java.util.function.UnaryOperator<Class<? extends Scene>> pebxelScenes;
++
+ 	public static void switchScene(Class<? extends Scene> c, SceneChangeCallback callback) {
++		if (pebxelScenes != null) c = pebxelScenes.apply(c);
+ 		instance.sceneClass = c;
+ 		instance.requestedReset = true;
+ 		instance.onChange = callback;
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java b/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
 index c82cc00..eeaa939 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
@@ -171,7 +187,7 @@ index 1debaec..6c12a86 100644
  
  		//Resets char and item sprite positions with the new camera zoom
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
-index 179e9e8..21d3ef8 100644
+index 179e9e8..40b7de4 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
 @@ -234,7 +234,7 @@ public class GameScene extends PixelScene {
@@ -183,6 +199,18 @@ index 179e9e8..21d3ef8 100644
  		Camera.main.edgeScroll.set(1);
  
  		switch (SPDSettings.cameraFollow()) {
+@@ -1431,7 +1431,11 @@ public class GameScene extends PixelScene {
+ 		}
+ 	}
+ 	
++	/** Pebxel: the watch puts its own windows in place of some of Shattered's (null: don't show any). */
++	public static java.util.function.UnaryOperator<Window> pebxelWindows;
++
+ 	public static void show( Window wnd ) {
++		if (pebxelWindows != null) { wnd = pebxelWindows.apply(wnd); if (wnd == null) return; }
+ 		if (scene != null) {
+ 			cancel();
+ 
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
 index 86c9dfb..afe1af3 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java

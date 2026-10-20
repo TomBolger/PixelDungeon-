@@ -61,7 +61,9 @@ public class Tour {
 			GameScene.show(w);
 			frames(40);
 			shot(e.getKey());
-			w.hide(); frames(10);
+			if (System.getenv("DUMPWIN") != null) sim.dump();
+			while (Ui.topWindow() != null) { Ui.topWindow().hide(); frames(2); }
+			frames(10);
 		}
 		LinkedHashMap<String, Class<? extends Scene>> scenes = new LinkedHashMap<>();
 		scenes.put("title", TitleScene.class); scenes.put("start", StartScene.class); scenes.put("heroselect", HeroSelectScene.class);
