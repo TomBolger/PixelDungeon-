@@ -28,7 +28,7 @@ PY
 # 2. One shared library per game overlay (UI-only overlays are not needed off the watch), rebuilt when a source changes
 OV=""
 for d in $(ls "$WATCH/src/ovl"); do
-  case $d in snd|ui|uiw|bag|sheet) continue;; esac
+  case $d in snd|ui|uiw|bag|sheet|fx) continue;; esac
   OV="$OV $d"
   so="$B/libovl_$d.so"; srcs=$(ls "$WATCH/src/ovl/$d"/*.c)
   need=0; [ -f "$so" ] || need=1

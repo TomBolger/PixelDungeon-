@@ -18,7 +18,7 @@ static void area(int cell, int n) {
 
 static void use_shatter(int k, int cell) {          // Potion.shatter and the gas / flame / frost potions
   bool vis = BIT_GET(G.fov, cell);
-  if (vis) ui_sound(SND_SHATTER);
+  if (vis) { ui_sound(SND_SHATTER); ui_fx(FX_SPLASH, cell, G.potion_flavor[k - IK_FIRST_POTION], NULL); }   // Potion.splash
   switch (k) {
     case IK_POT_TOXIC: if (vis) set_known(k); blob_seed(BLOB_TOXIC, cell, 1000); return;
     case IK_POT_PARALYTIC: if (vis) set_known(k); blob_seed(BLOB_PARALYTIC, cell, 1000); return;

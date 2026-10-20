@@ -105,3 +105,6 @@ extern GTextAttributes *s_flow; extern GRect s_text_r;   // 0.35: the text layer
 bool flow_set(GRect f); int flow_h(const char *t, GRect f);
 #endif
 #define ITEM_SPR(sp, x, y, z) item_spr(sp, x, y, z)
+// the flight of a throw or a wand's bolt (main.c; a bolt is drawn by src/ovl/fx)
+typedef struct { bool active; int16_t x0, y0, x1, y1; uint32_t t0; uint16_t ms; int sprite; uint8_t n_heaps; int16_t to; } Proj;
+extern Proj s_proj; extern int16_t s_arc[20]; extern int s_narc;

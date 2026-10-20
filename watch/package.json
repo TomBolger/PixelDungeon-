@@ -1,7 +1,7 @@
 {
   "name": "pixel-dungeon",
   "author": "Thomas",
-  "version": "0.93.0",
+  "version": "0.94.0",
   "keywords": [
     "pebble-app"
   ],
@@ -1207,6 +1207,15 @@
           "type": "raw",
           "name": "TILES_RAW",
           "file": "data/tiles_raw.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "raw",
+          "name": "OVL_FX",
+          "file": "data/ovl_fx.bin",
           "targetPlatforms": [
             "emery",
             "gabbro"

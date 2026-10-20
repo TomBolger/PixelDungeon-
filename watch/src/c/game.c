@@ -1121,6 +1121,7 @@ int plant_at(int c) { for (int i = 0; i < G.n_plants; i++) if (G.plants[i].pos =
 Item random_seed(void) { return item_make(IK_FIRST_SEED + rnd_int(N_SEEDS - 1), 1); }   // Generator.Category.SEED (no Rotberry)
 void trample(int c, int hl) {                           // HighGrass.trample
   set_terrain(c, T_GRASS);
+  if (BIT_GET(G.fov, c)) ui_fx(FX_LEAVES, c, -1, NULL);   // CellEmitter.burst(LeafParticle.LEVEL_SPECIFIC, 4)
   if (hl >= 0) {
     if (rnd_int(18) <= rnd_int(hl + 1)) heap_put(c, random_seed());
     if (rnd_int(6) <= rnd_int(hl + 1)) heap_put(c, item_make(IK_DEW, 1));

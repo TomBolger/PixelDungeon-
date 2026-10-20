@@ -100,14 +100,15 @@ static void sheet_load(Sheet *s, uint32_t res) {
 static void sheet_free(Sheet *s) { if (s->bmp) { gbitmap_destroy(s->bmp); blit_forget(); } s->bmp = NULL; }
 // monster sheets load when that kind is first drawn and are dropped when the hero leaves the floor
 #include "mob_res.auto.h"
+static bool fx_drop(void);
 const Sheet *mob_sheet(int type) {
   if (type == MT_MIRROR) return &s_hero;
-  if (!s_mob[type].bmp && MOB_RES[type]) sheet_load(&s_mob[type], MOB_RES[type]);
+  if (!s_mob[type].bmp && MOB_RES[type]) { sheet_load(&s_mob[type], MOB_RES[type]); if (!s_mob[type].bmp && fx_drop()) sheet_load(&s_mob[type], MOB_RES[type]); }   // (no room: the little lives give way)
   return &s_mob[type];
 }
 static void mob_sheets_free(void) { for (int t = 0; t < MT_COUNT; t++) { sheet_free(&s_mob[t]); free(s_mob_art[t]); s_mob_art[t] = NULL; } }
 static void tiles_load(bool load);
-void ui_free_cache(int more) { mob_sheets_free(); ispr_free(); if (more) tiles_load(false); }   // the next frame in the game reloads them
+void ui_free_cache(int more) { fx_drop(); mob_sheets_free(); ispr_free(); if (more) tiles_load(false); }   // the next frame in the game reloads them (the little lives first: they matter least)
 // HeroSprite.updateArmor: one sheet per armour tier, only the worn one in RAM
 // the sheets are listed class by class (warrior, mage, rogue, huntress), tiers 0..6 each, in package.json
 static int s_hero_tier = -1;
@@ -227,9 +228,9 @@ typedef struct { int16_t cell; uint32_t t0; GColor color; char text[12]; } Float
 #define MAX_FLOAT 6
 #define FLOAT_MS 460                               // how long damage numbers rise
 static Floater *s_float; static int s_n_float;   // (0.52: on the heap)
-typedef struct { bool active; int16_t x0, y0, x1, y1; uint32_t t0; uint16_t ms; int sprite; uint8_t n_heaps; int16_t to; } Proj;
-static Proj s_proj;
+Proj s_proj;
 static bool s_flames_shown;                       // fire on screen: redraw often enough for rising flames
+static bool s_water_shown;                        // water on screen: it drifts
 // effects of a throw (hits, numbers, deaths, what the monsters did next) wait until the missile lands
 typedef struct { uint8_t kind; int8_t who; int16_t cell; char text[12]; } QueuedFx;
 #define MAX_QFX 12
@@ -413,6 +414,11 @@ static void add_float(int16_t cell, const char *text, GColor c) {
   f->cell = cell; f->t0 = now_ms(); f->color = c; snprintf(f->text, sizeof f->text, "%s", text); cap_first(f->text);
 }
 static uint32_t s_boss_until;
+// the dungeon's little lives (src/ovl/fx): loaded on a floor, let go while the next one is built (it needs the room)
+static const OvlHeader *s_fxo; static bool s_fx_off;
+static bool fx_drop(void) { if (!s_fxo) return false; ovl_free(s_fxo); s_fxo = NULL; return true; }
+static const OvlHeader *fxo(void) { if (!s_fxo && !s_fx_off && G.depth && heap_bytes_free() > 5000) s_fxo = ovl_keep(RESOURCE_ID_OVL_FX); return s_fxo; }   // (only with room to spare: never at the cost of anything else)
+static void fx_ev(int k, int c, int a, int b) { const OvlHeader *o = fxo(); if (o) ((void (*)(int, int, int, int))o->fn[2])(k, c, a, b); }
 void ui_fx(FxKind kind, int16_t cell, int who, const char *text) {
   if (s_proj.active && kind != FX_LEAVE && kind != FX_DESCEND && s_n_qfx < MAX_QFX) {
     QueuedFx *q = &s_qfx[s_n_qfx++];
@@ -428,14 +434,16 @@ void ui_fx(FxKind kind, int16_t cell, int who, const char *text) {
     case FX_SEARCHED: case FX_QUAKE: s_check_pos = cell; s_check_t0 = now_ms(); s_quake = kind == FX_QUAKE; s_check_r = s_quake ? who : 1; break;   // QUAKE: who = radius
     case FX_JUMP: s_leap_t0 = now_ms() | 1; s_leap_x = s_vis_hero.x; s_leap_y = s_vis_hero.y; break;
     case FX_BOSS_SLAIN: s_boss_until = now_ms() + 5000; ui_sound(SND_BOSS); break;   // GameScene.bossSlain: the banner for 5 s
-    case FX_DAMAGE: add_float(cell, text, who < 0 ? GColorOrange : GColorRajah); break;
+    case FX_DAMAGE: add_float(cell, text, who < 0 ? GColorOrange : GColorRajah); fx_ev(1, cell, who, atoi(text)); break;
+    case FX_LEAVES: fx_ev(2, cell, 0, 0); break;
+    case FX_SPLASH: fx_ev(3, cell, who, 0); break;
     case FX_TEXT: case FX_SEARCH: add_float(cell, text, GColorWhite); break;
     case FX_ALERT: if (who >= 0) s_alert_until[who] = now_ms() + 1200; break;
     case FX_HEAL: add_float(cell, text, GColorGreen); break;
     case FX_GOLD: add_float(cell, text, GColorChromeYellow); break;
     case FX_HURT: vibes_enqueue_custom_pattern((VibePattern){ .durations = (uint32_t[]){ 40 }, .num_segments = 1 }); break;
     case FX_DESCEND: vis_reset_all(); break;
-    case FX_LEAVE: mob_sheets_free(); break;      // more room for the next floor's generator
+    case FX_LEAVE: mob_sheets_free(); fx_drop(); s_fx_off = true; break;      // more room for the next floor's generator
     case FX_TELEPORT: if (v->active || who < 0) vis_snap(v, who < 0 ? G.hero.pos : cell); break;
     case FX_SPAWN: if (who >= 0) s_vis_mob[who].active = false; break;
     case FX_THROW: break;
@@ -470,7 +478,7 @@ void ui_throw(int16_t from, int16_t to, int sprite) {
   s_n_qfx = 0;
 }
 // a wand's bolt: MagicMissile (a coloured spark with a trail, 200 px/s), or Lightning's arcs, or DeathRay's beam
-static int16_t s_arc[20]; static int s_narc;
+int16_t s_arc[20]; int s_narc;
 void ui_zap(int k, int16_t from, int16_t to, const int16_t *pts, int npts) {
   ui_throw(from, to, -1 - k);
   int dx = abs(s_proj.x1 - s_proj.x0), dy = abs(s_proj.y1 - s_proj.y0);
@@ -521,6 +529,7 @@ static void idle_anim(void) {
   if (s_scene == SC_TITLE || s_scene == SC_SELECT || s_scene == SC_CONFIRM || s_scene == SC_RANKINGS) { idle(); return; }
   uint32_t w = anim_wait(), lo = s_flames_shown ? 66 : 125;   // flames rise smoothly; other animations redraw at most 8 times a second
   if (s_flames_shown) w = lo;
+  if (s_water_shown && w > 200) w = 200;                       // the water's drift: a pixel each 0.2 s
   schedule(w < lo ? lo : w > 1000 ? 1000 : w);
 }
 static void text_sync(void); static GRect text_frame(void); static int text_max_scroll(void); static bool text_page(int dir);
@@ -555,6 +564,7 @@ static bool step_vis(Vis *v, int16_t cell, const CharArt *art, bool hero) {
   int tx = (cell % MAP_W) * TS, ty = (cell / MAP_W) * TS;
   bool moving = false;
   if (v->x != tx || v->y != ty) {
+    if (!((v->x | v->y) & (TS - 1))) { int oc = v->y / TS * MAP_W + v->x / TS; if (IS_WATER(G.map[oc]) && BIT_GET(G.fov, oc)) fx_ev(0, oc, 0, 0); }   // CharSprite.move: a ripple where it leaves the water
     int dx = tx - v->x, dy = ty - v->y, mv = s_step;
     v->x += dx > mv ? mv : dx < -mv ? -mv : dx;
     v->y += dy > mv ? mv : dy < -mv ? -mv : dy;
@@ -1127,6 +1137,9 @@ static int s_fcx, s_fcy, s_fT, s_fmy;
 static void cam_frame(void) { s_fcx = cam_x() + TS / 2; s_fcy = cam_y() + TS / 2; s_fT = tile_px(); s_fmy = map_center_y(); }
 static int sx_of(int wx) { return s_w / 2 + ((wx - s_fcx) * s_fT >> 4); }
 static int sy_of(int wy) { return s_fmy + ((wy - s_fcy) * s_fT >> 4); }
+int map_sx(int wx) { return sx_of(wx); }   // (for src/ovl/fx)
+int map_sy(int wy) { return sy_of(wy); }
+int map_tpx(void) { return tile_px(); }
 
 // PD Chrome NinePatches (chrome.png): WINDOW (0,0,22,22,7), TOAST (22,0,18,18,5), BUTTON (58,0,6,6,2)
 void panel(GRect r) { blit_nine(&s_chrome, 0, 0, 22, 22, 7, r.origin.x - 6, r.origin.y - 6, r.size.w + 12, r.size.h + 12); }
@@ -1200,57 +1213,13 @@ static void draw_gas(int px, int py, int c, int b) {
     blit_puff(x, y, r, GAS_COLOR[b], am * 16 / 255 + 1, (int)(h >> 8) & 15);
   }
 }
-static void draw_line(int x0, int y0, int x1, int y1, int w, uint8_t c) {
-  int dx = abs(x1 - x0), dy = -abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
-  for (int g = 0; g < 800; g++) {
-    blit_fill(x0 - w / 2, y0 - w / 2, w, w, c);
-    if (x0 == x1 && y0 == y1) break;
-    int e2 = 2 * err;
-    if (e2 >= dy) { err += dy; x0 += sx; }
-    if (e2 <= dx) { err += dx; y0 += sy; }
-  }
-}
-// MagicMissile colours and sizes per wand (Wand.wands order): cold, slowness, fire, poison, foliage, white,
-// (lightning), purple, force, wool, (death ray), earth
+// a thrown item flies here; a wand's bolt is drawn by src/ovl/fx (moved there: the app's 64 KB)
 static void draw_proj(void) {
-  static const uint8_t HEAD[14] = { GColorBlueMoonARGB8, GColorWindsorTanARGB8, GColorOrangeARGB8, GColorGreenARGB8,
-    GColorKellyGreenARGB8, GColorWhiteARGB8, GColorCelesteARGB8, GColorFollyARGB8, GColorWhiteARGB8, GColorLightGrayARGB8,
-    GColorPurpureusARGB8, GColorLightGrayARGB8, GColorPurpleARGB8, GColorCelesteARGB8 };   // 12: MagicMissile.shadow (Warlock), 13: blueLight (magic missile)
-  static const uint8_t TAIL[14] = { GColorPictonBlueARGB8, GColorBrassARGB8, GColorChromeYellowARGB8, GColorPurpleARGB8,
-    GColorIslamicGreenARGB8, GColorLightGrayARGB8, GColorWhiteARGB8, GColorPurpleARGB8, GColorLightGrayARGB8, GColorWhiteARGB8,
-    GColorWhiteARGB8, GColorDarkGrayARGB8, GColorImperialPurpleARGB8, GColorPictonBlueARGB8 };
-  static const uint8_t SIZE[14] = { 4, 1, 4, 3, 4, 4, 0, 2, 1, 3, 0, 2, 3, 3 };
-  int T = tile_px(), el = (int)(now_ms() - s_proj.t0); if (el > s_proj.ms) el = s_proj.ms;
+  int el = (int)(now_ms() - s_proj.t0); if (el > s_proj.ms) el = s_proj.ms;
   if (s_proj.sprite >= 0) {                                  // a thrown item
     int wx = s_proj.x0 + (s_proj.x1 - s_proj.x0) * el / s_proj.ms, wy = s_proj.y0 + (s_proj.y1 - s_proj.y0) * el / s_proj.ms;
     ITEM_SPR(s_proj.sprite, sx_of(wx), sy_of(wy), s_zoom);
-    return;
-  }
-  int k = -1 - s_proj.sprite, h = TS / 2;
-  if (k == IK_WND_LIGHTNING - IK_FIRST_WAND) {               // Lightning: jagged arcs between the creatures it jumped to
-    for (int i = 0; i + 1 < s_narc; i++) {
-      int ax = sx_of((s_arc[i] % MAP_W) * TS + h), ay = sy_of((s_arc[i] / MAP_W) * TS + h);
-      int bx = sx_of((s_arc[i + 1] % MAP_W) * TS + h), by = sy_of((s_arc[i + 1] / MAP_W) * TS + h);
-      uint32_t j = (now_ms() / 33 + i * 7) * 2654435761u;      // a new zigzag every frame (not the game's dice)
-      int mx = (ax + bx) / 2 + (int)(j >> 28) % 9 - 4, my = (ay + by) / 2 + (int)((j >> 24) & 15) % 9 - 4;
-      draw_line(ax, ay, mx, my, 2, GColorCelesteARGB8); draw_line(mx, my, bx, by, 2, GColorCelesteARGB8);
-      draw_line(ax, ay, mx, my, 1, GColorWhiteARGB8); draw_line(mx, my, bx, by, 1, GColorWhiteARGB8);
-    }
-    return;
-  }
-  int x0 = sx_of(s_proj.x0 + h), y0 = sy_of(s_proj.y0 + h), x1 = sx_of(s_proj.x1 + h), y1 = sy_of(s_proj.y1 + h);
-  if (k == IK_WND_DISINTEGRATION - IK_FIRST_WAND) {          // DeathRay: a beam that thins away
-    int w = (s_proj.ms - el) * 6 * T / 16 / s_proj.ms + 1;
-    draw_line(x0, y0, x1, y1, w, GColorPurpureusARGB8);
-    if (w > 2) draw_line(x0, y0, x1, y1, w / 2, GColorWhiteARGB8);
-    return;
-  }
-  int sz = (SIZE[k] + 2) * T / 16; if (sz < 2) sz = 2;
-  for (int t = 3; t >= 0; t--) {                             // the trail, then the spark
-    int e = el - t * 25; if (e < 0) continue;
-    int px = x0 + (x1 - x0) * e / s_proj.ms, py = y0 + (y1 - y0) * e / s_proj.ms, z = t ? (sz + 1) / 2 : sz;
-    blit_fill(px - z / 2, py - z / 2, z, z, t ? TAIL[k] : HEAD[k]);
-  }
+  } else if (s_fxo) ((void (*)(int))s_fxo->fn[3])(el);
 }
 static void draw_web(int px, int py) {                // WebParticle: a few grey threads across the cell
   int T = tile_px(), s = T >= 16 ? T / 16 : 1;
@@ -1278,7 +1247,8 @@ static void draw_blobs(void) {
 }
 static void draw_map(void) {
   int T = tile_px();
-  s_flames_shown = false;
+  s_flames_shown = s_water_shown = false; s_fx_off = false;
+  int wflow = (int)(now_ms() / 200 % 32) & (s_zoom ? 31 : 30);
   blit_fill(0, 0, s_w, s_h, ARGB(GColorBlack));
   uint8_t hb[MAP_LEN / 8]; memset(hb, 0, sizeof hb);  // 0.34: which cells hold a heap (heap_at per cell was a search per tile)
   for (int i = 0; i < G.n_heaps; i++) if ((unsigned)G.heaps[i].pos < MAP_LEN) BIT_SET(hb, G.heaps[i].pos);
@@ -1291,7 +1261,13 @@ static void draw_map(void) {
       int c = y * MAP_W + x;
       if (!BIT_GET(G.visited, c)) continue;
       int t = G.map[c];
-      if (IS_WATER(t)) { g_blit_opaque = true; blit(&s_water, (x & 1) * TS, (y & 1) * TS, TS, TS, px, py, s_zoom); g_blit_opaque = false; }
+      if (IS_WATER(t)) {                                // GameScene: the water drifts down 5 px a second
+        g_blit_opaque = true; s_water_shown = true;
+        int sy = ((y & 1) * TS - wflow) & 31, h1 = 32 - sy;
+        if (h1 >= TS) blit(&s_water, (x & 1) * TS, sy, TS, TS, px, py, s_zoom);
+        else { blit(&s_water, (x & 1) * TS, sy, TS, h1, px, py, s_zoom); blit(&s_water, (x & 1) * TS, 0, TS, TS - h1, px, py + (h1 << s_zoom >> 1), s_zoom); }
+        g_blit_opaque = false;
+      }
       if (t != T_WATER) {                              // DungeonTilemap; most tiles are solid and simply copied
         const uint8_t *sp = spr_get(256 + t);
         if (sp) { g_blit_opaque = sp[0] >> 6; blit_spr4(sp, px, py, s_zoom); }   // an opaque first colour: no clear pixels
@@ -1309,6 +1285,8 @@ static void draw_map(void) {
       if (!BIT_GET(G.fov, c)) blit_fog(px, py, T);
     }
   }
+  const OvlHeader *fo = fxo();
+  if (fo && ((bool (*)(void))fo->fn[0])()) s_flames_shown = true;   // the walls' lives, ripples
   uint32_t ce = now_ms() - s_check_t0;
   if (s_check_pos >= 0 && ce < 800) {                // CheckedCell: a blue square on each searched cell, shrinking away (avalanche: rubble)
     int sz = T * (int)(800 - ce) / 1000, r = s_check_r;
@@ -1360,6 +1338,7 @@ static void draw_map(void) {
   g_blit_ghost = false;
   if (G.hero.HP > 0 && G.hero.b.burning) draw_flames(sx_of(s_vis_hero.x), sy_of(s_vis_hero.y), 999, 10);
   draw_blobs();
+  if (fo && ((bool (*)(void))fo->fn[1])()) s_flames_shown = true;   // blood, leaves, splashes
   if (G.hero.HP > 0 && G.action == HA_REST) emo(&s_vis_hero, &HERO_ART, false);
   if (s_proj.active) draw_proj();
 }

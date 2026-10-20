@@ -336,7 +336,7 @@ int level_room_random(const Room *r, int m);
 // ---- callbacks from rules to the screen layer (main.c) ----
 typedef enum { C_INFO, C_GOOD, C_BAD, C_WARN, C_GOLD } MsgColor;
 typedef enum { FX_ATTACK, FX_DIE, FX_DAMAGE, FX_TEXT, FX_HEAL, FX_HURT, FX_DESCEND, FX_THROW, FX_TELEPORT,
-               FX_ALERT, FX_GOLD, FX_SEARCH, FX_SPAWN, FX_LEAVE, FX_OPERATE, FX_READ, FX_SEARCHED, FX_BOSS_SLAIN, FX_QUAKE, FX_JUMP } FxKind;
+               FX_ALERT, FX_GOLD, FX_SEARCH, FX_SPAWN, FX_LEAVE, FX_OPERATE, FX_READ, FX_SEARCHED, FX_BOSS_SLAIN, FX_QUAKE, FX_JUMP, FX_LEAVES, FX_SPLASH } FxKind;   // LEAVES: grass trampled; SPLASH: a potion broke (who: its flavour)
 void ui_log(const char *msg, MsgColor c);
 void ui_fx(FxKind kind, int16_t cell, int who, const char *text);   // who: -1 hero, else mob index
 void ui_throw(int16_t from, int16_t to, int sprite);
