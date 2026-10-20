@@ -80,6 +80,12 @@ public class Tour {
 				List<Ui.Part> bs = Controls.buttons(Ui.topWindow());
 				if (!bs.isEmpty() && !(bs.get(0).g instanceof pebxel.ui.WatchButton)) { Ui.press(bs.get(0).g); frames(10); shot("item-page2"); }
 			}
+			if (System.getenv("BACKTEST") != null) {
+				Window before = Ui.topWindow();
+				controls.button(Controls.BACK); frames(10);
+				System.out.println("BACK on " + e.getKey() + ": " + (Ui.topWindow() == before ? "STILL OPEN" : "closed"));
+				if (Ui.topWindow() != before) continue;
+			}
 			Window tw = Ui.topWindow();
 			if (tw != null) System.out.println("window " + e.getKey() + " " + tw.getClass().getSimpleName() + " at " + tw.camera.x / 2 + "," + tw.camera.y / 2 + " size " + tw.camera.width * tw.camera.zoom / 2 + "x" + tw.camera.height * tw.camera.zoom / 2);
 			if (System.getenv("DUMPWIN") != null) sim.dump();

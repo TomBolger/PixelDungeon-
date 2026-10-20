@@ -520,10 +520,9 @@ public final class Link {
 
 	/** Colour multiply (r, g, b) and add (r, g, b, a); alpha multiply moves separately. */
 	private void color(Visual v) {
-		// (the watch only adds and multiplies by 0..1: "inverted" text, white times -0.77 plus 0.77, is sent as what it
-		// comes to, black)
-		s8(c(v.rm)); s8(c(v.gm)); s8(c(v.bm));
-		s8(c(v.rm < 0 ? v.ra + v.rm : v.ra)); s8(c(v.gm < 0 ? v.ga + v.gm : v.ga)); s8(c(v.bm < 0 ? v.ba + v.bm : v.ba)); s8(c(v.aa));
+		// "inverted" (dark on a light scroll) text: the watch's scroll is black like its windows, so it stays white
+		if (v.rm < 0 || v.gm < 0 || v.bm < 0) { s8(255); s8(255); s8(255); s8(0); s8(0); s8(0); s8(c(v.aa)); return; }
+		s8(c(v.rm)); s8(c(v.gm)); s8(c(v.bm)); s8(c(v.ra)); s8(c(v.ga)); s8(c(v.ba)); s8(c(v.aa));
 	}
 
 	/** Colour amounts to 16 steps: the watch shows only 4 levels per channel, finer pulses would be wasted radio time. */

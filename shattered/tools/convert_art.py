@@ -92,7 +92,8 @@ def simple_frames(im):
             for x in range(dw):
                 px[dx + x, dy + y] = pd[sx + pick(x, dw, dm, sw, sm), sy + pick(y, dh, dm, sh, sm)]
     nine(0, 0, 22, 22, 7, 0, 0, 20, 20, 6)      # window: light frame, black body (Pebble PD's WELL)
-    nine(64, 0, 22, 22, 7, 64, 0, 20, 20, 6)    # window with tabs: grey body
+    nine(0, 0, 22, 22, 7, 64, 0, 20, 20, 6)     # window with tabs: black body too (small text reads best on black)
+    nine(0, 0, 22, 22, 7, 32, 32, 32, 32, 5)    # the story scroll: a plain window (its text is shown white)
     nine(0, 0, 22, 22, 7, 86, 0, 22, 22, 7)     # silver window: as the window
     def rings(x0, y0, w, h, cs):                # small frames: plain rings of grey
         for y in range(h):

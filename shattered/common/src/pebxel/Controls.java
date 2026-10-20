@@ -178,6 +178,56 @@ public class Controls {
 		if (b == SELECT) { if (held) Ui.hold(bs.get(focus).g); else Ui.press(bs.get(focus).g); }
 	}
 
+	// ---- a close button for a finger on windows that fill the screen (no outside left to tap) ----
+	private CloseTag close;
+
+	private void closeTag(Window w) {
+		boolean need = w != null && !(w instanceof pebxel.ui.WatchWindow) && w.camera != null
+				&& (tall(w) || w.camera.screenWidth() >= Game.width - 24 || w.camera.screenHeight() >= Game.height - 24);
+		if (!need) { if (close != null && close.parent != null && close.parent != w) close.killAndErase(); if (close != null && close.parent == null) close = null; return; }
+		if (close == null || close.parent != w) {
+			if (close != null) close.killAndErase();
+			close = new CloseTag(w); w.add(close);
+		}
+		w.bringToFront(close);
+		// a fixed spot on the screen, wherever the window has scrolled to: the first corner (round: spot on the rim)
+		// with none of the window's own buttons under it (watch pixels -> the window's units)
+		Camera c = w.camera;
+		int[][] spots = Screen.round ? new int[][]{{186, 40}, {50, 40}, {222, 118}, {14, 118}, {186, 196}, {50, 196}}
+				: new int[][]{{Screen.w - 24, 0}, {0, 0}, {Screen.w - 24, Screen.h - 24}, {0, Screen.h - 24}};
+		int[] at = spots[0];
+		for (int[] sp : spots) {
+			boolean free = true;
+			for (Ui.Part p : buttons(w)) {
+				Component b = (Component) p.g;
+				float bx = c.x / 2f + (b.left() - c.scroll.x) * c.zoom / 2, by = c.y / 2f + (b.top() - c.scroll.y) * c.zoom / 2;
+				float bw = b.width() * c.zoom / 2, bh = b.height() * c.zoom / 2;
+				if (bx < sp[0] + 24 && bx + bw > sp[0] && by < sp[1] + 24 && by + bh > sp[1]) { free = false; break; }
+			}
+			if (free) { at = sp; break; }
+		}
+		close.setRect((at[0] * 2 - c.x) / c.zoom + c.scroll.x, (at[1] * 2 - c.y) / c.zoom + c.scroll.y, 24 * 2 / c.zoom, 24 * 2 / c.zoom);
+	}
+
+	/** Pebble PD's red exit tag. */
+	static class CloseTag extends com.shatteredpixel.shatteredpixeldungeon.ui.Button {
+		private final Window w;
+		private com.watabou.noosa.NinePatch bg;
+		private Image icon;
+		CloseTag(Window w) { super(); this.w = w; }
+		@Override protected void createChildren() {
+			super.createChildren();
+			bg = com.shatteredpixel.shatteredpixeldungeon.Chrome.get(com.shatteredpixel.shatteredpixeldungeon.Chrome.Type.RED_BUTTON); add(bg);
+			icon = pebxel.ui.PdArt.image("menu_icons", 128, 0, 16, 16, 1); add(icon);
+		}
+		@Override protected void layout() {
+			super.layout();
+			bg.x = x; bg.y = y; bg.size(width, height);
+			icon.scale.set(width / 20f); icon.x = x + (width - 16 * icon.scale.x) / 2; icon.y = y + (height - 16 * icon.scale.y) / 2;
+		}
+		@Override protected void onClick() { w.onBackPressed(); }
+	}
+
 	// ---- windows taller than the screen (long texts with big letters) ----
 
 	// (a round screen's corners are gone: there, windows are read in the band across its middle)
@@ -231,7 +281,7 @@ public class Controls {
 	static List<Ui.Part> buttons(Group g) {
 		List<Ui.Part> out = new ArrayList<>();
 		// (a screen's exit button is left out: Back does that, and Select shouldn't start on it)
-		for (Ui.Part p : Ui.parts(g)) if (p.button && p.g instanceof Component && !(p.g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.ExitButton)) out.add(p);
+		for (Ui.Part p : Ui.parts(g)) if (p.button && p.g instanceof Component && !(p.g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.ExitButton) && !(p.g instanceof CloseTag)) out.add(p);
 		out.sort((a, c) -> {
 			Component x = (Component) a.g, y = (Component) c.g;
 			if (Math.abs(x.top() - y.top()) > 4) return Float.compare(x.top(), y.top());
@@ -403,6 +453,7 @@ public class Controls {
 	public void frame() {
 		keepHud();
 		Window w = Ui.topWindow();
+		closeTag(w);
 		Group menu = w != null ? w : !(Game.scene() instanceof GameScene) ? Game.scene() : null;
 		if (touching) { frame.hide(); if (menu != null) { marker.hide(); return; } }
 		else if (menu != null) {
