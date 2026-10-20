@@ -71,11 +71,11 @@ public class Gallery {
 		// the emulator's views of windows and screens: w:NAME a window (see window()), scene:NAME a screen, die
 		if (name.startsWith("w:")) { steps.add(() -> { try { GameScene.show(window(name.substring(2))); } catch (Exception e) { e.printStackTrace(); } pebxel.ui.Swaps.nativeHero = false; }); return; }
 		if (name.startsWith("scene:")) {
-			steps.add(() -> { try { Game.switchScene(Class.forName(P + "scenes." + name.substring(6)).asSubclass(com.watabou.noosa.Scene.class)); } catch (Exception e) { e.printStackTrace(); } });
+			free(() -> { try { Game.switchScene(Class.forName(P + "scenes." + name.substring(6)).asSubclass(com.watabou.noosa.Scene.class)); } catch (Exception e) { e.printStackTrace(); } });
 			return;
 		}
 		if (name.equals("die")) {
-			steps.add(() -> { com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat k = new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat(); Dungeon.hero.HP = 1; Dungeon.fail(k); Dungeon.hero.die(k); });
+			free(() -> { com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat k = new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat(); Dungeon.hero.HP = 1; Dungeon.fail(k); Dungeon.hero.die(k); });
 			return;
 		}
 		Object[] s = STAGES.get(name);
@@ -98,6 +98,10 @@ public class Gallery {
 	static final String CTL = System.getenv("GALLERY_CTL");
 	static long ctlTime; static int ctlCheck; static String ctlStage;
 
+	/** A step that runs whatever the screen is (a screen change, a death). */
+	static final java.util.Set<Runnable> anyScreen = new java.util.HashSet<>();
+	static void free(Runnable r) { anyScreen.add(r); steps.add(r); }
+
 	/** Call every frame: true while steps remain. */
 	public static boolean tick() {
 		if (CTL != null && steps.isEmpty()) {
@@ -117,6 +121,7 @@ public class Gallery {
 			}
 		}
 		if (steps.isEmpty()) return false;
+		if (anyScreen.contains(steps.peek())) { Runnable r = steps.poll(); anyScreen.remove(r); try { r.run(); } catch (Exception e) { e.printStackTrace(); } return true; }
 		if (Game.scene() instanceof InterlevelScene) { HandoffTest.pressOn(); return true; }
 		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null || !Dungeon.hero.ready) return true;
 		Window w = Ui.topWindow();
@@ -397,5 +402,14 @@ public class Gallery {
 		sim.render();
 		sim.save(new File(dir, name + ".png"), 2);
 		if (System.getenv("DUMP") != null) { System.out.println("== " + name); sim.dump(); }
+		if (System.getenv("DYNDEBUG") != null) {
+			java.lang.reflect.Field f = Link.class.getDeclaredField("dynTex"); f.setAccessible(true);
+			java.lang.reflect.Field n = Link.class.getDeclaredField("nextDyn"); n.setAccessible(true);
+			java.util.Map<?, ?> m = (java.util.Map<?, ?>) f.get(link);
+			java.util.Map<Object, Integer> byId = new java.util.HashMap<>();
+			for (Object v : m.values()) byId.merge(v, 1, Integer::sum);
+			long shared = byId.values().stream().filter(c -> c > 1).count();
+			System.out.println("DYN " + name + ": textures " + m.size() + ", next id " + n.get(link) + ", ids shared by two or more textures " + shared);
+		}
 	}
 }
