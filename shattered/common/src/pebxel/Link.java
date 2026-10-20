@@ -273,7 +273,9 @@ public final class Link {
 	private void sendDyn(Gizmo g, Obj o, float[] dyn) {
 		float[] vel = new float[N];
 		Visual v = (Visual) g;
-		if (o.prev != null && now > o.prevAt) {
+		// guessing a speed from the last two places suits things moving in the dungeon; on the interface (a focus box
+		// jumping from cell to cell) it sends the box sailing on past its place until corrected: there, no guess
+		if (o.prev != null && now > o.prevAt && v.camera() == Camera.main) {
 			float dt = now - o.prevAt;
 			for (int i = 0; i < N; i++) vel[i] = (dyn[i] - o.prev[i]) / dt;
 		}
@@ -436,7 +438,9 @@ public final class Link {
 			if (key != null && key.startsWith("1x1:")) {
 				int col = (int) Long.parseLong(key.substring(4));
 				float alpha = ((col >>> 24) / 255f) * v.alpha();
-				if (alpha > 0.05f && alpha < 0.95f && inWindow(g)) {
+				// (not the shade over the game behind a window, which is on Shattered's interface camera: that one stays
+				// see-through, a checker over the game, as in Pebble PD)
+				if (alpha > 0.05f && alpha < 0.95f && inWindow(g) && v.camera() != com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.uiCamera) {
 					// see-through panels inside windows (item slots, list rows) dither into a noisy check on the
 					// watch: make them solid, black or light grey by how light they are
 					int lum = (((col >> 16) & 255) * 3 + ((col >> 8) & 255) * 5 + (col & 255) * 2) / 10;
@@ -833,6 +837,10 @@ public final class Link {
 		float wx = (px - c[0]) / c[2] + c[3], wy = (py - c[1]) / c[2] + c[4];
 		return new int[]{Math.round((wx - cur.scroll.x) * cur.zoom + cur.x), Math.round((wy - cur.scroll.y) * cur.zoom + cur.y)};
 	}
+
+	/** For tests: a camera's number on the watch (0xFF: none), and the game clock (ms). */
+	public int camIdOf(Camera c) { Integer i = camIds.get(c); return i == null ? 0xFF : i; }
+	public int nowMs() { return Math.round(now * 1000); }
 
 	/** Tell the watch a touch has been applied (in this frame's changes). */
 	public void ack(int seq) { cmd(C_INPUT); out.write(seq & 255); }

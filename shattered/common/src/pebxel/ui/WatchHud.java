@@ -460,7 +460,7 @@ public class WatchHud extends Group {
 		List<String[]> es = logEntries();
 		String k = es.size() + (es.isEmpty() ? "" : es.get(es.size() - 1)[0]);
 		logAge += Game.elapsed;
-		log.visible = logAge < 4;   // gone 4 seconds after the newest message (Pebble PD)
+		log.visible = logAge < 4 * Game.pebxelSpeed;   // gone 4 seconds after the newest message (Pebble PD; game time runs faster)
 		if (k.equals(logKey)) return;
 		logKey = k; logAge = 0; log.visible = true;
 		log.clear();

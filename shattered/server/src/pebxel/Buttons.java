@@ -45,11 +45,13 @@ public class Buttons {
 			String p = a[i];
 			int wait = 30;
 			if (p.matches("\\d+")) wait = Integer.parseInt(p);
-			else if (p.startsWith("t") && p.contains(",")) {
-				// a tap at watch x,y (tl: a long one)
+			else if ((p.startsWith("t") || p.startsWith("m")) && p.contains(",")) {
+				// a tap at watch x,y (tl: a long one; m: aimed at the map's camera, as the watch sends it, stamped now)
+				boolean map = p.startsWith("m");
 				String[] xy = p.substring(p.startsWith("tl") ? 2 : 1).split(",");
 				int x = Integer.parseInt(xy[0]), y = Integer.parseInt(xy[1]);
-				byte[] t = {1, (byte) ++seq, (byte) 0xFF, (byte) (p.startsWith("tl") ? 1 : 0), (byte) x, (byte) (x >> 8), (byte) y, (byte) (y >> 8), 0, 0, 0, 0};
+				int cam = map ? link.camIdOf(com.watabou.noosa.Camera.main) : 0xFF, st = map ? link.nowMs() : 0;
+				byte[] t = {1, (byte) ++seq, (byte) cam, (byte) (p.startsWith("tl") ? 1 : 0), (byte) x, (byte) (x >> 8), (byte) y, (byte) (y >> 8), (byte) st, (byte) (st >> 8), (byte) (st >> 16), (byte) (st >> 24)};
 				touches.add(t);
 			}
 			else {

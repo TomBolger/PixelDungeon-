@@ -15,6 +15,8 @@ public class WatchGame extends ShatteredPixelDungeon {
 		// Pebble PD's own windows in place of some of Shattered's
 		com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.pebxelWindows = pebxel.ui.Swaps::window;
 		com.watabou.noosa.Game.pebxelScenes = pebxel.ui.Swaps::scene;
+		// walking and fighting half as quick again: on a watch, waiting out each swing and step feels slow
+		com.watabou.noosa.Game.pebxelSpeed = 1.5f;
 		// the story on the loading screen in pages that fit
 		com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.pebxelPages = pebxel.ui.StoryPages::split;
 	}

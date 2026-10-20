@@ -5,6 +5,8 @@
 #include "draw.h"
 
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
+#define GAME_SPEED_NUM 3   // 1.5 x real time: must match Game.pebxelSpeed (WatchGame.java)
+#define GAME_SPEED_DEN 2
 #define PROTOCOL 6   // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
@@ -23,7 +25,9 @@ static uint32_t now_ms(void) {
   int32_t d = (int32_t)(raw - raw_last);
   if (started && d > 0 && d < 60000) mono += d;
   raw_last = raw; started = true;
-  return mono;
+  // the game's clock: its animations run GAME_SPEED times real time (Game.pebxelSpeed on the phone, which must match);
+  // frame stamps, moves and touches are all in that time
+  return (uint32_t)((uint64_t)mono * GAME_SPEED_NUM / GAME_SPEED_DEN);
 }
 
 static void update(Layer *l, GContext *ctx) {
@@ -60,7 +64,7 @@ static void tick(void *data) {
 #ifndef STILL
   // power saving (as in the Pixel Dungeon port): idle animations stop 10 s after the last button
   // press, unless the game is still sending something new
-  bool awake = now - s_input_at < 10000 || now - s_data_at < 1500;
+  bool awake = now - s_input_at < 15000 || now - s_data_at < 2250;   // (game time: 10 s and 1.5 s real)
   if (awake && scene_moving(now)) s_timer = app_timer_register(40, tick, NULL);
 #endif
 }
@@ -93,7 +97,7 @@ static void pump(void *data);
 
 static void pump_at(uint32_t due, uint32_t now) {
   if (s_ptimer) app_timer_cancel(s_ptimer);
-  s_ptimer = app_timer_register(due > now ? due - now : 1, pump, NULL);
+  s_ptimer = app_timer_register(due > now ? (due - now) * GAME_SPEED_DEN / GAME_SPEED_NUM + 1 : 1, pump, NULL);   // (real ms)
 }
 
 // play every frame that is due
@@ -228,7 +232,7 @@ static void button_long(ClickRecognizerRef r, void *ctx) {
 // ---- touch (as in Pebble PD: under 40 px of movement is a tap, held 500 ms a long one; 24 px drags the map) ----
 #define TAP_SLOP 32
 #define PAN_START 24
-#define LONG_MS 500
+#define LONG_MS (500 * GAME_SPEED_NUM / GAME_SPEED_DEN)   // (half a second of real time)
 static int16_t s_tx, s_ty, s_lx, s_ly, s_moved;
 static bool s_down, s_drag, s_map;
 static uint32_t s_tms;

@@ -108,6 +108,36 @@ def outline(im, fw, col=(0, 0, 0, 255)):
 
 FRAME_W = {}
 
+def spread_greys(src, out, cell):
+    """Buff icons: two greys of one icon mustn't become the same Pebble grey (the warrior's armour buff turned into a
+    plain grey box): per icon, its greys (darkest to lightest) go to distinct Pebble greys, as near as they can."""
+    import itertools
+    sp, op = src.load(), out.load()
+    G = (0, 85, 170, 255)
+    for cy in range(0, src.height, cell):
+        for cx in range(0, src.width, cell):
+            greys = {}
+            for y in range(cy, min(src.height, cy + cell)):
+                for x in range(cx, min(src.width, cx + cell)):
+                    r, g, b, a = sp[x, y]
+                    if a >= 128 and max(r, g, b) - min(r, g, b) < GREY:
+                        greys.setdefault((r, g, b), []).append((x, y))
+            if len(greys) < 2: continue
+            levels = sorted(greys, key=lambda c: 0.3 * c[0] + 0.5 * c[1] + 0.2 * c[2])
+            lum = [0.3 * c[0] + 0.5 * c[1] + 0.2 * c[2] for c in levels]
+            k = len(levels)
+            if k > 4:   # too many: those closest together share
+                best = None
+            # each grey to a Pebble grey, keeping their order and as many apart as there are greys to go round
+            best, bestCost = None, 1e9
+            for combo in itertools.combinations_with_replacement(range(4), k):
+                distinct = len(set(combo))
+                if distinct < min(k, 4): continue
+                cost = sum(abs(G[t] - l) for t, l in zip(combo, lum))
+                if cost < bestCost: best, bestCost = combo, cost
+            for c, t in zip(levels, best):
+                for (x, y) in greys[c]: op[x, y] = (G[t], G[t], G[t], 255)
+
 def simple_frames(im):
     """Pebble PD's window frames in place of Shattered's (its bevelled, tinted frames turn to noise in Pebble's
     few colours): each region is Pebble PD's frame, nine-sliced to Shattered's size."""
@@ -165,5 +195,6 @@ if __name__ == '__main__':
                         o[x, y] = o[x, y][:3] + ((0, 85, 170, 255)[q],)
         if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255))
         if p == 'interfaces/chrome.png': simple_frames(out)
+        if p in ('interfaces/buffs.png', 'interfaces/large_buffs.png'): spread_greys(im, out, 7 if 'large' not in p else 16)
         out.save(dst)
     print(len(ps), 'pictures converted')

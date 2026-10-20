@@ -1,20 +1,23 @@
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/Game.java b/SPD-classes/src/main/java/com/watabou/noosa/Game.java
-index 40183d8..a9322d7 100644
+index 40183d8..bfe7ff9 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/Game.java
 +++ b/SPD-classes/src/main/java/com/watabou/noosa/Game.java
-@@ -213,7 +213,11 @@ public class Game implements ApplicationListener {
+@@ -213,7 +213,14 @@ public class Game implements ApplicationListener {
  		switchScene(c, null);
  	}
  	
 +	/** Pebxel: the watch puts its own screens in place of some of Shattered's. */
 +	public static java.util.function.UnaryOperator<Class<? extends Scene>> pebxelScenes;
 +
++	/** Pebxel: how much faster than real time the game's animations run (the watch: quicker steps and blows). */
++	public static float pebxelSpeed = 1f;
++
  	public static void switchScene(Class<? extends Scene> c, SceneChangeCallback callback) {
 +		if (pebxelScenes != null) c = pebxelScenes.apply(c);
  		instance.sceneClass = c;
  		instance.requestedReset = true;
  		instance.onChange = callback;
-@@ -232,7 +236,8 @@ public class Game implements ApplicationListener {
+@@ -232,7 +239,8 @@ public class Game implements ApplicationListener {
  		if (requestedReset) {
  			requestedReset = false;
  			
@@ -24,6 +27,15 @@ index 40183d8..a9322d7 100644
  			if (requestedScene != null){
  				switchScene();
  			}
+@@ -269,7 +277,7 @@ public class Game implements ApplicationListener {
+ 	protected void update() {
+ 		//game will not process more than 200ms of graphics time per frame
+ 		float frameDelta = Math.min(0.2f, Gdx.graphics.getDeltaTime());
+-		Game.elapsed = Game.timeScale * frameDelta;
++		Game.elapsed = Game.timeScale * frameDelta * pebxelSpeed;
+ 		Game.timeTotal += Game.elapsed;
+ 		
+ 		Game.realTime = TimeUtils.millis();
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java b/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
 index c82cc00..eeaa939 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/RenderedText.java
