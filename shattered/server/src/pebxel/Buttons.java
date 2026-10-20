@@ -63,6 +63,7 @@ public class Buttons {
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
 				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) sim.apply(m);
 			}
+			if (System.getenv("NOSHOT") != null && i < a.length - 1) continue;   // (long scripts: only the last picture)
 			sim.render();
 			sim.save(new File(dir, String.format("%02d-%s.png", shot++, p)), 2);
 		}
