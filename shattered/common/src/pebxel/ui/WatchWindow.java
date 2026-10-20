@@ -64,7 +64,7 @@ public class WatchWindow extends Window {
 
 	/** Pebble PD's rpanel: light edge and grey border cut by R_OUT, black under the body cut by R_IN + 1, the body
 	 *  (black, or grey with tabs) cut by R_IN. Coordinates relative to the screen's centre. */
-	private void roundPanel() {
+	protected void roundPanel() {
 		roundFrame.clear();
 		int ox = pebxel.Screen.w / 2 - contentX, oy = pebxel.Screen.h / 2 - contentY;   // the screen's centre in content coordinates
 		int x0 = -6, y0 = -6, x1 = cw + 6, y1 = ch + 6;
@@ -120,12 +120,58 @@ public class WatchWindow extends Window {
 		return line * lh;
 	}
 
+	// ---- round screens: lines shortened to the circle (Pebble PD's screen text flow, 12 px in from the edge) ----
+
+	/** The x range (content coordinates) a row band y..y+h of content may use inside a circle of radius r. */
+	public int[] chord(int y, int h, int r, int x, int w) {
+		int ox = pebxel.Screen.w / 2 - contentX, oy = pebxel.Screen.h / 2 - contentY;
+		int d = Math.max(Math.abs(y - oy), Math.abs(y + h - oy));
+		int half = d >= r ? 0 : (int) Math.sqrt(r * r - d * d);
+		int a = Math.max(x, ox - half), b = Math.min(x + w, ox + half);
+		return new int[]{a, Math.max(0, b - a)};
+	}
+
+	/** Wrapped text that follows the circle on a round screen (as textBlock elsewhere); returns its height. */
+	public int flowText(Group into, String s, int font, int rgb, int x, int y, int w) {
+		if (!pebxel.Screen.round) return textBlock(into, s, font, rgb, x, y, w);
+		int lh = lineHeight(font);
+		int r = pebxel.Screen.w / 2 - 12;
+		List<List<String[]>> lines = layoutBy(s, font, i -> chord(y + i * lh, lh, r, x, w)[1]);
+		for (int i = 0; i < lines.size(); i++) {
+			int px = chord(y + i * lh, lh, r, x, w)[0];
+			for (String[] seg : lines.get(i)) {
+				WatchText t = new WatchText(font, seg[0], seg[1] != null ? ICTERINE : rgb);
+				WatchHud.place(t, px, y + i * lh, 0, 0);
+				into.add(t);
+				px += WatchText.width(font, seg[0]);
+			}
+		}
+		return lines.size() * lh;
+	}
+
+	/** Height flowText would take. */
+	public int flowHeight(String s, int font, int x, int y, int w) {
+		if (!pebxel.Screen.round) return textHeight(s, font, w);
+		int lh = lineHeight(font);
+		return layoutBy(s, font, i -> chord(y + i * lh, lh, pebxel.Screen.w / 2 - 12, x, w)[1]).size() * lh;
+	}
+
+	/** A button narrowed to the circle (Pebble PD's rfit: radius R_IN - 2 at its farther row). */
+	public void fit(com.shatteredpixel.shatteredpixeldungeon.ui.Button b) {
+		if (!pebxel.Screen.round) return;
+		int[] c = chord((int) b.top(), (int) b.height() - 1, R_IN - 2, (int) b.left(), (int) b.width());
+		b.setRect(c[0], b.top(), c[1], b.height());
+	}
+
 	public static int lineHeight(int font) { return WatchFonts.line(font) - (font <= 2 ? 2 : 0); }
 
 	public static int textHeight(String s, int font, int w) { return layout(s, font, w).size() * lineHeight(font); }
 
 	/** Lines of segments {text, highlighted?} no wider than w. */
-	static List<List<String[]>> layout(String s, int font, int w) {
+	static List<List<String[]>> layout(String s, int font, int w) { return layoutBy(s, font, i -> w); }
+
+	/** As layout, each line i no wider than width(i). */
+	static List<List<String[]>> layoutBy(String s, int font, java.util.function.IntUnaryOperator width) {
 		List<List<String[]>> lines = new ArrayList<>();
 		boolean hl = false;
 		for (String para : s.split("\n", -1)) {
@@ -142,7 +188,7 @@ public class WatchWindow extends Window {
 				if (b.length() > 0) parts.add(new String[]{b.toString(), hl ? "" : null});
 				int ww = 0; for (String[] p : parts) ww += WatchText.width(font, p[0]);
 				int space = cur.isEmpty() ? 0 : WatchText.width(font, " ");
-				if (!cur.isEmpty() && curW + space + ww > w) { lines.add(cur); cur = new ArrayList<>(); curW = 0; space = 0; }
+				if (!cur.isEmpty() && curW + space + ww > width.applyAsInt(lines.size())) { lines.add(cur); cur = new ArrayList<>(); curW = 0; space = 0; }
 				if (space > 0) { cur.add(new String[]{" ", null}); curW += space; }
 				cur.addAll(parts); curW += ww;
 			}

@@ -441,7 +441,14 @@ public final class Link {
 					col = lum < 128 ? 0xFF000000 : 0xFFAAAAAA;
 					dyn[D_A] = 255;
 				}
-				s8(K_RECT); s8(cam); origin(v); size(im.width, im.height);
+				// a big stretch (a wide block made of a 1x1 one) doesn't fit the wire's 16 bits: send it as its size
+				boolean fold = Math.abs(v.scale.x) > 100 || Math.abs(v.scale.y) > 100;
+				s8(K_RECT); s8(cam);
+				if (fold) {
+					s16(Math.round(v.origin.x * v.scale.x * 8)); s16(Math.round(v.origin.y * v.scale.y * 8));
+					size(im.width * v.scale.x, im.height * v.scale.y);
+					dyn[D_SX] = dyn[D_SY] = 256;
+				} else { origin(v); size(im.width, im.height); }
 				s8((col >> 16) & 255); s8((col >> 8) & 255); s8(col & 255); s8(col >>> 24);
 				color(v);
 			} else {

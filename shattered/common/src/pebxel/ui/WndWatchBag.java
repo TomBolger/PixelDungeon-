@@ -35,14 +35,15 @@ public class WndWatchBag extends WatchWindow {
 	private final Group grid = new Group();
 
 	public WndWatchBag(Bag bag, WndBag.ItemSelector selector) {
-		super(WatchWindow.left(W), 7, W, HEAD + ROWS * (CELL_H + 1) - 1, true);
+		super(pebxel.Screen.round ? 0 : WatchWindow.left(W), pebxel.Screen.round ? 0 : 7, pebxel.Screen.round ? pebxel.Screen.w : W,
+				pebxel.Screen.round ? WB : HEAD + ROWS * (CELL_H + 1) - 1, true);
 		this.bag = bag == null ? Dungeon.hero.belongings.backpack : bag;
 		this.selector = selector;
-		below = TAB_H + 2;
+		below = pebxel.Screen.round ? pebxel.Screen.h - WB : TAB_H + 2;
 		resize(cw, ch);
-		place(WatchWindow.left(W), 7 + 2);
+		if (pebxel.Screen.round) place(0, 0); else place(WatchWindow.left(W), 7 + 2);
 		add(grid);
-		build();
+		if (pebxel.Screen.round) buildRound(); else build();
 	}
 
 	private void build() {
@@ -96,6 +97,77 @@ public class WndWatchBag extends WatchWindow {
 		}
 	}
 
+	// ---- Gabbro: the backpack fills the screen in centred rows of 32 px cells (Pebble PD's round bag) ----
+	static final int WB = 188;
+	static int rowY(int r) { return 15 + 33 * r; }
+	static int cellX(int col, int n) { return 130 - (33 * n - 1) / 2 + 33 * col; }
+
+	/** The bag's frame: light edge, grey, black, grey, each clipped to a circle (radius 130, 128, 125, 124). */
+	@Override
+	protected void roundPanel() {
+		roundFrame.clear();
+		int y0 = rowY(0) + 4, w = pebxel.Screen.w;
+		roundFrame.add(Shape.cut(130, 130, 130, -130, y0 - 130, w, WB - y0, 0xAAAAAA));
+		roundFrame.add(Shape.cut(130, 130, 128, -130, y0 + 1 - 130, w, WB - y0 - 2, 0x555555));
+		roundFrame.add(Shape.cut(130, 130, 125, -130, y0 + 5 - 130, w, WB - y0 - 10, 0x000000));
+		roundFrame.add(Shape.cut(130, 130, 124, -130, y0 + 6 - 130, w, WB - y0 - 12, 0x555555));
+	}
+
+	private void buildRound() {
+		grid.clear();
+		String title = selector != null ? selector.textPrompt() : bag == Dungeon.hero.belongings.backpack ? "Backpack" : Messages(bag);
+		if (selector != null) {
+			List<String> ls = WatchHud.wrap(title, WatchText.G14, 150);
+			for (int i = 0; i < Math.min(2, ls.size()); i++) { WatchText t = new WatchText(WatchText.G14, ls.get(i), ICTERINE); WatchHud.place(t, 55, rowY(0) - 6 + i * 13, 150, 1); grid.add(t); }
+		} else {
+			WatchText t = new WatchText(WatchText.G14B, title, ICTERINE); WatchHud.place(t, 50, rowY(0) + 10, 160, 1); grid.add(t);
+		}
+		List<Object> cells = contents();
+		int[] perRow = {5, 7, 7, 6};
+		int i = 0;
+		for (int r = 0; r < perRow.length; r++) {
+			int n = perRow[r], y = rowY(r + 1);
+			grid.add(WatchHud.block(0x000000, cellX(0, n) - 2, y - 2, 33 * n + 3, 36));
+			for (int c = 0; c < n; c++, i++) cell(cellX(c, n), y, 32, 32, i < cells.size() ? cells.get(i) : null);
+		}
+		// the bags: bubbles hanging under the frame
+		Belongings b = Dungeon.hero.belongings;
+		List<Bag> bags = new ArrayList<>();
+		bags.add(b.backpack);
+		for (Item it : b.backpack.items) if (it instanceof Bag) bags.add((Bag) it);
+		int n = bags.size(), x0 = Math.min(130 - 18 * (n - 1), 184 - 36 * (n - 1));
+		for (int k = 0; k < n; k++) {
+			final Bag bg = bags.get(k);
+			int cx = x0 + 36 * k;
+			grid.add(Shape.disc(cx, 200, 18, 0x000000)); grid.add(Shape.disc(cx, 200, 17, bg == bag ? 0xFFFFFF : 0xAAAAAA)); grid.add(Shape.disc(cx, 200, 15, 0x555555));
+			int pi = bg == b.backpack ? 0 : bg instanceof VelvetPouch ? 1 : bg instanceof ScrollHolder ? 2 : bg instanceof MagicalHolster ? 3 : -1;
+			if (pi >= 0) { Image ic = PdArt.image("icons", 17 + 10 * pi, 0, 10, 10, 2); ic.x = cx - 10; ic.y = 190; grid.add(ic); }
+			else { ItemSprite sp = new ItemSprite(bg); sp.x = cx - 8; sp.y = 192; grid.add(sp); }
+			Button tb = new Button() { @Override protected void onClick() { if (bg != bag) { hide(); GameScene.show(new WndWatchBag(bg, selector)); } } };
+			tb.setRect(cx - 17, 183, 34, 34); grid.add(tb);
+		}
+		// Exit: a red bubble at the bottom right
+		grid.add(Shape.disc(213, 213, 23, 0x000000)); grid.add(Shape.disc(213, 213, 22, 0xFF5500)); grid.add(Shape.disc(213, 213, 20, 0xAA0000));
+		Image ex = PdArt.image("menu_icons", 128, 0, 16, 16, 2); ex.x = 195; ex.y = 195; grid.add(ex);
+		Button bt = new Button() { @Override protected void onClick() { onBackPressed(); } };
+		bt.setRect(191, 191, 44, 44); grid.add(bt);
+	}
+
+	/** What the cells hold: the worn things (or their places), then the bag's items. */
+	private List<Object> contents() {
+		Belongings b = Dungeon.hero.belongings;
+		List<Object> cells = new ArrayList<>();
+		cells.add(b.weapon != null ? b.weapon : (Object) ItemSpriteSheet.WEAPON_HOLDER);
+		cells.add(b.armor != null ? b.armor : (Object) ItemSpriteSheet.ARMOR_HOLDER);
+		cells.add(b.artifact != null ? b.artifact : (Object) ItemSpriteSheet.ARTIFACT_HOLDER);
+		cells.add(b.misc != null ? b.misc : (Object) ItemSpriteSheet.SOMETHING);
+		cells.add(b.ring != null ? b.ring : (Object) ItemSpriteSheet.RING_HOLDER);
+		if (bag != b.backpack) cells.add(bag);
+		else if (b.secondWep != null) cells.add(b.secondWep);
+		for (Item it : bag.items) if (!(it instanceof Bag)) cells.add(it);
+		return cells;
+	}
+
 	private static String Messages(Bag b) { return com.shatteredpixel.shatteredpixeldungeon.messages.Messages.titleCase(b.name()); }
 
 	private void exitCell(int x, int y) {
@@ -105,7 +177,9 @@ public class WndWatchBag extends WatchWindow {
 		bt.setRect(x, y, CELL_W, CELL_H); grid.add(bt);
 	}
 
-	private void cell(int x, int y, Object o) {
+	private void cell(int x, int y, Object o) { cell(x, y, CELL_W, CELL_H, o); }
+
+	private void cell(int x, int y, int CELL_W, int CELL_H, Object o) {
 		Item item = o instanceof Item ? (Item) o : null;
 		boolean usable = item != null && (selector == null || selector.itemSelectable(item));
 		grid.add(WatchHud.block(0x555555, x, y, CELL_W, CELL_H));

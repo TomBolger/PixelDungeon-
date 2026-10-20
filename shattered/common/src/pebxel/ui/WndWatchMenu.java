@@ -39,7 +39,7 @@ public class WndWatchMenu extends WatchWindow {
 		} else {
 			below = TAB_H;
 			resize(W, HEAD + 2 * ROW + GAP);
-			place(WatchWindow.left(W), (WatchHud.H - ch - TAB_H) / 2 + 2);
+			place(WatchWindow.left(W), (WatchHud.H - ch - TAB_H) / 2 + (pebxel.Screen.round ? 0 : 2));
 			show(lastPage);
 		}
 	}
@@ -78,12 +78,13 @@ public class WndWatchMenu extends WatchWindow {
 		// the tabs under the window: the floppy disk (game), the quill (records)
 		for (int k = 0; k < 2; k++) {
 			final int kk = k;
-			int x = -4 + k * (TAB_W + 1), y = ch + 7;   // from the frame's bottom line
-			tabArt(tabs, x, y - 1, TAB_W, TAB_H, k == p);
+			int tw = pebxel.Screen.round ? 50 : TAB_W;
+			int x = pebxel.Screen.round ? 54 + 51 * k - contentX : -4 + k * (TAB_W + 1), y = ch + 7;   // from the frame's bottom line
+			tabArt(tabs, x, y - 1, tw, TAB_H, k == p);
 			Image ic = PdArt.image("menu_icons", k * 16, 0, 16, 16, 2);
-			ic.x = x + (TAB_W - 32) / 2; ic.y = y + (k == p ? 3 : 5); tabs.add(ic);
+			ic.x = x + (tw - 32) / 2; ic.y = y + (k == p ? 3 : 5) + (pebxel.Screen.round ? 1 : 0); tabs.add(ic);
 			Button b = new Button() { @Override protected void onClick() { show(kk); } };
-			b.setRect(x, y, TAB_W, TAB_H - 4); tabs.add(b);
+			b.setRect(x, y, tw, TAB_H - 4); tabs.add(b);
 		}
 	}
 
@@ -91,6 +92,7 @@ public class WndWatchMenu extends WatchWindow {
 		WatchButton b = new WatchButton(label) { @Override protected void onClick() { r.run(); } };
 		b.labelTop = 35 - 2;
 		b.setRect(x, y, w, h);
+		fit(b);
 		b.icon(PdArt.image("menu_icons", icon * 16, 0, 16, 16, 2));
 		b.label(label);
 		page.add(b);
