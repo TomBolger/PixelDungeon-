@@ -98,14 +98,15 @@ public class WndWatchItem extends WatchWindow {
 		int tx = round ? 5 : 2, tw = w - 2 * tx;
 		int th = flowHeight(info, WatchText.G14, tx, head + 2, tw);
 		List<String> pages = new ArrayList<>();
-		if (round) {
-			// keep the window inside the circle's middle: a long description comes in pages (as in Pebble PD), turned
-			// by pressing it
-			int rows = (acts().size() + 1) / 2, max = 186 - head - 2 - rows * (BTN_H + GAP);
-			pages = pages(info, max, tx, head + 2, tw);
+		{
+			// keep the window on the screen (round: inside the circle's middle) with its buttons in sight: a long
+			// description comes in pages (as in Pebble PD), turned by pressing it
+			int rows = (acts().size() + 1) / 2;
+			int max = (round ? 186 : WatchHud.H - 14 - 6) - head - 2 - rows * (BTN_H + GAP) - (round ? 0 : 4);
+			pages = pages(info, max - 8, tx, head + 2, tw);
 			int th0 = 0;
 			for (String pg : pages) th0 = Math.max(th0, flowHeight(pg, WatchText.G14, tx, head + 2, tw));
-			th = pages.size() > 1 ? th0 + 4 : th0;   // (room under the last line for the page mark and the focus box)
+			th = pages.size() > 1 ? th0 + 8 : th0;   // (a strip under the last line for the page mark)
 			if (pages.size() > 1) {
 				page %= pages.size();
 				info = pages.get(page);
@@ -122,16 +123,13 @@ public class WndWatchItem extends WatchWindow {
 			};
 			turn.setRect(0, head, w, th + 4);
 			body.add(turn);
-			int[] c = chord(head + th - 12, 12, R_IN - 4, 0, w);
-			int ax = c[0] + c[1] - 12, ay = head + th - 8;
+			int[] c = round ? chord(head + th - 12, 12, R_IN - 4, 0, w) : new int[]{0, w};
+			int ax = c[0] + c[1] - 12, ay = head + th - 4;
 			for (int k = 0; k < 4; k++) {
 				// a small triangle: pointing down while there's more, up on the last page (back to the start)
 				int row = page < n - 1 ? k : 3 - k;
 				body.add(WatchHud.block(WHITE, ax + row, ay + k, 7 - 2 * row, 1));
 			}
-			WatchText num = new WatchText(WatchText.G09, (page + 1) + "/" + n, LIGHT);
-			WatchHud.place(num, c[0] + c[1] - 40, head + th - 9, 0, 0);
-			body.add(num);
 		}
 		y = head + th + 4 + GAP;
 		// the actions
