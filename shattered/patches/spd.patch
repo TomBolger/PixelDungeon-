@@ -242,6 +242,19 @@ index 1c02505..9254077 100644
  		if (hero != null && (hero.isAlive() || WndResurrect.instance != null)) {
  			
  			Actor.fixTime();
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java
+index ff17e01..09eadfe 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java
+@@ -152,6 +152,8 @@ public class AlchemyScene extends PixelScene {
+ 		im.scale.x = h/5f;
+ 		im.scale.y = w;
+ 		add(im);
++		//pebxel: a plain black ground on the watch (its few colours turn the shaded water into a busy checker under the text)
++		water.visible = im.visible = false;
+ 
+ 		w -= insets.left + insets.right;
+ 		h -= insets.top + insets.bottom;
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/CellSelector.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/CellSelector.java
 index 1debaec..6c12a86 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/CellSelector.java
