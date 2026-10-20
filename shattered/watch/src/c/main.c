@@ -121,7 +121,7 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
     // how late did this arrive? play everything at least that late (coming down slowly when it gets quicker)
     int32_t want = (int32_t)(now - stamp_at(data)) + MARGIN;
     if (!s_have_off || want > s_off) s_off = want;
-    else s_off -= (s_off - want) / 8;
+    else s_off -= (s_off - want) / 3;   // (quickly back down after a slow message: the delay is what players feel)
     s_have_off = true;
   }
   Msg *m = malloc(sizeof(Msg) + len);
@@ -320,6 +320,8 @@ static void init(void) {
   if (touch_service_is_enabled()) touch_service_subscribe(touch, NULL);
   uint32_t in = app_message_inbox_size_maximum(); if (in > 8200) in = 8200;
   app_message_open(in, 64);
+  // the game streams from the phone: the quick radio setting cuts each round trip (at some battery cost while open)
+  app_comm_set_sniff_interval(SNIFF_INTERVAL_REDUCED);
   app_timer_register(300, hello, NULL);
 }
 

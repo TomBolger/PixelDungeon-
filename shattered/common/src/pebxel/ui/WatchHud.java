@@ -149,6 +149,13 @@ public class WatchHud extends Group {
 
 	/** Pebble PD's bubble: a round frame (black edge, a ring, the fill) for the box (x, y, d, d), grown outward
 	 *  past the rim; returns where its picture goes (the box moved most of the way it grew). */
+	/** Where bubble() puts a bubble's box (pushed out towards the rim). */
+	static int[] bubbleRect(int x, int y, int d) {
+		int r = d / 2, cx = x + r, cy = y + r, dx = cx - 130, dy = cy - 130, dist = (int) Math.sqrt(dx * dx + dy * dy), o = r / 3;
+		if (dist > 40) { o -= 2; x += dx * o / dist; y += dy * o / dist; }
+		return new int[]{x, y, d, d};
+	}
+
 	static int[] bubble(Group g, int x, int y, int d, int fill, int ring) {
 		int r = d / 2, cx = x + r, cy = y + r, dx = cx - 130, dy = cy - 130, dist = (int) Math.sqrt(dx * dx + dy * dy), o = r / 3;
 		if (dist > 40) { cx += dx * o / dist; cy += dy * o / dist; o -= 2; x += dx * o / dist; y += dy * o / dist; r += r / 3; }
@@ -346,7 +353,6 @@ public class WatchHud extends Group {
 	}
 
 	// ---- the tags ----
-	private String tagKey = "";
 
 	private static int[] ctag(int k) {
 		if (round) { int[] CX = {238, 246, 234}, CY = {87, 134, 181}; return new int[]{CX[k] - 13, CY[k] - 13, 26, 26}; }
@@ -361,63 +367,83 @@ public class WatchHud extends Group {
 		return new int[]{-4, y, 40, which == 1 ? 30 : 36};
 	}
 
+	// each tag is its own group, rebuilt only when what it shows changes (not as the target moves about: every
+	// rebuilt picture is radio time)
+	private final Group[] tagGroups = new Group[4];
+	private final String[] tagKeys = {"", "", "", ""};
+	private Group into;
+
+	private boolean tagChanged(int slot, String key) {
+		if (tagGroups[slot] == null) { tagGroups[slot] = new Group(); tags.add(tagGroups[slot]); }
+		if (key.equals(tagKeys[slot])) return false;
+		tagKeys[slot] = key; tagGroups[slot].clear(); into = tagGroups[slot];
+		return true;
+	}
+
 	private void refreshTags(Hero h) {
 		boolean alive = h.isAlive();
 		int kind = hooks.targetKind(), cell = hooks.targetCell(), n = hooks.targetCount(), z = hooks.mapZoomLevel();
 		Heap under = Dungeon.level.heaps.get(h.pos);
 		boolean loot = alive && under != null && !(cell == h.pos && kind == 2);
 		Item weapon = h.belongings.weapon();
-		String k = alive + "/" + kind + "/" + cell + "/" + n + "/" + z + "/" + loot + "/" + (under != null ? under.peek().image() : 0) + "/" + (weapon == null ? 0 : weapon.image());
-		if (cell >= 0 && kind == 2 && Dungeon.level.heaps.get(cell) != null) k += "/" + Dungeon.level.heaps.get(cell).peek().image();
-		if (k.equals(tagKey)) return;
-		tagKey = k;
-		tags.clear();
-		for (HudButton b : tagButtons) { b.visible = b.active = false; }
-		if (!alive) return;
+		Heap there = cell >= 0 && kind == 2 ? Dungeon.level.heaps.get(cell) : null;
 		// zoom (Up): the glass and a pip per level
 		int[] a = ctag(0);
-		tag(a, "tag_red"); tagButton(0, a);
-		Image glass = PdArt.image("tag_red", 16, 1, 12, 12, 1); glass.x = a[0] + 3; glass.y = a[1] + 6; tags.add(glass);
-		for (int i = 0; i <= z; i++) tags.add(block(YELLOW, a[0] + 17, a[1] + 17 - i * 5, 3, 3));
-		// the next target (Down)
-		if (n > 1) {
-			a = ctag(2); tag(a, "tag_red"); tagButton(2, a);
-			Image t = PdArt.image("icons", 67, 0, 16, 16, 1); t.x = a[0] + 2 + (a[2] - 16) / 2; t.y = a[1] + (a[3] - 16) / 2; tags.add(t);
-		}
-		// what Select does: attack (red, the weapon), pick up (blue, the thing), go there (pale, the walk arrow)
-		if (cell >= 0 && kind > 0) {
-			a = ctag(1); tagButton(1, a);
-			if (kind == 1) {
+		if (tagChanged(0, alive + "/" + z)) {
+			if (alive) {
 				tag(a, "tag_red");
-				if (weapon != null) { ItemSprite s = new ItemSprite(weapon); s.x = a[0] + 2 + (a[2] - 16) / 2; s.y = a[1] + (a[3] - 16) / 2; tags.add(s); }
-			} else if (kind == 2 && Dungeon.level.heaps.get(cell) != null) {
-				tag(a, "tag_blue");
-				ItemSprite s = new ItemSprite(Dungeon.level.heaps.get(cell)); s.x = a[0] + 2 + (a[2] - 16) / 2; s.y = a[1] + (a[3] - 16) / 2; tags.add(s);
-			} else {
-				tag(a, "tag_white");
-				Image arrow = PdArt.image("icons", 83, 0, 12, 11, 1); arrow.x = a[0] + 2 + (a[2] - 12) / 2; arrow.y = a[1] + (a[3] - 11) / 2; tags.add(arrow);
+				Image glass = PdArt.image("tag_red", 16, 1, 12, 12, 1); glass.x = a[0] + 3; glass.y = a[1] + 6; into.add(glass);
+				for (int i = 0; i <= z; i++) into.add(block(YELLOW, a[0] + 17, a[1] + 17 - i * 5, 3, 3));
 			}
 		}
-		// what lies underfoot (left edge)
-		if (loot) {
-			a = tagRect(1, true); tag(a, "tag_blue"); tagButton(3, a);
-			ItemSprite s = new ItemSprite(under); s.scale.set(2); s.x = a[0] + (a[2] - 32) / 2 + 2; s.y = a[1] + (a[3] - 32) / 2; tags.add(s);
+		if (alive) tagButton(0, ctag(0)); else tagButtons[0].visible = tagButtons[0].active = false;
+		// the next target (Down)
+		boolean next = alive && n > 1;
+		if (tagChanged(2, "" + next) && next) {
+			a = ctag(2); tag(a, "tag_red");
+			Image t = PdArt.image("icons", 67, 0, 16, 16, 1); t.x = a[0] + 2 + (a[2] - 16) / 2; t.y = a[1] + (a[3] - 16) / 2; into.add(t);
 		}
+		if (next) tagButton(2, ctag(2)); else tagButtons[2].visible = tagButtons[2].active = false;
+		// what Select does: attack (red, the weapon), pick up (blue, the thing), go there (pale, the walk arrow)
+		boolean act = alive && cell >= 0 && kind > 0;
+		String actKey = !act ? "-" : kind == 1 ? "1/" + (weapon == null ? 0 : weapon.image()) : kind == 2 && there != null ? "2/" + there.peek().image() : "3";
+		if (tagChanged(1, actKey) && act) {
+			a = ctag(1);
+			if (kind == 1) {
+				tag(a, "tag_red");
+				if (weapon != null) { ItemSprite s = new ItemSprite(weapon); s.x = a[0] + 2 + (a[2] - 16) / 2; s.y = a[1] + (a[3] - 16) / 2; into.add(s); }
+			} else if (kind == 2 && there != null) {
+				tag(a, "tag_blue");
+				ItemSprite s = new ItemSprite(there); s.x = a[0] + 2 + (a[2] - 16) / 2; s.y = a[1] + (a[3] - 16) / 2; into.add(s);
+			} else {
+				tag(a, "tag_white");
+				Image arrow = PdArt.image("icons", 83, 0, 12, 11, 1); arrow.x = a[0] + 2 + (a[2] - 12) / 2; arrow.y = a[1] + (a[3] - 11) / 2; into.add(arrow);
+			}
+		}
+		if (act) tagButton(1, ctag(1)); else tagButtons[1].visible = tagButtons[1].active = false;
+		// what lies underfoot (left edge)
+		if (tagChanged(3, loot ? "" + under.peek().image() : "-") && loot) {
+			a = tagRect(1, true); tag(a, "tag_blue");
+			ItemSprite s = new ItemSprite(under); s.scale.set(2); s.x = a[0] + (a[2] - 32) / 2 + 2; s.y = a[1] + (a[3] - 32) / 2; into.add(s);
+		}
+		if (loot) tagButton(3, tagRect(1, true)); else tagButtons[3].visible = tagButtons[3].active = false;
 	}
 
 	/** A tag: PD's 16x14 tag art stretched, reaching 4 px past its rectangle (off the screen's edge). */
 	private void tag(int[] a, String art) {
 		if (round) {   // a bubble: red, blue or pale
-			int[] m = bubble(tags, a[0], a[1], a[2], art.equals("tag_red") ? 0xAA0000 : art.equals("tag_blue") ? 0x0055AA : 0xAAAAAA, art.equals("tag_red") ? 0xFF5500 : 0xFFFFFF);
+			int[] m = bubble(into, a[0], a[1], a[2], art.equals("tag_red") ? 0xAA0000 : art.equals("tag_blue") ? 0x0055AA : 0xAAAAAA, art.equals("tag_red") ? 0xFF5500 : 0xFFFFFF);
 			a[0] = m[0] - 2; a[1] = m[1];
 			return;
 		}
 		NinePatch n = new NinePatch(PdArt.tex(art), 0, 0, 16, 14, 3);
 		n.x = a[0]; n.y = a[1]; n.size(a[2] + 4, a[3]);
-		tags.add(n);
+		into.add(n);
 	}
 
 	private void tagButton(int k, int[] a) {
+		a = a.clone();
+		if (round) { int[] m = bubbleRect(a[0], a[1], a[2]); a[0] = m[0] - 2; a[1] = m[1]; }   // (where tag() puts it)
 		HudButton b = tagButtons[k];
 		b.setRect(Math.max(0, a[0]), a[1], a[2], a[3]); b.visible = b.active = true;
 	}

@@ -238,10 +238,12 @@ public final class Link {
 	private boolean drifted(Gizmo g, Obj o, float[] dyn) {
 		float t = now - o.sentAt;
 		if (o.until > 0) t = Math.min(t, o.until);
+		// specks of dust, blood and sparks live a moment: a few pixels off isn't worth radio time
+		float loose = g.parent instanceof com.watabou.noosa.particles.Emitter ? 6 : 1;
 		for (int i = 0; i < N; i++) {
 			float guess = o.dyn[i] + o.vel[i] * t;
 			if (i == D_A) guess = Math.max(0, Math.min(255, guess));
-			boolean off = i == D_A ? Math.round(guess / 85) != Math.round(dyn[i] / 85) : Math.abs(guess - dyn[i]) > TOL[i];
+			boolean off = i == D_A ? Math.abs(guess - dyn[i]) > 85 * loose / 2 && Math.round(guess / 85) != Math.round(dyn[i] / 85) : Math.abs(guess - dyn[i]) > TOL[i] * loose;
 			if (off) {
 				if (System.getenv("DRIFT") != null && g.getClass().getSimpleName().equals(System.getenv("DRIFT")))
 					System.out.printf("drift %s field %d guess %.0f real %.0f (sent %.0f vel %.0f t %.3f)%n", g.getClass().getSimpleName(), i, guess, dyn[i], o.dyn[i], o.vel[i], t);
@@ -759,8 +761,10 @@ public final class Link {
 	// ---- stats ----
 
 	public final TreeMap<String, long[]> stats = new TreeMap<>();
+	private static final boolean STAT_PARENTS = System.getenv("STAT_PARENTS") != null;
 	private void stat(Gizmo g, String what, int bytes) {
 		String k = what + " " + g.getClass().getName().replaceAll(".*\\.", "");
+		if (STAT_PARENTS && g.parent != null) k += " in " + g.parent.getClass().getName().replaceAll(".*\\.", "") + (g.parent.parent != null ? " < " + g.parent.parent.getClass().getName().replaceAll(".*\\.", "") : "");
 		stats.computeIfAbsent(k, x -> new long[2]); stats.get(k)[0]++; stats.get(k)[1] += bytes;
 	}
 
