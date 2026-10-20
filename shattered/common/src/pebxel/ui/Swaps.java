@@ -43,6 +43,7 @@ public final class Swaps {
 		if (c == com.shatteredpixel.shatteredpixeldungeon.scenes.TitleScene.class) return WatchTitleScene.class;
 		if (c == com.shatteredpixel.shatteredpixeldungeon.scenes.WelcomeScene.class) return WatchWelcome.class;
 		if (c == com.shatteredpixel.shatteredpixeldungeon.scenes.HeroSelectScene.class) return WatchHeroSelect.class;
+		if (c == com.shatteredpixel.shatteredpixeldungeon.scenes.RankingsScene.class) return WatchRankings.class;
 		return c;
 	}
 
