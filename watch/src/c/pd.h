@@ -362,7 +362,9 @@ extern uint8_t g_sound;
 extern uint8_t g_assist;                    // 0.80 (owner): one Assist with switches: bit 0 on (else Off: taps move, Down the enemies, else the
 #define AS_ON (g_assist & 1)                // buttons), bit 1 use items (the bot's hands), bit 2 off-screen targets (the camera swoops to them)
 #define AS_ITEMS ((g_assist & 3) == 3)
-#define AS_OFFCAM ((g_assist & 5) == 5)
+#define AS_FAR ((g_assist & 5) == 5)              // the setting (1.0: long Up locks the camera on the hero: Far rests, as Near)
+#define AS_OFFCAM (AS_FAR && !g_zlock)
+extern bool g_zlock;
 #define ASSIST_NEW 3                        // a new player's: on, with items, on screen
 #ifdef TEST_BUILD
 #define ASSIST_DEF 2                        // (the 0.51-0.79 levels' default, for reading an old setting)

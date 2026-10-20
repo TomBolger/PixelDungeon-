@@ -210,7 +210,7 @@ static int cam_y(void) { return s_vis_hero.y + cam_oy(); }
 static bool cam_free(void) { return s_cam_dx || s_cam_dy; }
 static void cam_glide(void) { s_glide_x = cam_ox(); s_glide_y = cam_oy(); s_glide_t0 = now_ms() | 1; }
 // 0.99 (owner): a zoom from closest to farthest (or back) shows the middle one for a moment on the way: a hint of a zoom
-static int8_t s_zdir = 1, s_zto = -1; static bool s_zman, s_zlock; static uint32_t s_zat;   // Up's way; the zoom on its way to; Up's zoom held (this turn / locked)
+static int8_t s_zdir = 1, s_zto = -1; static bool s_zman; bool g_zlock; static uint32_t s_zat;   // Up's way; the zoom on its way to; Up's zoom held this turn; the camera locked on the hero
 static void zoom_go(int z) { s_zto = -1; if (abs(z - s_zoom) == 2) { s_zto = z; s_zat = now_ms(); z = 1; } s_zoom = z; }
 static void cam_center(void) { if (cam_free()) cam_glide(); s_cam_dx = s_cam_dy = 0; zoom_go(s_zuser); }
 static void pan_to(int dx, int dy);
@@ -313,11 +313,11 @@ static const uint8_t VIEW[3][4] = { { 12, 8, 8, 9 }, { 6, 4, 4, 4 }, { 3, 2, 2, 
 static int16_t s_tg = -1, s_tg0 = -1; static uint8_t s_tgk, s_tgu, s_tgn, s_tgi, s_tgk0;   // the chosen target's cell and kind (an enemy: its uid)
 static void tg_refresh(int dir) {                 // keep the chosen target while it's in the list, else the best; dir: +1 next, -1 back
   static int32_t s_now = -1, s_t0; static int16_t s_pos; static int8_t s_z;   // the list only changes when time passes, the hero moves or the zoom changes
-  if (!dir && G.now == s_now && G.hero.pos == s_pos && (s_zuser == s_z || AS_OFFCAM)) return;   // (0.99: Max: a zoom keeps the target)
+  if (!dir && G.now == s_now && G.hero.pos == s_pos && (s_z == s_zuser + 4 * g_zlock || (AS_OFFCAM && s_z < 4))) return;   // (0.99: Max: a zoom keeps the target; 1.0: a lock or unlock: afresh)
   if (G.hero.pos != s_pos) g_from = s_t0 == G.level_t0 ? s_pos : -1;   // 0.39: the way the hero went: the targets ahead first, then clockwise (0.47: not from the last floor)
   if (s_t0 != G.level_t0) { g_goal = -1; memset(g_drop, 0xFF, sizeof g_drop); g_ovr.on &= ~4; }   // 0.77: a new floor: no goal, drops or skipped grass from the last
   s_t0 = G.level_t0;
-  s_now = G.now; s_pos = G.hero.pos; s_z = s_zuser;   // (0.93: the player's zoom, not Max's)
+  s_now = G.now; s_pos = G.hero.pos; s_z = s_zuser + 4 * g_zlock;   // (0.93: the player's zoom, not Max's)
   if (s_walking && !dir) { s_now = -1; return; }     // 0.43 (audio): not on every step of a walk (Select/taps stop it first): when it ends
   memcpy(g_view, VIEW[s_zoom], 4);                   // 0.36: only what's on screen
   if (AS_OFFCAM) memset(g_view, 0, 4);              // 0.75: Max (0.80: off-screen targets): anywhere
@@ -334,7 +334,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   else if (cur >= 0 && !AS_ON) i = cur;  // 0.75 Off: the enemy chosen stays chosen (PD's last target)
   s_tgn = n; s_tgi = i; s_tg = n ? c[i] : -1; s_tgk = n ? k[i] : 0; s_tgk0 = n ? k[0] : 0; s_tg0 = n ? c[0] : -1;
   if (n && s_tgk == TK_ENEMY) { s_tgu = G.mobs[mob_at(s_tg)].uid; G.last_target = s_tg; }
-  if (!s_zlock) s_zman = false;                     // 0.99: a turn or another target: Max picks the zoom again (unless locked)
+  s_zman = false;                                   // 0.99: a turn or another target: Max picks the zoom again
   if (AS_OFFCAM) cam_to(s_tg);              // 0.76: Max: the camera on whatever is chosen, cycled to or not
 }
 void hero_spend(int t); void process(void);
@@ -737,7 +737,7 @@ static void menu_select(int a) {                   // the game menu's buttons (u
     case A_SAVE: ui_win_free(); game_save(); to_title(); return;   // the window's code out of the way of the save's
     case A_CATALOG: case A_JOURNAL: s_scene = SC_CATALOG; s_sheet_tab = a == A_JOURNAL ? 2 : 0; s_sel = 0; break;   // WndCatalogus / WndJournal
     case A_MUSIC: snd_set(g_sound ^ SOUND_MUSIC); break; case A_SOUND: snd_cycle(); break;   // stays open
-    case A_ASSIST: g_assist = !AS_ON ? (g_assist & 2) | 1 : !(g_assist & 4) ? g_assist | 4 : g_assist & ~5; zoom_save(); break;   // 0.81 (owner): near, far, off
+    case A_ASSIST: g_assist = !AS_ON ? (g_assist & 2) | 1 : !(g_assist & 4) ? g_assist | 4 : g_assist & ~5; g_zlock = false; zoom_save(); break;   // 0.81 (owner): near, far, off
     case A_ITEMS: g_assist ^= 2; zoom_save(); break;
     case A_NEW: start_game(false); return;
     case A_RANKINGS: case A_MAIN: to_title(); if (a == A_MAIN) return; s_scene = SC_RANKINGS; break;
@@ -926,7 +926,7 @@ static void zoom_save(void) { persist_write_int(KEY_ZOOM, s_zuser | (g_assist | 
 static int zoom_now(void) { return s_zto >= 0 ? s_zto : s_zoom; }
 static void zoom_apply(void) { zoom_save(); if (AS_OFFCAM && s_scene == SC_GAME) cam_to(s_tg); else zoom_go(s_zuser); redraw(); }
 static void zoom_cycle(void) {                     // combat: Up (0.99 (owner): far, middle, close, middle, far...: from the zoom shown;
-  int z = zoom_now(); s_zlock = false; s_zman = true;   // Max: that zoom, on the target, this turn; locked: unlocked)
+  int z = zoom_now(); g_zlock = false; s_zman = true;   // Max: that zoom, on the target, this turn; locked: unlocked)
   if (!z) s_zdir = 1; else if (z == 2) s_zdir = -1;
   s_zuser = z + s_zdir; zoom_apply();
 }
@@ -1104,8 +1104,9 @@ static void click_down(ClickRecognizerRef r, void *c) { button(BUTTON_ID_DOWN); 
 static void long_sel(ClickRecognizerRef r, void *c) { woke(); if (s_scene == SC_GAME && s_hl >= 0) hl_press(true); else if (s_scene == SC_GAME) { s_walking = false; open_bag(-1); } else if (s_scene == SC_BAG) ui_input(-3, 0, 0); }   // the bag: move an item
 static void long_down(ClickRecognizerRef r, void *c) { woke(); if (s_scene == SC_GAME || s_scene == SC_TARGET) { s_walking = false; combat_cycle(-1); } }   // 0.26: the target before
 static void long_up(ClickRecognizerRef r, void *c) { woke(); if (s_scene != SC_GAME) return; s_walking = false;
-  if (AS_OFFCAM) {                                   // 0.99 (owner): Max: the zoom locked / unlocked (the menu: Back's buttons, or a tap)
-    s_zman = s_zlock = !s_zlock; s_zuser = zoom_now(); ui_log(txt(s_zlock ? TX_L_ZLOCK : TX_L_ZFREE), C_INFO); zoom_apply(); return; }
+  if (AS_FAR) {                                      // 0.99 (owner): Max: the zoom locked / unlocked (the menu: Back's buttons, or a tap)
+    if ((g_zlock = !g_zlock)) { s_zuser = zoom_now(); zoom_save(); cam_center(); redraw(); } else zoom_apply();   // 1.0 (owner): locked: the camera on the hero at this
+    return; }                                        // zoom, the targets on screen (Far resting, as Near); again (or Up): Far again
   mreg_spare(); s_scene = SC_MENU; s_sel = 0; redraw(); }
 static void click_back(ClickRecognizerRef r, void *c) { woke();
   if (s_scene == SC_OPTIONS && G.hero.HP <= 0) return;   // WndResurrect: no way out but its buttons
@@ -1527,8 +1528,12 @@ after_toolbar:;
   if (combat()) {                                   // the buttons' tags (0.24: slim, pictures at 1x), beside the buttons that work them
     GRect a = ctag(0);                                // zoom: the search glass and a pip per level
     a = tag_bg(a, &s_tag);
-    blit(&s_tag, 16, 1, 12, 12, a.origin.x + 3, a.origin.y + 6, 1);   // 0.60: the glass without the button face (tag_red.png)
-    for (int i = 0; i <= s_zoom; i++) blit_fill(a.origin.x + 17, a.origin.y + 17 - i * 5, 3, 3, s_zlock ? ARGB(GColorWhite) : ARGB(GColorIcterine));   // (0.99: white: locked)
+    int lx = a.origin.x + 3, ly = a.origin.y + 6;
+    if (g_zlock) {                                   // 1.0 (owner): a padlock while the camera is locked on the hero
+      blit_fill(lx + 3, ly, 6, 2, ARGB(GColorLightGray)); blit_fill(lx + 2, ly + 1, 2, 5, ARGB(GColorLightGray)); blit_fill(lx + 8, ly + 1, 2, 5, ARGB(GColorLightGray));
+      blit_fill(lx + 1, ly + 5, 10, 7, ARGB(GColorIcterine)); blit_fill(lx + 5, ly + 7, 2, 3, ARGB(GColorBlack));
+    } else blit(&s_tag, 16, 1, 12, 12, lx, ly, 1);   // 0.60: the glass without the button face (tag_red.png)
+    for (int i = 0; i <= s_zoom; i++) blit_fill(a.origin.x + 17, a.origin.y + 17 - i * 5, 3, 3, ARGB(GColorIcterine));
   }
   #define AT1(a, s) AT1X(a, s), (a).origin.y + ((a).size.h - (s)) / 2   // a picture s px wide, centred
   #define AT1X(a, s) ((a).origin.x + PBL_IF_ROUND_ELSE(0, 2) + ((a).size.w - (s)) / 2)

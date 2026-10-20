@@ -158,7 +158,7 @@ static void draw_menu(GContext *ctx) {
     GRect b = m_tile(i); int a = m_act(i), ix = b.origin.x + (b.size.w - 32) / 2, iy = b.origin.y + 3;
     red_button(b, m_first() + i == s_sel);
     if (a == A_ASSIST) {                           // 0.81 (owner): near: the reticle on the hero (his own sheet, the armour worn); far: on the
-      if (AS_OFFCAM) blit(&s_status, 87, 5, 8, 8, ix + 8, iy + 8, 2);   // stairs down (the status pane's); off: crossed out
+      if (AS_FAR) blit(&s_status, 87, 5, 8, 8, ix + 8, iy + 8, 2);   // stairs down (the status pane's); off: crossed out
       else if (AS_ON) blit(&s_hero, 0, 0, 12, 15, ix + 4, iy + 1, 2);
       blit(&s_icons, 67, 0, 16, 16, ix, iy, 2); }
     else if (a == A_ITEMS) blit(&s_icons, 17, 0, 10, 10, ix + 6, iy + 6, 2);   // the backpack (BagTab's)
@@ -180,7 +180,7 @@ static void draw_menu(GContext *ctx) {
     GRect b = m_tile(i); int a = m_act(i);
     static const char *const VOL[3] = { "Loud", "Medium", "Quiet" };
     char buf[24]; snprintf(buf, sizeof buf, LABEL[a], a == A_SOUND ? (g_sound & SOUND_FX ? VOL[SOUND_VOL(g_sound) % 3] : "Off") : a == A_MUSIC ? (g_sound & SOUND_MUSIC ? "On" : "Off")
-      : a == A_ASSIST ? (!AS_ON ? "Off" : AS_OFFCAM ? "Far" : "Near") : g_assist & 2 ? "On" : "Off");
+      : a == A_ASSIST ? (!AS_ON ? "Off" : AS_FAR ? "Far" : "Near") : g_assist & 2 ? "On" : "Off");
     big_label(ctx, buf, GRect(b.origin.x, b.origin.y + 35, b.size.w, 28), m_off(a) ? GColorDarkGray : GColorWhite);
   }
 }
