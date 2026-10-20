@@ -165,6 +165,47 @@ def simple_frames(im):
     rings(29, 9, 9, 9, [170, 0])                # the heavier one
     nine(58, 0, 6, 6, 2, 38, 0, 6, 6, 2)        # red button
 
+# ---- Pebble PD's dungeon tile fixes (its convert_regions.py), by region ----
+def region(p):
+    n = p.rsplit('/', 1)[-1]
+    for r in ('sewer', 'prison', 'caves', 'city', 'halls'):
+        if n.startswith(('tiles_' + r, r)): return r
+    return None
+
+CAVE_FLOOR = {(44, 41, 39), (41, 36, 35), (48, 44, 42)}
+HALL_FLOOR = {(46, 31, 31), (57, 31, 31), (57, 41, 41)}
+
+def floors_lifted(p, im):
+    """Pebble PD's dark floors (before the palette): the caves' near-black stone floor becomes one even grey and the
+    halls' dark red-brown floor one even maroon. Both snapped to black, the same as the unexplored dark around them.
+    Only the floor's own shades change, so holes, pits and shadows stay black."""
+    r = region(p)
+    if r not in ('caves', 'halls'): return im
+    px = im.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            R, G, B, A = px[x, y]
+            if A < 255: continue
+            if r == 'caves' and (R, G, B) in CAVE_FLOOR: px[x, y] = (85, 85, 85, 254)
+            if r == 'halls' and (R, G, B) in HALL_FLOOR and 'custom' not in p: px[x, y] = (85, 0, 0, 254)   # (not Yog's dark pit)
+    return im
+
+def cave_grit(p, src, out):
+    """Pebble PD's cave floor grit: the floor's darkest shade, where it clusters, is black on every other pixel, so the
+    lifted floor reads as rough stone, not a flat grey (the same rule for every cell, so secret traps still match)."""
+    if region(p) != 'caves': return
+    sp, op = src.load(), out.load()
+    dark = (41, 36, 35, 255); floor = {(44, 41, 39, 255), dark, (48, 44, 42, 255)}
+    for cy in range(0, src.height - 15, 16):
+        for cx in range(0, src.width - 15, 16):
+            cell = [[sp[cx + x, cy + y] for x in range(16)] for y in range(16)]
+            if sum(c in floor for row in cell for c in row) < 160: continue   # floor cells only
+            for y in range(16):
+                for x in range(16):
+                    if cell[y][x] != dark or (x + y) % 2: continue
+                    n = sum(cell[(y + dy) % 16][(x + dx) % 16] == dark for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                    if n >= 2: op[cx + x, cy + y] = (0, 0, 0, 255)
+
 if __name__ == '__main__':
     FRAME_W.update(frame_widths())
     ps = paths()
@@ -176,7 +217,9 @@ if __name__ == '__main__':
         if p.startswith('pebxel/'): im.save(dst); continue   # already converted
         if p in PD_ITEMS:   # exactly as Pebble PD did its items (hue kept, no greying)
             pd_items(im.copy()).save(dst); continue
-        out = pebbleize(greys(im.copy(), levels(p)) if not p.startswith(('environment/', 'splashes/')) else im.copy(), levels(p), alpha_cut=1)
+        pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else im.copy()
+        out = pebbleize(greys(pre, levels(p)) if not p.startswith(('environment/', 'splashes/')) else pre, levels(p), alpha_cut=1)
+        if p.startswith('environment/'): cave_grit(p, im, out)
         a, o = im.load(), out.load()
         cut = CUT.get(p.split('/')[0], CUT.get(p))
         if cut:
