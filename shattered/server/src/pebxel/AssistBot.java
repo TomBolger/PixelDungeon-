@@ -59,8 +59,9 @@ public class AssistBot {
 		long planNs = 0, plans = 0, maxPlanNs = 0;
 		Window lastWnd = null; int wndFrames = 0;
 		long t0 = System.currentTimeMillis();
-		for (long f = 0; f < 3_000_000; f++) {
+		for (long f = 0; f < 20_000_000; f++) {
 			app.frame();
+			if (Dungeon.hero == null || !Dungeon.hero.ready || Ui.topWindow() != null) sleep(1);   // (Game.elapsed is in whole ms: animations need time to pass)
 			if (Game.scene() instanceof InterlevelScene) { if (f % 3 == 0) HandoffTest.pressOn(); continue; }
 			if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) continue;
 			if (!Dungeon.hero.isAlive()) { end = "died"; break; }
@@ -110,6 +111,7 @@ public class AssistBot {
 			if (t.kind == Assist.PICKUP) { Heap hh = Dungeon.level.heaps.get(t.cell); if (hh != null && t.cell == Dungeon.hero.pos) { pickHeap = hh; pickSize = hh.size(); } }
 			if (!Assist.act(t)) { actFails++; if (Assist.lastError != null) { System.out.println("  ACT ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; } Dungeon.hero.rest(false); }
 		}
+		if (Dungeon.hero != null) System.out.println("state: ready " + Dungeon.hero.ready + " action " + Dungeon.hero.curAction + " aiming " + Controls.aiming() + " window " + Ui.topWindow() + " scene " + Game.scene() + " resting " + Dungeon.hero.resting + " now " + Actor.now());
 		String cause = "";
 		if (end.equals("died")) synchronized (log) { cause = String.join(" / ", log); }
 		System.out.println("decisions by reason: " + whys);
@@ -119,4 +121,6 @@ public class AssistBot {
 				picked, stuckEvents, actFails, windows, decisions, (System.currentTimeMillis() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
 		System.exit(0);
 	}
+
+	static void sleep(int ms) { try { Thread.sleep(ms); } catch (InterruptedException e) { } }
 }
