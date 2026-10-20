@@ -14,7 +14,17 @@ static AppTimer *s_timer;
 static uint32_t s_last, s_input_at, s_data_at;
 static bool s_connected;
 
-static uint32_t now_ms(void) { time_t s; uint16_t ms; time_ms(&s, &ms); return (uint32_t)s * 1000 + ms; }
+// A clock that only goes forward: the wall clock can be set back (the phone syncing the time), which would
+// otherwise hold up the play-out queue until it caught up again.
+static uint32_t now_ms(void) {
+  static uint32_t mono, raw_last; static bool started;
+  time_t s; uint16_t ms; time_ms(&s, &ms);
+  uint32_t raw = (uint32_t)s * 1000 + ms;
+  int32_t d = (int32_t)(raw - raw_last);
+  if (started && d > 0 && d < 60000) mono += d;
+  raw_last = raw; started = true;
+  return mono;
+}
 
 static void update(Layer *l, GContext *ctx) {
   uint32_t now = now_ms();

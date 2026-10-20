@@ -179,7 +179,10 @@ public class Controls {
 	static int viewTop() { return Screen.round ? 72 : 0; }
 	static int viewBottom() { return Screen.round ? Game.height - 72 : Game.height; }
 
-	static boolean tall(Window w) { return w.camera != null && w.camera.screenHeight() > viewBottom() - viewTop() + 1; }
+	static boolean tall(Window w) {
+		// (the watch's own windows are laid out for the screen they're on)
+		return w.camera != null && !(w instanceof pebxel.ui.WatchWindow) && w.camera.screenHeight() > viewBottom() - viewTop() + 1;
+	}
 
 	/** Is the component fully on screen (window camera units -> phone pixels)? */
 	private static boolean visible(Window w, Component c) {
