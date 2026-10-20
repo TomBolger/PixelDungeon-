@@ -73,6 +73,7 @@ public class Tour {
 		wins.put("gameinfo", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndGameInProgress(1));
 		wins.put("message", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndMessage("You found a secret door! Secrets like this one can hide all sorts of things."));
 		shot("map");
+		if (System.getenv("DUMPMAP") != null) sim.dump();
 		for (Map.Entry<String, Supplier<Window>> e : wins.entrySet()) {
 			if (!only.isEmpty() && !only.contains(e.getKey())) continue;
 			Window w = e.getValue().get();

@@ -529,7 +529,7 @@ public final class WatchSim {
 			Obj o = objs.get(id); byte[] s = o.st;
 			String t = "";
 			if (o.kind != Link.K_RECT && o.kind != Link.K_TEXT) { int tx = s[2] & 255; t = tx >= 200 ? "dyn" + tx : tx == 0 ? "?" : assets.paths.get(tx - 1); }
-			System.out.println("obj " + id + " kind " + o.kind + " cam " + s[1] + " " + t + " at " + o.dyn[0] / 8 + "," + o.dyn[1] / 8 + " scale " + o.dyn[3] + " ang " + o.dyn[5] + " alpha " + d(o, 2) + " vA " + o.vel[2] + " col " + (o.kind == 1 ? (s[20]&255) + "," + (s[26]&255) + " rect " + s16(s,12) + "," + s16(s,14) + "," + s16(s,16) + "," + s16(s,18) + " size " + s16(s,8)/8f + "x" + s16(s,10)/8f + " flags " + s[3] : "") + (o.tiles != null ? " tiles[" + o.tiles.length + "]" : ""));
+			System.out.println("obj " + id + " kind " + o.kind + " cam " + s[1] + " " + t + " at " + o.dyn[0] / 8 + "," + o.dyn[1] / 8 + " scale " + o.dyn[3] + " ang " + o.dyn[5] + " alpha " + d(o, 2) + " vA " + o.vel[2] + " col " + (o.kind == 1 ? (s[20]&255) + "," + (s[26]&255) + " rect " + s16(s,12) + "," + s16(s,14) + "," + s16(s,16) + "," + s16(s,18) + " size " + s16(s,8)/8f + "x" + s16(s,10)/8f + " flags " + s[3] : "") + (o.tiles != null ? " tiles[" + o.tiles.length + "]" : "") + (o.kind == Link.K_RECT ? " rect " + s16(s, 6) / 8f + "x" + s16(s, 8) / 8f + " rgba " + (s[10] & 255) + "," + (s[11] & 255) + "," + (s[12] & 255) + "," + (s[13] & 255) : ""));
 		}
 	}
 
