@@ -24,6 +24,13 @@ public final class Swaps {
 		}
 	}
 
+	/** Pebble PD's screens in place of Shattered's (Game.pebxelScenes). */
+	public static Class<? extends com.watabou.noosa.Scene> scene(Class<? extends com.watabou.noosa.Scene> c) {
+		if (c == com.shatteredpixel.shatteredpixeldungeon.scenes.TitleScene.class) return WatchTitleScene.class;
+		if (c == com.shatteredpixel.shatteredpixeldungeon.scenes.HeroSelectScene.class) return WatchHeroSelect.class;
+		return c;
+	}
+
 	private static Object get(Class<?> c, Object o, String name) throws Exception {
 		Field f = c.getDeclaredField(name); f.setAccessible(true); return f.get(o);
 	}

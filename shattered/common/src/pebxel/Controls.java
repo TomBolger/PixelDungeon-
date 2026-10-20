@@ -386,6 +386,8 @@ public class Controls {
 			if (bs.isEmpty()) { frame.hide(); if (w != null) keepInView(w, null); return; }
 			Component c = (Component) bs.get(Math.max(0, Math.min(bs.size() - 1, focus))).g;
 			if (w != null && keptFor != w) { keptFor = w; keepInView(w, c); }
+			for (Ui.Part p : bs) if (p.g instanceof pebxel.ui.Focusable) ((pebxel.ui.Focusable) p.g).focus(p.g == c);
+			if (c instanceof pebxel.ui.Focusable) { frame.hide(); return; }
 			if (menu instanceof pebxel.ui.WatchWindow) frame.around(menu, c.left(), c.top(), c.width(), c.height(), 0xFFFFAA00, 2);   // Pebble PD: a 2 px yellow box
 			else frame.around(menu, c.left() - 1, c.top() - 1, c.width() + 2, c.height() + 2, 0xFFFFFF44, 1);
 			return;
