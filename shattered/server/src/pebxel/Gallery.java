@@ -68,6 +68,16 @@ public class Gallery {
 
 	/** Sets a stage up: goes to its depth, then places what it shows. */
 	public static void stage(String name) {
+		// the emulator's views of windows and screens: w:NAME a window (see window()), scene:NAME a screen, die
+		if (name.startsWith("w:")) { steps.add(() -> { try { GameScene.show(window(name.substring(2))); } catch (Exception e) { e.printStackTrace(); } pebxel.ui.Swaps.nativeHero = false; }); return; }
+		if (name.startsWith("scene:")) {
+			steps.add(() -> { try { Game.switchScene(Class.forName(P + "scenes." + name.substring(6)).asSubclass(com.watabou.noosa.Scene.class)); } catch (Exception e) { e.printStackTrace(); } });
+			return;
+		}
+		if (name.equals("die")) {
+			steps.add(() -> { com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat k = new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat(); Dungeon.hero.HP = 1; Dungeon.fail(k); Dungeon.hero.die(k); });
+			return;
+		}
 		Object[] s = STAGES.get(name);
 		if (s == null) { System.out.println("no stage " + name); return; }
 		int depth = (Integer) s[0]; String kind = (String) s[1], arg = (String) s[2];
@@ -91,7 +101,7 @@ public class Gallery {
 	/** Call every frame: true while steps remain. */
 	public static boolean tick() {
 		if (CTL != null && steps.isEmpty()) {
-			if (ctlStage != null && Game.scene() instanceof GameScene && Ui.topWindow() == null) {
+			if (ctlStage != null) {
 				try { java.nio.file.Files.write(new File(CTL + ".done").toPath(), ctlStage.getBytes()); } catch (Exception e) { }
 				ctlStage = null;
 			}
@@ -332,6 +342,20 @@ public class Gallery {
 		java.nio.file.Files.write(new File(dir, "heroes.txt").toPath(), sb.toString().getBytes());
 	}
 
+	/** A window by name, for the emulator (GALLERY_CTL w:NAME). */
+	static Window window(String n) throws Exception {
+		Hero h = Dungeon.hero;
+		switch (n) {
+			case "score": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndScoreBreakdown();
+			case "talents": com.shatteredpixel.shatteredpixeldungeon.windows.WndHero.lastIdx = 1; pebxel.ui.Swaps.nativeHero = true; return new com.shatteredpixel.shatteredpixeldungeon.windows.WndHero();
+			case "mob": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoMob(new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat());
+			case "bag": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndBag(h.belongings.backpack);
+			case "hero": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndHero();
+			case "sadghost": return new com.shatteredpixel.shatteredpixeldungeon.windows.WndSadGhost(new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost(), 1);
+			default: return new com.shatteredpixel.shatteredpixeldungeon.windows.WndMessage(n);
+		}
+	}
+
 	static void windows() throws Exception {
 		Hero h = Dungeon.hero;
 		LinkedHashMap<String, java.util.concurrent.Callable<Window>> w = new LinkedHashMap<>();
@@ -372,5 +396,6 @@ public class Gallery {
 	static void shot(String name) throws Exception {
 		sim.render();
 		sim.save(new File(dir, name + ".png"), 2);
+		if (System.getenv("DUMP") != null) { System.out.println("== " + name); sim.dump(); }
 	}
 }
