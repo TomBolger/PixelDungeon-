@@ -395,7 +395,7 @@ public final class Link {
 		if (g instanceof pebxel.ui.Shape) {
 			pebxel.ui.Shape sh = (pebxel.ui.Shape) g;
 			int rgb = sh.rgb, pc = 0xC0 | ((((rgb >> 16) & 255) + 42) / 85) << 4 | ((((rgb >> 8) & 255) + 42) / 85) << 2 | (((rgb & 255) + 42) / 85);
-			s8(K_SHAPE); s8(cam); s8(sh.kind); s8(pc); s8(sh.r0); s8(sh.r1); s16(sh.b0); s16(sh.b1); s8(sh.slant);
+			s8(K_SHAPE); s8(cam); s8(sh.kind); s8(pc); s8(sh.r0); s8(sh.r1); s16(sh.b0); s16(sh.b1); s16(sh.p2); s16(sh.p3); s8(sh.slant);
 			dyn[D_X] = v.x * 8; dyn[D_Y] = v.y * 8;
 		} else if (g instanceof pebxel.ui.WatchText) {
 			pebxel.ui.WatchText wt = (pebxel.ui.WatchText) g;

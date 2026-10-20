@@ -172,7 +172,7 @@ public final class WatchSim {
 			case Link.K_TILES: p += 16; break;
 			case Link.K_TEXT: p += 11 + (b[p + 10] & 255); break;
 			case Link.K_QUADS: p += 4 + (b[p + 3] & 255) * 16 + 7; break;
-			case Link.K_SHAPE: p += 11; break;
+			case Link.K_SHAPE: p += 15; break;
 			default: throw new IllegalStateException("bad kind " + kind);
 		}
 		return Arrays.copyOfRange(b, start, p);
@@ -404,7 +404,16 @@ public final class WatchSim {
 		int kind = s[2], pc = s[3] & 255;
 		float r = ((pc >> 4) & 3) / 3f, g = ((pc >> 2) & 3) / 3f, bl = (pc & 3) / 3f;
 		int cx = (int) Math.floor(sx(cam, d(o, Link.D_X))), cy = (int) Math.floor(sy(cam, d(o, Link.D_Y)));
-		int r0 = s[4] & 255, r1 = s[5] & 255, b0 = s16(s, 6), b1 = s16(s, 8), sl = s[10];
+		int r0 = s[4] & 255, r1 = s[5] & 255, b0 = s16(s, 6), b1 = s16(s, 8), sl = s[14];
+		if (kind == 3) {
+			int w = s16(s, 10), h = s16(s, 12), x0 = cx + b0, y0 = cy + b1;
+			for (int y = y0; y < y0 + h; y++) {
+				int d = y - cy, q = r0 * r0 - d * d; if (q <= 0) continue;
+				int hw = (int) Math.sqrt(q);
+				for (int x = Math.max(x0, cx - hw); x <= Math.min(x0 + w - 1, cx + hw); x++) dot(x, y, r, g, bl);
+			}
+			return;
+		}
 		if (kind == 1) {
 			for (int dy = -r0; dy <= r0; dy++) { int w = (int) Math.sqrt(r0 * r0 - dy * dy); for (int x = cx - w; x <= cx + w; x++) dot(x, cy + dy, r, g, bl); }
 			return;

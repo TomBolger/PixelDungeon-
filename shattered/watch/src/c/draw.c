@@ -296,6 +296,15 @@ static int tg(int d10) { int32_t a = (int32_t)TRIG_MAX_ANGLE * d10 / 3600; int32
 static void draw_shape(Obj *o) {
   int cx = scx(obj_dyn(o, 0, s_now)) >> 3, cy = scy(obj_dyn(o, 1, s_now)) >> 3;
   uint8_t c = o->tex;
+  if (o->flags == 3) {   // a box cut by a circle
+    int r = o->tx, x0 = cx + o->tw, y0 = cy + o->th;
+    for (int y = y0; y < y0 + o->h; y++) {
+      int d = y - cy, q = r * r - d * d; if (q <= 0) continue;
+      int hw = isq(q), a = x0 > cx - hw ? x0 : cx - hw, b = x0 + o->w - 1 < cx + hw ? x0 + o->w - 1 : cx + hw;
+      if (b >= a) hline(a, b, y, c);
+    }
+    return;
+  }
   if (o->flags == 1) {
     int r = o->tx;
     for (int dy = -r; dy <= r; dy++) { int w = isq(r * r - dy * dy); hline(cx - w, cx + w, cy + dy, c); }

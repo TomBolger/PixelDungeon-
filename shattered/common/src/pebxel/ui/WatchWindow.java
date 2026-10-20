@@ -8,6 +8,7 @@ import com.watabou.noosa.Game;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.GroupAccess;
 import com.watabou.noosa.NinePatch;
+import com.watabou.noosa.Visual;
 import java.util.ArrayList;
 import java.util.List;
 import pebxel.WatchFonts;
@@ -23,10 +24,17 @@ public class WatchWindow extends Window {
 	/** Room under the frame (tabs hang there). */
 	protected int below;
 	protected final ColorBlock dim;
+	protected final boolean tabbed;
+	/** Where the content's top-left is on the screen (watch pixels). */
+	protected int contentX, contentY;
+	/** Round screens: Pebble PD's round frame (a box cut by circles) in place of the chrome. */
+	protected final Group roundFrame = new Group();
+	public static final int R_OUT = 127, R_IN = 121;
 
 	/** A window w x h (content) at x, y on the screen (watch pixels; -1: centred). Tabbed windows use the grey-bodied frame. */
 	public WatchWindow(int x, int y, int w, int h, boolean tabbed) {
 		super(w, h, new NinePatch(PdArt.tex("chrome"), tabbed ? 64 : 0, 0, 22, 22, 7));
+		this.tabbed = tabbed;
 		cw = w; ch = h;
 		shadow.visible = false;
 		dim = new ColorBlock(1, 1, 0xFF000000);
@@ -34,6 +42,7 @@ public class WatchWindow extends Window {
 		dim.size(PixelScene.uiCamera.width, PixelScene.uiCamera.height);
 		dim.alpha(0.5f);
 		GroupAccess.addAfter(this, dim, shadow);
+		if (pebxel.Screen.round) { chrome.visible = false; GroupAccess.addAfter(this, roundFrame, chrome); }
 		place(x, y);
 	}
 
@@ -49,6 +58,20 @@ public class WatchWindow extends Window {
 		camera.y = (int) ((cy + chrome.y) * 2);
 		camera.scroll.set(chrome.x, chrome.y);
 		Camera.add(camera);
+		contentX = cx; contentY = cy;
+		if (pebxel.Screen.round) roundPanel();
+	}
+
+	/** Pebble PD's rpanel: light edge and grey border cut by R_OUT, black under the body cut by R_IN + 1, the body
+	 *  (black, or grey with tabs) cut by R_IN. Coordinates relative to the screen's centre. */
+	private void roundPanel() {
+		roundFrame.clear();
+		int ox = pebxel.Screen.w / 2 - contentX, oy = pebxel.Screen.h / 2 - contentY;   // the screen's centre in content coordinates
+		int x0 = -6, y0 = -6, x1 = cw + 6, y1 = ch + 6;
+		roundFrame.add(Shape.cut(ox, oy, R_OUT, x0 - ox, y0 - oy, x1 - x0, y1 - y0, 0xAAAAAA));
+		roundFrame.add(Shape.cut(ox, oy, R_OUT - 2, x0 + 1 - ox, y0 + 1 - oy, x1 - x0 - 2, y1 - y0 - 2, 0x555555));
+		roundFrame.add(Shape.cut(ox, oy, R_IN + 1, -1 - ox, -1 - oy, cw + 2, ch + 2, 0x000000));
+		roundFrame.add(Shape.cut(ox, oy, R_IN, -ox, -oy, cw, ch, tabbed ? 0x555555 : 0x000000));
 	}
 
 	@Override
@@ -60,7 +83,13 @@ public class WatchWindow extends Window {
 	}
 
 	/** Black under a stretch of the body (Pebble PD's WELL: 2 px wider each side). */
-	protected ColorBlock well(int x, int y, int w, int h) {
+	protected Visual well(int x, int y, int w, int h) {
+		if (pebxel.Screen.round) {
+			int ox = pebxel.Screen.w / 2 - contentX, oy = pebxel.Screen.h / 2 - contentY;
+			Shape sh = Shape.cut(ox, oy, R_IN, x - 2 - ox, y - oy, w + 4, h, 0x000000);
+			add(sh);
+			return sh;
+		}
 		ColorBlock b = WatchHud.block(0x000000, x - 2, y, w + 4, h);
 		add(b);
 		return b;
