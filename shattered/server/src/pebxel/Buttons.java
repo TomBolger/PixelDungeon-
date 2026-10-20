@@ -29,6 +29,7 @@ public class Buttons {
 		Controls controls = new Controls();
 		Touches touches = new Touches(); int seq = 0;
 		for (int i = 0; i < 5; i++) app.frame();
+		if (System.getenv("ASSIST") != null) WatchSettings.assist(Integer.parseInt(System.getenv("ASSIST")));
 		if (System.getenv("NEWGAME") != null) {
 			SPDSettings.intro(false);
 			GamesInProgress.selectedClass = HeroClass.values()[Integer.parseInt(System.getenv("NEWGAME"))];
