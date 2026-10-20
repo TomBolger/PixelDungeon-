@@ -255,28 +255,32 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 		Item item = o instanceof Item ? (Item) o : null;
 		boolean usable = item != null && (selector == null || selector.itemSelectable(item));
 		// (an item that can't be chosen here sits on black: see-through sprites would dither into fuzz)
-		grid.add(WatchHud.block(item != null && !usable ? 0x000000 : 0x555555, x, y, CELL_W, CELL_H));
+		// (a known curse: the cell is dark red, Pebble PD's BulgarianRose, under the picture)
+		grid.add(WatchHud.block(item != null && !usable ? 0x000000 : item != null && item.cursed && item.cursedKnown ? 0x550000 : 0x555555, x, y, CELL_W, CELL_H));
 		if (o == null) return;
 		ItemSprite s = item != null ? new ItemSprite(item) : new ItemSprite((Integer) o, null);
-		s.scale.set(2); s.x = x + (CELL_W - 32) / 2f; s.y = y + (CELL_H - 32) / 2f;
+		// centred by its own size (Shattered's item pictures aren't all 16x16), on whole pixels
+		s.scale.set(2); s.x = x + Math.round((CELL_W - s.width()) / 2f); s.y = y + Math.round((CELL_H - s.height()) / 2f);
 		grid.add(s);
 		if (item == null) return;
-		if (item.cursed && item.cursedKnown) { ColorBlock c = WatchHud.block(0x550000, x, y, CELL_W, CELL_H); c.alpha(0.5f); grid.add(c); }
-		// top left: how many, or a wand's charges
+		// Pebble PD's labels (bag.c), Gothic 14 bold, outlined:
+		// top left: how many (when more than one), a wand's charges ("?/3" until known), the waterskin's drops
 		String st = item.status();
-		if (st != null && !st.isEmpty()) label(st, 0xFFFFFF, x + 1, y - 2, 0);
-		// top right: strength needed
+		if (st != null && !st.isEmpty()) label(st, WHITE, x + 2, y - 4, CELL_W - 2, 0);
+		// top right: strength needed (":12", orange if too heavy; "12?" in yellow while its level is unknown), or an
+		// orange "?" on a potion or scroll not yet known
 		if (item instanceof Weapon || item instanceof Armor) {
-			int req = item instanceof Weapon ? ((Weapon) item).STRReq() : ((Armor) item).STRReq();
-			boolean known = item.levelKnown || true;
-			if (known) label(":" + req, req > Dungeon.hero.STR() ? 0xFF5555 : 0xFFFFFF, x, y - 2, CELL_W - 1);
+			boolean lk = item.levelKnown || item instanceof com.shatteredpixel.shatteredpixeldungeon.items.weapon.missiles.MissileWeapon;
+			int req = item instanceof Weapon ? (lk ? ((Weapon) item).STRReq() : ((Weapon) item).STRReq(0)) : (lk ? ((Armor) item).STRReq() : ((Armor) item).STRReq(0));
+			label(lk ? ":" + req : req + "?", !lk ? CHROME_YELLOW : req > Dungeon.hero.STR() ? 0xFF5555 : WHITE, x, y - 4, CELL_W - 1, 2);
+		} else if ((item instanceof com.shatteredpixel.shatteredpixeldungeon.items.potions.Potion || item instanceof com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll) && !item.isIdentified()) {
+			label("?", CHROME_YELLOW, x, y - 4, CELL_W - 3, 2);
 		}
-		// bottom right: its level
-		if (item.levelKnown && item.level() != 0 && !(item instanceof Bag)) {
-			int lv = item.visiblyUpgraded();
-			if (lv != 0) label((lv > 0 ? "+" : "") + lv, lv > 0 ? 0x55FF55 : 0xFF5555, x, y + CELL_H - 15, CELL_W - 1);
-		} else if (!item.isIdentified() && (item instanceof EquipableItem) && !(item instanceof Bag) && item.level() == 0) {
-			// nothing: unknown level shows no number
+		// bottom right: its level when known ("+2" green, "-1" orange; a known curse shows "+0")
+		if (item.levelKnown && item.isUpgradable()) {
+			int lv = item.buffedVisiblyUpgraded();
+			if (lv != 0 || (item.cursed && item.cursedKnown))
+				label((lv >= 0 ? "+" : "") + lv, lv > 0 ? 0x55FF55 : 0xFF5555, x, y + CELL_H - 18, CELL_W - 1, 2);
 		}
 		final Item it = item;
 		Button bt = new Button() {
@@ -289,9 +293,10 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 		if (!rowCells.isEmpty()) addToRow(bt);
 	}
 
-	private void label(String s, int rgb, int x, int y, int rightEdge) {
+	/** A label in a cell's box (x, y: the box's top-left, as Pebble's text boxes; align 0 left, 2 right). */
+	private void label(String s, int rgb, int x, int y, int w, int align) {
 		WatchText t = new WatchText(WatchText.G14B, s, rgb); t.outline = true;
-		if (rightEdge > 0) WatchHud.place(t, x, y, rightEdge, 2); else WatchHud.place(t, x, y, 0, 0);
+		WatchHud.place(t, x, y, w, align);
 		grid.add(t);
 	}
 

@@ -70,7 +70,7 @@ public class WndWatchRecords extends WatchWindow {
 			if (it == null) continue;
 			boolean known = potions ? Potion.getKnown().contains(cls.get(i)) : Scroll.getKnown().contains(cls.get(i));
 			int col = i / 6, row = i % 6, x = 2 + col * (W / 2), y = 20 + row * ROW_C;
-			ItemSprite s = new ItemSprite(it); s.x = x; s.y = y + (ROW_C - 16) / 2; page.add(s);
+			ItemSprite s = new ItemSprite(it); s.x = x + Math.round((16 - s.width()) / 2); s.y = y + Math.round((ROW_C - s.height()) / 2); page.add(s);
 			String name = Messages.titleCase(it.trueName()).replaceFirst("^(Potion|Scroll) [Oo]f ", "");
 			List<String> nl = WatchHud.wrap(name, WatchText.G14, W / 2 - 22);
 			WatchText n = new WatchText(WatchText.G14, nl.get(0), known ? WHITE : LIGHT);

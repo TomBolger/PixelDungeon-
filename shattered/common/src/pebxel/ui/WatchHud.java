@@ -69,6 +69,7 @@ public class WatchHud extends Group {
 	private final List<Image> buffs = new ArrayList<>(); private String buffKey = "";
 	private final ItemSprite[] quick = new ItemSprite[2];
 	private final ColorBlock[] quickFog = new ColorBlock[2];
+	private final int[][] quickAt = new int[2][];
 	private final WatchText[] quickText = new WatchText[2];
 	private final Group tags = new Group();
 	private final Group log = new Group(); private String logKey = "";
@@ -114,6 +115,7 @@ public class WatchHud extends Group {
 		for (int q = 0; q < 2; q++) {
 			int bx = tbX(q == 0 ? TB_Q1 : TB_Q2);
 			quick[q] = new ItemSprite(); quick[q].scale.set(2); quick[q].x = bx + (TB_W - 32) / 2; quick[q].y = TB_Y + 3; quick[q].visible = false; add(quick[q]);
+			quickAt[q] = new int[]{bx + TB_W / 2, TB_Y + 3 + 16};
 			quickFog[q] = block(0x000000, bx + (TB_W - 32) / 2, TB_Y + 3, 32, 32); quickFog[q].alpha(0.5f); quickFog[q].visible = false; add(quickFog[q]);
 			add(quickText[q] = new WatchText(WatchText.G14B, "", WHITE)); quickText[q].outline = true;
 		}
@@ -196,6 +198,7 @@ public class WatchHud extends Group {
 		for (int q = 0; q < 2; q++) {
 			int[] c = tbBox[q == 0 ? TB_Q1 : TB_Q2];
 			quick[q] = new ItemSprite(); quick[q].scale.set(2); quick[q].x = c[0] + (c[2] - 32) / 2; quick[q].y = c[1] + (c[3] - 32) / 2; quick[q].visible = false; add(quick[q]);
+			quickAt[q] = new int[]{c[0] + c[2] / 2, c[1] + c[3] / 2};
 			quickFog[q] = block(0x000000, quick[q].x, quick[q].y, 32, 32); quickFog[q].alpha(0.5f); quickFog[q].visible = false; add(quickFog[q]);
 			add(quickText[q] = new WatchText(WatchText.G14B, "", WHITE)); quickText[q].outline = true;
 		}
@@ -337,6 +340,8 @@ public class WatchHud extends Group {
 			quickText[q].text("");
 			if (it == null) { quickFog[q].visible = false; continue; }
 			quick[q].view(it); quick[q].scale.set(2);
+			// centred by its own size (not all item pictures are 16x16)
+			quick[q].x = quickAt[q][0] - Math.round(quick[q].width() / 2); quick[q].y = quickAt[q][1] - Math.round(quick[q].height() / 2);
 			boolean have = Dungeon.quickslot.isNonePlaceholder(q);
 			quickFog[q].visible = !have;
 			if (!have) continue;
@@ -411,10 +416,10 @@ public class WatchHud extends Group {
 			a = ctag(1);
 			if (kind == 1) {
 				tag(a, "tag_red");
-				if (weapon != null) { ItemSprite s = new ItemSprite(weapon); s.x = a[0] + 2 + (a[2] - 16) / 2; s.y = a[1] + (a[3] - 16) / 2; into.add(s); }
+				if (weapon != null) { ItemSprite s = new ItemSprite(weapon); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s); }
 			} else if (kind == 2 && there != null) {
 				tag(a, "tag_blue");
-				ItemSprite s = new ItemSprite(there); s.x = a[0] + 2 + (a[2] - 16) / 2; s.y = a[1] + (a[3] - 16) / 2; into.add(s);
+				ItemSprite s = new ItemSprite(there); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
 			} else {
 				tag(a, "tag_white");
 				Image arrow = PdArt.image("icons", 83, 0, 12, 11, 1); arrow.x = a[0] + 2 + (a[2] - 12) / 2; arrow.y = a[1] + (a[3] - 11) / 2; into.add(arrow);
@@ -424,7 +429,7 @@ public class WatchHud extends Group {
 		// what lies underfoot (left edge)
 		if (tagChanged(3, loot ? "" + under.peek().image() : "-") && loot) {
 			a = tagRect(1, true); tag(a, "tag_blue");
-			ItemSprite s = new ItemSprite(under); s.scale.set(2); s.x = a[0] + (a[2] - 32) / 2 + 2; s.y = a[1] + (a[3] - 32) / 2; into.add(s);
+			ItemSprite s = new ItemSprite(under); s.scale.set(2); s.x = a[0] + Math.round((a[2] - s.width()) / 2) + 2; s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
 		}
 		if (loot) tagButton(3, tagRect(1, true)); else tagButtons[3].visible = tagButtons[3].active = false;
 	}

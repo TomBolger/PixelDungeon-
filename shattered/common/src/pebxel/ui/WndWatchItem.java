@@ -76,7 +76,7 @@ public class WndWatchItem extends WatchWindow {
 		body.clear();
 		boolean round = pebxel.Screen.round;
 		// the head: the item, its name
-		ItemSprite spr = new ItemSprite(item); spr.scale.set(2); spr.y = round ? 1 : 0; body.add(spr);
+		ItemSprite spr = new ItemSprite(item); spr.scale.set(2); spr.y = Math.round((34 - spr.height()) / 2); body.add(spr);
 		String name = Messages.titleCase(item.title());
 		int color = item.levelKnown && item.level() > 0 ? 0x55FF55 : item.levelKnown && item.level() < 0 ? 0xFF5555 : PASTEL;
 		List<String> nl = WatchHud.wrap(name, WatchText.G14B, round ? 124 : w - 36);

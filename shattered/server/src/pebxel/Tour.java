@@ -52,6 +52,18 @@ public class Tour {
 		}
 		controls = new Controls();
 		frames(30);
+		if (System.getenv("TOURITEMS") != null) {
+			// a fuller pack, to see the labels: unknown potion and scroll, a wand, an upgraded sword, a heavy axe, a cursed ring
+			String P = "com.shatteredpixel.shatteredpixeldungeon.items.";
+			for (String c : new String[]{"potions.PotionOfHealing", "potions.PotionOfStrength", "scrolls.ScrollOfIdentify", "wands.WandOfMagicMissile",
+					"weapon.melee.Longsword", "weapon.melee.Greataxe", "rings.RingOfMight", "weapon.missiles.Javelin", "food.Food"}) {
+				com.shatteredpixel.shatteredpixeldungeon.items.Item it = (com.shatteredpixel.shatteredpixeldungeon.items.Item) Class.forName(P + c).getDeclaredConstructor().newInstance();
+				if (c.endsWith("Longsword")) { it.upgrade(); it.upgrade(); it.identify(); }
+				if (c.endsWith("RingOfMight")) { it.cursed = true; it.cursedKnown = true; it.levelKnown = true; it.degrade(); }
+				if (c.endsWith("WandOfMagicMissile")) it.identify();
+				it.collect();
+			}
+		}
 		LinkedHashMap<String, Supplier<Window>> wins = new LinkedHashMap<>();
 		Item weapon = Dungeon.hero.belongings.weapon;
 		wins.put("bag", () -> new WndBag(Dungeon.hero.belongings.backpack));

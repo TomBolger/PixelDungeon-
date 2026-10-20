@@ -313,8 +313,13 @@ public class Controls {
 		switch (b) {
 			case DOWN: {
 				refreshTargets(aiming);
-				if (targets.isEmpty()) return;
+				if (targets.isEmpty()) {
+					// Pebble PD: with nothing to offer (assist off, no enemy), Down goes to the toolbar
+					if (!aiming && WatchSettings.assist() == 0 && hud != null) { onToolbar = true; hud.highlight = 0; }
+					return;
+				}
 				target = held ? (target + targets.size() - 1) % targets.size() : (target + 1) % targets.size();
+				if (!aiming) farView(targets.get(target));
 				return;
 			}
 			case SELECT:
@@ -325,6 +330,7 @@ public class Controls {
 					return;
 				}
 				int cell = targets.get(Math.min(target, targets.size() - 1));
+				farView(-1);
 				if (cell == -2) { Dungeon.hero.search(true); }
 				else GameScene.handleCell(cell);
 				targetsStale = true;
@@ -395,8 +401,72 @@ public class Controls {
 	private void refreshTargets(boolean aiming) {
 		if (!targetsStale && Dungeon.hero.pos == lastPos && Dungeon.depth == lastDepth) return;
 		targetsStale = false; lastPos = Dungeon.hero.pos; lastDepth = Dungeon.depth;
-		targets = aiming ? aimTargets() : walkTargets();
+		targets = aiming ? aimTargets() : reach(walkTargets());
 		target = 0;
+		farView(-1);   // (a new turn: the camera goes back to the hero)
+	}
+
+	// ---- the assistant's reach (Settings): Near keeps to the screen, Far looks anywhere, Off offers only enemies ----
+
+	/** Is the cell well inside what the watch shows (clear of the HUD; round: inside the circle's middle)? */
+	static boolean onScreen(int cell) {
+		Camera c = Camera.main;
+		if (c == null || cell < 0) return true;
+		com.watabou.utils.PointF p = com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.tileCenterToWorld(cell);
+		float sx = (c.x + (p.x - c.scroll.x) * c.zoom) / 2f, sy = (c.y + (p.y - c.scroll.y) * c.zoom) / 2f;   // watch pixels
+		if (Screen.round) { float dx = sx - Screen.w / 2f, dy = sy - Screen.h / 2f; return dx * dx + dy * dy <= 95 * 95; }
+		return sx >= 8 && sx <= Screen.w - 26 && sy >= 38 && sy <= Screen.h - 42;
+	}
+
+	private List<Integer> reach(List<Integer> ts) {
+		int mode = WatchSettings.assist();
+		Level L = Dungeon.level; int h = Dungeon.hero.pos;
+		List<Integer> out = new ArrayList<>();
+		if (mode == 0) {
+			// off: the enemies in sight, nothing else
+			for (int c : ts) if (c >= 0 && com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c) instanceof Mob && ((Mob) com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c)).alignment == Char.Alignment.ENEMY) out.add(c);
+			return out;
+		}
+		if (mode == 2) return ts;
+		// near: a goal off the screen becomes the farthest step towards it that's on it
+		int[] dist = walk(L, h);
+		for (int c : ts) {
+			int t = c;
+			if (t >= 0 && !onScreen(t)) {
+				if (dist[t] <= 0) continue;
+				int guard = 0;
+				while (t != h && !onScreen(t) && guard++ < 400) {
+					int next = -1;
+					for (int k : PathFinder.NEIGHBOURS8) { int n = t + k; if (n >= 0 && n < dist.length && dist[n] > 0 && dist[n] == dist[t] - 1) { next = n; break; } }
+					if (next < 0) break;
+					t = next;
+				}
+				if (t == h || !onScreen(t)) continue;
+			}
+			if (!out.contains(t)) out.add(t);
+		}
+		return out;
+	}
+
+	/** Far: a chosen goal off the screen brings the camera over to show it and the hero (zooming out a step if they
+	 *  won't both fit); -1, or a goal on the screen, gives the camera back to the hero (and the zoom it had). */
+	private int farZoomFrom = -1;
+	private void farView(int cell) {
+		Camera c = Camera.main;
+		if (c == null || Dungeon.hero == null || Dungeon.hero.sprite == null) return;
+		if (cell < 0 || WatchSettings.assist() != 2 || onScreen(cell)) {
+			if (c.followTarget() != Dungeon.hero.sprite) c.panFollow(Dungeon.hero.sprite, 5f);
+			if (farZoomFrom > 0) { int z = Math.round(c.zoom); for (int i = z; i < farZoomFrom; i++) key(SPDAction.ZOOM_IN); farZoomFrom = -1; }
+			return;
+		}
+		com.watabou.utils.PointF hp = Dungeon.hero.sprite.center(), tp = com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.tileCenterToWorld(cell);
+		// do they fit in the middle of the view at this zoom? (world units: two phone pixels a watch pixel)
+		float span = Math.max(Math.abs(hp.x - tp.x), Math.abs(hp.y - tp.y)) * c.zoom / 2f;
+		if (span > (Screen.round ? 150 : 130) && Math.round(c.zoom) > Math.round(PixelScene.minZoom)) {
+			if (farZoomFrom < 0) farZoomFrom = Math.round(c.zoom);
+			key(SPDAction.ZOOM_OUT);
+		}
+		c.panTo(new com.watabou.utils.PointF((hp.x + tp.x) / 2, (hp.y + tp.y) / 2), 5f);
 	}
 
 	private static List<Integer> aimTargets() {
