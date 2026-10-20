@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_COMMIT = 15;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_COMMIT = 15;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 5;
+	public static final int PROTOCOL = 6;
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -781,10 +781,13 @@ public final class Link {
 	private final List<Integer> pendMarks = new ArrayList<>();
 
 	/** Call every game frame: notes this frame's changes (with their time) for the watch. */
+	private int pendNewest;
+
 	public void frame(float dt) {
 		byte[] b = sync(dt);
 		remember();
 		if (b.length == 0) return;
+		pendNewest = Math.round(now * 1000);
 		int base = pend.size();
 		for (int mk : lastMarks) pendMarks.add(base + mk);
 		pend.write(b, 0, b.length);
@@ -838,7 +841,18 @@ public final class Link {
 	public List<byte[]> take(int max) {
 		byte[] all = pend.toByteArray(); pend.reset();
 		lastMarks = new ArrayList<>(pendMarks); pendMarks.clear();
-		return all.length == 0 ? new ArrayList<>() : packets(all, max);
+		if (all.length == 0) return new ArrayList<>();
+		// each message starts with the newest frame's time (C_LATEST): the watch plays the newest at once and the
+		// older ones as already past (their moves carry on from where they would be by now), not a round trip late
+		List<byte[]> out = new ArrayList<>();
+		int ms = pendNewest;
+		for (byte[] pk : packets(all, max - 5)) {
+			byte[] b = new byte[pk.length + 5];
+			b[0] = (byte) C_LATEST; b[1] = (byte) ms; b[2] = (byte) (ms >> 8); b[3] = (byte) (ms >> 16); b[4] = (byte) (ms >> 24);
+			System.arraycopy(pk, 0, b, 5, pk.length);
+			out.add(b);
+		}
+		return out;
 	}
 
 	/** Forget what was waiting (the watch starts over). */

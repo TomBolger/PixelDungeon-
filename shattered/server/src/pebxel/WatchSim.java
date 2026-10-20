@@ -84,9 +84,9 @@ public final class WatchSim {
 
 	/** A message arrives from the phone now. */
 	public void receive(byte[] msg) {
-		if (msg.length >= 5 && msg[0] == Link.C_TIME) {
+		if (msg.length >= 5 && (msg[0] == Link.C_TIME || msg[0] == Link.C_LATEST)) {
 			float want = now - stamp(msg, 0) / 1000f + MARGIN;
-			if (!haveOff || want > off) off = want; else off -= (off - want) / 8;
+			if (!haveOff || want > off) off = want; else off -= (off - want) / 3;
 			haveOff = true;
 			if (System.getenv("OFFS") != null) System.out.printf("recv at %.3f stamp %.3f want %.3f off %.3f len %d%n", now, stamp(msg, 0) / 1000f, want, off, msg.length);
 		}
@@ -118,6 +118,7 @@ public final class WatchSim {
 			int c = u8();
 			switch (c) {
 				case Link.C_TIME: p += 4; break;
+				case Link.C_LATEST: p += 4; break;
 				case Link.C_RESET: objs.clear(); head = Link.NONE; dyn.clear(); anims.clear(); Arrays.fill(cams, null); break;
 				case Link.C_CAM: {
 					int id = u8(); Cam k = new Cam(); k.x = s16(); k.y = s16(); k.w = s16(); k.h = s16(); k.zoom = u16(); k.sx = s16(); k.sy = s16();

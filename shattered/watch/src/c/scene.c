@@ -261,6 +261,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
     int c = u8();
     switch (c) {
       case C_TIME: p += 4; break;
+      case C_LATEST: p += 4; break;
       case C_RESET: scene_reset(); break;
       case C_CAM: read_cam(); break;
       case C_NEW: {

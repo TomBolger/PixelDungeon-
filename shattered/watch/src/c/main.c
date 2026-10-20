@@ -5,7 +5,7 @@
 #include "draw.h"
 
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
-#define PROTOCOL 5   // must match Link.PROTOCOL on the phone
+#define PROTOCOL 6   // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -117,8 +117,9 @@ static void pump(void *data) {
 }
 
 static void enqueue(const uint8_t *data, int len, uint32_t now) {
-  if (len > 0 && data[0] == C_TIME && len >= 5) {
-    // how late did this arrive? play everything at least that late (coming down slowly when it gets quicker)
+  if (len >= 5 && data[0] == C_LATEST) {
+    // the message's newest frame plays as it arrives; older ones in it are already past (their moves go on from
+    // where they'd be by now). Waiting to play them all at their own pace cost a whole radio round trip of delay.
     int32_t want = (int32_t)(now - stamp_at(data)) + MARGIN;
     if (!s_have_off || want > s_off) s_off = want;
     else s_off -= (s_off - want) / 3;   // (quickly back down after a slow message: the delay is what players feel)
