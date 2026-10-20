@@ -9,11 +9,15 @@ import java.lang.reflect.Field;
 
 /** Pebble PD's windows in place of Shattered's (GameScene.pebxelWindows). */
 public final class Swaps {
+	/** Set while the hero sheet opens Shattered's own (for its talents page). */
+	public static boolean nativeHero;
+
 	public static Window window(Window w) {
 		try {
 			Window mine = null;
 			if (w instanceof WndUseItem) mine = new WndWatchItem(((WndUseItem) w).owner, ((WndUseItem) w).item);
 			else if (w instanceof WndGame) mine = new WndWatchMenu();
+			else if (w instanceof com.shatteredpixel.shatteredpixeldungeon.windows.WndHero && !nativeHero) mine = new WndWatchHero();
 			else if (w instanceof WndBag) mine = new WndWatchBag((Bag) get(WndBag.class, null, "lastBag"), (WndBag.ItemSelector) get(WndBag.class, w, "selector"));
 			if (mine == null) return w;
 			w.destroy();   // (it had set up its camera and key listener)
