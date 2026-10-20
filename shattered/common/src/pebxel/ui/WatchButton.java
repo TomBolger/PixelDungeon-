@@ -62,7 +62,7 @@ public class WatchButton extends Button {
 		if (!small && lines.size() == 1 && lines.get(0).font == WatchText.G18B && WatchText.width(WatchText.G18B, label) > width - 6 && width > 0) { refreshLabel(); return; }
 		int lh = lines.isEmpty() ? 0 : WatchWindow.lineHeight(lines.get(0).font);
 		int total = lines.size() * lh;
-		int top = labelTop > 0 ? (int) y + labelTop : icon != null ? (int) (y + height - total - 3) : (int) (y + (height - total) / 2);
+		int top = labelTop > 0 ? (int) y + labelTop : icon != null ? (int) (y + height - total - (small ? 6 : 3)) : (int) (y + (height - total) / 2);
 		for (int i = 0; i < lines.size(); i++) WatchHud.place(lines.get(i), (int) x, top + i * lh, (int) width, 1);
 		if (icon != null) {
 			icon.x = x + (width - icon.width()) / 2;
