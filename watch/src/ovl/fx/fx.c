@@ -121,16 +121,16 @@ static void stream(int c, uint32_t now) {
   }
 }
 
-// PD's fog of war is smoothed when drawn, so its edges are soft. Here (0.97, owner): remembered cells keep the plain
-// checker; a cell in sight fades towards never-seen cells next to it, in a band a third of the cell wide along a side
+// PD's fog of war is smoothed when drawn, so its edges are soft. Here (0.97-0.98, owner): no fade between what's in
+// sight and what's remembered; any known cell fades towards never-seen cells next to it, in a band a third of the cell wide along a side
 // it shares with one, and in a quarter circle at a corner it touches one by: so a hole in the dark is ringed with a
 // rounded fade. What a never-seen cell is isn't looked at.
 static bool dark(int x, int y) { return x < 0 || y < 0 || x >= MAP_W || y >= MAP_H || !BIT_GET(G.visited, y * MAP_W + x); }
 static const uint8_t BAYER[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
 static int isqrt(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
 // m: the dark beyond each side (1 left, 2 right, 4 top, 8 bottom) and corner (16 top left, 32 top right, 64 bottom
-// left, 128 bottom right); at the very edge the cell is half dark
-static void shade(int dx, int dy, int n, int m) {
+// left, 128 bottom right); towards it the cell goes 8 of 16 darker than its own shade (own: 0 in sight, 8 remembered)
+static void shade(int dx, int dy, int n, int m, int own) {
   int w = n / 3; if (w < 2) w = 2;
   for (int y = 0; y < n; y++) {
     int ty = dy + y;
@@ -148,7 +148,7 @@ static void shade(int dx, int dy, int n, int m) {
         if (fx < w && (m & (l ? 1 : 2)) && fx < d) d = fx;
         if (fx < w && fy < w && (m & (t ? (l ? 16 : 32) : (l ? 64 : 128)))) { int c = isqrt(fx * fx + fy * fy); if (c < d) d = c; }
       }
-      if (d < w && BAYER[(ty & 3) * 4 + (tx & 3)] * w < 8 * (w - d)) ri.data[tx] = GColorBlackARGB8;
+      if (d < w && BAYER[(ty & 3) * 4 + (tx & 3)] * w < own * w + 8 * (w - d)) ri.data[tx] = GColorBlackARGB8;
     }
   }
 }
@@ -160,10 +160,11 @@ static void fx_fog(void) {
     for (int x = 0; x < MAP_W; x++) {
       int px = map_sx(x * TS), c = y * MAP_W + x;
       if (px + t < 0 || px >= s_w || !BIT_GET(G.visited, c)) continue;
-      if (!BIT_GET(G.fov, c)) { blit_fog(px, py, t); continue; }   // remembered: the plain checker
+      int own = BIT_GET(G.fov, c) ? 0 : 8;
+      if (own) blit_fog(px, py, t);                                // remembered: the plain checker (no fade towards what's in sight)
       int m = dark(x - 1, y) | dark(x + 1, y) << 1 | dark(x, y - 1) << 2 | dark(x, y + 1) << 3
             | dark(x - 1, y - 1) << 4 | dark(x + 1, y - 1) << 5 | dark(x - 1, y + 1) << 6 | dark(x + 1, y + 1) << 7;
-      if (m) shade(px, py, t, m);
+      if (m) shade(px, py, t, m, own);                            // towards the dark: in sight from clear, remembered from the checker
     }
   }
 }
