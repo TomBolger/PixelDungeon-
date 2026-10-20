@@ -60,6 +60,8 @@ public class Tour {
 		wins.put("hero", WndHero::new);
 		wins.put("journal", WndJournal::new);
 		wins.put("game", WndGame::new);
+		wins.put("menu-records", () -> { pebxel.ui.WndWatchMenu.lastPage = 1; return new WndGame(); });
+		wins.put("menu-settings", () -> { pebxel.ui.WndWatchMenu.lastPage = 2; return new WndGame(); });
 		wins.put("settings", WndSettings::new);
 		wins.put("options", () -> new WndOptions("A question", "Do you want to do the thing? It is a long question with some words.", "Yes", "No"));
 		wins.put("challenges", () -> new WndChallenges(0, false));

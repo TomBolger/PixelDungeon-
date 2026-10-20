@@ -17,6 +17,8 @@ public class WatchButton extends Button {
 	public int labelColor = 0xFFFFFF;
 	/** Where the label's box starts below the top (0: centred in the button). */
 	public int labelTop = 0;
+	/** Gothic 14 bold even when Gothic 18 would fit (Pebble PD's settings tiles). */
+	public boolean small;
 
 	public WatchButton(String label) {
 		super();
@@ -46,7 +48,7 @@ public class WatchButton extends Button {
 		lines.clear();
 		if (label.isEmpty()) return;
 		int w = Math.max(10, (int) width - 6);
-		if (width == 0 || WatchText.width(WatchText.G18B, label) <= w) lines.add(new WatchText(WatchText.G18B, label, labelColor));
+		if (!small && (width == 0 || WatchText.width(WatchText.G18B, label) <= w)) lines.add(new WatchText(WatchText.G18B, label, labelColor));
 		else for (String s : WatchHud.wrap(label, WatchText.G14B, w)) lines.add(new WatchText(WatchText.G14B, s, labelColor));
 		for (WatchText t : lines) add(t);
 		layout();
@@ -57,7 +59,7 @@ public class WatchButton extends Button {
 		super.layout();
 		if (bg == null) return;
 		bg.x = x; bg.y = y; bg.size(width, height);
-		if (lines.size() == 1 && lines.get(0).font == WatchText.G18B && WatchText.width(WatchText.G18B, label) > width - 6 && width > 0) { refreshLabel(); return; }
+		if (!small && lines.size() == 1 && lines.get(0).font == WatchText.G18B && WatchText.width(WatchText.G18B, label) > width - 6 && width > 0) { refreshLabel(); return; }
 		int lh = lines.isEmpty() ? 0 : WatchWindow.lineHeight(lines.get(0).font);
 		int total = lines.size() * lh;
 		int top = labelTop > 0 ? (int) y + labelTop : icon != null ? (int) (y + height - total - 3) : (int) (y + (height - total) / 2);
