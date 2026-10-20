@@ -351,6 +351,8 @@ C_BLED	Bled to death on level %d
 L_BLED	You bled to death...
 C_STARVED	Starved to death on level %d
 L_NO_ENEMY	No enemy in sight. Tap a target.
+L_ZLOCK	Zoom locked. Up unlocks it.
+L_ZFREE	Zoom unlocked.
 H_THROW	Choose direction of throw
 H_ZAP	Choose direction to zap
 H_LEAP	Choose direction to leap

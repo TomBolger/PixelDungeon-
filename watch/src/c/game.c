@@ -159,10 +159,6 @@ int hero_max_exp(void) { return 5 + G.hero.lvl * 5; }
 int hero_tier(void) { return G.hero.armor.kind ? item_tier(G.hero.armor.kind) : 0; }
 static bool hero_paralysed(void) { return G.hero.b.paralysis || G.hero.b.frost; }
 bool hero_flying(void) { return G.hero.b.levitation > 0; }
-static int hero_awareness(void) {                      // Hero.awareness x1000 (updateAwareness): 1 - 0.9 (rogue 0.85) ^ ((1 + lvl) / 2)
-  static const uint16_t A[2][10] = { { 100, 100, 146, 190, 232, 271, 308, 344, 377, 410 }, { 150, 150, 216, 278, 334, 386, 434, 478, 519, 556 } };
-  return A[G.hero.hclass == 2][G.hero.lvl < 9 ? G.hero.lvl : 9];
-}
 #define HUNTRESS (G.hero.hclass == 3)
 int hero_str(void) { return G.hero.weakness ? G.hero.STR - 2 : G.hero.STR; }   // Hero.STR: Weakness takes 2
 static int armor_enc(void) { return G.hero.armor.kind ? item_str(&G.hero.armor) - hero_str() : 0; }
@@ -1083,37 +1079,7 @@ void mob_press(int i) {                         // Level.mobPress: visible traps
 }
 
 // ---------------- Hero: search, moving, levels ----------------
-bool hero_search(bool intentional) {                   // Hero.search
-  int a = hero_awareness();
-  int level = intentional ? (2 * a - a * a / 1000) : a;            // x1000
-  bool found = false;
-  int pos = 0, neg = 0;                                              // Ring of Detection: a wider (or duller) search
-  for (int i = 0; i < 2; i++) if (G.hero.ring[i].kind == IK_RNG_DETECTION) {
-    int b = ring_level(&G.hero.ring[i]); if (b > pos) pos = b; else if (b < 0) neg += b;
-  }
-  int dist = 1 + pos + neg;
-  if (dist <= 0) { level /= 2 - dist; dist = 1; }
-  int x0 = cx(G.hero.pos), y0 = cy(G.hero.pos);
-  for (int y = y0 - dist; y <= y0 + dist; y++)
-    for (int x = x0 - dist; x <= x0 + dist; x++) {
-      if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue;
-      int p = x + y * MAP_W;
-      if (!BIT_GET(G.fov, p)) continue;
-      if ((TFLAGS(G.map[p]) & F_SECRET) && (intentional || rnd_int(1000) < level)) {
-        set_terrain(p, terrain_discover(G.map[p]));
-        BIT_SET(G.visited, p);
-        found = true;
-      }
-      if (intentional) for (int h = 0; h < G.n_heaps; h++)    // Heap.Type.HIDDEN (the phantom fish) shows itself
-        if (G.heaps[h].pos == p && G.heaps[h].type == HEAP_HIDDEN) { G.heaps[h].type = HEAP_PLAIN; found = true; }
-    }
-  if (intentional) {
-    ui_fx(FX_SEARCH, G.hero.pos, -1, "search");
-    hero_spend(found ? (rnd_int(1000) < level ? 2 * TICK : 4 * TICK) : 2 * TICK);
-  }
-  if (found) { ui_log("You noticed something", C_WARN); ui_sound(SND_SECRET); interrupt(); }
-  return found;
-}
+bool hero_search(bool intentional) { return g_mh.search(intentional); }   // Hero.search (0.99: in the mobs overlay, for the app's room)
 
 void switch_level(int depth, int arrive);
 

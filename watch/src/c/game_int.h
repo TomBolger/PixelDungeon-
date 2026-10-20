@@ -136,6 +136,7 @@ typedef struct {
   void (*buffs)(int who);                      // the buffs' turn (Buff.act), -1 the hero (0.17: moved out of the app)
   bool (*sees)(int i, int enemy);              // Mob.act's enemyInFOV: does creature i see its enemy (-1 the hero)
   int (*closer)(int i, int target);            // Mob.getCloser overridden: the cell to step towards, or CL_MOVED / CL_STAYS (handled)
+  bool (*search)(bool intentional);            // Hero.search (0.99: the mobs overlay; never NULL)
 } MobHooks;
 enum { CL_MOVED = -2, CL_STAYS = -3 };
 #define SEES_CELL(c) (-0x1000 - (c))           // sees(i, SEES_CELL(c)): is cell c in creature i's field of view (Level.fieldOfView)
