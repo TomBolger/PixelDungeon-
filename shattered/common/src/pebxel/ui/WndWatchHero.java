@@ -52,7 +52,7 @@ public class WndWatchHero extends WatchWindow {
 		for (int tier = 1; tier <= 4; tier++) if (h.talentPointsAvailable(tier) > 0) points = true;
 		for (int k = 0; k < 3; k++) {
 			final int kk = k;
-			int tx = x + k * (TAB_W + 1), ty = ch + 7;
+			int tx = x + k * (TAB_W + 1), ty = ch + 1;
 			tabArt(tabs, tx, ty - 1, TAB_W, TAB_H, k == t);
 			WatchText l = new WatchText(WatchText.G14B, names[k], k == t ? WHITE : LIGHT);
 			WatchHud.place(l, tx, ty + (k == t ? 2 : 4), TAB_W, 1); tabs.add(l);

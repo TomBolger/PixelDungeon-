@@ -45,7 +45,7 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 	}
 
 	public WndWatchMenu() {
-		super(WatchWindow.left(W), 0, W, HEAD + 2 * ROW + GAP, false);
+		super(WatchWindow.left(W), 0, W, HEAD + 2 * ROW + GAP, true);   // (Pebble PD's tab panel)
 		dead = Dungeon.hero == null || !Dungeon.hero.isAlive();
 		add(page); add(tabs);
 		if (dead) {
@@ -99,7 +99,7 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 		for (int k = 0; k < 3; k++) {
 			final int kk = k;
 			int tw = pebxel.Screen.round ? 50 : TAB_W;
-			int x = pebxel.Screen.round ? 54 + 51 * k - contentX : -4 + k * (TAB_W + 1), y = ch + 7;   // from the frame's bottom line
+			int x = pebxel.Screen.round ? 54 + 51 * k - contentX : -4 + k * (TAB_W + 1), y = ch + 1;   // over the frame's bottom edge: the chosen one joins the window (Pebble PD)
 			tabArt(tabs, x, y - 1, tw, TAB_H, k == p);
 			Image ic = PdArt.image("menu_icons", k * 16, 0, 16, 16, 2);
 			ic.x = x + (tw - 32) / 2; ic.y = y + (k == p ? 3 : 5) + (pebxel.Screen.round ? 1 : 0); tabs.add(ic);
@@ -166,11 +166,30 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 		}
 	}
 
+	/** Pebble PD's "Return to Game" picture: a big white arrow pointing right, outlined in black (34 x 26). */
+	private void arrow(float x, float y) {
+		for (int pass = 0; pass < 2; pass++) {
+			int o = pass == 0 ? 1 : 0, rgb = pass == 0 ? 0x000000 : 0xFFFFFF;
+			page.add(WatchHud.block(rgb, x - o, y + 8 - o, 19 + 2 * o, 10 + 2 * o));   // the shaft
+			for (int dy = -13; dy <= 13; dy++) {                                     // the head, row by row
+				int len = 16 - Math.abs(dy) * 16 / 13;
+				if (len + o * 2 <= 0) continue;
+				page.add(WatchHud.block(rgb, x + 18 - o, y + 13 + dy, len + 2 * o, 1));
+			}
+		}
+	}
+
 	private WatchButton big(int x, int y, int w, int h, int icon, String label, Runnable r) {
 		WatchButton b = new WatchButton(label) { @Override protected void onClick() { r.run(); } };
 		b.labelTop = 35 - 2;
 		b.setRect(x, y, w, h);
 		fit(b);
+		if (icon == 9) {
+			// (drawn: Pebble PD's arrow, not the small icon)
+			b.label(label); page.add(b); pageButtons.add(b);
+			arrow(b.left() + (b.width() - 34) / 2, b.top() + 4);
+			return b;
+		}
 		b.icon(PdArt.image("menu_icons", icon * 16, 0, 16, 16, 2));
 		b.label(label);
 		page.add(b); pageButtons.add(b);

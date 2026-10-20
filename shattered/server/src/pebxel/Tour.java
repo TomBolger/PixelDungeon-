@@ -60,6 +60,7 @@ public class Tour {
 		wins.put("hero", WndHero::new);
 		wins.put("journal", WndJournal::new);
 		wins.put("game", WndGame::new);
+		wins.put("talents", () -> { com.shatteredpixel.shatteredpixeldungeon.windows.WndHero.lastIdx = 1; pebxel.ui.Swaps.nativeHero = true; return new WndHero(); });
 		wins.put("catalogue", pebxel.ui.WndWatchRecords::catalogue);
 		wins.put("journal2", pebxel.ui.WndWatchRecords::journal);
 		wins.put("menu-records", () -> { pebxel.ui.WndWatchMenu.lastPage = 1; return new WndGame(); });
@@ -78,6 +79,7 @@ public class Tour {
 			if (!only.isEmpty() && !only.contains(e.getKey())) continue;
 			Window w = e.getValue().get();
 			GameScene.show(w);
+			pebxel.ui.Swaps.nativeHero = false;
 			frames(40);
 			shot(e.getKey());
 			if (e.getKey().equals("item") && Ui.topWindow() != null) {

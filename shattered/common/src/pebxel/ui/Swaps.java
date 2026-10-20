@@ -19,13 +19,23 @@ public final class Swaps {
 			else if (w instanceof WndGame) mine = new WndWatchMenu();
 			else if (w instanceof com.shatteredpixel.shatteredpixeldungeon.windows.WndHero && !nativeHero) mine = new WndWatchHero();
 			else if (w instanceof WndBag) mine = new WndWatchBag((Bag) get(WndBag.class, null, "lastBag"), (WndBag.ItemSelector) get(WndBag.class, w, "selector"));
-			if (mine == null) return w;
+			if (mine == null) { dim(w); return w; }
 			w.destroy();   // (it had set up its camera and key listener)
 			return mine;
 		} catch (Exception e) {
 			e.printStackTrace();
 			return w;
 		}
+	}
+
+	/** Shattered's own windows get Pebble PD's shade over the game behind them (its border would run into the HUD's). */
+	static void dim(Window w) {
+		com.watabou.noosa.ColorBlock d = new com.watabou.noosa.ColorBlock(1, 1, 0xFF000000);
+		d.camera = com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.uiCamera;
+		d.size(com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.uiCamera.width, com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.uiCamera.height);
+		d.alpha(0.5f);
+		com.watabou.noosa.Gizmo first = com.watabou.noosa.GroupAccess.members(w).isEmpty() ? null : com.watabou.noosa.GroupAccess.members(w).get(0);
+		if (first != null) com.watabou.noosa.GroupAccess.addAfter(w, d, first); else w.add(d);
 	}
 
 	/** Pebble PD's screens in place of Shattered's (Game.pebxelScenes). */

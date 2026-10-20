@@ -79,7 +79,7 @@ public class WndWatchRecords extends WatchWindow {
 		String[] names = {"Potions", "Scrolls"};
 		int x0 = (W - 2 * TAB_W - 1) / 2;
 		for (int k = 0; k < 2; k++) {
-			int tx = x0 + k * (TAB_W + 1), ty = ch + 7;
+			int tx = x0 + k * (TAB_W + 1), ty = ch + 1;
 			tabArt(tabs, tx, ty - 1, TAB_W, TAB_H, k == t);
 			WatchText l = new WatchText(WatchText.G14B, names[k], k == t ? WHITE : LIGHT);
 			WatchHud.place(l, tx, ty + (k == t ? 2 : 4), TAB_W, 1); tabs.add(l);
