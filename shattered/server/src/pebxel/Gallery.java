@@ -52,6 +52,7 @@ public class Gallery {
 		st("items", 1, "items", "");
 		st("items-caves", 12, "items", "");
 		st("gas", 2, "gas", "");
+		st("plants", 3, "plants", "");
 		st("buffs", 1, "buffs", "");
 		st("heroes", 6, "heroes", "");
 		st("bossbar", 2, "boss", "Goo");
@@ -78,6 +79,7 @@ public class Gallery {
 				steps.add(() -> { for (Mob m : Dungeon.level.mobs) if (m.properties().contains(com.shatteredpixel.shatteredpixeldungeon.actors.Char.Property.BOSS)) com.shatteredpixel.shatteredpixeldungeon.ui.BossHealthBar.assignBoss(m); }); break;
 			case "items": steps.add(Gallery::items); break;
 			case "gas": steps.add(Gallery::gas); break;
+			case "plants": steps.add(Gallery::plants); break;
 			case "buffs": steps.add(Gallery::buffs); break;
 		}
 	}
@@ -196,6 +198,30 @@ public class Gallery {
 		}
 	}
 
+	static final String[] PLANTS = {"Firebloom", "Icecap", "Sorrowmoss", "Blindweed", "Sungrass", "Earthroot", "Fadeleaf", "Rotberry", "Starflower", "Swiftthistle", "Stormvine", "Mageroyal"};
+	static final String[] TRAPS = {"BurningTrap", "ChillingTrap", "ToxicTrap", "ShockingTrap", "TeleportationTrap", "AlarmTrap", "GrippingTrap", "PoisonDartTrap", "ConfusionTrap"};
+
+	/** Plants and visible traps round the hero (what Shattered draws from its terrain features sheet). */
+	static void plants() {
+		List<Integer> cells = spots(1, PLANTS.length + TRAPS.length);
+		int k = 0;
+		for (String n : PLANTS) {
+			if (k >= cells.size()) break;
+			try { Dungeon.level.plant((com.shatteredpixel.shatteredpixeldungeon.plants.Plant.Seed) make(P + "plants." + n + "$Seed"), cells.get(k++)); }
+			catch (Throwable e) { System.out.println("plant " + n + ": " + e); }
+		}
+		for (String n : TRAPS) {
+			if (k >= cells.size()) break;
+			try {
+				int c = cells.get(k++);
+				com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap t = (com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap) make(P + "levels.traps." + n);
+				Dungeon.level.setTrap(t, c); t.reveal();
+				Level.set(c, com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.TRAP);
+				GameScene.updateMap(c);
+			} catch (Throwable e) { System.out.println("trap " + n + ": " + e); }
+		}
+	}
+
 	static final String[] BUFFS = {"Poison", "Burning", "Bleeding", "Cripple", "Paralysis", "Levitation", "MindVision", "Invisibility",
 			"Blindness", "Roots", "Slow", "Barkskin", "Haste", "Ooze", "Weakness", "Vertigo", "Terror", "Amok", "Charm", "Corrosion",
 			"Doom", "Drowsy", "Hex", "Vulnerable", "Bless", "Adrenaline", "Light", "Recharging", "ArcaneArmor", "Foresight", "Hunger"};
@@ -271,7 +297,7 @@ public class Gallery {
 			else if (kind.equals("windows")) windows();
 			else {
 				shot(name);
-				if (kind.equals("mobs") || kind.equals("boss")) {
+				if (kind.equals("mobs") || kind.equals("boss") || kind.equals("plants")) {
 					// zoomed in a step, as Up does (then back to the default)
 					controls.button(Controls.UP); frames(30); shot(name + "-z32");
 					controls.button(Controls.UP); frames(10); controls.button(Controls.UP); frames(30);
