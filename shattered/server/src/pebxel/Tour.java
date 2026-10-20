@@ -41,7 +41,14 @@ public class Tour {
 		Game.switchScene(InterlevelScene.class);
 		for (int k = 0; k < 4000 && !(Game.scene() instanceof GameScene && Dungeon.hero != null && Dungeon.hero.ready); k++) {
 			frames(1); Thread.sleep(2);
-			if (Game.scene() instanceof InterlevelScene) HandoffTest.pressOn();
+			if (Game.scene() instanceof InterlevelScene) {
+				// the story pages on the loading screen: a picture of each, then on
+				boolean ready = false;
+				for (Ui.Part p : Ui.parts(Game.scene())) if (p.button && !p.text.isEmpty() && !p.text.equals("Button") && p.g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.Button && ((com.shatteredpixel.shatteredpixeldungeon.ui.Button) p.g).active) ready = true;
+				if (ready && pages < 6) { frames(40); shot("loading" + pages++); }
+				HandoffTest.pressOn();
+				if (ready) frames(5);
+			}
 		}
 		controls = new Controls();
 		frames(30);
@@ -94,7 +101,8 @@ public class Tour {
 		System.exit(0);
 	}
 
-	static Controls controls;   // (the watch's HUD and its window handling, as in a real game)
+	static Controls controls;
+	static int pages;   // (the watch's HUD and its window handling, as in a real game)
 
 	static void frames(int k) {
 		for (int f = 0; f < k; f++) {

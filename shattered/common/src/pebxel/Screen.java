@@ -9,11 +9,18 @@ public final class Screen {
 	public static void set(int code) {
 		if (code <= 0) return;
 		round = (code >> 24 & 1) != 0; w = code >> 12 & 0xFFF; h = code & 0xFFF;
+		changed();
 	}
 
 	public static void set(String name) {
 		if ("gabbro".equals(name)) { w = 260; h = 260; round = true; }
 		else if ("emery".equals(name)) { w = 200; h = 228; round = false; }
+		changed();
+	}
+
+	/** Shattered's own screens that place things by the screen's shape. */
+	private static void changed() {
+		com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.pebxelLoadingMargin = round ? 24 : 6;
 	}
 
 	public static int code() { return (round ? 1 << 24 : 0) | w << 12 | h; }

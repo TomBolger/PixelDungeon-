@@ -221,6 +221,124 @@ index 179e9e8..40b7de4 100644
  		if (scene != null) {
  			cancel();
  
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
+index 463b529..6b63c2d 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
+@@ -101,6 +101,14 @@ public class InterlevelScene extends PixelScene {
+ 	private RenderedTextBlock loadingText;
+ 
+ 	private RenderedTextBlock storyMessage;
++
++	/** Pebxel: splits the story into pages that fit the screen (null: one page), their width, and the next-page label. */
++	public static java.util.function.Function<String, String[]> pebxelPages;
++	public static int pebxelStoryWidth;
++	public static String pebxelMore = "More";
++	public static int pebxelLoadingMargin = 6;
++	/** (Pebxel: a see-through backing turns into a dotted screen on the watch: there it's solid) */
++	private static float storyShade() { return pebxelPages != null ? 1f : 0.8f; }
+ 	private ShadowBox storyBG;
+ 	private StyledButton btnContinue;
+ 	private IconButton btnHideStory;
+@@ -273,24 +281,42 @@ public class InterlevelScene extends PixelScene {
+ 				insets.left + w - loadingText.width() - 12,
+ 				insets.top + h - loadingText.height() - 6
+ 		);
++		if (pebxelPages != null) {
++			// Pebxel: centred at the bottom (a round screen has no corners)
++			loadingText.setPos(insets.left + (w - loadingText.width()) / 2f, insets.top + h - loadingText.height() - pebxelLoadingMargin);
++		}
+ 		align(loadingText);
+ 		add(loadingText);
+ 
+ 		if (mode == Mode.DESCEND && lastRegion <= 5 && !DeviceCompat.isDebug()){
+ 			if (Dungeon.hero == null || (loadingDepth > Statistics.deepestFloor && loadingDepth % 5 == 1)){
+-					storyMessage = PixelScene.renderTextBlock(Document.INTROS.pageBody(region), 6);
+-					storyMessage.maxWidth( PixelScene.landscape() ? 180 : 125);
++					// Pebxel: on a small screen the story comes in pages
++					final String[] pages = pebxelPages != null ? pebxelPages.apply(Document.INTROS.pageBody(region)) : new String[]{Document.INTROS.pageBody(region)};
++					final int[] page = {0};
++					storyMessage = PixelScene.renderTextBlock(pages[0], 6);
++					storyMessage.maxWidth( pebxelStoryWidth > 0 ? pebxelStoryWidth : PixelScene.landscape() ? 180 : 125);
+ 					storyMessage.setPos(insets.left+(w-storyMessage.width())/2f, insets.top+(h-storyMessage.height())/2f);
+ 
+ 					storyBG = new ShadowBox();
+ 					storyBG.boxRect(storyMessage.left()-10, storyMessage.top()-10, storyMessage.width()+20, storyMessage.height()+20);
+-					storyBG.alpha(0.8f);
++					storyBG.alpha(storyShade());
+ 					add(storyBG);
+ 					add(storyMessage);
++					if (pebxelPages != null) loadingText.visible = false;   // (Pebxel: no room for both)
+ 
+ 					btnContinue = new StyledButton(Chrome.Type.TOAST_TR, Messages.get(InterlevelScene.class, "continue"), 9){
+ 						@Override
+ 						protected void onClick() {
++							if (page[0] < pages.length - 1) {
++								// Pebxel: the next page, in the same place
++								page[0]++;
++								float bottom = storyMessage.bottom();
++								storyMessage.text(pages[page[0]]);
++								storyMessage.setPos(storyMessage.left(), bottom - storyMessage.height());
++								storyBG.boxRect(storyMessage.left()-10, storyMessage.top()-10, storyMessage.width()+20, storyMessage.height()+20);
++								if (page[0] == pages.length - 1) text(Messages.get(InterlevelScene.class, "continue"));
++								return;
++							}
+ 							phase = Phase.FADE_OUT;
+ 							timeLeft = fadeTime;
+ 
+@@ -298,6 +324,7 @@ public class InterlevelScene extends PixelScene {
+ 							Document.INTROS.readPage(region);
+ 						}
+ 					};
++					if (pages.length > 1) btnContinue.text(pebxelMore);
+ 					btnContinue.icon(Icons.STAIRS.get());
+ 					btnContinue.setSize(btnContinue.reqWidth()+10, 22);
+ 					btnContinue.visible = false;
+@@ -316,7 +343,7 @@ public class InterlevelScene extends PixelScene {
+ 										protected void updateValues(float progress) {
+ 											float uiAlpha = progress;
+ 											btnContinue.alpha(uiAlpha);
+-											storyBG.alpha(uiAlpha*0.8f);
++											storyBG.alpha(uiAlpha * storyShade());
+ 											storyMessage.alpha(uiAlpha);
+ 											btnHideStory.icon().alpha(uiAlpha);
+ 											loadingText.alpha(uiAlpha);
+@@ -352,7 +379,7 @@ public class InterlevelScene extends PixelScene {
+ 									protected void updateValues(float progress) {
+ 										float uiAlpha = 1 - progress;
+ 										btnContinue.alpha(uiAlpha);
+-										storyBG.alpha(uiAlpha * 0.8f);
++										storyBG.alpha(uiAlpha * storyShade());
+ 										storyMessage.alpha(uiAlpha);
+ 										icon.alpha(uiAlpha);
+ 										loadingText.alpha(uiAlpha);
+@@ -376,7 +403,7 @@ public class InterlevelScene extends PixelScene {
+ 									protected void updateValues(float progress) {
+ 										float uiAlpha = progress;
+ 										btnContinue.alpha(uiAlpha);
+-										storyBG.alpha(uiAlpha*0.8f);
++										storyBG.alpha(uiAlpha * storyShade());
+ 										storyMessage.alpha(uiAlpha);
+ 										icon.alpha(uiAlpha);
+ 										loadingText.alpha(uiAlpha);
+@@ -515,7 +542,7 @@ public class InterlevelScene extends PixelScene {
+ 			if (btnContinue != null){
+ 				btnContinue.alpha((timeLeft/fadeTime));
+ 				storyMessage.alpha(btnContinue.alpha());
+-				storyBG.alpha(btnContinue.alpha()*0.8f);
++				storyBG.alpha(btnContinue.alpha() * storyShade());
+ 				btnHideStory.icon().alpha(btnContinue.alpha());
+ 			}
+ 			
+@@ -532,7 +559,7 @@ public class InterlevelScene extends PixelScene {
+ 			if (btnContinue != null && textFadingIn) {
+ 				btnContinue.alpha(Math.min(1, btnContinue.alpha() + Game.elapsed));
+ 				storyMessage.alpha(btnContinue.alpha());
+-				storyBG.alpha(btnContinue.alpha()*0.8f);
++				storyBG.alpha(btnContinue.alpha() * storyShade());
+ 				btnHideStory.icon().alpha(btnContinue.alpha());
+ 
+ 				if (btnContinue.alpha() == 1){
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
 index 86c9dfb..afe1af3 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java

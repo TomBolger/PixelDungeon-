@@ -15,6 +15,8 @@ public class WatchGame extends ShatteredPixelDungeon {
 		// Pebble PD's own windows in place of some of Shattered's
 		com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.pebxelWindows = pebxel.ui.Swaps::window;
 		com.watabou.noosa.Game.pebxelScenes = pebxel.ui.Swaps::scene;
+		// the story on the loading screen in pages that fit
+		com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.pebxelPages = pebxel.ui.StoryPages::split;
 	}
 	/** Set to draw the next frame (only when taking pictures); normally nothing is drawn. */
 	public boolean drawNext;
