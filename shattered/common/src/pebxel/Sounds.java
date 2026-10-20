@@ -69,6 +69,7 @@ public final class Sounds {
 
 	/** The settings as the watch takes them: bit 0 music, bit 1 sound, bits 2-3 volume (loud, medium, quiet). */
 	public static int mask() {
+		if (System.getenv("PEBXEL_NOSOUND") != null) return 0;
 		int v;
 		try { v = WatchSettings.sound(); } catch (Throwable t) { return 3; }   // (settings not open yet: on, loud)
 		boolean m; try { m = WatchSettings.music(); } catch (Throwable t) { m = true; }

@@ -77,6 +77,10 @@ public final class Link {
 	private final HashMap<Integer, byte[]> dynPixels = new HashMap<>();
 	private final HashMap<Integer, int[]> dynPal = new HashMap<>();
 	private int nextDyn = 200;
+	/** When each run-time picture was last drawn (sync rounds); unused ones are freed on the watch. */
+	private final HashMap<Integer, Integer> dynUsed = new HashMap<>();
+	private int rounds;
+	static final int DYN_KEEP = 90;   // rounds unused before a run-time picture is let go (3 s)
 
 	/** Pictures that are pure scenery and cost more radio time than they are worth (none by default). */
 	public final Set<String> skip = new HashSet<>(Arrays.asList(
@@ -103,8 +107,8 @@ public final class Link {
 	/** Forget everything the watch had (it restarted, or a new connection). */
 	public void reset() {
 		objs.clear(); shadowPrev.clear(); shadowNext.clear(); shadowHead = NONE;
-		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); nextDyn = 200;
-		anims.clear(); animsByContent.clear();
+		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); dynUsed.clear(); nextDyn = 200;
+		anims.clear(); animsByContent.clear(); animUsed.clear();
 		out.reset(); marks.clear(); dropPending(); cmd(C_RESET); lastPlan = null;
 		for (int[] e : Sounds.state()) sound(e);
 	}
@@ -164,6 +168,7 @@ public final class Link {
 			}
 		}
 		cameras(dt);
+		freeDyn();
 		// what the watch may do by itself on the next press (Controls.plan): sent when it changes, after this
 		// frame's pictures (so the ones it names exist)
 		if (planner != null) {
@@ -554,15 +559,16 @@ public final class Link {
 
 	private int anim(MovieClip.Animation a, int tx, SmartTexture t) {
 		Integer id = anims.get(a);
-		if (id != null) return id;
+		if (id != null) { animUsed.put(id, rounds); return id; }
 		// many monsters share the same animation: send each distinct one once
 		StringBuilder k = new StringBuilder().append(tx).append(':').append(a.delay).append(':').append(a.looped);
 		for (RectF r : a.frames) k.append(':').append(r.left).append(',').append(r.top).append(',').append(r.right).append(',').append(r.bottom);
 		id = animsByContent.get(k.toString());
 		if (id != null) { anims.put(a, id); return id; }
-		id = animsByContent.size();
+		java.util.Set<Integer> taken = new java.util.HashSet<>(animsByContent.values());
+		id = 0; while (taken.contains(id)) id++;   // the lowest free number (old levels' animations are let go: freeAnims)
 		animsByContent.put(k.toString(), id);
-		anims.put(a, id);
+		anims.put(a, id); animUsed.put(id, rounds);
 		cmd(C_ANIM); u16(id); u8(tx); u8(a.frames.length); u16(Math.round(a.delay * 1000)); u8(a.looped ? 1 : 0);
 		for (RectF r : a.frames) {
 			u16(Math.round(r.left * t.width)); u16(Math.round(r.top * t.height));
@@ -689,7 +695,12 @@ public final class Link {
 		if (id != null) return id;
 		// made at run time (fog of war, glows): send its pixels when they change
 		Integer d = dynTex.get(t);
-		if (d == null) { d = nextDyn++; if (nextDyn > 254) nextDyn = 200; dynTex.put(t, d); }
+		if (d == null) {   // the lowest number not in use (a level's fog is a new texture each time: numbers are recycled)
+			java.util.Set<Integer> taken = new java.util.HashSet<>(dynTex.values());   // (an IdentityHashMap's containsValue compares Integers by identity)
+			d = 200; while (taken.contains(d) && d < 254) d++;
+			dynTex.put(t, d); dynPixels.remove(d); dynPal.remove(d);
+		}
+		dynUsed.put(d, rounds);
 		Pixmap p = t.bitmap;
 		if (p != null) {
 			byte[] px = Assets.pebble(p);
@@ -718,6 +729,36 @@ public final class Link {
 			}
 		}
 		return d;
+	}
+
+	/** Run-time pictures nothing has drawn for a while (an old level's fog of war): freed on the watch (C_DTEX with
+	 *  no size), so their memory doesn't run out after a few level changes (the next level's fog then failed to fit
+	 *  and the water under it showed through). */
+	/** Animations nothing has played for a while (an earlier level's monsters): freed on the watch (C_ANIM with no
+	 *  frames) and their numbers reused, so a long game neither fills the watch's memory nor runs out of numbers. */
+	private final HashMap<Integer, Integer> animUsed = new HashMap<>();
+	static final int ANIM_KEEP = 600;   // 20 s
+	private void freeAnims() {
+		if (rounds % 30 != 0) return;
+		java.util.Set<Integer> gone = new java.util.HashSet<>();
+		for (Map.Entry<Integer, Integer> e : animUsed.entrySet()) if (rounds - e.getValue() >= ANIM_KEEP) gone.add(e.getKey());
+		if (gone.isEmpty()) return;
+		animsByContent.values().removeIf(gone::contains);
+		anims.values().removeIf(gone::contains);
+		for (int id : gone) { animUsed.remove(id); cmd(C_ANIM); u16(id); u8(0); u8(0); u16(0); u8(0); }
+	}
+
+	private void freeDyn() {
+		freeAnims();
+		rounds++;
+		Iterator<Map.Entry<SmartTexture, Integer>> it = dynTex.entrySet().iterator();
+		while (it.hasNext()) {
+			int d = it.next().getValue();
+			Integer last = dynUsed.get(d);
+			if (last != null && rounds - last < DYN_KEEP) continue;
+			it.remove(); dynUsed.remove(d); dynPixels.remove(d); dynPal.remove(d);
+			cmd(C_DTEX); u8(d); u16(0); u16(0); u16(0); u8(0); u16(0);
+		}
 	}
 
 	/**

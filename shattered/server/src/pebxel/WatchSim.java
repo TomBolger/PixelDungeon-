@@ -160,6 +160,7 @@ public final class WatchSim {
 					int id = u8(), w = u16(), h = u16(), piece = u16();
 					int[] pal = new int[u8()]; for (int i = 0; i < pal.length; i++) pal[i] = u8();
 					int len = u16(); int end = p + len;
+					if (w == 0 || h == 0) { dyn.remove(id); texCache.remove(id); p = end; break; }   // let go
 					int[] px = dyn.get(id);
 					if (px == null || px[0] != w || px[1] != h) { px = new int[2 + w * h]; px[0] = w; px[1] = h; }
 					int k = 2 + piece * Link.DTEX_PIECE;

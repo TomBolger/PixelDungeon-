@@ -411,6 +411,9 @@ public class Gallery {
 			java.util.Map<Object, Integer> byId = new java.util.HashMap<>();
 			for (Object v : m.values()) byId.merge(v, 1, Integer::sum);
 			long shared = byId.values().stream().filter(c -> c > 1).count();
+			java.lang.reflect.Field u = Link.class.getDeclaredField("dynUsed"); u.setAccessible(true);
+			java.lang.reflect.Field r = Link.class.getDeclaredField("rounds"); r.setAccessible(true);
+			System.out.println("  used " + u.get(link) + " rounds " + r.get(link) + " ids " + m.values());
 			System.out.println("DYN " + name + ": textures " + m.size() + ", next id " + n.get(link) + ", ids shared by two or more textures " + shared);
 		}
 	}

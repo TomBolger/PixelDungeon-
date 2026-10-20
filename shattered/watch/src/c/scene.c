@@ -199,6 +199,7 @@ static void read_dtex(void) {
   int len = u16();
   const uint8_t *stop = p + len; if (stop > end) stop = end;
   if (id < 200 || id >= 200 + MAX_DYN) { p = stop; return; }
+  if (!w || !h) { free(s_dyn[id - 200]); s_dyn[id - 200] = NULL; art_forget(id); p = stop; return; }   // let go (Link.freeDyn)
   int bits = ncol == 0 || ncol > 16 ? 8 : ncol <= 4 ? 2 : 4;
   DynTex *d = s_dyn[id - 200];
   int bytes = (w * h * bits + 7) / 8;
@@ -316,6 +317,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
         int id = u16(), tex = u8(), n = u8(), delay = u16(), looped = u8();
         Anim *a = malloc(sizeof(Anim) + n * 8);
         for (int i = 0; i < n * 4; i++) { int v = u16(); if (a) a->rects[i] = v; }
+        if (!n) { free(a); a = NULL; }   // no frames: let go (Link.freeAnims)
         if (id < MAX_ANIM) {
           free(s_anim[id]); s_anim[id] = a;
           if (a) { a->tex = tex; a->n = n; a->delay_ms = delay; a->looped = looped; }
