@@ -20,6 +20,7 @@ import com.watabou.noosa.Camera;
 import com.watabou.noosa.ColorBlock;
 import com.watabou.noosa.Game;
 import com.watabou.noosa.Group;
+import com.watabou.noosa.Image;
 import com.watabou.noosa.ui.Component;
 import com.watabou.utils.PathFinder;
 import java.util.*;
@@ -50,8 +51,86 @@ public class Controls {
 	private boolean targetsStale = true;
 	private int lastPos = -1, lastDepth = -1;
 
+	// ---- Pebble PD's screen furniture (pebxel.ui.WatchHud) ----
+	private pebxel.ui.WatchHud hud;
+
+	private final pebxel.ui.WatchHud.Hooks hooks = new pebxel.ui.WatchHud.Hooks() {
+		public void press(int k, boolean held) { hudPress(k, held); }
+		public int targetCell() { return currentTarget(); }
+		public int targetKind() {
+			int c = currentTarget();
+			if (c < 0 || Dungeon.level == null) return 0;
+			Char ch = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c);
+			if (ch instanceof Mob && ((Mob) ch).alignment == Char.Alignment.ENEMY) return 1;
+			if (Dungeon.level.heaps.get(c) != null) return 2;
+			return c == Dungeon.hero.pos ? 0 : 3;
+		}
+		public int targetCount() { return Dungeon.hero != null && Dungeon.hero.ready ? targets.size() : 0; }
+		public int mapZoomLevel() { Camera c = Camera.main; return c == null ? 1 : c.zoom < 1.5f ? 0 : c.zoom < 3f ? 1 : 2; }
+		public void tag(int which, boolean held) {
+			switch (which) {
+				case 0: zoom(); break;
+				case 1: dungeonButton(SELECT, false); break;
+				case 2: dungeonButton(DOWN, held); break;
+				case 3: key(SPDAction.WAIT_OR_PICKUP); break;
+			}
+		}
+	};
+
+	/** The cell Select acts on (-1 none). */
+	private int currentTarget() {
+		if (Dungeon.hero == null || !Dungeon.hero.ready || targets.isEmpty()) return -1;
+		int c = targets.get(Math.min(target, targets.size() - 1));
+		return c < 0 ? -1 : c;
+	}
+
+	private void hudPress(int k, boolean held) {
+		if (Dungeon.hero == null) return;
+		boolean ready = Dungeon.hero.ready;
+		switch (k) {
+			case pebxel.ui.WatchHud.TB_WAIT: key(held ? SPDAction.REST : SPDAction.WAIT); break;
+			case pebxel.ui.WatchHud.TB_SEARCH: if (ready && !GameScene.cancel()) Dungeon.hero.search(true); break;
+			case pebxel.ui.WatchHud.TB_INFO: key(SPDAction.EXAMINE); break;
+			case pebxel.ui.WatchHud.TB_BAG:
+				if (held) GameScene.show(new com.shatteredpixel.shatteredpixeldungeon.windows.WndJournal());
+				else key(SPDAction.INVENTORY);
+				break;
+			case pebxel.ui.WatchHud.TB_Q1: case pebxel.ui.WatchHud.TB_Q2: {
+				int slot = k == pebxel.ui.WatchHud.TB_Q1 ? 0 : 1;
+				if (held) { Object b = quickslotButton(slot); if (b != null) Ui.hold((com.watabou.noosa.Gizmo) b); }
+				else key(slot == 0 ? SPDAction.QUICKSLOT_1 : SPDAction.QUICKSLOT_2);
+				break;
+			}
+			case pebxel.ui.WatchHud.B_MENU: GameScene.show(new WndGame()); break;
+			case pebxel.ui.WatchHud.B_PORTRAIT: GameScene.show(new com.shatteredpixel.shatteredpixeldungeon.windows.WndHero()); break;
+		}
+		targetsStale = true;
+	}
+
+	private static java.lang.reflect.Field qsInstance;
+	private static Object quickslotButton(int slot) {
+		try {
+			if (qsInstance == null) { qsInstance = com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton.class.getDeclaredField("instance"); qsInstance.setAccessible(true); }
+			return ((Object[]) qsInstance.get(null))[slot];
+		} catch (Exception e) { return null; }
+	}
+
+	/** Pebble PD's furniture over the game, made once per game screen. */
+	private void keepHud() {
+		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) { hud = null; return; }
+		if (hud != null && hud.parent == Game.scene()) return;
+		hud = new pebxel.ui.WatchHud(hooks);
+		// just above Shattered's own (unseen) furniture: under windows and the map's effects stay below
+		Group s = Game.scene();
+		com.watabou.noosa.Gizmo after = null;
+		for (com.watabou.noosa.Gizmo g : com.watabou.noosa.GroupAccess.members(s))
+			if (g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.Toolbar || g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.StatusPane
+					|| g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.GameLog || g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.MenuPane) after = g;
+		if (after != null) com.watabou.noosa.GroupAccess.addAfter(s, hud, after); else s.add(hud);
+	}
+
 	/** A finger is in use: the button frames step aside until the next button press (as in Pebble PD). */
-	public void touched() { onToolbar = false; touching = true; }
+	public void touched() { onToolbar = false; touching = true; if (hud != null) hud.highlight = -1; }
 	private boolean touching;
 
 	public void button(int code) {
@@ -134,16 +213,14 @@ public class Controls {
 
 	private void dungeonButton(int b, boolean held) {
 		boolean aiming = aiming();
-		if (onToolbar) {
-			List<Ui.Part> bs = toolbar();
-			if (bs.isEmpty()) { onToolbar = false; }
-			else {
-				focus = Math.max(0, Math.min(bs.size() - 1, focus));
-				switch (b) {
-					case BACK: if (++focus >= bs.size()) onToolbar = false; return;
-					case SELECT: onToolbar = false; if (held) Ui.hold(bs.get(focus).g); else Ui.press(bs.get(focus).g); return;
-					case UP: case DOWN: onToolbar = false; break;   // back to the map, and do what the button does there
-				}
+		if (onToolbar && hud != null) {
+			// Back walks a highlight round the buttons: the toolbar left to right, the menu, the portrait, then none;
+			// Select presses it (held: a long press), Up goes back one, Down drops it (as Pebble PD)
+			switch (b) {
+				case BACK: hud.highlight++; if (hud.highlight > pebxel.ui.WatchHud.B_PORTRAIT) { hud.highlight = -1; onToolbar = false; } return;
+				case UP: if (hud.highlight > 0) hud.highlight--; return;
+				case DOWN: hud.highlight = -1; onToolbar = false; return;
+				case SELECT: { int k = hud.highlight; hud.highlight = -1; onToolbar = false; hudPress(k, held); return; }
 			}
 		}
 		switch (b) {
@@ -172,6 +249,7 @@ public class Controls {
 			case BACK:
 				if (aiming) { GameScene.cancelCellSelector(); targetsStale = true; return; }
 				onToolbar = true; focus = 0;
+				if (hud != null) hud.highlight = 0;
 				return;
 		}
 	}
@@ -199,13 +277,16 @@ public class Controls {
 		KeyEvent.addKeyEvent(new KeyEvent(k, false));
 	}
 
-	/** Zoom steps: normal (16 px tiles), 1.5x, 2x, then far out (8 px) and back to normal. */
+	/** Zoom steps as Pebble PD: 16 px tiles, 32, 8, and back to 16. */
 	private void zoom() {
 		Camera c = Camera.main;
 		if (c == null) return;
-		if (c.zoom < PixelScene.maxZoom - 0.1f) key(SPDAction.ZOOM_IN);
-		else for (float z = c.zoom; z > PixelScene.minZoom + 0.1f; z--) key(SPDAction.ZOOM_OUT);
+		int z = Math.round(c.zoom), to = z < 2 ? 2 : z < 4 ? 4 : 1;
+		to = Math.max(Math.round(PixelScene.minZoom), Math.min(Math.round(PixelScene.maxZoom), to));
+		for (int i = z; i < to; i++) key(SPDAction.ZOOM_IN);
+		for (int i = z; i > to; i--) key(SPDAction.ZOOM_OUT);
 	}
+
 
 	/** The toolbar and status buttons, left to right, then the top bar. */
 	private List<Ui.Part> toolbar() {
@@ -289,11 +370,14 @@ public class Controls {
 	// ---- every frame: keep the frame where it belongs ----
 
 	public void frame() {
-		if (touching) { frame.hide(); return; }
+		keepHud();
 		Window w = Ui.topWindow();
 		Group menu = w != null ? w : !(Game.scene() instanceof GameScene) ? Game.scene() : null;
-		if (menu != null) {
+		if (touching) { frame.hide(); if (menu != null) { marker.hide(); return; } }
+		else if (menu != null) {
 			onToolbar = false;
+			if (hud != null) hud.highlight = -1;
+			marker.hide();
 			List<Ui.Part> bs = buttons(menu);
 			if (focusOwner != menu) {
 				focusOwner = menu; focus = 0;
@@ -305,23 +389,33 @@ public class Controls {
 			frame.around(menu, c.left() - 1, c.top() - 1, c.width() + 2, c.height() + 2, 0xFFFFFF44);
 			return;
 		}
-		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) { frame.hide(); return; }
-		if (onToolbar) {
-			List<Ui.Part> bs = toolbar();
-			if (!bs.isEmpty()) {
-				Component c = (Component) bs.get(Math.max(0, Math.min(bs.size() - 1, focus))).g;
-				// on a layer of its own above the whole interface
-				frame.around(overlay(), c.left() - 1, c.top() - 1, c.width() + 2, c.height() + 2, 0xFFFFFF44);
-				return;
-			}
-		}
-		if (!Dungeon.hero.ready) { frame.hide(); return; }
+		frame.hide();
+		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) { marker.hide(); return; }
+		if (onToolbar || !Dungeon.hero.ready) { marker.hide(); return; }   // (the toolbar's highlight is drawn by the HUD)
 		refreshTargets(aiming());
-		if (targets.isEmpty() || targets.get(Math.min(target, targets.size() - 1)) < 0) { frame.hide(); return; }
-		int cell = targets.get(Math.min(target, targets.size() - 1));
-		float x = (cell % Dungeon.level.width()) * DungeonTilemap.SIZE, y = (cell / Dungeon.level.width()) * DungeonTilemap.SIZE;
-		frame.inWorld(x, y, DungeonTilemap.SIZE, DungeonTilemap.SIZE, aiming() ? 0xFFFF6644 : 0xFFFFFF44);
+		int cell = targets.isEmpty() ? -1 : targets.get(Math.min(target, targets.size() - 1));
+		if (cell < 0) { marker.hide(); return; }
+		marker.at(cell);
 	}
+
+	// ---- the chosen cell: Icons.TARGET over it, as in Pebble PD (never smaller than at 16 px tiles) ----
+	private final Marker marker = new Marker();
+	private static class Marker {
+		private Image img;
+		void at(int cell) {
+			if (img == null || img.parent == null || !Frame.inScene(img)) {
+				img = pebxel.ui.PdArt.image("icons", 67, 0, 16, 16, 1);
+				GameScene.effect(img);
+			}
+			float z = Camera.main == null ? 2 : Camera.main.zoom, s = z < 2 ? 2 / z : 1;
+			img.scale.set(s);
+			img.x = (cell % Dungeon.level.width()) * DungeonTilemap.SIZE - (16 * s - 16) / 2;
+			img.y = (cell / Dungeon.level.width()) * DungeonTilemap.SIZE - (16 * s - 16) / 2;
+			img.visible = true;
+		}
+		void hide() { if (img != null) img.visible = false; }
+	}
+
 
 	private Window keptFor;
 	private Group overlay;
@@ -374,7 +468,7 @@ public class Controls {
 
 		private static void set(ColorBlock b, float x, float y, float w, float h) { b.x = x; b.y = y; b.size(w, h); }
 
-		private static boolean inScene(com.watabou.noosa.Gizmo g) {
+		static boolean inScene(com.watabou.noosa.Gizmo g) {
 			for (Group p = g.parent; p != null; p = p.parent) if (p == Game.scene()) return true;
 			return false;
 		}

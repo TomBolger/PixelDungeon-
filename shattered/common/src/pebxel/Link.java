@@ -87,7 +87,11 @@ public final class Link {
 			// would hold up what matters on a slow radio link
 			"Sink", "Torch", "Vein", "GreenFlame", "Smoke", "Stream", "Ripple",
 			// the menus' drifting rubble background: busy behind text, and always moving
-			"TitleBackground"
+			"TitleBackground",
+			// Shattered's own screen furniture: the watch shows Pebble PD's instead (pebxel.ui.WatchHud), which
+			// presses these unseen ones
+			"StatusPane", "MenuPane", "Toolbar", "GameLog", "AttackIndicator", "LootIndicator", "ResumeIndicator",
+			"ActionIndicator", "RightClickMenu", "InventoryPane"
 	));
 
 	public final Set<String> unknown = new TreeSet<>();
