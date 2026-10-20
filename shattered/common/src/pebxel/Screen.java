@@ -21,6 +21,7 @@ public final class Screen {
 	/** Shattered's own screens that place things by the screen's shape. */
 	private static void changed() {
 		com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.pebxelLoadingMargin = round ? 24 : 6;
+		com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene.pebxelRound = round;
 	}
 
 	public static int code() { return (round ? 1 << 24 : 0) | w << 12 | h; }

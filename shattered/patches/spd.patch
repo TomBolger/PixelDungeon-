@@ -446,15 +446,17 @@ index 463b529..8329920 100644
  
  				if (btnContinue.alpha() == 1){
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
-index 86c9dfb..afe1af3 100644
+index 86c9dfb..f7b4602 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
-@@ -64,6 +64,13 @@ import java.util.ArrayList;
+@@ -64,6 +64,15 @@ import java.util.ArrayList;
  public class PixelScene extends Scene {
  
  	// Minimum virtual display size for mobile portrait orientation
 +	/** Pebxel: the watch's interface zoom (bigger than Shattered would pick for so small a screen). */
 +	public static int pebxelZoom = 0;
++	/** Pebxel: the watch's screen is round (corners cut away). */
++	public static boolean pebxelRound = false;
 +	/** Pebxel: the watch's map zoom, apart from the phone's setting (-1 at zoom 3: 16 pixel tiles, as in the Pixel Dungeon port). */
 +	public static int pebxelMapZoom = -1;
 +	/** Pebxel: screens laid out for more room than the watch has at that zoom; they use zoom 2. */
@@ -463,7 +465,7 @@ index 86c9dfb..afe1af3 100644
  	public static final float MIN_WIDTH_P = 135;
  	public static final float MIN_HEIGHT_P = 225;
  
-@@ -141,6 +148,8 @@ public class PixelScene extends Scene {
+@@ -141,6 +150,8 @@ public class PixelScene extends Scene {
  			}
  		}
  
@@ -532,6 +534,19 @@ index 2dcab6a..27a489b 100644
  			quickslotsToShow = 3;
  			startingSlot = swappedQuickslots ? 3 : 0;
  			btnSwap.visible = true;
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGameInProgress.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGameInProgress.java
+index 21b8cae..48f47ea 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGameInProgress.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGameInProgress.java
+@@ -45,7 +45,7 @@ public class WndGameInProgress extends Window {
+ 	
+ 	private static final int WIDTH    = 120;
+ 	
+-	private int GAP	  = 6;
++	private int GAP	  = PixelScene.pebxelRound ? 2 : 6;   //pebxel: tighter on a round watch, so Continue and Erase stay inside the circle
+ 	
+ 	private float pos;
+ 	
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndScoreBreakdown.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndScoreBreakdown.java
 index de5af72..b077a97 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndScoreBreakdown.java
