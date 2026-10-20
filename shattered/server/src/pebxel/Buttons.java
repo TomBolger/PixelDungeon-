@@ -72,6 +72,7 @@ public class Buttons {
 		}
 		System.out.println("scene " + Game.scene().getClass().getSimpleName() + ", " + shot + " pictures");
 		System.out.println("sounds " + sim.sounds);
+		if (System.getenv("DUMP") != null) sim.dump();
 		System.exit(0);
 	}
 }

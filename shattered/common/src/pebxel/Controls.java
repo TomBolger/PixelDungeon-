@@ -89,16 +89,19 @@ public class Controls {
 		boolean ready = Dungeon.hero.ready;
 		switch (k) {
 			case pebxel.ui.WatchHud.TB_WAIT: key(held ? SPDAction.REST : SPDAction.WAIT); break;
-			case pebxel.ui.WatchHud.TB_SEARCH: if (ready && !GameScene.cancel()) Dungeon.hero.search(true); break;
-			case pebxel.ui.WatchHud.TB_INFO: key(SPDAction.EXAMINE); break;
+			// Shattered's one search button: pressed, it asks which cell to examine (pressed again: search); held: search
+			case pebxel.ui.WatchHud.TB_SEARCH:
+				if (held) { if (ready && !GameScene.cancel()) Dungeon.hero.search(true); }
+				else key(SPDAction.EXAMINE);
+				break;
 			case pebxel.ui.WatchHud.TB_BAG:
 				if (held) GameScene.show(pebxel.ui.WndWatchRecords.catalogue());   // (Pebble PD: the backpack held is the catalogue)
 				else key(SPDAction.INVENTORY);
 				break;
-			case pebxel.ui.WatchHud.TB_Q1: case pebxel.ui.WatchHud.TB_Q2: {
-				int slot = k == pebxel.ui.WatchHud.TB_Q1 ? 0 : 1;
+			case pebxel.ui.WatchHud.TB_Q1: case pebxel.ui.WatchHud.TB_Q2: case pebxel.ui.WatchHud.TB_Q3: {
+				int slot = k == pebxel.ui.WatchHud.TB_Q1 ? 0 : k == pebxel.ui.WatchHud.TB_Q2 ? 1 : 2;
 				if (held) { Object b = quickslotButton(slot); if (b != null) Ui.hold((com.watabou.noosa.Gizmo) b); }
-				else key(slot == 0 ? SPDAction.QUICKSLOT_1 : SPDAction.QUICKSLOT_2);
+				else key(slot == 0 ? SPDAction.QUICKSLOT_1 : slot == 1 ? SPDAction.QUICKSLOT_2 : SPDAction.QUICKSLOT_3);
 				break;
 			}
 			case pebxel.ui.WatchHud.B_MENU: GameScene.show(new WndGame()); break;

@@ -32,7 +32,7 @@ import pebxel.WatchFonts;
 /**
  * Pebble PD's in-game screen furniture (Emery, 200x228), drawn with Pebble PD's own art, for Shattered:
  * the status pane (portrait, level, health, experience, depth, keys, buffs), the red menu button, the six
- * toolbar buttons (wait, search, inspect | backpack, quickslot 2, quickslot 1), the buttons' tags at the right
+ * toolbar buttons in Shattered's order (wait, search | quickslots 1-3, backpack), the buttons' tags at the right
  * edge, the loot and resume tags at the left, and the last two log messages, outlined, over the map.
  * Numbers and places follow watch/src/c/main.c (draw_hud_art, draw_hud_text, ctag, tag_rect, tb_x).
  * Shattered's own status pane, menu, toolbar, log and tags still run (unseen: Link skips them); the buttons here
@@ -43,7 +43,13 @@ public class WatchHud extends Group {
 	static int SC(int v) { return v * 3 / 2; }
 	static final int SP_H = 35, TB_H = 38, TB_W = 32, TB_GAP = 8, TB_N = 6;
 	static int TB_Y = H - TB_H;
-	public static final int TB_WAIT = 0, TB_SEARCH = 1, TB_INFO = 2, TB_BAG = 3, TB_Q2 = 4, TB_Q1 = 5, B_MENU = 6, B_PORTRAIT = 7;
+	public static final int TB_WAIT = 0, TB_SEARCH = 1, TB_Q1 = 2, TB_Q2 = 3, TB_Q3 = 4, TB_BAG = 5, B_MENU = 6, B_PORTRAIT = 7;
+	/** The quickslots' buttons, slot by slot. */
+	public static final int[] TB_Q = {TB_Q1, TB_Q2, TB_Q3};
+	static final int NQ = 3;
+	/** The toolbar's pictures: wait (clock), search (magnifier), backpack, from PD's toolbar.png; their buttons. */
+	static final int[][] TB_ICON = {{5, 8, 10, 10}, {24, 7, 12, 12}, {65, 5, 14, 15}};
+	static final int[] TB_ICON_AT = {TB_WAIT, TB_SEARCH, TB_BAG};
 	static final int YELLOW = 0xFFFF55, LIGHT = 0xAAAAAA, WHITE = 0xFFFFFF;
 
 	public final Camera cam;
@@ -67,10 +73,10 @@ public class WatchHud extends Group {
 	private ColorBlock xpBar;
 	private WatchText level, hp, depth, keys;
 	private final List<Image> buffs = new ArrayList<>(); private String buffKey = "";
-	private final ItemSprite[] quick = new ItemSprite[2];
-	private final ColorBlock[] quickFog = new ColorBlock[2];
-	private final int[][] quickAt = new int[2][];
-	private final WatchText[] quickText = new WatchText[2];
+	private final ItemSprite[] quick = new ItemSprite[NQ];
+	private final ColorBlock[] quickFog = new ColorBlock[NQ];
+	private final int[][] quickAt = new int[NQ][];
+	private final WatchText[] quickText = new WatchText[NQ];
 	private final Group tags = new Group();
 	private final Group log = new Group(); private String logKey = "";
 	private final Group reticle = new Group();
@@ -103,20 +109,21 @@ public class WatchHud extends Group {
 		add(keys = new WatchText(WatchText.G14B, "", LIGHT)); keys.outline = true;
 
 		// the toolbar: PD's toolbar frame stretched to 32x38, icons at 2x
-		int[][] icon = {{5, 8, 10, 10}, {24, 7, 12, 12}, {46, 7, 8, 12}, {65, 5, 14, 15}};
 		for (int i = 0; i < TB_N; i++) {
 			NinePatch b = new NinePatch(PdArt.tex("toolbar"), 83, 0, 23, 25, 4);
 			b.x = tbX(i); b.y = TB_Y; b.size(TB_W, TB_H); add(b);
-			if (i < 4) {
-				Image ic = PdArt.image("toolbar", icon[i][0], icon[i][1], icon[i][2], icon[i][3], 2);
-				ic.x = tbX(i) + (TB_W - 2 * icon[i][2]) / 2; ic.y = TB_Y + (TB_H - 2 * icon[i][3]) / 2; add(ic);
-			}
 		}
-		for (int q = 0; q < 2; q++) {
-			int bx = tbX(q == 0 ? TB_Q1 : TB_Q2);
-			quick[q] = new ItemSprite(); quick[q].scale.set(2); quick[q].x = bx + (TB_W - 32) / 2; quick[q].y = TB_Y + 3; quick[q].visible = false; add(quick[q]);
-			quickAt[q] = new int[]{bx + TB_W / 2, TB_Y + 3 + 16};
-			quickFog[q] = block(0x000000, bx + (TB_W - 32) / 2, TB_Y + 3, 32, 32); quickFog[q].alpha(0.5f); quickFog[q].visible = false; add(quickFog[q]);
+		for (int j = 0; j < TB_ICON.length; j++) {
+			int i = TB_ICON_AT[j], w = TB_ICON[j][2], h = TB_ICON[j][3];
+			Image ic = PdArt.image("toolbar", TB_ICON[j][0], TB_ICON[j][1], w, h, iconScale(j));
+			ic.x = tbX(i) + Math.round((TB_W - iconScale(j) * w) / 2); ic.y = TB_Y + Math.round((TB_H - 2 - iconScale(j) * h) / 2); add(ic);
+		}
+		for (int q = 0; q < NQ; q++) {
+			int bx = tbX(TB_Q[q]);
+			quick[q] = new ItemSprite(); quick[q].scale.set(ICON_SCALE); quick[q].visible = quick[q].active = false; add(quick[q]);
+			quickAt[q] = new int[]{bx + TB_W / 2, TB_Y + (TB_H - 2) / 2};
+			int fs = Math.round(16 * ICON_SCALE);
+			quickFog[q] = block(0x000000, bx + (TB_W - fs) / 2, quickAt[q][1] - fs / 2, fs, fs); quickFog[q].alpha(0.5f); quickFog[q].visible = false; add(quickFog[q]);
 			add(quickText[q] = new WatchText(WatchText.G14B, "", WHITE)); quickText[q].outline = true;
 		}
 		add(tags);
@@ -186,20 +193,18 @@ public class WatchHud extends Group {
 		add(depth = new WatchText(WatchText.G14B, "", LIGHT)); depth.outline = true;
 		add(keys = new WatchText(WatchText.G14B, "", LIGHT)); keys.outline = true;
 		// the toolbar round the bottom arc
-		int[][] icon = {{5, 8, 10, 10}, {24, 7, 12, 12}, {46, 7, 8, 12}, {65, 5, 14, 15}};
-		for (int i = 0; i < TB_N; i++) {
-			int[] c = bubble(this, TBX[i] - TB_R, TBY[i] - TB_R, 2 * TB_R, 0x555555, 0xAAAAAA);
-			tbBox[i] = c;
-			if (i < 4) {
-				Image ic = PdArt.image("toolbar", icon[i][0], icon[i][1], icon[i][2], icon[i][3], 2);
-				ic.x = c[0] + (c[2] - 2 * icon[i][2]) / 2; ic.y = c[1] + (c[3] - 2 * icon[i][3]) / 2; add(ic);
-			}
+		for (int i = 0; i < TB_N; i++) tbBox[i] = bubble(this, TBX[i] - TB_R, TBY[i] - TB_R, 2 * TB_R, 0x555555, 0xAAAAAA);
+		for (int j = 0; j < TB_ICON.length; j++) {
+			int[] c = tbBox[TB_ICON_AT[j]]; int w = TB_ICON[j][2], h = TB_ICON[j][3];
+			Image ic = PdArt.image("toolbar", TB_ICON[j][0], TB_ICON[j][1], w, h, iconScale(j));
+			ic.x = c[0] + Math.round((c[2] - iconScale(j) * w) / 2); ic.y = c[1] + Math.round((c[3] - iconScale(j) * h) / 2); add(ic);
 		}
-		for (int q = 0; q < 2; q++) {
-			int[] c = tbBox[q == 0 ? TB_Q1 : TB_Q2];
-			quick[q] = new ItemSprite(); quick[q].scale.set(2); quick[q].x = c[0] + (c[2] - 32) / 2; quick[q].y = c[1] + (c[3] - 32) / 2; quick[q].visible = false; add(quick[q]);
+		for (int q = 0; q < NQ; q++) {
+			int[] c = tbBox[TB_Q[q]];
+			int fs = Math.round(16 * ICON_SCALE);
+			quick[q] = new ItemSprite(); quick[q].scale.set(ICON_SCALE); quick[q].visible = quick[q].active = false; add(quick[q]);
 			quickAt[q] = new int[]{c[0] + c[2] / 2, c[1] + c[3] / 2};
-			quickFog[q] = block(0x000000, quick[q].x, quick[q].y, 32, 32); quickFog[q].alpha(0.5f); quickFog[q].visible = false; add(quickFog[q]);
+			quickFog[q] = block(0x000000, quickAt[q][0] - fs / 2, quickAt[q][1] - fs / 2, fs, fs); quickFog[q].alpha(0.5f); quickFog[q].visible = false; add(quickFog[q]);
 			add(quickText[q] = new WatchText(WatchText.G14B, "", WHITE)); quickText[q].outline = true;
 		}
 		add(tags);
@@ -239,7 +244,11 @@ public class WatchHud extends Group {
 		if (ex > 0) bars.add(Shape.arc(130, 130, 113, 115, deg(-166), -290 + (60 + 290) * ex / mx, 0, YELLOW));
 	}
 
-	static int tbX(int i) { return (W - TB_N * TB_W - TB_GAP) / 2 + i * TB_W + (i >= 3 ? TB_GAP : 0); }
+	/** The items' and the backpack's size on the toolbar: 1.5x, so they sit inside their frames (2x ran over the
+	 *  edges); the clock and magnifier are small enough at 2x. */
+	static float ICON_SCALE = 1.5f;
+	static float iconScale(int j) { return TB_ICON_AT[j] == TB_BAG ? ICON_SCALE : 2f; }
+	static int tbX(int i) { return (W - TB_N * TB_W - TB_GAP) / 2 + i * TB_W + (i >= 2 ? TB_GAP : 0); }   // wait, search | the rest
 	public static int[] buttonRect(int k) {
 		if (round) {
 			if (k < TB_N) return new int[]{TBX[k] - TB_R, TBY[k] - TB_R, 2 * TB_R, 2 * TB_R};
@@ -332,14 +341,14 @@ public class WatchHud extends Group {
 		}
 
 		// quickslots: the item at 2x; greyed when not in the backpack; its count or charges
-		for (int q = 0; q < 2; q++) {
+		for (int q = 0; q < NQ; q++) {
 			Item it = Dungeon.quickslot.getItem(q);
-			int bx = round ? tbBox[q == 0 ? TB_Q1 : TB_Q2][0] : tbX(q == 0 ? TB_Q1 : TB_Q2);
-			int by = round ? tbBox[q == 0 ? TB_Q1 : TB_Q2][1] : TB_Y, bh = round ? 2 * TB_R : TB_H, bw = round ? 2 * TB_R : TB_W;
-			quick[q].visible = it != null;
+			int bx = round ? tbBox[TB_Q[q]][0] : tbX(TB_Q[q]);
+			int by = round ? tbBox[TB_Q[q]][1] : TB_Y, bh = round ? 2 * TB_R : TB_H, bw = round ? 2 * TB_R : TB_W;
+			quick[q].visible = quick[q].active = it != null;   // (an ItemSprite turns itself visible each update: stop it)
 			quickText[q].text("");
 			if (it == null) { quickFog[q].visible = false; continue; }
-			quick[q].view(it); quick[q].scale.set(2);
+			quick[q].view(it); quick[q].scale.set(ICON_SCALE);
 			// centred by its own size (not all item pictures are 16x16)
 			quick[q].x = quickAt[q][0] - Math.round(quick[q].width() / 2); quick[q].y = quickAt[q][1] - Math.round(quick[q].height() / 2);
 			boolean have = Dungeon.quickslot.isNonePlaceholder(q);
