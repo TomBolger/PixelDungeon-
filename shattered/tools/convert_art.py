@@ -74,6 +74,29 @@ def pd_items(img):
     return img
 PD_ITEMS = {'sprites/items.png', 'sprites/item_icons.png'}
 
+# An unknown potion is known only by its colour. As Pebble PD did for its potions (GEM_FIX), each liquid's tones are
+# picked by hand so they stay apart on the panel: golden's body had snapped to amber's orange, silver's to a
+# purple-blue like indigo's, ivory's to silver's grey; indigo and azure, magenta and crimson ran together.
+# Shattered's potions (items.png row 23, and the exotic ones in row 24, same liquids): (main, light, dark) tones.
+POTION_FIX = {
+    1: {(217, 79, 0): (170, 85, 0)},                                                          # amber: orange over brown
+    2: {(204, 170, 0): (255, 255, 0)},                                                        # golden: yellow
+    5: {(55, 72, 182): (0, 0, 170)},                                                          # azure: blue over navy
+    6: {(88, 34, 181): (85, 0, 170), (111, 51, 218): (85, 0, 170), (65, 17, 144): (85, 0, 85)},   # indigo: deep violet
+    7: {(173, 20, 135): (255, 0, 255), (214, 30, 154): (255, 0, 255)},                        # magenta: pink-purple
+    8: {(98, 62, 35): (85, 0, 0)},                                                            # bistre: brown over maroon
+    10: {(100, 115, 129): (170, 170, 170)},                                                   # silver: grey
+    11: {(187, 167, 134): (255, 255, 255), (217, 200, 166): (255, 255, 255), (158, 134, 102): (170, 170, 170)},   # ivory: white
+}
+
+def potion_fix(src, out):
+    sp, op = src.load(), out.load()
+    for row in (22, 23):
+        for cell, m in POTION_FIX.items():
+            for y in range(row * 16, row * 16 + 16):
+                for x in range(cell * 16, cell * 16 + 16):
+                    if sp[x, y][3] >= 100 and sp[x, y][:3] in m: op[x, y] = m[sp[x, y][:3]] + (255,)
+
 CUT = {'interfaces': 128, 'sprites': 100, 'effects/spell_icons.png': 100, 'effects/text_icons.png': 100}
 
 def frame_widths():
@@ -320,7 +343,9 @@ if __name__ == '__main__':
         if p.startswith('environment/water'):
             pd_water(p, im).save(dst); continue
         if p in PD_ITEMS:   # exactly as Pebble PD did its items (hue kept, no greying)
-            pd_items(im.copy()).save(dst); continue
+            out = pd_items(im.copy())
+            if p == 'sprites/items.png': potion_fix(im, out)
+            out.save(dst); continue
         pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else skin(p, im.copy())
         out = pebbleize(greys(pre, levels(p)) if not p.startswith(('environment/', 'splashes/')) else pre, levels(p), alpha_cut=1)
         if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out)
