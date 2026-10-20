@@ -24,7 +24,7 @@ public class WndWatchItem extends WatchWindow {
 	}
 
 	public WndWatchItem(final Window owner, final Item item) {
-		super(10, 4, W, 100, false);
+		super(WatchWindow.left(W), 4, W, 100, false);
 		// the head: the item, its name
 		ItemSprite spr = new ItemSprite(item); spr.scale.set(2); spr.x = 0; spr.y = 0; add(spr);
 		String name = Messages.titleCase(item.title());
@@ -65,6 +65,6 @@ public class WndWatchItem extends WatchWindow {
 			if (i % 2 == 1 || full) y += BTN_H + GAP;
 		}
 		resize(W, y);
-		place(10, Math.max(4, (WatchHud.H - y) / 2));
+		place(WatchWindow.left(W), Math.max(4, (WatchHud.H - y) / 2));
 	}
 }

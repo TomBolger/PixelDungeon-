@@ -35,12 +35,12 @@ public class WndWatchBag extends WatchWindow {
 	private final Group grid = new Group();
 
 	public WndWatchBag(Bag bag, WndBag.ItemSelector selector) {
-		super(10, 7, W, HEAD + ROWS * (CELL_H + 1) - 1, true);
+		super(WatchWindow.left(W), 7, W, HEAD + ROWS * (CELL_H + 1) - 1, true);
 		this.bag = bag == null ? Dungeon.hero.belongings.backpack : bag;
 		this.selector = selector;
 		below = TAB_H + 2;
 		resize(cw, ch);
-		place(10, 7 + 2);
+		place(WatchWindow.left(W), 7 + 2);
 		add(grid);
 		build();
 	}

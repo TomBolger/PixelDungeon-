@@ -13,8 +13,8 @@ import javax.imageio.ImageIO;
  * screen. Used to test the link before (and alongside) the C version.
  */
 public final class WatchSim {
-	public static final int W = 200, H = 228;
-	public final int[] fb = new int[W * H];
+	public static int W = Screen.w, H = Screen.h;
+	public final int[] fb = new int[Screen.w * Screen.h];
 
 	private static final class Cam { int x, y, w, h, zoom, mode, follow; float sx, sy, ofx, ofy, px, py, intensity, dead; }
 	private static final class Anim { int tex, delayMs; boolean looped; int[] rects; }
@@ -35,7 +35,7 @@ public final class WatchSim {
 	public File art = new File(System.getProperty("pebxel.art", "../../../../../build/art"));
 	public float now;
 
-	public WatchSim(File root, Assets assets) { this.assets = assets; }
+	public WatchSim(File root, Assets assets) { this.assets = assets; W = Screen.w; H = Screen.h; }
 
 	/** The watch's clock moves on (it keeps moving and animating pictures by itself). */
 	public void advance(float dt) {
@@ -172,6 +172,7 @@ public final class WatchSim {
 			case Link.K_TILES: p += 16; break;
 			case Link.K_TEXT: p += 11 + (b[p + 10] & 255); break;
 			case Link.K_QUADS: p += 4 + (b[p + 3] & 255) * 16 + 7; break;
+			case Link.K_SHAPE: p += 11; break;
 			default: throw new IllegalStateException("bad kind " + kind);
 		}
 		return Arrays.copyOfRange(b, start, p);
@@ -243,6 +244,7 @@ public final class WatchSim {
 		double ang = Math.toRadians(d(o, Link.D_ANG) / 64f); cs = (float) Math.cos(ang); sn = (float) Math.sin(ang);
 		orx = ory = 0;
 		switch (o.kind) {
+			case Link.K_SHAPE: shape(o, s); break;
 			case Link.K_IMG: case Link.K_SKIN: {
 				orx = s16(s, 4) / 8f; ory = s16(s, 6) / 8f;
 				float w = s16(s, 8) / 8f, h = s16(s, 10) / 8f;
@@ -397,6 +399,37 @@ public final class WatchSim {
 
 	// like the watch: see-through pixels are dithered with a 4x4 ordered pattern, not blended
 	private static final int[] BAYER = {8, 136, 40, 168, 200, 72, 232, 104, 56, 184, 24, 152, 248, 120, 216, 88};
+	/** A disc or a band above the centre (Pebble PD's round pieces). */
+	private void shape(Obj o, byte[] s) {
+		int kind = s[2], pc = s[3] & 255;
+		float r = ((pc >> 4) & 3) / 3f, g = ((pc >> 2) & 3) / 3f, bl = (pc & 3) / 3f;
+		int cx = (int) Math.floor(sx(cam, d(o, Link.D_X))), cy = (int) Math.floor(sy(cam, d(o, Link.D_Y)));
+		int r0 = s[4] & 255, r1 = s[5] & 255, b0 = s16(s, 6), b1 = s16(s, 8), sl = s[10];
+		if (kind == 1) {
+			for (int dy = -r0; dy <= r0; dy++) { int w = (int) Math.sqrt(r0 * r0 - dy * dy); for (int x = cx - w; x <= cx + w; x++) dot(x, cy + dy, r, g, bl); }
+			return;
+		}
+		for (int rr = r0; rr < r1; rr++) {
+			int rin = rr, rout = rr + 1;
+			double t0 = Math.tan(Math.toRadians(b0 / 10.0)), t1 = Math.tan(Math.toRadians((b1 + (rr - r0) * sl) / 10.0));
+			if (sl == 0) { rin = r0; rout = r1; rr = r1; }
+			for (int y = 1; y <= rout; y++) {
+				int xo = (int) Math.sqrt(rout * rout - y * y), xi = y < rin ? (int) Math.sqrt(rin * rin - y * y) : 0;
+				int a = (int) Math.floor(y * t0), bb = (int) Math.floor(y * t1);
+				for (int sd = 0; sd < 2; sd++) {
+					int lo = sd == 1 ? xi : -xo, hi = sd == 1 ? xo : -xi;
+					if (lo < a) lo = a; if (hi > bb) hi = bb;
+					for (int x = lo; x <= hi; x++) dot(cx + x, cy - y, r, g, bl);
+				}
+			}
+		}
+	}
+
+	private void dot(int x, int y, float r, float g, float b) {
+		if (x < clipX0 || y < clipY0 || x >= clipX1 || y >= clipY1) return;
+		fb[y * W + x] = 0xFF000000 | (q(r) << 16) | (q(g) << 8) | q(b);
+	}
+
 	private void put(int px, int py, float r, float g, float b, float a) {
 		int A = Math.round(a * 255);
 		if (A <= 247 && A <= BAYER[((py & 3) << 2) | (px & 3)]) return;
@@ -493,7 +526,10 @@ public final class WatchSim {
 
 	public void save(File f, int scale) throws Exception {
 		BufferedImage img = new BufferedImage(W * scale, H * scale, BufferedImage.TYPE_INT_RGB);
-		for (int y = 0; y < H * scale; y++) for (int x = 0; x < W * scale; x++) img.setRGB(x, y, fb[(y / scale) * W + x / scale]);
+		for (int y = 0; y < H * scale; y++) for (int x = 0; x < W * scale; x++) {
+			int px = x / scale, py = y / scale; double dx = px + 0.5 - W / 2.0, dy = py + 0.5 - H / 2.0;
+			img.setRGB(x, y, Screen.round && dx * dx + dy * dy > (W / 2.0) * (W / 2.0) ? 0x404040 : fb[py * W + px]);
+		}
 		ImageIO.write(img, "png", f);
 	}
 }

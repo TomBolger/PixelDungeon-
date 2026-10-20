@@ -110,6 +110,9 @@ static void read_static(Obj *o) {
       read_col(o);
       break;
     }
+    case K_SHAPE:   // a disc or a band (round screens): kind, Pebble colour, radii, bearings, slant
+      o->flags = u8(); o->tex = u8(); o->tx = u8(); o->ty = u8(); o->tw = s16(); o->th = s16(); o->frame = u8();
+      break;
     case K_TEXT: {
       o->w = u8();            // which watch font (0..6)
       read_col(o);

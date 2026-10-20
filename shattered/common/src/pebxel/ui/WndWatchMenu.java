@@ -29,17 +29,17 @@ public class WndWatchMenu extends WatchWindow {
 	private int pageNo;
 
 	public WndWatchMenu() {
-		super(10, 0, W, HEAD + 2 * ROW + GAP, false);
+		super(WatchWindow.left(W), 0, W, HEAD + 2 * ROW + GAP, false);
 		dead = Dungeon.hero == null || !Dungeon.hero.isAlive();
 		add(page); add(tabs);
 		if (dead) {
 			resize(W, HEAD + 3 * ROW + 2 * GAP);
-			place(10, (WatchHud.H - ch) / 2);
+			place(WatchWindow.left(W), (WatchHud.H - ch) / 2);
 			show(-1);
 		} else {
 			below = TAB_H;
 			resize(W, HEAD + 2 * ROW + GAP);
-			place(10, (WatchHud.H - ch - TAB_H) / 2 + 2);
+			place(WatchWindow.left(W), (WatchHud.H - ch - TAB_H) / 2 + 2);
 			show(lastPage);
 		}
 	}

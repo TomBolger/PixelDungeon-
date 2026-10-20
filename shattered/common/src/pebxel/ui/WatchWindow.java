@@ -37,6 +37,9 @@ public class WatchWindow extends Window {
 		place(x, y);
 	}
 
+	/** Where a window w wide starts: Pebble PD's x 10 on Emery; centred on a round screen. */
+	public static int left(int w) { return pebxel.Screen.round ? (pebxel.Screen.w - w) / 2 : 10; }
+
 	/** Put the content's top-left at x, y (watch pixels; -1 centres). */
 	public void place(int x, int y) {
 		Camera.remove(camera);

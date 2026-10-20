@@ -39,9 +39,10 @@ import pebxel.WatchFonts;
  * press theirs, so everything behaves as Shattered does.
  */
 public class WatchHud extends Group {
-	public static final int W = 200, H = 228;
+	public static int W = 200, H = 228;   // the watch's screen (Screen)
 	static int SC(int v) { return v * 3 / 2; }
-	static final int SP_H = 35, TB_H = 38, TB_W = 32, TB_GAP = 8, TB_N = 6, TB_Y = H - TB_H;
+	static final int SP_H = 35, TB_H = 38, TB_W = 32, TB_GAP = 8, TB_N = 6;
+	static int TB_Y = H - TB_H;
 	public static final int TB_WAIT = 0, TB_SEARCH = 1, TB_INFO = 2, TB_BAG = 3, TB_Q2 = 4, TB_Q1 = 5, B_MENU = 6, B_PORTRAIT = 7;
 	static final int YELLOW = 0xFFFF55, LIGHT = 0xAAAAAA, WHITE = 0xFFFFFF;
 
@@ -62,9 +63,9 @@ public class WatchHud extends Group {
 	}
 
 	private Image avatar; private int avatarClass = -1, avatarTier = -1;
-	private final Image hpBar;
-	private final ColorBlock xpBar;
-	private final WatchText level, hp, depth, keys;
+	private Image hpBar;
+	private ColorBlock xpBar;
+	private WatchText level, hp, depth, keys;
 	private final List<Image> buffs = new ArrayList<>(); private String buffKey = "";
 	private final ItemSprite[] quick = new ItemSprite[2];
 	private final ColorBlock[] quickFog = new ColorBlock[2];
@@ -77,14 +78,18 @@ public class WatchHud extends Group {
 
 	public WatchHud(Hooks hooks) {
 		this.hooks = hooks;
+		W = pebxel.Screen.w; H = pebxel.Screen.h; TB_Y = H - TB_H;
 		cam = new Camera(0, 0, W, H, 2);   // two phone pixels per watch pixel: one unit here is one watch pixel
 		Camera.add(cam);
 		camera = cam;
+		round = pebxel.Screen.round;
+		if (round) { buildRound(); return; }
 
 		// the status pane: PD's art at 1.5x, its left 80 px, a stretched column, its right 48 px
 		add(PdArt.image("status_pane", 0, 0, 80, SP_H, 1.5f));
 		Image mid = PdArt.image("status_pane", 80, 0, 1, SP_H, 1.5f); mid.x = SC(80); mid.scale.x = W - SC(128); add(mid);
 		Image right = PdArt.image("status_pane", 80, 0, 48, SP_H, 1.5f); right.x = W - SC(48); add(right);
+		avatarAnchor = right;
 		// the menu button: a red button with three white bars
 		NinePatch menu = new NinePatch(PdArt.tex("chrome"), 58, 0, 6, 6, 2);
 		menu.x = W - 27; menu.y = 2; menu.size(27, 30); add(menu);
@@ -132,8 +137,105 @@ public class WatchHud extends Group {
 		refresh();
 	}
 
+	// ---- Gabbro: everything round the rim in bubbles (Pebble PD 0.83, main.c's PBL_ROUND branches) ----
+	static boolean round;
+	static final int[] TBX = {19, 29, 52, 92, 130, 168}, TBY = {142, 179, 211, 235, 242, 235};
+	static final int TB_R = 17;
+	private final Group bars = new Group();
+	private String barsKey = "";
+
+	/** Tangent x256 (Pebble PD's arc bearings) to tenths of a degree. */
+	static int deg(int t) { return (int) Math.round(Math.toDegrees(Math.atan(t / 256.0)) * 10); }
+
+	/** Pebble PD's bubble: a round frame (black edge, a ring, the fill) for the box (x, y, d, d), grown outward
+	 *  past the rim; returns where its picture goes (the box moved most of the way it grew). */
+	static int[] bubble(Group g, int x, int y, int d, int fill, int ring) {
+		int r = d / 2, cx = x + r, cy = y + r, dx = cx - 130, dy = cy - 130, dist = (int) Math.sqrt(dx * dx + dy * dy), o = r / 3;
+		if (dist > 40) { cx += dx * o / dist; cy += dy * o / dist; o -= 2; x += dx * o / dist; y += dy * o / dist; r += r / 3; }
+		g.add(Shape.disc(cx, cy, r + 1, 0x000000)); g.add(Shape.disc(cx, cy, r, ring)); g.add(Shape.disc(cx, cy, r - 2, fill));
+		return new int[]{x, y, d, d};
+	}
+
+	private void buildRound() {
+		// the strip over the top and the shelf the bars lie on
+		add(Shape.arc(130, 130, 125, 131, deg(-365), deg(305), 0, 0x555555));
+		add(Shape.arc(130, 130, 115, 125, deg(-365), 50, 5, 0xAAAAAA));
+		add(Shape.arc(130, 130, 115, 125, deg(-365), 40, 5, 0x555555));
+		add(Shape.arc(130, 130, 115, 117, deg(-365), deg(17), 0, 0x555555));
+		add(Shape.arc(130, 130, 117, 118, deg(-365), deg(24), 0, 0xAAAAAA));
+		add(bars);
+		Image stairs = PdArt.image("status_pane", 87, 5, 8, 8, 1.5f); stairs.x = 158; stairs.y = 24; add(stairs);
+		Image key = PdArt.image("status_pane", 103, 5, 7, 8, 1.5f); key.scale.x = 11 / 7f; key.x = 177; key.y = 32; add(key);
+		// the portrait, the level, the menu button
+		int[] pb = bubble(this, 26, 23, 52, 0x555555, 0xAAAAAA);
+		portraitBox = pb; avatarAnchor = members.get(members.size() - 1);
+		bubble(this, 63, 61, 18, 0x555555, 0xAAAAAA);
+		int[] mb = bubble(this, 188, 29, 40, 0xAA0000, 0xFF5500);
+		for (int i = 0; i < 3; i++) add(block(WHITE, mb[0] + 10, mb[1] + 12 + i * 6, 20, 3));
+		add(level = new WatchText(WatchText.G14B, "", WHITE)); level.outline = true;
+		add(hp = new WatchText(WatchText.G14B, "", WHITE)); hp.outline = true;
+		add(depth = new WatchText(WatchText.G14B, "", LIGHT)); depth.outline = true;
+		add(keys = new WatchText(WatchText.G14B, "", LIGHT)); keys.outline = true;
+		// the toolbar round the bottom arc
+		int[][] icon = {{5, 8, 10, 10}, {24, 7, 12, 12}, {46, 7, 8, 12}, {65, 5, 14, 15}};
+		for (int i = 0; i < TB_N; i++) {
+			int[] c = bubble(this, TBX[i] - TB_R, TBY[i] - TB_R, 2 * TB_R, 0x555555, 0xAAAAAA);
+			tbBox[i] = c;
+			if (i < 4) {
+				Image ic = PdArt.image("toolbar", icon[i][0], icon[i][1], icon[i][2], icon[i][3], 2);
+				ic.x = c[0] + (c[2] - 2 * icon[i][2]) / 2; ic.y = c[1] + (c[3] - 2 * icon[i][3]) / 2; add(ic);
+			}
+		}
+		for (int q = 0; q < 2; q++) {
+			int[] c = tbBox[q == 0 ? TB_Q1 : TB_Q2];
+			quick[q] = new ItemSprite(); quick[q].scale.set(2); quick[q].x = c[0] + (c[2] - 32) / 2; quick[q].y = c[1] + (c[3] - 32) / 2; quick[q].visible = false; add(quick[q]);
+			quickFog[q] = block(0x000000, quick[q].x, quick[q].y, 32, 32); quickFog[q].alpha(0.5f); quickFog[q].visible = false; add(quickFog[q]);
+			add(quickText[q] = new WatchText(WatchText.G14B, "", WHITE)); quickText[q].outline = true;
+		}
+		add(tags);
+		add(log);
+		add(reticle);
+		for (int i = 0; i < TB_N; i++) addButton(i, TBX[i] - TB_R, TBY[i] - TB_R, 2 * TB_R, 2 * TB_R);
+		addButton(B_MENU, 188, 29, 40, 40);
+		addButton(B_PORTRAIT, 26, 23, 52, 52);
+		for (int k = 0; k < 5; k++) {
+			final int which = k;
+			HudButton b = new HudButton() {
+				@Override protected void onClick() { WatchHud.this.hooks.tag(which, false); }
+				@Override protected boolean onLongClick() { WatchHud.this.hooks.tag(which, true); return true; }
+			};
+			b.visible = b.active = false;
+			tagButtons[k] = b; add(b);
+		}
+		refresh();
+	}
+	private int[] portraitBox;
+	private com.watabou.noosa.Gizmo avatarAnchor;
+	private final int[][] tbBox = new int[TB_N][];
+
+	/** Gabbro: health along the shelf (hp_bar's three shades, its end cut at a slant), experience under it. */
+	private void refreshBars(Hero h) {
+		int hpNow = Math.max(0, h.HP), max = Math.max(1, h.HT), ex = h.exp, mx = Math.max(1, h.maxExp());
+		String k = hpNow + "/" + max + "/" + ex + "/" + mx;
+		if (k.equals(barsKey)) return;
+		barsKey = k;
+		bars.clear();
+		if (hpNow > 0) {
+			int f = -290 + (55 + 290) * hpNow / max, b0 = deg(-166);
+			bars.add(Shape.arc(130, 130, 119, 120, b0, f, 5, 0x550000));
+			bars.add(Shape.arc(130, 130, 120, 124, b0, f + 5, 5, 0xAA0000));
+			bars.add(Shape.arc(130, 130, 124, 125, b0, f + 25, 5, 0xAA5555));
+		}
+		if (ex > 0) bars.add(Shape.arc(130, 130, 113, 115, deg(-166), -290 + (60 + 290) * ex / mx, 0, YELLOW));
+	}
+
 	static int tbX(int i) { return (W - TB_N * TB_W - TB_GAP) / 2 + i * TB_W + (i >= 3 ? TB_GAP : 0); }
 	public static int[] buttonRect(int k) {
+		if (round) {
+			if (k < TB_N) return new int[]{TBX[k] - TB_R, TBY[k] - TB_R, 2 * TB_R, 2 * TB_R};
+			if (k == B_MENU) return new int[]{188, 29, 40, 40};
+			return new int[]{26, 23, 52, 52};
+		}
 		if (k < TB_N) return new int[]{tbX(k), TB_Y, TB_W, TB_H};
 		if (k == B_MENU) return new int[]{W - 27, 2, 27, 30};
 		return new int[]{0, 0, SC(30), SC(30)};
@@ -179,11 +281,19 @@ public class WatchHud extends Group {
 		if (avatar == null || tier != avatarTier || cls != avatarClass) {
 			if (avatar != null) avatar.killAndErase();
 			avatar = HeroSprite.avatar(h); avatar.scale.set(2);
-			avatar.x = SC(15) - avatar.width; avatar.y = SC(16) - avatar.height;
-			com.watabou.noosa.GroupAccess.addAfter(this, avatar, members.get(2));
+			if (round) { avatar.x = portraitBox[0] + (portraitBox[2] - 2 * avatar.width) / 2; avatar.y = portraitBox[1] + (portraitBox[3] - 2 * avatar.height) / 2; }
+			else { avatar.x = SC(15) - avatar.width; avatar.y = SC(16) - avatar.height; }
+			com.watabou.noosa.GroupAccess.addAfter(this, avatar, avatarAnchor);
 			avatarTier = tier; avatarClass = cls;
 		}
 		int hpNow = Math.max(0, h.HP);
+		if (round) {
+			refreshBars(h);
+			level.text(Integer.toString(h.lvl)); place(level, 62, 60, 20, 1);
+			hp.text(hpNow + "/" + h.HT); place(hp, 86, 24, 50, 0);
+			depth.text(Integer.toString(Dungeon.depth)); place(depth, 133, 18, 24, 2);
+			keys.text(Integer.toString(Notes.keyCount(new IronKey(Dungeon.depth)))); place(keys, 152, 27, 24, 2);
+		} else {
 		hpBar.scale.x = SC(64) * hpNow / (float) Math.max(1, h.HT) / 64f;
 		hpBar.visible = hpNow > 0;
 		xpBar.size(SC(64) * h.exp / (float) Math.max(1, h.maxExp()), 2);
@@ -191,19 +301,22 @@ public class WatchHud extends Group {
 		hp.text(hpNow + "/" + h.HT); place(hp, SC(31), SC(7), 60, 0);
 		depth.text(Integer.toString(Dungeon.depth)); place(depth, W - SC(42) - 24, -1, 24, 2);
 		keys.text(Integer.toString(Notes.keyCount(new IronKey(Dungeon.depth)))); place(keys, W - SC(26) - 24, -1, 24, 2);
+		}
 
 		// buffs, 7x7 at 2x, as many as fit beside the level box
 		StringBuilder key = new StringBuilder();
 		List<Buff> bs = new ArrayList<>();
 		for (Buff b : h.buffs()) if (b.icon() != BuffIndicator.NONE) { bs.add(b); key.append(b.icon()).append(','); }
-		int fit = (W - SC(38) - SC(48) + 2) / 16;
+		int fit = round ? 6 : (W - SC(38) - SC(48) + 2) / 16;
+		final int[] BX = {29, 24, 20, 45, 39, 36}, BY = {83, 98, 113, 88, 102, 117};
 		if (!key.toString().equals(buffKey)) {
 			buffKey = key.toString();
 			for (Image i : buffs) i.killAndErase();
 			buffs.clear();
 			for (int i = 0; i < bs.size() && i < fit; i++) {
 				BuffIcon ic = new BuffIcon(bs.get(i), false);
-				ic.scale.set(2); ic.x = SC(38) + i * 16; ic.y = SC(22);
+				ic.scale.set(2);
+				if (round) { ic.x = BX[i] - 7; ic.y = BY[i] - 7; } else { ic.x = SC(38) + i * 16; ic.y = SC(22); }
 				buffs.add(ic); com.watabou.noosa.GroupAccess.addAfter(this, ic, keys);
 			}
 		}
@@ -211,7 +324,8 @@ public class WatchHud extends Group {
 		// quickslots: the item at 2x; greyed when not in the backpack; its count or charges
 		for (int q = 0; q < 2; q++) {
 			Item it = Dungeon.quickslot.getItem(q);
-			int bx = tbX(q == 0 ? TB_Q1 : TB_Q2);
+			int bx = round ? tbBox[q == 0 ? TB_Q1 : TB_Q2][0] : tbX(q == 0 ? TB_Q1 : TB_Q2);
+			int by = round ? tbBox[q == 0 ? TB_Q1 : TB_Q2][1] : TB_Y, bh = round ? 2 * TB_R : TB_H, bw = round ? 2 * TB_R : TB_W;
 			quick[q].visible = it != null;
 			quickText[q].text("");
 			if (it == null) { quickFog[q].visible = false; continue; }
@@ -220,9 +334,9 @@ public class WatchHud extends Group {
 			quickFog[q].visible = !have;
 			if (!have) continue;
 			if (it instanceof Wand && it.levelKnown) {
-				quickText[q].text(it.status()); place(quickText[q], bx + 3, TB_Y - 1, TB_W - 4, 0);
+				quickText[q].text(it.status()); place(quickText[q], bx + 3, by - 1, bw - 4, 0);
 			} else if (it.quantity() > 1) {
-				quickText[q].text(Integer.toString(it.quantity())); place(quickText[q], bx, TB_Y + TB_H - 18, TB_W - 4, 2);
+				quickText[q].text(Integer.toString(it.quantity())); place(quickText[q], bx, by + bh - 18, bw - 4, 2);
 			}
 		}
 
@@ -235,11 +349,13 @@ public class WatchHud extends Group {
 	private String tagKey = "";
 
 	private static int[] ctag(int k) {
+		if (round) { int[] CX = {238, 246, 234}, CY = {87, 134, 181}; return new int[]{CX[k] - 13, CY[k] - 13, 26, 26}; }
 		int bot = TB_Y - 2, top = H - bot;
 		return new int[]{W - 22, k == 0 ? top : k == 1 ? H / 2 - 12 : bot - 24, 22, 24};
 	}
 
 	private static int[] tagRect(int which, boolean lootShown) {
+		if (round) return which == 1 || !lootShown ? new int[]{206 - 14, 212 - 14, 28, 28} : new int[]{180 - 14, 184 - 14, 28, 28};
 		int y = SC(33) + 2;
 		if (which > 1 && lootShown) y += 38;
 		return new int[]{-4, y, 40, which == 1 ? 30 : 36};
@@ -291,6 +407,11 @@ public class WatchHud extends Group {
 
 	/** A tag: PD's 16x14 tag art stretched, reaching 4 px past its rectangle (off the screen's edge). */
 	private void tag(int[] a, String art) {
+		if (round) {   // a bubble: red, blue or pale
+			int[] m = bubble(tags, a[0], a[1], a[2], art.equals("tag_red") ? 0xAA0000 : art.equals("tag_blue") ? 0x0055AA : 0xAAAAAA, art.equals("tag_red") ? 0xFF5500 : 0xFFFFFF);
+			a[0] = m[0] - 2; a[1] = m[1];
+			return;
+		}
 		NinePatch n = new NinePatch(PdArt.tex(art), 0, 0, 16, 14, 3);
 		n.x = a[0]; n.y = a[1]; n.size(a[2] + 4, a[3]);
 		tags.add(n);
@@ -313,13 +434,13 @@ public class WatchHud extends Group {
 		logKey = k; logAge = 0; log.visible = true;
 		log.clear();
 		if (es.isEmpty()) return;
-		int mw = W - 8 - 22, mx = 4;
+		int mw = round ? 124 : W - 8 - 22, mx = round ? (W - 124) / 2 : 4;
 		String[] l1 = es.get(es.size() - 1), l0 = es.size() > 1 ? es.get(es.size() - 2) : null;
 		List<String> w1 = wrap(l1[0], WatchText.G14, mw), w0 = l0 == null ? new ArrayList<>() : wrap(l0[0], WatchText.G14, mw);
 		int lh = WatchFonts.line(WatchText.G14) - 2;
 		int h1 = w1.size() * lh, h0 = w0.size() * lh;
 		if (h0 + h1 > 52) { w0.clear(); h0 = 0; }
-		int y1 = TB_Y - h1 - 4, y0 = y1 - h0;
+		int y1 = (round ? 190 : TB_Y) - h1 - 4, y0 = y1 - h0;
 		lines(w0, mx, y0, lh, l0 == null ? WHITE : Integer.parseInt(l0[1]));
 		lines(w1, mx, y1, lh, Integer.parseInt(l1[1]));
 	}

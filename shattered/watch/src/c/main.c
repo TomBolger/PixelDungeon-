@@ -4,8 +4,8 @@
 #include "art.h"
 #include "draw.h"
 
-enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6 };
-#define PROTOCOL 4   // must match Link.PROTOCOL on the phone
+enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
+#define PROTOCOL 5   // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -23,7 +23,7 @@ static void update(Layer *l, GContext *ctx) {
     graphics_fill_rect(ctx, layer_get_bounds(l), 0, GCornerNone);
     graphics_context_set_text_color(ctx, GColorWhite);
     graphics_draw_text(ctx, s_connected ? "Waiting for the game..." : "Open Shattered PD on your phone",
-                       fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(10, 90, 180, 60),
+                       fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(20, PBL_DISPLAY_HEIGHT / 2 - 24, PBL_DISPLAY_WIDTH - 40, 60),
                        GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
     return;
   }
@@ -287,6 +287,7 @@ static void hello(void *data) {
     uint32_t in = app_message_inbox_size_maximum();
     dict_write_int32(it, KEY_HELLO, in > 8000 ? 8000 : (int32_t)in);
     dict_write_int32(it, KEY_VERSION, PROTOCOL);
+    dict_write_int32(it, KEY_SCREEN, (PBL_IF_ROUND_ELSE(1, 0) << 24) | (PBL_DISPLAY_WIDTH << 12) | PBL_DISPLAY_HEIGHT);   // round?, width, height
     app_message_outbox_send();
   }
   app_timer_register(2000, hello, NULL);

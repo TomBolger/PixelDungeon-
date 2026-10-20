@@ -6,6 +6,18 @@
 
 static uint8_t *s_fb;
 static int s_stride, s_W, s_H;
+// the frame buffer's rows: on a round screen each row holds only the pixels inside the circle
+#ifdef PBL_ROUND
+static uint8_t *s_row[PBL_DISPLAY_HEIGHT];
+static int16_t s_rmin[PBL_DISPLAY_HEIGHT], s_rmax[PBL_DISPLAY_HEIGHT];
+#define ROWPTR(y) s_row[y]
+#define ROWCLIP(y, a, b) do { if ((a) < s_rmin[y]) (a) = s_rmin[y]; if ((b) > s_rmax[y] + 1) (b) = s_rmax[y] + 1; } while (0)
+#define INROW(y, x) ((x) >= s_rmin[y] && (x) <= s_rmax[y])
+#else
+#define ROWPTR(y) (s_fb + (y) * s_stride)
+#define ROWCLIP(y, a, b) ((void)0)
+#define INROW(y, x) true
+#endif
 static int s_cx0, s_cy0, s_cx1, s_cy1;     // clip, px
 static uint32_t s_now;
 
@@ -74,15 +86,16 @@ static void blit(int tex, int tx, int ty, int tw, int th, int32_t L, int32_t T, 
     int sv = v >> 16; if (sv >= th) sv = th - 1;
     const uint8_t *row = art_row(&src, fy ? th - 1 - sv : sv);
     if (!row) continue;
-    uint8_t *d = s_fb + y * s_stride + x0;
-    int32_t u = u0;
+    int xa = x0, xb = x1; ROWCLIP(y, xa, xb); if (xa >= xb) continue;
+    uint8_t *d = ROWPTR(y) + xa;
+    int32_t u = u0 + (xa - x0) * du;
     if (s_plain && du == 65536 && !fx) {
       // the common case: no scaling, no colour change
       const uint8_t *sp = row + (u >> 16);
-      for (int x = x0; x < x1; x++, d++) { uint8_t c = *sp++; if ((c >> 6) == 3) *d = c; else if (c >> 6) put(d, c, x, y); }
+      for (int x = xa; x < xb; x++, d++) { uint8_t c = *sp++; if ((c >> 6) == 3) *d = c; else if (c >> 6) put(d, c, x, y); }
       continue;
     }
-    for (int x = x0; x < x1; x++, u += du, d++) {
+    for (int x = xa; x < xb; x++, u += du, d++) {
       int su = u >> 16; if (su >= tw) su = tw - 1;
       put(d, row[fx ? tw - 1 - su : su], x, y);
     }
@@ -130,8 +143,8 @@ static void turned(Obj *o, const Face *f, int32_t X, int32_t Y, int32_t sx, int3
     int32_t dx = cx - X - ox, dy = cy - Y - oy;
     int32_t rx = (s_cos * dx + s_sin * dy) / 4096, ry = (-s_sin * dx + s_cos * dy) / 4096;
     int32_t u = rx * 256 / sx + ox, v = ry * 256 / sy + oy;
-    if (u < 0 || v < 0 || u >= w || v >= h) continue;
-    uint8_t *d = s_fb + py * s_stride + px;
+    if (u < 0 || v < 0 || u >= w || v >= h || !INROW(py, px)) continue;
+    uint8_t *d = ROWPTR(py) + px;
     if (f->solid) { put(d, f->solid, px, py); continue; }
     int su = (int)((int64_t)u * f->tw / w), sv = (int)((int64_t)v * f->th / h);
     if (f->fx) su = f->tw - 1 - su;
@@ -149,7 +162,11 @@ static void fill(int32_t L, int32_t T, int32_t R, int32_t B, uint8_t c) {
   int x0 = (L + 4) >> 3, x1 = (R + 4) >> 3, y0 = (T + 4) >> 3, y1 = (B + 4) >> 3;
   if (x0 < s_cx0) x0 = s_cx0; if (x1 > s_cx1) x1 = s_cx1;
   if (y0 < s_cy0) y0 = s_cy0; if (y1 > s_cy1) y1 = s_cy1;
-  for (int y = y0; y < y1; y++) { uint8_t *d = s_fb + y * s_stride + x0; for (int x = x0; x < x1; x++) put(d++, c, x, y); }
+  for (int y = y0; y < y1; y++) {
+    int xa = x0, xb = x1; ROWCLIP(y, xa, xb);
+    uint8_t *d = ROWPTR(y) + xa;
+    for (int x = xa; x < xb; x++) put(d++, c, x, y);
+  }
 }
 
 // ---- kinds ----
@@ -194,12 +211,13 @@ static void draw_skin(Obj *o) {
     int32_t cy = (int32_t)((int64_t)(y * 8 + 4 - s_cam->y) * 65536 / z / 256) + s_cam->sy / 256;
     int sv = ((cy - Y + oy) / 8) % th; if (sv < 0) sv += th;
     const uint8_t *row = art_row(&src, sv); if (!row) continue;
-    uint8_t *d = s_fb + y * s_stride + x0;
-    int32_t cx = (int32_t)((int64_t)(x0 * 8 + 4 - s_cam->x) * 65536 / z / 256) + s_cam->sx / 256;
+    int xa = x0, xb = x1; ROWCLIP(y, xa, xb); if (xa >= xb) continue;
+    uint8_t *d = ROWPTR(y) + xa;
+    int32_t cx = (int32_t)((int64_t)(xa * 8 + 4 - s_cam->x) * 65536 / z / 256) + s_cam->sx / 256;
     int32_t u = (cx - X + ox) * 32;                    // texels x256
     int32_t span = tw * 256;
     u %= span; if (u < 0) u += span;
-    for (int x = x0; x < x1; x++, d++) {
+    for (int x = xa; x < xb; x++, d++) {
       uint8_t c = row[u >> 8];
       if (s_plain && (c >> 6) == 3) *d = c; else put(d, c, x, y);
       u += step; if (u >= span) u -= span;
@@ -225,7 +243,15 @@ static void draw_nine(Obj *o, int32_t X, int32_t Y, int32_t sx, int32_t sy) {
 static GContext *s_ctx;
 static GBitmap *s_bmp;
 
-static void fb_take(void) { s_bmp = graphics_capture_frame_buffer(s_ctx); s_fb = gbitmap_get_data(s_bmp); s_stride = gbitmap_get_bytes_per_row(s_bmp); }
+static void fb_take(void) {
+  s_bmp = graphics_capture_frame_buffer(s_ctx); s_fb = gbitmap_get_data(s_bmp); s_stride = gbitmap_get_bytes_per_row(s_bmp);
+#ifdef PBL_ROUND
+  if (s_bmp) for (int y = 0; y < s_H && y < PBL_DISPLAY_HEIGHT; y++) {
+    GBitmapDataRowInfo r = gbitmap_get_data_row_info(s_bmp, y);
+    s_row[y] = r.data; s_rmin[y] = r.min_x; s_rmax[y] = r.max_x;
+  }
+#endif
+}
 static void fb_give(void) { graphics_release_frame_buffer(s_ctx, s_bmp); s_bmp = NULL; }
 
 // the phone picks the font (server WatchFonts) and lays the text out with its exact letter widths
@@ -251,11 +277,44 @@ static void draw_text(Obj *o) {
     graphics_context_set_text_color(s_ctx, GColorBlack);
     static const int8_t OX[4] = {-1, 1, 0, 0}, OY[4] = {0, 0, -1, 1};
     for (int k = 0; k < 4; k++)
-      graphics_draw_text(s_ctx, buf, font, GRect(x + OX[k], y - CAP_TOP[fi] + OY[k], 200, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+      graphics_draw_text(s_ctx, buf, font, GRect(x + OX[k], y - CAP_TOP[fi] + OY[k], s_W, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
     graphics_context_set_text_color(s_ctx, GColorFromRGB(r, g, b));
   }
-  graphics_draw_text(s_ctx, buf, font, GRect(x, y - CAP_TOP[fi], 200, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  graphics_draw_text(s_ctx, buf, font, GRect(x, y - CAP_TOP[fi], s_W, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
   fb_take();
+}
+
+// ---- round-screen pieces (Pebble PD's disc and arc) ----
+static int isq(int v) { int r = 0, b = 1 << 14; while (b > v) b >>= 2; while (b) { if (v >= r + b) { v -= r + b; r = (r >> 1) + b; } else r >>= 1; b >>= 2; } return r; }
+static void hline(int x0, int x1, int y, uint8_t c) {   // pixels x0..x1 of row y
+  if (y < s_cy0 || y >= s_cy1) return;
+  if (x0 < s_cx0) x0 = s_cx0; if (x1 >= s_cx1) x1 = s_cx1 - 1;
+  int a = x0, b = x1 + 1; ROWCLIP(y, a, b);
+  if (b > a) memset(ROWPTR(y) + a, c, b - a);
+}
+static int tg(int d10) { int32_t a = (int32_t)TRIG_MAX_ANGLE * d10 / 3600; int32_t c = cos_lookup(a); return c ? sin_lookup(a) * 256 / c : 0; }
+static void draw_shape(Obj *o) {
+  int cx = scx(obj_dyn(o, 0, s_now)) >> 3, cy = scy(obj_dyn(o, 1, s_now)) >> 3;
+  uint8_t c = o->tex;
+  if (o->flags == 1) {
+    int r = o->tx;
+    for (int dy = -r; dy <= r; dy++) { int w = isq(r * r - dy * dy); hline(cx - w, cx + w, cy + dy, c); }
+    return;
+  }
+  // a band above the centre between radii r0..r1 and two bearings (the end one leaning out by slant per px)
+  int r0 = o->tx, r1 = o->ty, b0 = o->tw, b1 = o->th, sl = (int8_t)o->frame;
+  for (int rr = r0; rr < r1; rr++) {
+    int t0 = tg(b0), t1 = tg(b1 + (rr - r0) * sl), rin = rr, rout = rr + 1;
+    if (!sl) { rin = r0; rout = r1; rr = r1; }
+    for (int y = 1; y <= rout; y++) {
+      int xo = isq(rout * rout - y * y), xi = y < rin ? isq(rin * rin - y * y) : 0, a = y * t0 >> 8, b = y * t1 >> 8;
+      for (int sd = 0; sd < 2; sd++) {
+        int lo = sd ? xi : -xo, hi = sd ? xo : -xi;
+        if (lo < a) lo = a; if (hi > b) hi = b;
+        if (hi >= lo) hline(cx + lo, cx + hi, cy - y, c);
+      }
+    }
+  }
 }
 
 static void draw_obj(Obj *o) {
@@ -267,6 +326,7 @@ static void draw_obj(Obj *o) {
   if (s_cx0 < 0) s_cx0 = 0; if (s_cy0 < 0) s_cy0 = 0; if (s_cx1 > s_W) s_cx1 = s_W; if (s_cy1 > s_H) s_cy1 = s_H;
   int alpha = obj_dyn(o, 2, s_now);
   if (o->kind == K_TEXT) { draw_text(o); return; }
+  if (o->kind == K_SHAPE) { draw_shape(o); return; }
   if (alpha < 30 && !o->col[6]) return;
   colour_setup(o->col, alpha);
   if (o->kind == K_TILES) { draw_tiles(o); return; }
@@ -322,7 +382,7 @@ void draw_scene(GContext *ctx, GRect bounds, uint32_t now) {
   s_ctx = ctx; s_now = now; s_W = bounds.size.w; s_H = bounds.size.h;
   fb_take();
   if (!s_fb) return;
-  for (int y = 0; y < s_H; y++) memset(s_fb + y * s_stride, GColorBlackARGB8, s_W);
+  for (int y = 0; y < s_H; y++) { int a = 0, b = s_W; ROWCLIP(y, a, b); if (b > a) memset(ROWPTR(y) + a, GColorBlackARGB8, b - a); }
   for (int id = g_head; id != NONE; id = g_obj[id]->next) {
 #ifdef PROFILE
     uint32_t t0 = ms(); draw_obj(g_obj[id]); g_prof[g_obj[id]->kind & 7] += ms() - t0;
@@ -344,7 +404,7 @@ int scene_hit(int x, int y, uint32_t now) {
       if (x >= c->x >> 3 && y >= c->y >> 3 && x < (c->x + c->w) >> 3 && y < (c->y + c->h) >> 3) cam = o->cam;
       continue;
     }
-    if (o->kind == K_TILES || o->kind == K_TEXT || o->kind == K_QUADS) continue;
+    if (o->kind == K_TILES || o->kind == K_TEXT || o->kind == K_QUADS || o->kind == K_SHAPE) continue;
     if (obj_dyn(o, 2, now) < 30) continue;
     s_cam = c;
     int32_t X = obj_dyn(o, 0, now), Y = obj_dyn(o, 1, now), sx = obj_dyn(o, 3, now), sy = obj_dyn(o, 4, now);

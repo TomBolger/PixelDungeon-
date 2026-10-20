@@ -25,6 +25,7 @@ public class Tour {
 		dir = new File(a[0]); dir.mkdirs();
 		Set<String> only = new HashSet<>(Arrays.asList(a).subList(1, a.length));
 		Game.version = "4.0.2"; Game.versionCode = 922;
+		Screen.set(System.getenv().getOrDefault("SCREEN", "emery"));
 		WatchGame game = new WatchGame(); game.drawAlways = true;
 		app = new WatchApp(game, ".pebxel-tour", true);
 		SPDSettings.set(app.getPreferences(SPDSettings.DEFAULT_PREFS_FILE));

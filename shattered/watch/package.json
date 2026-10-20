@@ -11,7 +11,7 @@
     "projectType": "native",
     "sdkVersion": "3",
     "enableMultiJS": false,
-    "targetPlatforms": ["emery"],
+    "targetPlatforms": ["emery", "gabbro"],
     "watchapp": { "watchface": false },
     "messageKeys": [],
     "companionApp": {

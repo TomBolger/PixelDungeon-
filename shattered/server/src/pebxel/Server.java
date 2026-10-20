@@ -37,6 +37,7 @@ public class Server {
 	public static void main(String[] a) throws Exception {
 		int port = a.length > 0 ? Integer.parseInt(a[0]) : 9180;
 		Game.version = "4.0.2"; Game.versionCode = 922;
+		Screen.set(System.getenv().getOrDefault("SCREEN", "emery"));   // the watch's screen (emery, gabbro)
 		WatchGame game = new WatchGame();
 		game.drawAlways = true;
 		app = new WatchApp(game, ".pebxel-server");

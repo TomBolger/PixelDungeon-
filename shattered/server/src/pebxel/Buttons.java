@@ -18,6 +18,7 @@ public class Buttons {
 	public static void main(String[] a) throws Exception {
 		File dir = new File(a[0]); dir.mkdirs();
 		Game.version = "4.0.2"; Game.versionCode = 922;
+		Screen.set(System.getenv().getOrDefault("SCREEN", "emery"));
 		WatchGame game = new WatchGame(); game.drawAlways = true;
 		WatchApp app = new WatchApp(game, ".pebxel-buttons", true);
 		SPDSettings.set(app.getPreferences(SPDSettings.DEFAULT_PREFS_FILE));

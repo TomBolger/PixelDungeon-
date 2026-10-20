@@ -29,6 +29,12 @@ class WatchSession extends Thread {
 
 	WatchSession(WatchService s) { super("Watch game"); service = s; }
 
+	private volatile int screenCode;
+	private volatile boolean started;
+	void screen(int code) { if (!started) screenCode = code; }
+	int screen() { return screenCode; }
+	boolean started() { return started; }
+
 	void hello(int size) { maxMsg = Math.max(200, size - 16); helloPending = true; opening = true; }
 	void button(int code) { synchronized (buttons) { buttons.add(code); } }
 	private final Touches touches = new Touches();
@@ -65,6 +71,10 @@ class WatchSession extends Thread {
 			Game.versionCode = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionCode;
 		} catch (Exception e) { Game.version = "???"; Game.versionCode = 0; }
 
+		// the watch's screen comes with its hello: wait a moment for it (Emery if it doesn't come)
+		for (int i = 0; i < 60 && screenCode == 0 && running; i++) { try { Thread.sleep(50); } catch (InterruptedException e) { return; } }
+		started = true;
+		if (screenCode != 0) Screen.set(screenCode); else screenCode = Screen.code();
 		WatchGame game = new WatchGame();
 		game.drawAlways = true;
 		Files files = new DefaultAndroidFiles(c.getAssets(), new ContextWrapper(c), false);

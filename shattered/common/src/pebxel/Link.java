@@ -28,11 +28,11 @@ public final class Link {
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
 			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_COMMIT = 15;
 	// ---- picture kinds ----
-	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7;
+	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 4;
+	public static final int PROTOCOL = 5;
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -182,7 +182,7 @@ public final class Link {
 
 	/** Where the 7 colour bytes start in each kind's unchanging part. */
 	private static int colourAt(int kind) {
-		switch (kind) { case K_IMG: case K_SKIN: return 20; case K_RECT: return 14; case K_NINE: return 24; case K_TILES: return 9; case K_TEXT: return 3; case K_QUADS: return -1; }
+		switch (kind) { case K_IMG: case K_SKIN: return 20; case K_RECT: return 14; case K_NINE: return 24; case K_TILES: return 9; case K_TEXT: return 3; case K_QUADS: return -1; case K_SHAPE: return -1; }
 		return -1;
 	}
 
@@ -198,9 +198,9 @@ public final class Link {
 	public static byte[] errorScreen(String message) {
 		ByteArrayOutputStream b = new ByteArrayOutputStream();
 		b.write(C_RESET);
-		// camera 0: the whole 200x228 screen, 1:1
+		// camera 0: the whole screen, 1:1
 		b.write(C_CAM); b.write(0);
-		int[] cam = {0, 0, 200 * 8, 228 * 8, 256, 0, 0};
+		int[] cam = {0, 0, Screen.w * 8, Screen.h * 8, 256, 0, 0};
 		for (int v : cam) { b.write(v & 255); b.write((v >> 8) & 255); }
 		b.write(0);
 		int id = 0, y = 2;
@@ -392,7 +392,12 @@ public final class Link {
 			dyn[D_X] = v.x * 8; dyn[D_Y] = v.y * 8;
 			dyn[D_SX] = v.scale.x * 256; dyn[D_SY] = v.scale.y * 256; dyn[D_ANG] = v.angle * 64;
 		}
-		if (g instanceof pebxel.ui.WatchText) {
+		if (g instanceof pebxel.ui.Shape) {
+			pebxel.ui.Shape sh = (pebxel.ui.Shape) g;
+			int rgb = sh.rgb, pc = 0xC0 | ((((rgb >> 16) & 255) + 42) / 85) << 4 | ((((rgb >> 8) & 255) + 42) / 85) << 2 | (((rgb & 255) + 42) / 85);
+			s8(K_SHAPE); s8(cam); s8(sh.kind); s8(pc); s8(sh.r0); s8(sh.r1); s16(sh.b0); s16(sh.b1); s8(sh.slant);
+			dyn[D_X] = v.x * 8; dyn[D_Y] = v.y * 8;
+		} else if (g instanceof pebxel.ui.WatchText) {
 			pebxel.ui.WatchText wt = (pebxel.ui.WatchText) g;
 			if (wt.text().isEmpty()) return null;
 			s8(K_TEXT); s8(cam); s8(wt.font | (wt.outline ? 0x80 : 0)); color(v);

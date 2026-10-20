@@ -6,12 +6,12 @@ import com.badlogic.gdx.graphics.GL20;
 
 /** Pretends to be a phone screen that is never shown. */
 public class WatchGraphics extends MockGraphics {
-	//twice the watch's 200x228: Shattered's smallest zoom is 2, so its interface is laid out for exactly 200x228
-	public int w = 400, h = 456;
+	//twice the watch's screen (two phone pixels per watch pixel)
+	public int w = Screen.w * 2, h = Screen.h * 2;
 	public float delta = 1 / 30f;
 	public SoftGL soft;
 	private GL20 gl = NoGL.make();
-	private final DisplayMode mode = new DisplayMode(400, 456, 60, 32) {};
+	private final DisplayMode mode = new DisplayMode(w, h, 60, 32) {};
 
 	public void useSoftGL() { soft = new SoftGL(w, h); gl = soft.proxy(); }
 

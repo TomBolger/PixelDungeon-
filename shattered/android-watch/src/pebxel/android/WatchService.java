@@ -19,7 +19,7 @@ import java.util.function.Consumer;
  */
 public class WatchService extends BaseJavaPebbleListenerService {
 	public static final UUID APP = UUID.fromString("84d52e02-b98a-4d9c-b021-a9e3c442d0ca");
-	static final int KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_VERSION = 5, KEY_TOUCH = 6;
+	static final int KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7;
 
 	private JavaPebbleSender sender;
 	private static WatchSession session;
@@ -72,8 +72,14 @@ public class WatchService extends BaseJavaPebbleListenerService {
 		Integer hello = number(data.get(KEY_HELLO)), button = number(data.get(KEY_BUTTON)), version = number(data.get(KEY_VERSION));
 		if (hello != null) {
 			int v = version == null ? 1 : version;
+			Integer scr = number(data.get(KEY_SCREEN));
 			if (v != pebxel.Link.PROTOCOL) send(pebxel.Link.wrongVersion(v), ok -> { });
-			else s.hello(hello);
+			else if (scr != null && s.started() && scr != s.screen()) {
+				// another watch (a round one, say): start the game over for its screen
+				synchronized (this) { s.stopNow(); session = null; }
+				WatchSession n = session(); n.screen(scr); n.hello(hello);
+			}
+			else { if (scr != null) s.screen(scr); s.hello(hello); }
 		}
 		if (button != null) s.button(button);
 		PebbleDictionaryItem t = data.get(KEY_TOUCH);
