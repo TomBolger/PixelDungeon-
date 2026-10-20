@@ -982,7 +982,19 @@ public final class Assist {
 				if (!touch && o <= 2 && o < bo) { bo = o; bc = c; } }
 			if (bc >= 0) return new Target(bc, GO, "tactic: narrow spot");
 		}
-		Mob sh = null, goo = null;
+		Mob sh = null, goo = null, crab = null;
+		for (Mob m : mobs()) if (m instanceof GreatCrab && m.isAlive() && hunting(m)) crab = m;
+		boolean crabWasUnseen = crabUnseen; crabUnseen = crab == null || !L.heroFOV[crab.pos];
+		if (crab != null) {   // the Ghost's crab blocks every blow from one it sees: out of its sight, then strike as it steps up blind
+			if (!L.heroFOV[crab.pos]) {
+				if (doorSpot == hp) { Target t = new Target(hp, WAIT, "tactic: wait for the crab"); t.action = WAIT_ACT; return t; }
+				return null;
+			}
+			if (adjacent(crab.pos, hp) && crabWasUnseen) return null;   // the ambush: hit it now
+			int best = -1, bk = INF;
+			for (int c = 0; c < LEN; c++) if (c != hp && walk(c) <= 8 && walk(c) < bk && standOk(c) && !adjacent(c, crab.pos) && !sight(crab.pos, c)) { bk = walk(c); best = c; }
+			if (best >= 0) { doorSpot = best; doorUntil = Actor.now() + 20; return new Target(best, GO, "tactic: out of the crab's sight"); }
+		}
 		for (Mob m : mobs()) {
 			if (!enemy(m)) continue;
 			int d = distance(m.pos, hp);
@@ -1004,6 +1016,8 @@ public final class Assist {
 		if (doorSpot == hp && Actor.now() < doorUntil && sh != null) { Target t = new Target(hp, WAIT, "tactic: wait round the corner"); t.action = WAIT_ACT; return t; }
 		return null;
 	}
+	private static boolean crabUnseen = true;
+	private static boolean sight(int a, int b) { try { Ballistica bl = new Ballistica(a, b, Ballistica.STOP_TARGET | Ballistica.STOP_SOLID); return bl.collisionPos != null && bl.collisionPos == b; } catch (Throwable e) { return true; } }
 	private static boolean pumped(Mob m) { Object v = field(m, "pumpedUp"); return v instanceof Integer && (Integer) v > 0; }
 	private static boolean standOk(int c) { return c == hp || (open[c] && Actor.findChar(c) == null && walk(c) <= 6); }
 

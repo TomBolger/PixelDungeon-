@@ -66,14 +66,14 @@ public class AssistBot {
 			if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) continue;
 			if (!Dungeon.hero.isAlive()) { end = "died"; break; }
 			if (Dungeon.depth != depth) {
-				if (depth > 0) System.out.printf("  floor %d done in %.0f turns%n", depth, Actor.now() - floorStart);
-				depth = Dungeon.depth; maxD = Math.max(maxD, depth); floorStart = Actor.now();
+				if (depth > 0) System.out.printf("  floor %d done in %.0f turns%n", depth, Statistics.duration - floorStart);
+				depth = Dungeon.depth; maxD = Math.max(maxD, depth); floorStart = Statistics.duration;
 				GLog.update.remove(logL); GLog.update.add(logL);
-				System.out.printf("depth %d  turn %.0f  hp %d/%d  lvl %d  str %d  %.1fs%n", depth, Actor.now(), Dungeon.hero.HP, Dungeon.hero.HT, Dungeon.hero.lvl, Dungeon.hero.STR(), (System.currentTimeMillis() - t0) / 1000.0);
+				System.out.printf("depth %d  turn %.0f  hp %d/%d  lvl %d  str %d  %.1fs%n", depth, Statistics.duration, Dungeon.hero.HP, Dungeon.hero.HT, Dungeon.hero.lvl, Dungeon.hero.STR(), (System.currentTimeMillis() - t0) / 1000.0);
 				if (depth > maxDepth) { end = "depth limit"; break; }
 			}
-			if (Actor.now() > maxTurns) { end = "turn limit"; break; }
-			if (Actor.now() - floorStart > 2500) { end = "floor timeout (2500 turns on depth " + depth + ")"; break; }
+			if (Statistics.duration > maxTurns) { end = "turn limit"; break; }
+			if (Statistics.duration - floorStart > 2500) { end = "floor timeout (2500 turns on depth " + depth + ")"; break; }
 			Window w = Ui.topWindow();
 			if (w != null) {
 				if (w != lastWnd) { lastWnd = w; wndFrames = 0; windows++; if (v) System.out.println("  window " + w.getClass().getSimpleName()); }
@@ -116,7 +116,7 @@ public class AssistBot {
 			if (sameRun >= 50) { end = "loop at " + t; break; }
 			lastPos = Dungeon.hero.pos; lastKey = key;
 			whys.merge(t.why, 1, Integer::sum);
-			if (v) System.out.printf("  t%.0f pos %d hp %d/%d: %s%s%n", Actor.now(), Dungeon.hero.pos, Dungeon.hero.HP, Dungeon.hero.HT, t, plan.size() > 1 ? "   | B: " + plan.get(1) : "");
+			if (v) System.out.printf("  t%.0f/%.0f pos %d hp %d/%d: %s%s%n", Statistics.duration, Actor.now(), Dungeon.hero.pos, Dungeon.hero.HP, Dungeon.hero.HT, t, plan.size() > 1 ? "   | B: " + plan.get(1) : "");
 			if (t.kind == Assist.PICKUP) { Heap hh = Dungeon.level.heaps.get(t.cell); if (hh != null && t.cell == Dungeon.hero.pos) { pickHeap = hh; pickSize = hh.size(); } }
 			float tn = Actor.now(); int pn = Dungeon.hero.pos;
 			boolean ok = Assist.act(t);
@@ -130,7 +130,7 @@ public class AssistBot {
 		System.out.println("decisions by reason: " + whys);
 		System.out.printf("plan time: avg %.2f ms, max %.1f ms over %d plans%n", planNs / 1e6 / Math.max(1, plans), maxPlanNs / 1e6, plans);
 		System.out.printf("RESULT class %s seed %d: %s depth %d (max %d) turns %.0f lvl %d hp %d/%d picked %d stuck %d actfails %d windows %d decisions %d  %.1fs%s%n",
-				cls, seed, end, Dungeon.depth, maxD, Actor.now(), Dungeon.hero == null ? 0 : Dungeon.hero.lvl, Dungeon.hero == null ? 0 : Dungeon.hero.HP, Dungeon.hero == null ? 0 : Dungeon.hero.HT,
+				cls, seed, end, Dungeon.depth, maxD, Statistics.duration, Dungeon.hero == null ? 0 : Dungeon.hero.lvl, Dungeon.hero == null ? 0 : Dungeon.hero.HP, Dungeon.hero == null ? 0 : Dungeon.hero.HT,
 				picked, stuckEvents, actFails, windows, decisions, (System.currentTimeMillis() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
 		System.exit(0);
 	}
