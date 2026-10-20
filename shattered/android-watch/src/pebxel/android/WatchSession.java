@@ -87,6 +87,7 @@ class WatchSession extends Thread {
 		app.create();
 		Link link = new Link(new Assets());
 		Controls controls = new Controls();
+		link.planner = controls::plan;
 
 		Shared.mark(Shared.WATCH_ON, true);
 		try { loop(c, game, link, controls); }

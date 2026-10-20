@@ -27,11 +27,16 @@ def main():
     am = AppMessageService(pebble)
     stats = {'msgs': 0, 'bytes': 0, 't0': time.time()}
 
+    # LAG=ms: hold presses that long before the game hears them (a real watch's radio is slower than the emulator's)
+    lag = float(__import__('os').environ.get('LAG', '0')) / 1000
+    def later(fn):
+        if lag: threading.Timer(lag, fn).start()
+        else: fn()
     def on_msg(tid, app, data):
         if app != APP: return
         if KEY_HELLO in data: to_server(b'H', struct.pack('>HB', data[KEY_HELLO], data.get(5, 1))); print('watch hello', data[KEY_HELLO], 'version', data.get(5, 1))
-        if KEY_BUTTON in data: to_server(b'B', bytes([data[KEY_BUTTON] & 255])); print('button', data[KEY_BUTTON])
-        if 6 in data: to_server(b'T', bytes(data[6])); print('touch', bytes(data[6]).hex())
+        if KEY_BUTTON in data: b = data[KEY_BUTTON] & 255; later(lambda: to_server(b'B', bytes([b]))); print('button', data[KEY_BUTTON])
+        if 6 in data: t = bytes(data[6]); later(lambda: to_server(b'T', t)); print('touch', t.hex())
     am.register_handler('appmessage', on_msg)
     def ack(tid, app):
         if '-v' in sys.argv: print('ack', tid)

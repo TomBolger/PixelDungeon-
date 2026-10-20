@@ -15,6 +15,20 @@ import javax.imageio.ImageIO;
 public final class WatchSim {
 	/** What the watch was told to play (kind:value), for tests. */
 	public final java.util.List<String> sounds = new java.util.ArrayList<>();
+	/** The plans the watch was sent (Controls.plan), as text, for tests. */
+	public final java.util.List<String> plans = new java.util.ArrayList<>();
+	private String readPlan() {
+		if (u8() == 0) return "none";
+		StringBuilder sb = new StringBuilder();
+		int mid = u16(), hid = u16(), step = u8() * 4, n = u8(), cur = u8();
+		sb.append("marker ").append(mid).append(" hero ").append(hid).append(" step ").append(step).append(" cur ").append(cur);
+		for (int i = 0; i < n; i++) {
+			int x = (short) u16(), y = (short) u16(), k = u8();
+			sb.append(" | ").append(x / 8f).append(",").append(y / 8f);
+			if (k > 0) { sb.append(" walk "); for (int j = 0; j < k; j++) sb.append(u8()); }
+		}
+		return sb.toString();
+	}
 	public static int W = Screen.w, H = Screen.h;
 	public final int[] fb = new int[Screen.w * Screen.h];
 
@@ -158,6 +172,7 @@ public final class WatchSim {
 					anims.put(id, a); break;
 				}
 				case Link.C_INPUT: p++; break;
+				case Link.C_PREDICT: plans.add(readPlan()); break;
 				case Link.C_SOUND: { int k = u8(), v = u8(); sounds.add(k + ":" + v); break; }
 				case Link.C_COMMIT: break;
 				default: throw new IllegalStateException("bad command " + c + " at " + (p - 1));
