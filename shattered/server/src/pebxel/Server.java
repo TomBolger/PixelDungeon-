@@ -53,8 +53,11 @@ public class Server {
 			GamesInProgress.selectedClass = HeroClass.values()[Integer.parseInt(System.getenv("NEWGAME"))];
 			GamesInProgress.curSlot = 1;
 			Dungeon.hero = null; Dungeon.daily = Dungeon.dailyReplay = false; Dungeon.initSeed();
+			if (System.getenv("SEED") != null) Dungeon.seed = Long.parseLong(System.getenv("SEED"));
 			InterlevelScene.mode = InterlevelScene.Mode.DESCEND;
 			Game.switchScene(InterlevelScene.class);
+			// GALLERY=stage: set up one of the visual-check views (see Gallery) once the game has started
+			if (System.getenv("GALLERY") != null) Gallery.stage(System.getenv("GALLERY"));
 		}
 
 		Thread net = new Thread(() -> serve(port), "bridge");
@@ -70,6 +73,7 @@ public class Server {
 			touches.frame(link, controls, Game.elapsed);
 			app.frame();
 			controls.frame();
+			Gallery.tick();
 			sinceSync += Game.elapsed;
 			if (helloPending) { helloPending = false; synchronized (queue) { queue.clear(); } link.reset(); inFlight = false; }
 			if (connected) link.frame(sinceSync); sinceSync = 0;
