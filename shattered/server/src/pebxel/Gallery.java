@@ -82,8 +82,28 @@ public class Gallery {
 		}
 	}
 
+	/** GALLERY_CTL=file (the server): a stage name written there is set up next; "file.done" says when it is. */
+	static final String CTL = System.getenv("GALLERY_CTL");
+	static long ctlTime; static int ctlCheck; static String ctlStage;
+
 	/** Call every frame: true while steps remain. */
 	public static boolean tick() {
+		if (CTL != null && steps.isEmpty()) {
+			if (ctlStage != null && Game.scene() instanceof GameScene && Ui.topWindow() == null) {
+				try { java.nio.file.Files.write(new File(CTL + ".done").toPath(), ctlStage.getBytes()); } catch (Exception e) { }
+				ctlStage = null;
+			}
+			if (++ctlCheck % 15 == 0) {
+				File f = new File(CTL);
+				if (f.exists() && f.lastModified() != ctlTime) {
+					ctlTime = f.lastModified();
+					try {
+						String n = new String(java.nio.file.Files.readAllBytes(f.toPath())).trim();
+						if (!n.isEmpty()) { new File(CTL + ".done").delete(); stage(n); ctlStage = n; }
+					} catch (Exception e) { e.printStackTrace(); }
+				}
+			}
+		}
 		if (steps.isEmpty()) return false;
 		if (Game.scene() instanceof InterlevelScene) { HandoffTest.pressOn(); return true; }
 		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null || !Dungeon.hero.ready) return true;
