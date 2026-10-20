@@ -61,6 +61,7 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 	}
 
 	private void show(int p) {
+		if (parent == null && camera != null && page.parent == null) return;   // (closed already: a late tap)
 		pageNo = p; if (p >= 0) lastPage = p;
 		page.clear();
 		tabs.clear();

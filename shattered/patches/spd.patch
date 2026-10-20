@@ -366,6 +366,19 @@ index 86c9dfb..afe1af3 100644
  		minZoom = 1;
  		maxZoom = defaultZoom * 2;
  
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/Button.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/Button.java
+index a3f6715..3293edd 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/Button.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/Button.java
+@@ -68,6 +68,8 @@ public class Button extends Component {
+ 			}
+ 			@Override
+ 			protected void onClick( PointerEvent event ) {
++				//Pebxel: a button whose window closed earlier in this same touch does nothing
++				if (Button.this.parent == null) return;
+ 				if (clickReady) {
+ 					killTooltip();
+ 					switch (event.button){
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java
 index 2dc7887..b2ee4df 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/RenderedTextBlock.java

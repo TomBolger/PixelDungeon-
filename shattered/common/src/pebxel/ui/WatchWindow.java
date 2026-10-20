@@ -44,6 +44,19 @@ public class WatchWindow extends Window {
 		dim.size(PixelScene.uiCamera.width, PixelScene.uiCamera.height);
 		dim.alpha(0.5f);
 		GroupAccess.addAfter(this, dim, shadow);
+		// a tap outside closes the window, but its tabs hang below the frame: they count as inside
+		remove(blocker); blocker.destroy();   // (remove, not erase: an erased slot is reused by the next add, under the frame)
+		blocker = new com.watabou.noosa.PointerArea(0, 0, PixelScene.uiCamera.width, PixelScene.uiCamera.height) {
+			@Override protected void onClick(com.watabou.input.PointerEvent e) {
+				if (WatchWindow.this.parent == null) return;
+				float x = e.current.x, y = e.current.y;
+				Camera c = WatchWindow.this.camera;
+				boolean inside = x >= c.x && x < c.x + c.width * c.zoom && y >= c.y && y < c.y + c.height * c.zoom;
+				if (!inside) onBackPressed();
+			}
+		};
+		blocker.camera = PixelScene.uiCamera;
+		GroupAccess.addAfter(this, blocker, shadow);
 		if (pebxel.Screen.round) { chrome.visible = false; GroupAccess.addAfter(this, roundFrame, chrome); }
 		place(x, y);
 	}

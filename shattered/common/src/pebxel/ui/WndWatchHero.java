@@ -39,6 +39,7 @@ public class WndWatchHero extends WatchWindow {
 	private static int x0() { return (pebxel.Screen.w - W) / 2; }
 
 	private void show(int t) {
+		if (parent == null && camera != null && page.parent == null) return;   // (closed already: a late tap)
 		tab = t; lastTab = t;
 		page.clear(); tabs.clear();
 		Hero h = Dungeon.hero;

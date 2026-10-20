@@ -58,6 +58,7 @@ class WatchSession extends Thread {
 		catch (Throwable t) {
 			// show what went wrong on the watch, so it can be reported
 			android.util.Log.e("PebxelWatch", "watch game crashed", t);
+			Crashes.note(service.getApplicationContext(), t);
 			java.io.StringWriter w = new java.io.StringWriter(); t.printStackTrace(new java.io.PrintWriter(w));
 			String msg = w.toString().replace("com.shatteredpixel.shatteredpixeldungeon.", "").replace("\t", " ");
 			service.send(Link.errorScreen("Shattered stopped:\n" + msg), ok -> { });
@@ -95,6 +96,8 @@ class WatchSession extends Thread {
 			Shared.mark(Shared.WATCH_ON, false);
 		}
 	}
+
+	private long lastError; private int errorRun;
 
 	private void standAside() {
 		synchronized (queue) { queue.clear(); }
@@ -146,10 +149,22 @@ class WatchSession extends Thread {
 			}
 			Integer b;
 			synchronized (buttons) { b = buttons.poll(); }
-			if (b != null) controls.button(b);
-			touches.frame(link, controls, Game.elapsed);
-			app.frame();
-			controls.frame();
+			try {
+				if (b != null) controls.button(b);
+				touches.frame(link, controls, Game.elapsed);
+				app.frame();
+				controls.frame();
+			} catch (Throwable t) {
+				// one bad frame (a window that broke, say) shouldn't end the game: note it, close the top window and go on;
+				// only a run of them stops the session (and the watch's next start makes a new one)
+				android.util.Log.e("PebxelWatch", "frame failed", t);
+				Crashes.note(c, t);
+				long nowMs = System.currentTimeMillis();
+				if (nowMs - lastError > 3000) errorRun = 0;
+				lastError = nowMs;
+				if (++errorRun >= 5) throw t;
+				try { com.shatteredpixel.shatteredpixeldungeon.ui.Window w = pebxel.Ui.topWindow(); if (w != null) w.hide(); } catch (Throwable t2) { }
+			}
 			sinceSync += Game.elapsed;
 			if (helloPending) { helloPending = false; synchronized (queue) { queue.clear(); } link.reset(); inFlight = false; }
 			if (closing) {

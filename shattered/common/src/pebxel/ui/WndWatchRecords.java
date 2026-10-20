@@ -56,6 +56,7 @@ public class WndWatchRecords extends WatchWindow {
 	}
 
 	private void show(int t) {
+		if (parent == null && camera != null && page.parent == null) return;   // (closed already: a late tap)
 		tab = t;
 		page.clear(); tabs.clear();
 		page.add(WatchHud.block(0x555555, -1, -1, W + 2, 17));

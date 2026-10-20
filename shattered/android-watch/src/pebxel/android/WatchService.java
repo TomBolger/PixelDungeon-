@@ -38,7 +38,8 @@ public class WatchService extends BaseJavaPebbleListenerService {
 	}
 
 	private synchronized WatchSession session() {
-		if (session == null) { session = new WatchSession(this); session.start(); }
+		// (a session that stopped, after a crash say, is replaced: the next start of the watch app plays on)
+		if (session == null || !session.isAlive()) { session = new WatchSession(this); session.start(); }
 		return session;
 	}
 

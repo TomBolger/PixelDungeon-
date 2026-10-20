@@ -44,6 +44,36 @@ def greys(im, lv):
                 px[x, y] = (q, q, q, 254 if a == 255 else a)   # 254: pebbleize keeps it as is
     return im
 
+# ---- Pebble PD's item conversion (its convert_art.py: pebbleize(sheet, CHARS, hue_guard=True)), used as is ----
+import colorsys
+PAL = [(r, g, b) for r in (0, 85, 170, 255) for g in (0, 85, 170, 255) for b in (0, 85, 170, 255)]
+def _near(c):
+    return min(PAL, key=lambda p: 2 * (p[0] - c[0]) ** 2 + 4 * (p[1] - c[1]) ** 2 + 3 * (p[2] - c[2]) ** 2)
+def _hue(c):
+    h, _, s = colorsys.rgb_to_hls(*(v / 255 for v in c)); return h * 360, s
+_PAL_HUE = {p: _hue(p)[0] for p in PAL}
+def _near_hue(c, lim=35):
+    h0, s0 = _hue(c)
+    if s0 < 0.12: return _near(c)
+    return min((p for p in PAL if p[0] == p[1] == p[2] or min(abs(_PAL_HUE[p] - h0), 360 - abs(_PAL_HUE[p] - h0)) <= lim),
+               key=lambda p: 2 * (p[0] - c[0]) ** 2 + 4 * (p[1] - c[1]) ** 2 + 3 * (p[2] - c[2]) ** 2)
+def pd_items(img):
+    lo, hi = CHARS
+    img = img.convert('RGBA'); px = img.load(); cache = {}
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            if a < 100: px[x, y] = (0, 0, 0, 0); continue
+            k = (r, g, b)
+            if k not in cache:
+                c = [max(0.0, min(1.0, (v - lo) / (hi - lo))) for v in (r, g, b)]
+                h, l, sat = colorsys.rgb_to_hls(*c)
+                if sat > 0.3: sat = min(1.0, sat * 1.3)
+                cache[k] = _near_hue(tuple(v * 255 for v in colorsys.hls_to_rgb(h, l, sat)))
+            px[x, y] = cache[k] + (255,)
+    return img
+PD_ITEMS = {'sprites/items.png', 'sprites/item_icons.png'}
+
 CUT = {'interfaces': 128, 'sprites': 100, 'effects/spell_icons.png': 100, 'effects/text_icons.png': 100}
 
 def frame_widths():
@@ -114,6 +144,8 @@ if __name__ == '__main__':
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         im = Image.open(src(p)).convert('RGBA')
         if p.startswith('pebxel/'): im.save(dst); continue   # already converted
+        if p in PD_ITEMS:   # exactly as Pebble PD did its items (hue kept, no greying)
+            pd_items(im.copy()).save(dst); continue
         out = pebbleize(greys(im.copy(), levels(p)) if not p.startswith(('environment/', 'splashes/')) else im.copy(), levels(p), alpha_cut=1)
         a, o = im.load(), out.load()
         cut = CUT.get(p.split('/')[0], CUT.get(p))
