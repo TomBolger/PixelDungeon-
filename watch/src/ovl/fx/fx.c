@@ -121,37 +121,34 @@ static void stream(int c, uint32_t now) {
   }
 }
 
-// PD's fog of war is a texture of a pixel a cell, smoothed when drawn, so its edges are soft. Here each cell keeps its
-// own shade (seen 0, remembered 8, never seen 16 of 16) through its middle; only a band along an edge, a third of the
-// cell wide (0.95 owner: "only the outside portions of walls"), slides to the shade halfway to the cell beyond. Two
-// walls back to back don't blend at all. Never-seen cells stay black (and what they are isn't looked at).
-static int lvl(int x, int y) {
-  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return 16;
-  int c = y * MAP_W + x;
-  return !BIT_GET(G.visited, c) ? 16 : BIT_GET(G.fov, c) ? 0 : 8;
-}
-static bool wall(int x, int y) { return x >= 0 && y >= 0 && x < MAP_W && y < MAP_H && (TFLAGS(G.map[y * MAP_W + x]) & F_SOLID); }
-// the shade where this cell meets the one at (nx, ny)
-static int edge(int x, int y, int own, int nx, int ny) {
-  int n = lvl(nx, ny);
-  if (n != 16 && wall(x, y) && wall(nx, ny)) return own;      // walls back to back: each keeps its own
-  return (own + n) / 2;
-}
+// PD's fog of war is smoothed when drawn, so its edges are soft. Here (0.97, owner): remembered cells keep the plain
+// checker; a cell in sight fades towards never-seen cells next to it, in a band a third of the cell wide along a side
+// it shares with one, and in a quarter circle at a corner it touches one by: so a hole in the dark is ringed with a
+// rounded fade. What a never-seen cell is isn't looked at.
+static bool dark(int x, int y) { return x < 0 || y < 0 || x >= MAP_W || y >= MAP_H || !BIT_GET(G.visited, y * MAP_W + x); }
 static const uint8_t BAYER[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
-// a cell of shade `own`, its edge bands (w px) sliding to e[] (left, right, top, bottom)
-static void shade(int dx, int dy, int n, int own, const int *e) {
-  int w = n / 3; if (w < 1) w = 1;
+static int isqrt(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
+// m: the dark beyond each side (1 left, 2 right, 4 top, 8 bottom) and corner (16 top left, 32 top right, 64 bottom
+// left, 128 bottom right); at the very edge the cell is half dark
+static void shade(int dx, int dy, int n, int m) {
+  int w = n / 3; if (w < 2) w = 2;
   for (int y = 0; y < n; y++) {
     int ty = dy + y;
     GBitmapDataRowInfo ri = blit_row(ty);
     if (!ri.data) continue;
-    int dv = y < w ? (e[2] - own) * (w - y) : y >= n - w ? (e[3] - own) * (y - (n - w) + 1) : 0;   // x w
+    int fy = y < w ? y : n - 1 - y;                                // distance in from the nearer top/bottom side
     for (int x = 0; x < n; x++) {
       int tx = dx + x;
       if (tx < ri.min_x || tx > ri.max_x) continue;
-      int dh = x < w ? (e[0] - own) * (w - x) : x >= n - w ? (e[1] - own) * (x - (n - w) + 1) : 0;
-      int l = own * w + dh + dv;                                   // x w
-      if (BAYER[(ty & 3) * 4 + (tx & 3)] * w < l) ri.data[tx] = GColorBlackARGB8;
+      int fx = x < w ? x : n - 1 - x, d = w;                       // the nearest dark: its distance
+      if (fx >= w && fy >= w) continue;                            // (the middle: never)
+      {
+        bool l = x < w, t = y < w;
+        if (fy < w && (m & (t ? 4 : 8))) d = fy;
+        if (fx < w && (m & (l ? 1 : 2)) && fx < d) d = fx;
+        if (fx < w && fy < w && (m & (t ? (l ? 16 : 32) : (l ? 64 : 128)))) { int c = isqrt(fx * fx + fy * fy); if (c < d) d = c; }
+      }
+      if (d < w && BAYER[(ty & 3) * 4 + (tx & 3)] * w < 8 * (w - d)) ri.data[tx] = GColorBlackARGB8;
     }
   }
 }
@@ -161,11 +158,12 @@ static void fx_fog(void) {
     int py = map_sy(y * TS);
     if (py + t < 0 || py >= s_h) continue;
     for (int x = 0; x < MAP_W; x++) {
-      int px = map_sx(x * TS);
-      if (px + t < 0 || px >= s_w || !BIT_GET(G.visited, y * MAP_W + x)) continue;
-      int own = lvl(x, y), e[4] = { edge(x, y, own, x - 1, y), edge(x, y, own, x + 1, y), edge(x, y, own, x, y - 1), edge(x, y, own, x, y + 1) };
-      if (e[0] == own && e[1] == own && e[2] == own && e[3] == own) { if (own) blit_fog(px, py, t); continue; }   // all its own shade
-      shade(px, py, t, own, e);
+      int px = map_sx(x * TS), c = y * MAP_W + x;
+      if (px + t < 0 || px >= s_w || !BIT_GET(G.visited, c)) continue;
+      if (!BIT_GET(G.fov, c)) { blit_fog(px, py, t); continue; }   // remembered: the plain checker
+      int m = dark(x - 1, y) | dark(x + 1, y) << 1 | dark(x, y - 1) << 2 | dark(x, y + 1) << 3
+            | dark(x - 1, y - 1) << 4 | dark(x + 1, y - 1) << 5 | dark(x - 1, y + 1) << 6 | dark(x + 1, y + 1) << 7;
+      if (m) shade(px, py, t, m);
     }
   }
 }
