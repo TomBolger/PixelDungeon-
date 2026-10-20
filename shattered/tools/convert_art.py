@@ -231,6 +231,42 @@ def skin(p, im):
             if a >= 100 and (r, g, b) in SKIN: px[x, y] = SKIN[(r, g, b)] + (254,)
     return im
 
+# Pebble PD's per-creature fixes (its mobs.py RECOLOR), on the same art in Shattered's sheets: colour, or (colour, alpha)
+_K, _G, _S, _W = (0, 0, 0), (85, 85, 85), (170, 170, 170), (255, 255, 255)
+RECOLOR = {
+    # Goo: a black body with a white shine (its 85-grey body was the sewer floor's own colour); its edge is grey
+    'sprites/goo.png': {(0, 0, 0): _K, (6, 6, 6): _K, (38, 38, 38): _K, (64, 64, 64): _G, (128, 128, 128): _W},
+    # the Sad Ghost's 40% white body snapped to white, one flat sheet that melts into the sewers' white walls
+    'sprites/ghost.png': {((255, 255, 255), 102): _S},
+    # the wraith: a 50% black body (it was all black, under a black outline: invisible on dark ground) under its
+    # black hood; Shattered's tormented spirit, its red twin, the same way in maroon
+    'sprites/wraith.png': {((0, 0, 0), 128): _G, ((0, 0, 0), 127): _G, ((51, 0, 0), 128): (85, 0, 0), ((51, 0, 0), 127): (85, 0, 0)},
+    # the golem's lit side snapped to 85-grey, the city floor, so only its black half showed
+    'sprites/golem.png': {(102, 90, 87): _S},
+    # the bat's dark red wing membranes snapped to black with the rest of it
+    'sprites/bat.png': {(51, 0, 8): (85, 0, 0)},
+    # Yog's blood vessels are pink a shade off white: they clipped to white and the eyeball went blank
+    'sprites/yog.png': {c: (255, 170, 170) for c in ((255, 229, 229), (255, 215, 215), (255, 204, 204), (235, 211, 211), (214, 192, 192))},
+    # the bandit (the thief in a purple hood): its darkest purple snapped to maroon and the light one to raspberry
+    'sprites/thief.png': {(58, 6, 42): (85, 0, 85), (95, 10, 77): (85, 0, 85), (100, 42, 82): (85, 0, 85), (122, 40, 104): (170, 0, 170)},
+}
+
+def recolor(p, im):
+    """Pebble PD's fixes: matched pixels become that Pebble colour, solid (alpha 254: kept as is by the mapping)."""
+    rc = RECOLOR.get(p)
+    if not rc and p != 'sprites/piranha.png': return im
+    px = im.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            r, g, b, a = px[x, y]
+            if not a: continue
+            if p == 'sprites/piranha.png':   # its idle frames are a 30% black shadow under the water: solid grey
+                if a < 128: px[x, y] = _G + (254,)
+                continue
+            to = rc.get(((r, g, b), a), rc.get((r, g, b)) if a >= 100 else None)
+            if to is not None: px[x, y] = to + (254,)
+    return im
+
 def pd_water(p, im):
     """Pebble PD's water (convert_art.py, convert_regions.py): a few shades by brightness, each region's own colours.
     Snapped pixel by pixel, the prison's water came out one flat grey (it read as metal), the caves' black (it vanished
@@ -280,6 +316,7 @@ if __name__ == '__main__':
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         im = Image.open(src(p)).convert('RGBA')
         if p.startswith('pebxel/'): im.save(dst); continue   # already converted
+        im = recolor(p, im)
         if p.startswith('environment/water'):
             pd_water(p, im).save(dst); continue
         if p in PD_ITEMS:   # exactly as Pebble PD did its items (hue kept, no greying)
