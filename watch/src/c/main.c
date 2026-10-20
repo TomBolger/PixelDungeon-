@@ -103,7 +103,7 @@ static void sheet_free(Sheet *s) { if (s->bmp) { gbitmap_destroy(s->bmp); blit_f
 static bool fx_drop(void);
 const Sheet *mob_sheet(int type) {
   if (type == MT_MIRROR) return &s_hero;
-  if (!s_mob[type].bmp && MOB_RES[type]) { sheet_load(&s_mob[type], MOB_RES[type]); if (!s_mob[type].bmp && fx_drop()) sheet_load(&s_mob[type], MOB_RES[type]); }   // (no room: the little lives give way)
+  if (!s_mob[type].bmp && MOB_RES[type]) { sheet_load(&s_mob[type], MOB_RES[type]); if (!s_mob[type].bmp && ui_free_fx()) sheet_load(&s_mob[type], MOB_RES[type]); }   // (no room: the little lives give way)
   return &s_mob[type];
 }
 static void mob_sheets_free(void) { for (int t = 0; t < MT_COUNT; t++) { sheet_free(&s_mob[t]); free(s_mob_art[t]); s_mob_art[t] = NULL; } }
@@ -417,7 +417,9 @@ static uint32_t s_boss_until;
 // the dungeon's little lives (src/ovl/fx): loaded on a floor, let go while the next one is built (it needs the room)
 static const OvlHeader *s_fxo; static bool s_fx_off;
 static bool fx_drop(void) { if (!s_fxo) return false; ovl_free(s_fxo); s_fxo = NULL; return true; }
-static const OvlHeader *fxo(void) { if (!s_fxo && !s_fx_off && G.depth && heap_bytes_free() > 5000) s_fxo = ovl_keep(RESOURCE_ID_OVL_FX); return s_fxo; }   // (only with room to spare: never at the cost of anything else)
+static uint32_t s_fx_back;   // when the little lives may come back after giving way (not at once: the next press needs the room again)
+bool ui_free_fx(void) { s_fx_back = now_ms() + 4000; return fx_drop(); }
+static const OvlHeader *fxo(void) { if (!s_fxo && !s_fx_off && G.depth && heap_bytes_free() > 5000 && (int32_t)(now_ms() - s_fx_back) > 0) s_fxo = ovl_keep(RESOURCE_ID_OVL_FX); return s_fxo; }   // (only with room to spare: never at the cost of anything else)
 static void fx_ev(int k, int c, int a, int b) { const OvlHeader *o = fxo(); if (o) ((void (*)(int, int, int, int))o->fn[2])(k, c, a, b); }
 void ui_fx(FxKind kind, int16_t cell, int who, const char *text) {
   if (s_proj.active && kind != FX_LEAVE && kind != FX_DESCEND && s_n_qfx < MAX_QFX) {
@@ -1249,6 +1251,7 @@ static void draw_map(void) {
   int T = tile_px();
   s_flames_shown = s_water_shown = false; s_fx_off = false;
   int wflow = (int)(now_ms() / 200 % 32) & (s_zoom ? 31 : 30);
+  const OvlHeader *soft = s_fxo;                         // 0.94: with the little lives loaded, they draw the fog (soft edges)
   blit_fill(0, 0, s_w, s_h, ARGB(GColorBlack));
   uint8_t hb[MAP_LEN / 8]; memset(hb, 0, sizeof hb);  // 0.34: which cells hold a heap (heap_at per cell was a search per tile)
   for (int i = 0; i < G.n_heaps; i++) if ((unsigned)G.heaps[i].pos < MAP_LEN) BIT_SET(hb, G.heaps[i].pos);
@@ -1282,11 +1285,11 @@ static void draw_map(void) {
         ITEM_SPR(sp, px, py, s_zoom);
         g_blit_glow = 0;
       }
-      if (!BIT_GET(G.fov, c)) blit_fog(px, py, T);
+      if (!soft && !BIT_GET(G.fov, c)) blit_fog(px, py, T);
     }
   }
   const OvlHeader *fo = fxo();
-  if (fo && ((bool (*)(void))fo->fn[0])()) s_flames_shown = true;   // the walls' lives, ripples
+  if (fo && ((bool (*)(int))fo->fn[0])(fo == soft)) s_flames_shown = true;   // the fog's soft edges (if not drawn above), the walls' lives, ripples
   uint32_t ce = now_ms() - s_check_t0;
   if (s_check_pos >= 0 && ce < 800) {                // CheckedCell: a blue square on each searched cell, shrinking away (avalanche: rubble)
     int sz = T * (int)(800 - ce) / 1000, r = s_check_r;

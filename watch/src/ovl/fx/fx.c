@@ -120,7 +120,53 @@ static void stream(int c, uint32_t now) {
   }
 }
 
-static bool fx_under(void) {
+// PD's fog of war is a texture of a pixel a cell, smoothed when drawn, so its edges are soft. Here: each corner of a
+// cell takes the mean of the four cells round it (seen 0, remembered 8, never seen 16: darker still away from what's
+// in sight), and the
+// cell is dithered between its corners. Never-seen cells stay black (nothing of them is known).
+static int lvl(int x, int y) {
+  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return 16;
+  int c = y * MAP_W + x;
+  return !BIT_GET(G.visited, c) ? 16 : BIT_GET(G.fov, c) ? 0 : 8;
+}
+static uint8_t corner(int x, int y) {
+  int a = lvl(x - 1, y - 1), b = lvl(x, y - 1), c = lvl(x - 1, y), d = lvl(x, y), s = (a + b + c + d) / 4;
+  bool unknown = a == 16 || b == 16 || c == 16 || d == 16, seen = !a || !b || !c || !d;
+  return unknown && !seen ? (s + 16) / 2 : s;                // (next to what's in sight: only the plain mean, as PD)
+}
+// a cell darkened by a dither sliding between its four corners' levels (top left, top right, bottom left, bottom
+// right; 0 clear .. 16 black)
+static void shade(int dx, int dy, int n, const uint8_t *lv) {
+  static const uint8_t B[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+  for (int y = 0; y < n; y++) {
+    int ty = dy + y;
+    GBitmapDataRowInfo ri = blit_row(ty);
+    if (!ri.data) continue;
+    int l0 = lv[0] * (n - y) + lv[2] * y, l1 = lv[1] * (n - y) + lv[3] * y;
+    for (int x = 0; x < n; x++) {
+      int tx = dx + x;
+      if (tx >= ri.min_x && tx <= ri.max_x && B[(ty & 3) * 4 + (tx & 3)] * n * n < l0 * (n - x) + l1 * x) ri.data[tx] = GColorBlackARGB8;
+    }
+  }
+}
+static void fx_fog(void) {
+  int t = T();
+  for (int y = 0; y < MAP_H; y++) {
+    int py = map_sy(y * TS);
+    if (py + t < 0 || py >= s_h) continue;
+    for (int x = 0; x < MAP_W; x++) {
+      int px = map_sx(x * TS);
+      if (px + t < 0 || px >= s_w || !BIT_GET(G.visited, y * MAP_W + x)) continue;
+      uint8_t lv[4] = { corner(x, y), corner(x + 1, y), corner(x, y + 1), corner(x + 1, y + 1) };
+      if (!(lv[0] | lv[1] | lv[2] | lv[3])) continue;                       // in sight all round
+      if (lv[0] == 8 && lv[1] == 8 && lv[2] == 8 && lv[3] == 8) blit_fog(px, py, t);   // remembered all round: the plain checker
+      else shade(px, py, t, lv);
+    }
+  }
+}
+
+static bool fx_under(int fog) {
+  if (fog) fx_fog();
   s_fast = false;
   int rg = region_of(G.depth), t = T();
   uint32_t now = now_ms();

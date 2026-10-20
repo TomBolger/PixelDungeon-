@@ -59,6 +59,7 @@ static const OvlHeader *ovl_load_in(uint32_t res_id, bool keep) {
   }
   uint8_t *img = keep ? NULL : arena_alloc(fh.img_size + fh.bss_size);
   if (!img) img = malloc(fh.img_size + fh.bss_size);
+  if (!img && ui_free_fx()) img = malloc(fh.img_size + fh.bss_size);   // 0.94: the little lives first (dropping the tiles flashed the floor)
   for (int k = 0; !img && k < 2; k++) { ui_free_cache(k); img = malloc(fh.img_size + fh.bss_size); }   // drop monster pictures, then tiles (they reload), and retry
   if (!img) {
     int big = 0; for (int step = 16384; step >= 128; step /= 2) { void *t = malloc(big + step); if (t) { free(t); big += step; } }   // the largest free block (8 tries)

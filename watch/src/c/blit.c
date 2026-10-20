@@ -196,6 +196,9 @@ void blit_fog(int dx, int dy, int size) {
   }
 }
 
+// 0.94: a row of the screen for src/ovl/fx (empty: off the screen or not drawing)
+GBitmapDataRowInfo blit_row(int y) { return s_fb && y >= 0 && y < s_fb_h ? ROW(y) : (GBitmapDataRowInfo){ NULL, 1, 0 }; }
+
 void blit_fill(int dx, int dy, int w, int h, uint8_t argb) {
   if (!s_fb) return;
   for (int y = dy; y < dy + h; y++) {

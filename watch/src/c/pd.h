@@ -352,6 +352,7 @@ void ui_wnd(int mob, const char *text, const char *b1, const char *b2);
 extern const char *g_wnd_title;                  // ui_wnd's title when mob < 0   // WndQuest (b1 NULL: just the words)
 void ui_sound(int sfx);
 void ui_free_cache(int more);                     // low memory: drop pictures that reload on demand (more: the floor's tiles too)
+bool ui_free_fx(void);                           // low memory: drop the little lives (src/ovl/fx) for a few seconds; true if they were loaded
 
 // sfx.c: sound settings and music (ui_sound plays PD's effects, SND_* in sfx_ids.auto.h)
 enum { SOUND_MUSIC = 1, SOUND_FX = 2 };            // 0.40: SOUND_FX = sound on at all; bits 2-3 the volume (0 loud, 1 medium, 2 quiet)
@@ -457,6 +458,7 @@ void blit(const Sheet *s, int sx, int sy, int w, int h, int dx, int dy, int zoom
 void blit_spr4(const uint8_t *spr, int dx, int dy, int zoom);   // 16 palette bytes + 16x16 4-bit pixels
 void blit_fog(int dx, int dy, int size);
 void blit_fill(int dx, int dy, int w, int h, uint8_t argb);
+GBitmapDataRowInfo blit_row(int y);              // a screen row while drawing (ovl/fx); min_x > max_x: none
 void blit_nine(const Sheet *s, int sx, int sy, int sw, int sh, int b, int dx, int dy, int dw, int dh);
 void blit_nine4(const Sheet *s, int sx, int sy, int sw, int sh, int ml, int mt, int mr, int mb, int dx, int dy, int dw, int dh);
 void blit_box(int x, int y, int w, int h, int t, uint8_t argb);
