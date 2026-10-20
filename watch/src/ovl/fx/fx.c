@@ -121,32 +121,37 @@ static void stream(int c, uint32_t now) {
   }
 }
 
-// PD's fog of war is a texture of a pixel a cell, smoothed when drawn, so its edges are soft. Here: each corner of a
-// cell takes the mean of the four cells round it (seen 0, remembered 8, never seen 16: darker still away from what's
-// in sight), and the
-// cell is dithered between its corners. Never-seen cells stay black (nothing of them is known).
+// PD's fog of war is a texture of a pixel a cell, smoothed when drawn, so its edges are soft. Here each cell keeps its
+// own shade (seen 0, remembered 8, never seen 16 of 16) through its middle; only a band along an edge, a third of the
+// cell wide (0.95 owner: "only the outside portions of walls"), slides to the shade halfway to the cell beyond. Two
+// walls back to back don't blend at all. Never-seen cells stay black (and what they are isn't looked at).
 static int lvl(int x, int y) {
   if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return 16;
   int c = y * MAP_W + x;
   return !BIT_GET(G.visited, c) ? 16 : BIT_GET(G.fov, c) ? 0 : 8;
 }
-static uint8_t corner(int x, int y) {
-  int a = lvl(x - 1, y - 1), b = lvl(x, y - 1), c = lvl(x - 1, y), d = lvl(x, y), s = (a + b + c + d) / 4;
-  bool unknown = a == 16 || b == 16 || c == 16 || d == 16, seen = !a || !b || !c || !d;
-  return unknown && !seen ? (s + 16) / 2 : s;                // (next to what's in sight: only the plain mean, as PD)
+static bool wall(int x, int y) { return x >= 0 && y >= 0 && x < MAP_W && y < MAP_H && (TFLAGS(G.map[y * MAP_W + x]) & F_SOLID); }
+// the shade where this cell meets the one at (nx, ny)
+static int edge(int x, int y, int own, int nx, int ny) {
+  int n = lvl(nx, ny);
+  if (n != 16 && wall(x, y) && wall(nx, ny)) return own;      // walls back to back: each keeps its own
+  return (own + n) / 2;
 }
-// a cell darkened by a dither sliding between its four corners' levels (top left, top right, bottom left, bottom
-// right; 0 clear .. 16 black)
-static void shade(int dx, int dy, int n, const uint8_t *lv) {
-  static const uint8_t B[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+static const uint8_t BAYER[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+// a cell of shade `own`, its edge bands (w px) sliding to e[] (left, right, top, bottom)
+static void shade(int dx, int dy, int n, int own, const int *e) {
+  int w = n / 3; if (w < 1) w = 1;
   for (int y = 0; y < n; y++) {
     int ty = dy + y;
     GBitmapDataRowInfo ri = blit_row(ty);
     if (!ri.data) continue;
-    int l0 = lv[0] * (n - y) + lv[2] * y, l1 = lv[1] * (n - y) + lv[3] * y;
+    int dv = y < w ? (e[2] - own) * (w - y) : y >= n - w ? (e[3] - own) * (y - (n - w) + 1) : 0;   // x w
     for (int x = 0; x < n; x++) {
       int tx = dx + x;
-      if (tx >= ri.min_x && tx <= ri.max_x && B[(ty & 3) * 4 + (tx & 3)] * n * n < l0 * (n - x) + l1 * x) ri.data[tx] = GColorBlackARGB8;
+      if (tx < ri.min_x || tx > ri.max_x) continue;
+      int dh = x < w ? (e[0] - own) * (w - x) : x >= n - w ? (e[1] - own) * (x - (n - w) + 1) : 0;
+      int l = own * w + dh + dv;                                   // x w
+      if (BAYER[(ty & 3) * 4 + (tx & 3)] * w < l) ri.data[tx] = GColorBlackARGB8;
     }
   }
 }
@@ -158,10 +163,9 @@ static void fx_fog(void) {
     for (int x = 0; x < MAP_W; x++) {
       int px = map_sx(x * TS);
       if (px + t < 0 || px >= s_w || !BIT_GET(G.visited, y * MAP_W + x)) continue;
-      uint8_t lv[4] = { corner(x, y), corner(x + 1, y), corner(x, y + 1), corner(x + 1, y + 1) };
-      if (!(lv[0] | lv[1] | lv[2] | lv[3])) continue;                       // in sight all round
-      if (lv[0] == 8 && lv[1] == 8 && lv[2] == 8 && lv[3] == 8) blit_fog(px, py, t);   // remembered all round: the plain checker
-      else shade(px, py, t, lv);
+      int own = lvl(x, y), e[4] = { edge(x, y, own, x - 1, y), edge(x, y, own, x + 1, y), edge(x, y, own, x, y - 1), edge(x, y, own, x, y + 1) };
+      if (e[0] == own && e[1] == own && e[2] == own && e[3] == own) { if (own) blit_fog(px, py, t); continue; }   // all its own shade
+      shade(px, py, t, own, e);
     }
   }
 }
