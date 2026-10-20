@@ -79,7 +79,7 @@ public class WatchHeroSelect extends PixelScene {
 			if (!cls.isUnlocked()) av.tint(0x555555, 1f);   // locked: a grey shape
 			add(av);
 			name = new WatchText(WatchText.G09, Messages.titleCase(cls.title()).toUpperCase(), 0xAAAAAA);
-			WatchHud.place(name, x, y + 66, w, 1); add(name);
+			WatchHud.place(name, x, y + 64, w, 1); add(name);   // (clear of the yellow box's bottom edge)
 			int[][] r = {{x - 1, y - 1, w + 2, 3}, {x - 1, y + 74, w + 2, 3}, {x - 1, y - 1, 3, 78}, {x + w - 2, y - 1, 3, 78}};
 			for (int i = 0; i < 4; i++) { box[i] = WatchHud.block(0xFFFF00, r[i][0], r[i][1], r[i][2], r[i][3]); box[i].visible = false; add(box[i]); }
 			setRect(x, y, w, 76);
