@@ -302,11 +302,15 @@ public class WatchHud extends Group {
 	}
 
 	// ---- the log: the last two messages over the map, outlined ----
+	private float logAge;
+
 	private void refreshLog() {
 		List<String[]> es = logEntries();
 		String k = es.size() + (es.isEmpty() ? "" : es.get(es.size() - 1)[0]);
+		logAge += Game.elapsed;
+		log.visible = logAge < 4;   // gone 4 seconds after the newest message (Pebble PD)
 		if (k.equals(logKey)) return;
-		logKey = k;
+		logKey = k; logAge = 0; log.visible = true;
 		log.clear();
 		if (es.isEmpty()) return;
 		int mw = W - 8 - 22, mx = 4;

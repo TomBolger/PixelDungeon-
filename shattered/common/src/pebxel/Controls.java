@@ -130,11 +130,14 @@ public class Controls {
 	}
 
 	/** A finger is in use: the button frames step aside until the next button press (as in Pebble PD). */
-	public void touched() { onToolbar = false; touching = true; if (hud != null) hud.highlight = -1; }
+	/** Was the last input a finger (rather than a button)? */
+	public static boolean fingerLast;
+
+	public void touched() { fingerLast = true; onToolbar = false; touching = true; if (hud != null) hud.highlight = -1; }
 	private boolean touching;
 
 	public void button(int code) {
-		touching = false;
+		touching = false; fingerLast = false;
 		boolean held = (code & LONG) != 0;
 		int b = code & 15;
 		Window w = Ui.topWindow();

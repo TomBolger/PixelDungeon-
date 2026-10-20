@@ -38,21 +38,23 @@ public class WatchHeroSelect extends PixelScene {
 			cells.add(c); add(c);
 		}
 		WatchButton start = new WatchButton("New Game") {
-			@Override protected void onClick() {
-				if (GamesInProgress.selectedClass == null || !GamesInProgress.selectedClass.isUnlocked()) return;
-				Dungeon.hero = null;
-				Dungeon.daily = Dungeon.dailyReplay = false;
-				Dungeon.initSeed();
-				ActionIndicator.clearAction();
-				InterlevelScene.mode = InterlevelScene.Mode.DESCEND;
-				Game.switchScene(InterlevelScene.class);
-			}
+			@Override protected void onClick() { start(); }
 		};
 		start.setRect(4, 186, 192, 38);
 		add(start);
 		if (GamesInProgress.selectedClass == null) GamesInProgress.selectedClass = HeroClass.WARRIOR;
 		refresh();
 		fadeIn();
+	}
+
+	private void start() {
+		if (GamesInProgress.selectedClass == null || !GamesInProgress.selectedClass.isUnlocked()) return;
+		Dungeon.hero = null;
+		Dungeon.daily = Dungeon.dailyReplay = false;
+		Dungeon.initSeed();
+		ActionIndicator.clearAction();
+		InterlevelScene.mode = InterlevelScene.Mode.DESCEND;
+		Game.switchScene(InterlevelScene.class);
 	}
 
 	private void refresh() { for (Cell c : cells) c.chosen(c.cls == GamesInProgress.selectedClass); }
@@ -81,8 +83,11 @@ public class WatchHeroSelect extends PixelScene {
 		void chosen(boolean on) { chosen = on; for (ColorBlock b : box) b.visible = on; name.color(on ? 0xFFFFFF : 0xAAAAAA); }
 		public void focus(boolean on) { if (on && !chosen) { GamesInProgress.selectedClass = cls; refresh(); } }
 		@Override protected void onClick() {
-			if (GamesInProgress.selectedClass == cls) add(new WndHeroInfo(cls));
-			else { GamesInProgress.selectedClass = cls; refresh(); }
+			// a finger on the chosen class: what it starts with; the Select button on it: start (Pebble PD)
+			if (GamesInProgress.selectedClass != cls) { GamesInProgress.selectedClass = cls; refresh(); }
+			else if (pebxel.Controls.fingerLast) WatchHeroSelect.this.add(new WndHeroInfo(cls));
+			else start();
 		}
+		@Override protected boolean onLongClick() { WatchHeroSelect.this.add(new WndHeroInfo(cls)); return true; }
 	}
 }
