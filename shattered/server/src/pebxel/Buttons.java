@@ -27,6 +27,7 @@ public class Buttons {
 		Link link = new Link(new Assets());
 		WatchSim sim = new WatchSim(new File("."), new Assets());
 		Controls controls = new Controls();
+		link.planner = controls::plan;
 		Touches touches = new Touches(); int seq = 0;
 		for (int i = 0; i < 5; i++) app.frame();
 		if (System.getenv("ASSIST") != null) WatchSettings.assist(Integer.parseInt(System.getenv("ASSIST")));
@@ -63,6 +64,8 @@ public class Buttons {
 			for (int f = 0; f < wait; f++) {
 				touches.frame(link, controls, Game.elapsed);
 				app.frame(); controls.frame();
+				if (System.getenv("TRACE_HERO") != null && Dungeon.hero != null && Dungeon.hero.sprite != null)
+					System.out.printf("hero t=%.3f pos=%d x=%.2f y=%.2f ready=%b%n", Game.timeTotal, Dungeon.hero.pos, Dungeon.hero.sprite.x, Dungeon.hero.sprite.y, Dungeon.hero.ready);
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
 				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) sim.apply(m);
 			}
@@ -73,6 +76,7 @@ public class Buttons {
 		System.out.println("scene " + Game.scene().getClass().getSimpleName() + ", " + shot + " pictures");
 		System.out.println("sounds " + sim.sounds);
 		if (System.getenv("DUMP") != null) sim.dump();
+		if (System.getenv("PLANS") != null) for (String pl : sim.plans) System.out.println("plan " + pl);
 		System.exit(0);
 	}
 }

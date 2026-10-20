@@ -47,6 +47,7 @@ public class Server {
 		Assets assets = new Assets();
 		link = new Link(assets);
 		controls = new Controls();
+		link.planner = controls::plan;
 		if (System.getenv("NEWGAME") != null) {
 			for (int i = 0; i < 5; i++) app.frame();
 			SPDSettings.intro(false);

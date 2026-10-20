@@ -1,6 +1,7 @@
 // Applies the phone's commands to the watch's copy of the screen (format: server/src/pebxel/Link.java).
 #include "scene.h"
 #include "snd.h"
+#include "predict.h"
 #include "art.h"
 
 Obj *g_obj[MAX_ID];
@@ -41,6 +42,7 @@ void scene_reset(void) {
   for (int i = 0; i < MAX_DYN; i++) { free(s_dyn[i]); s_dyn[i] = NULL; }
   memset(g_cam, 0, sizeof(g_cam));
   g_head = NONE;
+  predict_reset();
   art_forget_dynamic();
 }
 
@@ -128,6 +130,17 @@ static void read_static(Obj *o) {
 }
 
 int32_t obj_dyn(const Obj *o, int i, uint32_t now) {
+  int32_t v;
+  if (i < 3 && predict_pos(o, i, now, &v)) return v;
+  return obj_dyn_raw(o, i, now);
+}
+
+bool obj_moving(const Obj *o, uint32_t now) {
+  if (o->until && now - o->at > o->until) return false;
+  return o->vel[0] || o->vel[1];
+}
+
+int32_t obj_dyn_raw(const Obj *o, int i, uint32_t now) {
   int32_t v = o->dyn[i];
   if (o->vel[i]) {
     uint32_t dt = now - o->at; if (dt > 60000) dt = 60000;
@@ -174,7 +187,7 @@ bool scene_moving(uint32_t now) {
     for (int i = 0; i < 8; i++) if (o->vel[i]) return true;
   }
   for (int i = 0; i < MAX_CAM; i++) if (g_cam[i].used && g_cam[i].mode) return true;
-  return false;
+  return predict_active();
 }
 
 // ---- run-time pictures ----
@@ -213,7 +226,7 @@ static void read_dtex(void) {
 
 // ---- cameras ----
 
-static void read_cam(void) {
+static void read_cam(uint32_t now) {
   int id = u8();
   Cam *k = &g_cam[id < MAX_CAM ? id : 0];
   k->x = s16(); k->y = s16(); k->w = s16(); k->h = s16(); k->zoom = u16();
@@ -224,6 +237,9 @@ static void read_cam(void) {
   if (k->mode == 2) { k->px = s16(); k->py = s16(); }
   if (k->mode) { k->intensity = u8(); k->dead = u8(); }
   k->used = 1;
+  // the phone's scroll follows its own hero; while the watch shows him ahead (predict.c), keep the same lead
+  int32_t dx, dy;
+  if (k->mode == 1 && predict_offset(k->follow, now, &dx, &dy)) { k->sx += dx * 256; k->sy += dy * 256; }
 }
 
 static int32_t dead(int32_t p, int32_t dz) { return p > dz ? p - dz : p < -dz ? p + dz : 0; }
@@ -264,7 +280,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
       case C_TIME: p += 4; break;
       case C_LATEST: p += 4; break;
       case C_RESET: scene_reset(); break;
-      case C_CAM: read_cam(); break;
+      case C_CAM: read_cam(now); break;
       case C_NEW: {
         int id = u16(), after = u16();
         if (id >= MAX_ID) return len;
@@ -309,6 +325,23 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
       case C_INPUT: touch_acked(u8()); break;
       case C_SOUND: { int k = u8(), v = u8(); if (k == 0) sound_effect(v); else if (k == 1) sound_music(v == 255 ? -1 : v); else sound_settings(v); break; }
       case C_COMMIT: g_dirty = true; break;
+      case C_PREDICT: {
+        static Plan pl;
+        memset(&pl, 0, sizeof pl);
+        if (u8()) {
+          pl.on = true; pl.marker = u16(); pl.hero = u16(); pl.step_ms = u8() * 4; pl.n = u8(); pl.cur = u8();
+          for (int i = 0; i < pl.n; i++) {
+            PlanTarget t; t.x = s16(); t.y = s16(); t.k = u8();
+            for (int j = 0; j < t.k; j++) { int d = u8(); if (j < PLAN_S) t.dir[j] = d; }
+            if (t.k > PLAN_S) t.k = PLAN_S;
+            if (i < PLAN_T) pl.t[i] = t;
+          }
+          if (pl.n > PLAN_T) pl.n = PLAN_T;
+          if (pl.cur >= pl.n) pl.cur = 0;
+        }
+        predict_set(&pl);
+        break;
+      }
       default: APP_LOG(APP_LOG_LEVEL_ERROR, "bad command %d", c); return len;
     }
   }

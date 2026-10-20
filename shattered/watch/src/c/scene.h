@@ -3,7 +3,7 @@
 #include <pebble.h>
 
 // commands
-enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_INPUT, C_LATEST, C_SOUND, C_COMMIT };   // C_SOUND: kind (0 effect, 1 music, 2 settings), value
+enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_INPUT, C_LATEST, C_SOUND, C_COMMIT, C_PREDICT };   // C_SOUND: kind (0 effect, 1 music, 2 settings), value; C_PREDICT: the plan for the next press (predict.c)
 // picture kinds
 enum { K_IMG = 1, K_RECT, K_NINE, K_TILES, K_TEXT, K_SKIN, K_QUADS, K_SHAPE };
 enum { F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16 };
@@ -74,7 +74,9 @@ int scene_apply(const uint8_t *data, int len, uint32_t now);
 void scene_reset(void);
 Anim *scene_anim(int id);
 DynTex *scene_dyntex(int id);
-int32_t obj_dyn(const Obj *o, int i, uint32_t now);
+int32_t obj_dyn(const Obj *o, int i, uint32_t now);       // as shown (a press may be shown ahead of the phone)
+int32_t obj_dyn_raw(const Obj *o, int i, uint32_t now);   // as the phone last said
+bool obj_moving(const Obj *o, uint32_t now);
 bool scene_moving(uint32_t now);
 void cams_follow(uint32_t now, uint32_t dt);
 

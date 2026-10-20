@@ -4,11 +4,12 @@
 #include "art.h"
 #include "draw.h"
 #include "snd.h"
+#include "predict.h"
 
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
 #define GAME_SPEED_NUM 3   // 1.5 x real time: must match Game.pebxelSpeed (WatchGame.java)
 #define GAME_SPEED_DEN 2
-#define PROTOCOL 7   // must match Link.PROTOCOL on the phone
+#define PROTOCOL 8   // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -42,12 +43,14 @@ static void update(Layer *l, GContext *ctx) {
                        GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
     return;
   }
+  predict_tick(now);
   draw_scene(ctx, layer_get_bounds(l), now);
+  uint32_t drawn = now_ms();
   sound_poll();
-  static int frames; static uint32_t spent;
-  spent += now_ms() - now;
+  static int frames; static uint32_t spent, spent_snd;
+  spent += drawn - now; spent_snd += now_ms() - drawn;
   if (++frames % 20 == 0) {
-    APP_LOG(APP_LOG_LEVEL_INFO, "draw: %d ms per frame", (int)(spent / 20)); spent = 0;
+    APP_LOG(APP_LOG_LEVEL_INFO, "draw: %d ms per frame (sound %d)", (int)(spent / 20), (int)(spent_snd / 20)); spent = spent_snd = 0;
 #ifdef PROFILE
     extern uint32_t g_prof[8];
     APP_LOG(APP_LOG_LEVEL_INFO, "img %d rect %d nine %d tiles %d text %d skin %d", (int)g_prof[1] / 20, (int)g_prof[2] / 20, (int)g_prof[3] / 20, (int)g_prof[4] / 20, (int)g_prof[5] / 20, (int)g_prof[6] / 20);
@@ -224,11 +227,13 @@ void touch_acked(uint8_t seq) {
 static void button(ClickRecognizerRef r, void *ctx) {
   s_input_at = now_ms();
   send_button((int)ctx);
+  if (predict_button((int)ctx, s_input_at)) kick();   // shown at once; the phone's frames confirm it later
 }
 
 static void button_long(ClickRecognizerRef r, void *ctx) {
   s_input_at = now_ms();
   send_button((int)ctx | B_LONG);
+  if (predict_button((int)ctx | B_LONG, s_input_at)) kick();
 }
 
 // ---- touch (as in Pebble PD: under 40 px of movement is a tap, held 500 ms a long one; 24 px drags the map) ----
@@ -248,6 +253,7 @@ static void touch_start(int x, int y, uint32_t now) {
 static void touch(const TouchEvent *e, void *ctx) {
   uint32_t now = now_ms();
   s_input_at = now;
+  predict_touch();
   switch (e->type) {
     case TouchEvent_Touchdown:
       s_down = true; s_drag = false; s_tx = s_lx = e->x; s_ty = s_ly = e->y; s_moved = 0; s_tms = now;

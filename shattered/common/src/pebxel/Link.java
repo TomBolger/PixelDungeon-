@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 7;
+	public static final int PROTOCOL = 8;
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -105,7 +105,7 @@ public final class Link {
 		objs.clear(); shadowPrev.clear(); shadowNext.clear(); shadowHead = NONE;
 		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); nextDyn = 200;
 		anims.clear(); animsByContent.clear();
-		out.reset(); marks.clear(); dropPending(); cmd(C_RESET);
+		out.reset(); marks.clear(); dropPending(); cmd(C_RESET); lastPlan = null;
 		for (int[] e : Sounds.state()) sound(e);
 	}
 
@@ -164,6 +164,14 @@ public final class Link {
 			}
 		}
 		cameras(dt);
+		// what the watch may do by itself on the next press (Controls.plan): sent when it changes, after this
+		// frame's pictures (so the ones it names exist)
+		if (planner != null) {
+			byte[] pl;
+			try { pl = planner.apply(this); } catch (Throwable t) { pl = null; }
+			if (pl == null) pl = new byte[]{0};
+			if (!Arrays.equals(pl, lastPlan)) { lastPlan = pl; cmd(C_PREDICT); out.write(pl, 0, pl.length); }
+		}
 		if (out.size() == 0) { marks.clear(); return new byte[0]; }
 		cmd(C_COMMIT);
 		// stamped with the game clock: the watch plays each frame's changes at the same pace they happened
@@ -277,7 +285,7 @@ public final class Link {
 		Visual v = (Visual) g;
 		// guessing a speed from the last two places suits things moving in the dungeon; on the interface (a focus box
 		// jumping from cell to cell) it sends the box sailing on past its place until corrected: there, no guess
-		if (o.prev != null && now > o.prevAt && v.camera() == Camera.main) {
+		if (o.prev != null && now > o.prevAt && v.camera() == Camera.main && !JUMPS.contains(g)) {
 			float dt = now - o.prevAt;
 			for (int i = 0; i < N; i++) vel[i] = (dyn[i] - o.prev[i]) / dt;
 		}
@@ -839,6 +847,16 @@ public final class Link {
 		float wx = (px - c[0]) / c[2] + c[3], wy = (py - c[1]) / c[2] + c[4];
 		return new int[]{Math.round((wx - cur.scroll.x) * cur.zoom + cur.x), Math.round((wy - cur.scroll.y) * cur.zoom + cur.y)};
 	}
+
+	/** Pictures that jump from place to place (the target marker): never given a guessed speed. */
+	public static final Set<Gizmo> JUMPS = Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
+	/** The plan for the watch's next press (Controls.plan), and the last one sent. */
+	public java.util.function.Function<Link, byte[]> planner;
+	private byte[] lastPlan;
+
+	/** A picture's number on the watch (-1: not there). */
+	public int idOf(Gizmo g) { Obj o = g == null ? null : objs.get(g); return o == null ? -1 : o.id; }
 
 	/** For tests: a camera's number on the watch (0xFF: none), and the game clock (ms). */
 	public int camIdOf(Camera c) { Integer i = camIds.get(c); return i == null ? 0xFF : i; }

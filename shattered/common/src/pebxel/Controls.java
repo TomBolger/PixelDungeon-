@@ -3,6 +3,7 @@ package pebxel;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.SPDAction;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
@@ -564,6 +565,58 @@ public class Controls {
 		marker.at(cell);
 	}
 
+	// ---- what the watch may do by itself before hearing back (its predict.c) ----
+
+	static final int PLAN_TARGETS = 12, PLAN_WALKS = 6, PLAN_STEPS = 12, STEP_MS = 100;   // (CharSprite's move: 0.1 s a cell)
+
+	/**
+	 * The plan for the watch's next press, so the target box and the hero answer at once rather than a radio
+	 * round trip later (the phone's own frames then confirm it, or the watch puts things back):
+	 * 0 = nothing to plan; else 1, marker id u16, hero id u16 (0xFFFF none), step ms / 4, n, current target, then per
+	 * target: marker x, y (s16, x8, 0x7FFF: none), steps k, k directions ((dx + 1) + 3 (dy + 1)).
+	 */
+	public byte[] plan(Link link) {
+		Hero h = Dungeon.hero;
+		if (!(Game.scene() instanceof GameScene) || h == null || !h.isAlive() || !h.ready || Ui.topWindow() != null
+				|| onToolbar || touching || targets.isEmpty() || marker.img == null || !marker.img.visible) return new byte[]{0};
+		int mid = link.idOf(marker.img), hid = link.idOf(h.sprite);
+		if (mid < 0) return new byte[]{0};
+		boolean aiming = aiming();
+		java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+		int n = Math.min(targets.size(), PLAN_TARGETS);
+		b.write(1); w16(b, mid); w16(b, hid < 0 ? 0xFFFF : hid); b.write(STEP_MS / 4); b.write(n); b.write(Math.min(target, n - 1));
+		for (int i = 0; i < n; i++) {
+			int cell = targets.get(i);
+			if (cell < 0) { w16(b, 0x7FFF); w16(b, 0x7FFF); b.write(0); continue; }
+			float[] xy = Marker.place(cell);
+			w16(b, Math.round(xy[0] * 8)); w16(b, Math.round(xy[1] * 8));
+			List<Integer> path = aiming || hid < 0 || i >= PLAN_WALKS ? null : walk(h, cell);
+			int k = path == null ? 0 : Math.min(PLAN_STEPS, path.size());
+			b.write(k);
+			int from = h.pos, w = Dungeon.level.width();
+			for (int j = 0; j < k; j++) {
+				int to = path.get(j), dx = to % w - from % w, dy = to / w - from / w;
+				if (Math.abs(dx) > 1 || Math.abs(dy) > 1) { k = j; break; }   // (not a step: stop the plan there)
+				b.write((dx + 1) + 3 * (dy + 1)); from = to;
+			}
+		}
+		return b.toByteArray();
+	}
+
+	private static void w16(java.io.ByteArrayOutputStream b, int v) { b.write(v & 255); b.write((v >> 8) & 255); }
+
+	/** The cells Select would walk the hero through to a cell (as Hero.getCloser finds them), or null: not a walk. */
+	private static List<Integer> walk(Hero h, int cell) {
+		Level lv = Dungeon.level;
+		if (cell == h.pos || com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(cell) != null || h.rooted) return null;
+		if (lv.adjacent(h.pos, cell)) return lv.passable[cell] || lv.avoid[cell] ? Collections.singletonList(cell) : null;
+		int len = lv.length();
+		boolean[] pass = new boolean[len];
+		for (int i = 0; i < len; i++) pass[i] = lv.passable[i] && (lv.visited[i] || lv.mapped[i]);
+		PathFinder.Path p = Dungeon.findPath(h, cell, pass, h.fieldOfView, true);
+		return p == null || p.isEmpty() ? null : new ArrayList<>(p);
+	}
+
 	// ---- the chosen cell: Icons.TARGET over it, as in Pebble PD (never smaller than at 16 px tiles) ----
 	private final Marker marker = new Marker();
 	private static class Marker {
@@ -571,13 +624,20 @@ public class Controls {
 		void at(int cell) {
 			if (img == null || img.parent == null || !Frame.inScene(img)) {
 				img = pebxel.ui.PdArt.image("icons", 67, 0, 16, 16, 1);
+				Link.JUMPS.add(img);
 				GameScene.effect(img);
 			}
 			float z = Camera.main == null ? 2 : Camera.main.zoom, s = z < 2 ? 2 / z : 1;
 			img.scale.set(s);
-			img.x = (cell % Dungeon.level.width()) * DungeonTilemap.SIZE - (16 * s - 16) / 2;
-			img.y = (cell / Dungeon.level.width()) * DungeonTilemap.SIZE - (16 * s - 16) / 2;
+			float[] xy = place(cell);
+			img.x = xy[0]; img.y = xy[1];
 			img.visible = true;
+		}
+		/** Where the marker stands over a cell (its top left, in the map's units). */
+		static float[] place(int cell) {
+			float z = Camera.main == null ? 2 : Camera.main.zoom, s = z < 2 ? 2 / z : 1;
+			return new float[]{(cell % Dungeon.level.width()) * DungeonTilemap.SIZE - (16 * s - 16) / 2,
+					(cell / Dungeon.level.width()) * DungeonTilemap.SIZE - (16 * s - 16) / 2};
 		}
 		void hide() { if (img != null) img.visible = false; }
 	}

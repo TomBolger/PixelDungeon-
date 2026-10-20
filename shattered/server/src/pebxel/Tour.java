@@ -51,6 +51,7 @@ public class Tour {
 			}
 		}
 		controls = new Controls();
+		link.planner = controls::plan;
 		frames(30);
 		if (System.getenv("TOURITEMS") != null) {
 			// a fuller pack, to see the labels: unknown potion and scroll, a wand, an upgraded sword, a heavy axe, a cursed ring
