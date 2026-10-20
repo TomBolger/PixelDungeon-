@@ -361,6 +361,7 @@ if __name__ == '__main__':
         if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out)
         a, o = im.load(), out.load()
         cut = CUT.get(p.split('/')[0], CUT.get(p))
+        if p.startswith('environment/tiles_'): cut = 100   # Pebble PD's tiles: the water's foam edge solid, faint shadows gone (both were dotted checkers)
         if cut:
             # Pebble PD's rule: a pixel is there or it isn't (see-through edges and glows dither into a grey fuzz)
             for y in range(im.height):
