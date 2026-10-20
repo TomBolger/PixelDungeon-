@@ -70,8 +70,8 @@ public class WndWatchMenu extends WatchWindow {
 		} else if (p == 2) {
 			settings();
 		} else {
-			big(0, HEAD, (W - GAP) / 2, ROW, 12, "Catalogue", () -> { hide(); WndJournal.last_index = 3; GameScene.show(new WndJournal()); });
-			big((W - GAP) / 2 + GAP + 1, HEAD, (W - GAP) / 2, ROW, 11, "Journal", () -> { hide(); WndJournal.last_index = 0; GameScene.show(new WndJournal()); });
+			big(0, HEAD, (W - GAP) / 2, ROW, 12, "Catalogue", () -> { hide(); GameScene.show(WndWatchRecords.catalogue()); });
+			big((W - GAP) / 2 + GAP + 1, HEAD, (W - GAP) / 2, ROW, 11, "Journal", () -> { hide(); GameScene.show(WndWatchRecords.journal()); });
 			if (Dungeon.challenges > 0)
 				big(0, HEAD + ROW + GAP, W, ROW, 5, "Challenges", () -> { hide(); GameScene.show(new WndChallenges(Dungeon.challenges, false)); });
 			else

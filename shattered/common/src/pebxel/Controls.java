@@ -92,7 +92,7 @@ public class Controls {
 			case pebxel.ui.WatchHud.TB_SEARCH: if (ready && !GameScene.cancel()) Dungeon.hero.search(true); break;
 			case pebxel.ui.WatchHud.TB_INFO: key(SPDAction.EXAMINE); break;
 			case pebxel.ui.WatchHud.TB_BAG:
-				if (held) GameScene.show(new com.shatteredpixel.shatteredpixeldungeon.windows.WndJournal());
+				if (held) GameScene.show(pebxel.ui.WndWatchRecords.catalogue());   // (Pebble PD: the backpack held is the catalogue)
 				else key(SPDAction.INVENTORY);
 				break;
 			case pebxel.ui.WatchHud.TB_Q1: case pebxel.ui.WatchHud.TB_Q2: {

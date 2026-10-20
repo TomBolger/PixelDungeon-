@@ -60,6 +60,8 @@ public class Tour {
 		wins.put("hero", WndHero::new);
 		wins.put("journal", WndJournal::new);
 		wins.put("game", WndGame::new);
+		wins.put("catalogue", pebxel.ui.WndWatchRecords::catalogue);
+		wins.put("journal2", pebxel.ui.WndWatchRecords::journal);
 		wins.put("menu-records", () -> { pebxel.ui.WndWatchMenu.lastPage = 1; return new WndGame(); });
 		wins.put("menu-settings", () -> { pebxel.ui.WndWatchMenu.lastPage = 2; return new WndGame(); });
 		wins.put("settings", WndSettings::new);
