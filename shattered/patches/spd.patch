@@ -234,7 +234,7 @@ index 179e9e8..40b7de4 100644
  			cancel();
  
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
-index 463b529..6b63c2d 100644
+index 463b529..8329920 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
 @@ -101,6 +101,14 @@ public class InterlevelScene extends PixelScene {
@@ -252,7 +252,24 @@ index 463b529..6b63c2d 100644
  	private ShadowBox storyBG;
  	private StyledButton btnContinue;
  	private IconButton btnHideStory;
-@@ -273,24 +281,42 @@ public class InterlevelScene extends PixelScene {
+@@ -235,6 +243,8 @@ public class InterlevelScene extends PixelScene {
+ 		background.y = (Camera.main.height - background.height())/2f;
+ 		PixelScene.align(background);
+ 		add(background);
++		//Pebxel: no painted backdrop on the watch (shrunk into its few colours it read as a sheet of water)
++		if (pebxelPages != null) background.visible = false;
+ 
+ 		Image fadeLeft, fadeRight;
+ 		fadeLeft = new Image(TextureCache.createGradient(0xFF000000, 0xFF000000, 0x00000000));
+@@ -248,6 +258,7 @@ public class InterlevelScene extends PixelScene {
+ 		fadeRight.y = background.y + background.height();
+ 		fadeRight.angle = 180;
+ 		fadeRight.visible = fadeLeft.visible;
++		if (pebxelPages != null) fadeLeft.visible = fadeRight.visible = false;
+ 		add(fadeRight);
+ 
+ 		Image im = new Image(TextureCache.createGradient(0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0xFF000000)){
+@@ -273,24 +284,42 @@ public class InterlevelScene extends PixelScene {
  				insets.left + w - loadingText.width() - 12,
  				insets.top + h - loadingText.height() - 6
  		);
@@ -298,7 +315,7 @@ index 463b529..6b63c2d 100644
  							phase = Phase.FADE_OUT;
  							timeLeft = fadeTime;
  
-@@ -298,6 +324,7 @@ public class InterlevelScene extends PixelScene {
+@@ -298,6 +327,7 @@ public class InterlevelScene extends PixelScene {
  							Document.INTROS.readPage(region);
  						}
  					};
@@ -306,7 +323,7 @@ index 463b529..6b63c2d 100644
  					btnContinue.icon(Icons.STAIRS.get());
  					btnContinue.setSize(btnContinue.reqWidth()+10, 22);
  					btnContinue.visible = false;
-@@ -316,7 +343,7 @@ public class InterlevelScene extends PixelScene {
+@@ -316,7 +346,7 @@ public class InterlevelScene extends PixelScene {
  										protected void updateValues(float progress) {
  											float uiAlpha = progress;
  											btnContinue.alpha(uiAlpha);
@@ -315,7 +332,7 @@ index 463b529..6b63c2d 100644
  											storyMessage.alpha(uiAlpha);
  											btnHideStory.icon().alpha(uiAlpha);
  											loadingText.alpha(uiAlpha);
-@@ -352,7 +379,7 @@ public class InterlevelScene extends PixelScene {
+@@ -352,7 +382,7 @@ public class InterlevelScene extends PixelScene {
  									protected void updateValues(float progress) {
  										float uiAlpha = 1 - progress;
  										btnContinue.alpha(uiAlpha);
@@ -324,7 +341,7 @@ index 463b529..6b63c2d 100644
  										storyMessage.alpha(uiAlpha);
  										icon.alpha(uiAlpha);
  										loadingText.alpha(uiAlpha);
-@@ -376,7 +403,7 @@ public class InterlevelScene extends PixelScene {
+@@ -376,7 +406,7 @@ public class InterlevelScene extends PixelScene {
  									protected void updateValues(float progress) {
  										float uiAlpha = progress;
  										btnContinue.alpha(uiAlpha);
@@ -333,7 +350,7 @@ index 463b529..6b63c2d 100644
  										storyMessage.alpha(uiAlpha);
  										icon.alpha(uiAlpha);
  										loadingText.alpha(uiAlpha);
-@@ -515,7 +542,7 @@ public class InterlevelScene extends PixelScene {
+@@ -515,7 +545,7 @@ public class InterlevelScene extends PixelScene {
  			if (btnContinue != null){
  				btnContinue.alpha((timeLeft/fadeTime));
  				storyMessage.alpha(btnContinue.alpha());
@@ -342,7 +359,7 @@ index 463b529..6b63c2d 100644
  				btnHideStory.icon().alpha(btnContinue.alpha());
  			}
  			
-@@ -532,7 +559,7 @@ public class InterlevelScene extends PixelScene {
+@@ -532,7 +562,7 @@ public class InterlevelScene extends PixelScene {
  			if (btnContinue != null && textFadingIn) {
  				btnContinue.alpha(Math.min(1, btnContinue.alpha() + Game.elapsed));
  				storyMessage.alpha(btnContinue.alpha());
