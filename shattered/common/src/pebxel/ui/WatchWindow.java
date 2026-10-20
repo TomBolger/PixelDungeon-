@@ -23,6 +23,8 @@ public class WatchWindow extends Window {
 	protected int cw, ch;
 	/** Room under the frame (tabs hang there). */
 	protected int below;
+	/** Laid out to fill the screen exactly (its frame may go past the edges): never scrolled. */
+	public boolean fixed;
 	protected final ColorBlock dim;
 	protected final boolean tabbed;
 	/** Where the content's top-left is on the screen (watch pixels). */

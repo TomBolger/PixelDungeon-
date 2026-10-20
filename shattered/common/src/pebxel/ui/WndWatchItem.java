@@ -4,6 +4,7 @@ import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
+import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.watabou.noosa.Group;
 import java.util.ArrayList;
@@ -46,6 +47,29 @@ public class WndWatchItem extends WatchWindow {
 		}
 	}
 
+	private int page;
+
+	/** The text cut into pieces no taller than max (whole words; a highlight cut in two is closed and reopened). */
+	private List<String> pages(String s, int max, int x, int y, int w) {
+		List<String> out = new ArrayList<>();
+		String rest = s.trim();
+		while (!rest.isEmpty()) {
+			if (flowHeight(rest, WatchText.G14, x, y, w) <= max || out.size() > 20) { out.add(rest); break; }
+			String[] words = rest.replace("\n", " \n ").split(" ");   // (a page may also end at a line break)
+			int lo = 1, hi = words.length - 1;
+			while (lo < hi) {
+				int mid = (lo + hi + 1) / 2;
+				String tryIt = String.join(" ", java.util.Arrays.copyOf(words, mid)).replace(" \n ", "\n").replace(" \n", "\n").trim();
+				if (flowHeight(tryIt, WatchText.G14, x, y, w) <= max - 6) lo = mid; else hi = mid - 1;
+			}
+			String pg = String.join(" ", java.util.Arrays.copyOf(words, lo)).replace(" \n ", "\n").replace(" \n", "\n").trim();
+			rest = String.join(" ", java.util.Arrays.copyOfRange(words, lo, words.length)).replace(" \n ", "\n").replace("\n ", "\n").trim();
+			if ((pg.length() - pg.replace("_", "").length()) % 2 == 1) { pg += "_"; rest = "_" + rest; }
+			out.add(pg.trim());
+		}
+		return out;
+	}
+
 	private List<String> acts() { return Dungeon.hero.isAlive() && Dungeon.hero.belongings.contains(item) ? item.actions(Dungeon.hero) : new ArrayList<>(); }
 
 	private int build() {
@@ -73,19 +97,42 @@ public class WndWatchItem extends WatchWindow {
 		String info = item.info();
 		int tx = round ? 5 : 2, tw = w - 2 * tx;
 		int th = flowHeight(info, WatchText.G14, tx, head + 2, tw);
+		List<String> pages = new ArrayList<>();
 		if (round) {
-			// keep the window inside the circle's middle: the description gives way (cut short with "...")
+			// keep the window inside the circle's middle: a long description comes in pages (as in Pebble PD), turned
+			// by pressing it
 			int rows = (acts().size() + 1) / 2, max = 186 - head - 2 - rows * (BTN_H + GAP);
-			while (th > max && info.length() > 20) {
-				int cut = info.lastIndexOf(' ', info.length() - 2);
-				if (cut < 10) break;
-				info = info.substring(0, cut) + "...";
-				th = flowHeight(info, WatchText.G14, tx, head + 2, tw);
+			pages = pages(info, max, tx, head + 2, tw);
+			int th0 = 0;
+			for (String pg : pages) th0 = Math.max(th0, flowHeight(pg, WatchText.G14, tx, head + 2, tw));
+			th = pages.size() > 1 ? th0 + 4 : th0;   // (room under the last line for the page mark and the focus box)
+			if (pages.size() > 1) {
+				page %= pages.size();
+				info = pages.get(page);
 			}
 		}
 		if (round) body.add(Shape.cut(pebxel.Screen.w / 2 - contentX, pebxel.Screen.h / 2 - contentY, R_IN, -2 - (pebxel.Screen.w / 2 - contentX), head - (pebxel.Screen.h / 2 - contentY), w + 4, th + 4, 0x000000));
 		else body.add(WatchHud.block(0x000000, -2, head, w + 4, th + 4));
 		flowText(body, info, WatchText.G14, WHITE, tx, head + 2, tw);
+		if (pages.size() > 1) {
+			// the page turner: the text itself, with Pebble PD's small white triangle while there's more
+			final int n = pages.size();
+			Button turn = new Button() {
+				@Override protected void onClick() { page = (page + 1) % n; build(); }
+			};
+			turn.setRect(0, head, w, th + 4);
+			body.add(turn);
+			int[] c = chord(head + th - 12, 12, R_IN - 4, 0, w);
+			int ax = c[0] + c[1] - 12, ay = head + th - 8;
+			for (int k = 0; k < 4; k++) {
+				// a small triangle: pointing down while there's more, up on the last page (back to the start)
+				int row = page < n - 1 ? k : 3 - k;
+				body.add(WatchHud.block(WHITE, ax + row, ay + k, 7 - 2 * row, 1));
+			}
+			WatchText num = new WatchText(WatchText.G09, (page + 1) + "/" + n, LIGHT);
+			WatchHud.place(num, c[0] + c[1] - 40, head + th - 9, 0, 0);
+			body.add(num);
+		}
 		y = head + th + 4 + GAP;
 		// the actions
 		List<String> acts = acts();

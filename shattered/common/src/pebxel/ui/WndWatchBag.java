@@ -37,6 +37,7 @@ public class WndWatchBag extends WatchWindow {
 	public WndWatchBag(Bag bag, WndBag.ItemSelector selector) {
 		super(pebxel.Screen.round ? 0 : WatchWindow.left(W), pebxel.Screen.round ? 0 : 7, pebxel.Screen.round ? pebxel.Screen.w : W,
 				pebxel.Screen.round ? WB : HEAD + ROWS * (CELL_H + 1) - 1, true);
+		fixed = true;
 		this.bag = bag == null ? Dungeon.hero.belongings.backpack : bag;
 		this.selector = selector;
 		below = pebxel.Screen.round ? pebxel.Screen.h - WB : TAB_H + 2;

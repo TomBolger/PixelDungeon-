@@ -65,6 +65,8 @@ public class Tour {
 		wins.put("challenges", () -> new WndChallenges(0, false));
 		wins.put("story", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndStory("The Dungeon lies right beneath the City, its upper levels actually constitute the City's sewer system. As dark energy has crept up from below the usually harmless sewer creatures have become more and more dangerous. The city sends guard patrols down here to try and maintain safety for those above, but they are slowly failing."));
 		wins.put("mob", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoMob(new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat()));
+		wins.put("heroinfo", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndHeroInfo(HeroClass.WARRIOR));
+		wins.put("gameinfo", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndGameInProgress(1));
 		wins.put("message", () -> new com.shatteredpixel.shatteredpixeldungeon.windows.WndMessage("You found a secret door! Secrets like this one can hide all sorts of things."));
 		shot("map");
 		for (Map.Entry<String, Supplier<Window>> e : wins.entrySet()) {
@@ -73,6 +75,11 @@ public class Tour {
 			GameScene.show(w);
 			frames(40);
 			shot(e.getKey());
+			if (e.getKey().equals("item") && Ui.topWindow() != null) {
+				// a long description's next page (round), pressing the text
+				List<Ui.Part> bs = Controls.buttons(Ui.topWindow());
+				if (!bs.isEmpty() && !(bs.get(0).g instanceof pebxel.ui.WatchButton)) { Ui.press(bs.get(0).g); frames(10); shot("item-page2"); }
+			}
 			Window tw = Ui.topWindow();
 			if (tw != null) System.out.println("window " + e.getKey() + " " + tw.getClass().getSimpleName() + " at " + tw.camera.x / 2 + "," + tw.camera.y / 2 + " size " + tw.camera.width * tw.camera.zoom / 2 + "x" + tw.camera.height * tw.camera.zoom / 2);
 			if (System.getenv("DUMPWIN") != null) sim.dump();

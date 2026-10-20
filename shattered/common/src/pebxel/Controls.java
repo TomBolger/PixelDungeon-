@@ -160,7 +160,7 @@ public class Controls {
 				Component n = next < 0 ? null : (Component) bs.get(next).g;
 				boolean wraps = next >= 0 && (b == DOWN ? next < focus : next > focus);
 				if (n == null || (!wraps && !visible(w, n))) {
-					scroll(w, (b == DOWN ? -1 : 1) * (viewBottom() - viewTop()) / 2);
+					scroll(w, (b == DOWN ? -1 : 1) * (viewBottom(w) - viewTop(w)) / 2);
 					if (n == null || !visible(w, n)) return;   // keep reading; the button comes into view later
 				}
 				if (wraps) scroll(w, b == DOWN ? 100000 : -100000);
@@ -176,23 +176,24 @@ public class Controls {
 	// ---- windows taller than the screen (long texts with big letters) ----
 
 	// (a round screen's corners are gone: there, windows are read in the band across its middle)
-	static int viewTop() { return Screen.round ? 72 : 0; }
-	static int viewBottom() { return Screen.round ? Game.height - 72 : Game.height; }
+	// (the watch's own windows are laid out for the whole screen, round or not)
+	static int viewTop(Window w) { return Screen.round && !(w instanceof pebxel.ui.WatchWindow) ? 72 : 0; }
+	static int viewBottom(Window w) { return Screen.round && !(w instanceof pebxel.ui.WatchWindow) ? Game.height - 72 : Game.height; }
 
 	static boolean tall(Window w) {
-		// (the watch's own windows are laid out for the screen they're on)
-		return w.camera != null && !(w instanceof pebxel.ui.WatchWindow) && w.camera.screenHeight() > viewBottom() - viewTop() + 1;
+		if (w instanceof pebxel.ui.WatchWindow && ((pebxel.ui.WatchWindow) w).fixed) return false;
+		return w.camera != null && w.camera.screenHeight() > viewBottom(w) - viewTop(w) + 1;
 	}
 
 	/** Is the component fully on screen (window camera units -> phone pixels)? */
 	private static boolean visible(Window w, Component c) {
 		float top = w.camera.y + c.top() * w.camera.zoom, bottom = w.camera.y + c.bottom() * w.camera.zoom;
-		return top >= viewTop() && bottom <= viewBottom();
+		return top >= viewTop(w) && bottom <= viewBottom(w);
 	}
 
 	/** Move a tall window up (negative) or down by some phone pixels, within its ends. */
 	static void scroll(Window w, int dy) {
-		int min = (int) (viewBottom() - w.camera.screenHeight()), max = viewTop();
+		int min = (int) (viewBottom(w) - w.camera.screenHeight()), max = viewTop(w);
 		int y = Math.max(min, Math.min(max, w.camera.y + dy)), moved = y - w.camera.y;
 		w.camera.y = y;
 		if (moved != 0) moveInner(w, moved);
@@ -215,7 +216,7 @@ public class Controls {
 		scroll(w, 0);
 		if (c != null && !visible(w, c)) {
 			float top = w.camera.y + c.top() * w.camera.zoom, bottom = w.camera.y + c.bottom() * w.camera.zoom;
-			int vt = viewTop(), vb = viewBottom();
+			int vt = viewTop(w), vb = viewBottom(w);
 			if (bottom > vb && top > vt) scroll(w, (int) -Math.min(top - vt, bottom - vb));
 			else if (top < vt && bottom < vb) scroll(w, (int) Math.min(vt - top, vb - bottom));
 		}
@@ -409,7 +410,8 @@ public class Controls {
 			}
 			if (bs.isEmpty()) { frame.hide(); if (w != null) keepInView(w, null); return; }
 			Component c = (Component) bs.get(Math.max(0, Math.min(bs.size() - 1, focus))).g;
-			if (w != null && keptFor != w) { keptFor = w; keepInView(w, c); }
+			// (a tall window opens at its top for reading, even when its first button is further down)
+			if (w != null && keptFor != w) { keptFor = w; keepInView(w, tall(w) ? null : c); }
 			for (Ui.Part p : bs) if (p.g instanceof pebxel.ui.Focusable) ((pebxel.ui.Focusable) p.g).focus(p.g == c);
 			if (c instanceof pebxel.ui.Focusable) { frame.hide(); return; }
 			if (menu instanceof pebxel.ui.WatchWindow) frame.around(menu, c.left(), c.top(), c.width(), c.height(), 0xFFFFAA00, 2);   // Pebble PD: a 2 px yellow box
