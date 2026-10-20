@@ -216,6 +216,21 @@ def warm_stone(p, src, out):
             r, g, b, a = sp[x, y]
             if a == 255 and op[x, y][:3] == (255, 170, 170) and r - b >= 15 and g - b >= 6: op[x, y] = (170, 170, 85, 255)
 
+# The Duelist's brown skin is low in colour, so the interface-grey rule (and the plain snap) turned her face grey.
+# Picked by hand as Pebble PD picked its potion colours: light tones rose-brown, the middle brown, shadows maroon.
+SKIN = {(115, 78, 77): (170, 85, 85), (108, 69, 64): (170, 85, 85), (95, 58, 52): (170, 85, 0),
+        (53, 28, 21): (85, 0, 0), (44, 27, 19): (85, 0, 0)}
+SKIN_SHEETS = {'sprites/duelist.png', 'sprites/avatars.png'}
+
+def skin(p, im):
+    if p not in SKIN_SHEETS: return im
+    px = im.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            r, g, b, a = px[x, y]
+            if a >= 100 and (r, g, b) in SKIN: px[x, y] = SKIN[(r, g, b)] + (254,)
+    return im
+
 def pd_water(p, im):
     """Pebble PD's water (convert_art.py, convert_regions.py): a few shades by brightness, each region's own colours.
     Snapped pixel by pixel, the prison's water came out one flat grey (it read as metal), the caves' black (it vanished
@@ -269,7 +284,7 @@ if __name__ == '__main__':
             pd_water(p, im).save(dst); continue
         if p in PD_ITEMS:   # exactly as Pebble PD did its items (hue kept, no greying)
             pd_items(im.copy()).save(dst); continue
-        pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else im.copy()
+        pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else skin(p, im.copy())
         out = pebbleize(greys(pre, levels(p)) if not p.startswith(('environment/', 'splashes/')) else pre, levels(p), alpha_cut=1)
         if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out)
         a, o = im.load(), out.load()
