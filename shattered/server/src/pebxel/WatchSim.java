@@ -13,6 +13,8 @@ import javax.imageio.ImageIO;
  * screen. Used to test the link before (and alongside) the C version.
  */
 public final class WatchSim {
+	/** What the watch was told to play (kind:value), for tests. */
+	public final java.util.List<String> sounds = new java.util.ArrayList<>();
 	public static int W = Screen.w, H = Screen.h;
 	public final int[] fb = new int[Screen.w * Screen.h];
 
@@ -156,6 +158,7 @@ public final class WatchSim {
 					anims.put(id, a); break;
 				}
 				case Link.C_INPUT: p++; break;
+				case Link.C_SOUND: { int k = u8(), v = u8(); sounds.add(k + ":" + v); break; }
 				case Link.C_COMMIT: break;
 				default: throw new IllegalStateException("bad command " + c + " at " + (p - 1));
 			}

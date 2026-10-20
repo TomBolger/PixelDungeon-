@@ -3,11 +3,12 @@
 #include "scene.h"
 #include "art.h"
 #include "draw.h"
+#include "snd.h"
 
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
 #define GAME_SPEED_NUM 3   // 1.5 x real time: must match Game.pebxelSpeed (WatchGame.java)
 #define GAME_SPEED_DEN 2
-#define PROTOCOL 6   // must match Link.PROTOCOL on the phone
+#define PROTOCOL 7   // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -42,6 +43,7 @@ static void update(Layer *l, GContext *ctx) {
     return;
   }
   draw_scene(ctx, layer_get_bounds(l), now);
+  sound_poll();
   static int frames; static uint32_t spent;
   spent += now_ms() - now;
   if (++frames % 20 == 0) {
@@ -310,6 +312,7 @@ static void hello(void *data) {
 
 static void init(void) {
   art_init();
+  sound_init();
   s_win = window_create();
   window_set_background_color(s_win, GColorBlack);
   window_set_click_config_provider(s_win, clicks);
@@ -334,6 +337,7 @@ int main(void) {
   init();
   app_event_loop();
   touch_service_unsubscribe();
+  sound_deinit();
   queue_clear();
   scene_reset();
   layer_destroy(s_layer);

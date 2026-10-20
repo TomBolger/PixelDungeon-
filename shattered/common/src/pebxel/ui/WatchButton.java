@@ -49,6 +49,8 @@ public class WatchButton extends Button {
 		if (label.isEmpty()) return;
 		int w = Math.max(10, (int) width - 6);
 		if (!small && (width == 0 || WatchText.width(WatchText.G18B, label) <= w)) lines.add(new WatchText(WatchText.G18B, label, labelColor));
+		else if (small && WatchText.width(WatchText.G14B, label) > w + 4 && WatchText.width(WatchText.G14, label) <= w + 4)
+			lines.add(new WatchText(WatchText.G14, label, labelColor));   // one line in the plain face rather than two over the picture
 		else for (String s : WatchHud.wrap(label, WatchText.G14B, w)) lines.add(new WatchText(WatchText.G14B, s, labelColor));
 		for (WatchText t : lines) add(t);
 		layout();

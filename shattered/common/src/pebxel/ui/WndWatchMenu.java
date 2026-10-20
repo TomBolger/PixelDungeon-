@@ -66,7 +66,7 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 		page.clear();
 		tabs.clear();
 		pageButtons.clear();
-		String title = p < 0 ? "Game Over" : p == 0 ? "Shattered PD" : p == 1 ? "Catalogue & Journal" : "Watch";
+		String title = p < 0 ? "Game Over" : p == 0 ? "Shattered PD" : p == 1 ? "Catalogue & Journal" : "Audio";
 		WatchText t = new WatchText(WatchText.G14B, title, ICTERINE);
 		WatchHud.place(t, 0, -4, W, 1); page.add(t);
 		if (p < 0) {
@@ -110,19 +110,18 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 
 	/**
 	 * The settings page (Pebble PD's: two headed rows of two tiles, a switched-off one with its icon crossed out):
-	 * the watch (vibration, the map's grid lines) and the assistant (how far it looks, whether it offers items).
+	 * audio (music on or off; sound loud, medium, quiet or off) and the assistant (how far it looks, whether it offers items).
 	 */
 	private void settings() {
 		final int TH = 56, HH = 14, half = (W - GAP) / 2;
 		int y = HEAD;
-		boolean vib = SPDSettings.vibration(), grid = SPDSettings.visualGrid() > 0;
-		tile(0, y, half, TH, PdArt.image("menu_icons", 4 * 16, 0, 16, 16, 2), !vib, "Vibrate: " + (vib ? "On" : "Off"),
-				() -> { SPDSettings.vibration(!SPDSettings.vibration()); if (SPDSettings.vibration()) Game.vibrate(60); show(2); }, true);
-		Image gi = WatchHud.block(0x000000, 0, 0, 30, 30);
-		// a picture of the map's grid: stone squares with lines between
-		decorate = () -> { for (int k = 0; k < 3; k++) for (int j = 0; j < 3; j++) page.add(WatchHud.block(0x555555, gi.x + 1 + k * 10, gi.y + 1 + j * 10, 8, 8)); };
-		tile(half + GAP + 1, y, half, TH, gi, !grid, "Grid: " + (grid ? "On" : "Off"),
-				() -> { SPDSettings.visualGrid(SPDSettings.visualGrid() > 0 ? 0 : 2); show(2); }, true);
+		boolean music = pebxel.WatchSettings.music();
+		int snd = pebxel.WatchSettings.sound();
+		tile(0, y, half, TH, PdArt.image("menu_icons", 3 * 16, 0, 16, 16, 2), !music, "Music: " + (music ? "On" : "Off"),
+				() -> { pebxel.WatchSettings.music(!pebxel.WatchSettings.music()); show(2); }, true);
+		tile(half + GAP + 1, y, half, TH, PdArt.image("menu_icons", 4 * 16, 0, 16, 16, 2), snd == 3,
+				"Sound: " + new String[]{"Loud", "Medium", "Quiet", "Off"}[snd],
+				() -> { pebxel.WatchSettings.sound((pebxel.WatchSettings.sound() + 1) % 4); show(2); }, true);   // Loud, Medium, Quiet, Off
 		y += TH + GAP;
 		heading("Assistant", y); y += HH;
 		int a = pebxel.WatchSettings.assist();
@@ -138,7 +137,7 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 		com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite bagIc = new com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite(
 				com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet.BACKPACK, null);
 		bagIc.scale.set(2);
-		tile(half + GAP + 1, y, half, TH, bagIc, !items || a == 0, "Items: " + (items ? "On" : "Off"),
+		tile(half + GAP + 1, y, half, TH, bagIc, !items || a == 0, "Item assist: " + (items ? "On" : "Off"),
 				() -> { pebxel.WatchSettings.itemAssist(!pebxel.WatchSettings.itemAssist()); show(2); }, a > 0);
 	}
 

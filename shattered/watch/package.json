@@ -23,7 +23,10 @@
     "resources": {
       "media": [
         { "type": "bitmap", "name": "IMAGE_MENU_ICON", "file": "menu_icon.png", "menuIcon": true },
-        { "type": "raw", "name": "ART", "file": "data/art.bin" }
+        { "type": "raw", "name": "ART", "file": "data/art.bin" },
+        { "type": "raw", "name": "SFX", "file": "data/sfx.bin" },
+        { "type": "raw", "name": "MUSIC_THEME", "file": "data/music_theme.bin" },
+        { "type": "raw", "name": "MUSIC_GAME", "file": "data/music_game.bin" }
       ]
     }
   }

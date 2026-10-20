@@ -17,6 +17,7 @@ public class WatchGame extends ShatteredPixelDungeon {
 		com.watabou.noosa.Game.pebxelScenes = pebxel.ui.Swaps::scene;
 		// walking and fighting half as quick again: on a watch, waiting out each swing and step feels slow
 		com.watabou.noosa.Game.pebxelSpeed = 1.5f;
+		Sounds.install();
 		// the story on the loading screen in pages that fit
 		com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene.pebxelPages = pebxel.ui.StoryPages::split;
 	}

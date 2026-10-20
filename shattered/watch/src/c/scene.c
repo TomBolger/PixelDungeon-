@@ -1,5 +1,6 @@
 // Applies the phone's commands to the watch's copy of the screen (format: server/src/pebxel/Link.java).
 #include "scene.h"
+#include "snd.h"
 #include "art.h"
 
 Obj *g_obj[MAX_ID];
@@ -306,6 +307,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
         break;
       }
       case C_INPUT: touch_acked(u8()); break;
+      case C_SOUND: { int k = u8(), v = u8(); if (k == 0) sound_effect(v); else if (k == 1) sound_music(v == 255 ? -1 : v); else sound_settings(v); break; }
       case C_COMMIT: g_dirty = true; break;
       default: APP_LOG(APP_LOG_LEVEL_ERROR, "bad command %d", c); return len;
     }

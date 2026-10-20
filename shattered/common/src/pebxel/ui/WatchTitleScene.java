@@ -20,6 +20,7 @@ public class WatchTitleScene extends PixelScene {
 	@Override
 	public void create() {
 		super.create();
+		pebxel.Sounds.theme();
 		com.shatteredpixel.shatteredpixeldungeon.Badges.loadGlobal();
 		com.shatteredpixel.shatteredpixeldungeon.journal.Journal.loadGlobal();
 		arches(this);

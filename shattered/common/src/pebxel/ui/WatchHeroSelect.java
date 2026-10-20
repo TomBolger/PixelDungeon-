@@ -27,6 +27,7 @@ public class WatchHeroSelect extends PixelScene {
 	@Override
 	public void create() {
 		super.create();
+		pebxel.Sounds.theme();
 		Dungeon.hero = null;
 		com.shatteredpixel.shatteredpixeldungeon.Badges.loadGlobal();
 		com.shatteredpixel.shatteredpixeldungeon.journal.Journal.loadGlobal();

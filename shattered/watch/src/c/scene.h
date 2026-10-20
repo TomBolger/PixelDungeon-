@@ -3,7 +3,7 @@
 #include <pebble.h>
 
 // commands
-enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_INPUT, C_LATEST, C_COMMIT = 15 };
+enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_INPUT, C_LATEST, C_SOUND, C_COMMIT };   // C_SOUND: kind (0 effect, 1 music, 2 settings), value
 // picture kinds
 enum { K_IMG = 1, K_RECT, K_NINE, K_TILES, K_TEXT, K_SKIN, K_QUADS, K_SHAPE };
 enum { F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16 };

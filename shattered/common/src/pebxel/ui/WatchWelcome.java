@@ -31,6 +31,7 @@ public class WatchWelcome extends PixelScene {
 	@Override
 	public void create() {
 		super.create();
+		pebxel.Sounds.theme();
 		previous = SPDSettings.version();
 		if (ShatteredPixelDungeon.versionCode == previous && !SPDSettings.intro()) {
 			ShatteredPixelDungeon.switchNoFade(TitleScene.class);

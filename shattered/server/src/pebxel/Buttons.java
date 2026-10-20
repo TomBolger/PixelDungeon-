@@ -71,6 +71,7 @@ public class Buttons {
 			sim.save(new File(dir, String.format("%02d-%s.png", shot++, p)), 2);
 		}
 		System.out.println("scene " + Game.scene().getClass().getSimpleName() + ", " + shot + " pictures");
+		System.out.println("sounds " + sim.sounds);
 		System.exit(0);
 	}
 }

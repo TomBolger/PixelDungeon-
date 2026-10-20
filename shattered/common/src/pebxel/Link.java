@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_COMMIT = 15;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 6;
+	public static final int PROTOCOL = 7;
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -106,6 +106,7 @@ public final class Link {
 		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); nextDyn = 200;
 		anims.clear(); animsByContent.clear();
 		out.reset(); marks.clear(); dropPending(); cmd(C_RESET);
+		for (int[] e : Sounds.state()) sound(e);
 	}
 
 	/** Compare the scene with the watch's copy; returns the commands to send (may be empty). */
@@ -114,6 +115,7 @@ public final class Link {
 	/** As sync(), when dt seconds passed since the last call (the link may run slower than the game). */
 	public byte[] sync(float dt) {
 		now += dt;
+		for (int[] e : Sounds.take()) sound(e);
 		Scene scene = Game.scene();
 		if (scene != null) {
 			List<Gizmo> order = new ArrayList<>();
@@ -841,6 +843,9 @@ public final class Link {
 	/** For tests: a camera's number on the watch (0xFF: none), and the game clock (ms). */
 	public int camIdOf(Camera c) { Integer i = camIds.get(c); return i == null ? 0xFF : i; }
 	public int nowMs() { return Math.round(now * 1000); }
+
+	/** A sound for the watch (Sounds): kind (0 effect, 1 music, 2 settings), value. */
+	private void sound(int[] e) { cmd(C_SOUND); out.write(e[0]); out.write(e[1]); }
 
 	/** Tell the watch a touch has been applied (in this frame's changes). */
 	public void ack(int seq) { cmd(C_INPUT); out.write(seq & 255); }

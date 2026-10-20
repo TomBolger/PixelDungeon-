@@ -49,6 +49,54 @@ index c82cc00..eeaa939 100644
  			renderedHeight = glyphs.height;
  		}
  	}
+diff --git a/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java b/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
+index 447f3a6..ce85519 100644
+--- a/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
++++ b/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
+@@ -53,7 +53,11 @@ public enum Music {
+ 	private HashMap<String, com.badlogic.gdx.audio.Music> trackPlayers = new HashMap<>();
+ 	boolean shuffle = false;
+ 	
++	/** Pebxel: the music the game wants (null: none); the watch plays its own. */
++	public static java.util.function.Consumer<String> pebxelPlay;
++
+ 	public synchronized void play( String assetName, boolean looping ) {
++		if (pebxelPlay != null) pebxelPlay.accept(assetName);
+ 
+ 		//iOS cannot play ogg, so we use an mp3 alternative instead
+ 		if (assetName != null && DeviceCompat.isiOS()){
+@@ -84,6 +88,7 @@ public enum Music {
+ 	}
+ 
+ 	public synchronized void playTracks( String[] tracks, float[] chances, boolean shuffle){
++		if (pebxelPlay != null) pebxelPlay.accept(tracks == null || tracks.length == 0 ? null : tracks[0]);
+ 
+ 		if (tracks == null || tracks.length == 0 || tracks.length != chances.length){
+ 			stop();
+@@ -236,6 +241,7 @@ public enum Music {
+ 	}
+ 
+ 	public synchronized void end() {
++		if (pebxelPlay != null) pebxelPlay.accept(null);
+ 		lastPlayed = null;
+ 		trackList = null;
+ 		stop();
+diff --git a/SPD-classes/src/main/java/com/watabou/noosa/audio/Sample.java b/SPD-classes/src/main/java/com/watabou/noosa/audio/Sample.java
+index d83ff2e..e0ddaab 100644
+--- a/SPD-classes/src/main/java/com/watabou/noosa/audio/Sample.java
++++ b/SPD-classes/src/main/java/com/watabou/noosa/audio/Sample.java
+@@ -105,7 +105,11 @@ public enum Sample {
+ 		return play( id, volume, volume, pitch );
+ 	}
+ 	
++	/** Pebxel: every sound the game plays (the watch plays its own copy). */
++	public static java.util.function.Consumer<Object> pebxelPlay;
++
+ 	public synchronized long play( Object id, float leftVolume, float rightVolume, float pitch ) {
++		if (pebxelPlay != null) pebxelPlay.accept(id);
+ 		float volume = Math.max(leftVolume, rightVolume);
+ 		float pan = rightVolume - leftVolume;
+ 		if (enabled && ids.containsKey( id )) {
 diff --git a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java b/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
 index 863b15b..4ef5ba4 100644
 --- a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
