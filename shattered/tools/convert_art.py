@@ -274,6 +274,16 @@ RECOLOR = {
     'sprites/thief.png': {(58, 6, 42): (85, 0, 85), (95, 10, 77): (85, 0, 85), (100, 42, 82): (85, 0, 85), (122, 40, 104): (170, 0, 170)},
 }
 
+def plant_edges(p, im):
+    """Pebble PD's plants: their 40% black shadow (a dotted checker on the watch) is a solid black edge, so they stand
+    off grass and floor without see-through dots (terrain_features.png, the plants' row)."""
+    if p != 'environment/terrain_features.png': return im
+    px = im.load()
+    for y in range(112, 128):
+        for x in range(im.width):
+            if px[x, y][:3] == (0, 0, 0) and 90 <= px[x, y][3] < 255: px[x, y] = (0, 0, 0, 255)
+    return im
+
 def recolor(p, im):
     """Pebble PD's fixes: matched pixels become that Pebble colour, solid (alpha 254: kept as is by the mapping)."""
     rc = RECOLOR.get(p)
@@ -339,7 +349,7 @@ if __name__ == '__main__':
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         im = Image.open(src(p)).convert('RGBA')
         if p.startswith('pebxel/'): im.save(dst); continue   # already converted
-        im = recolor(p, im)
+        im = plant_edges(p, recolor(p, im))
         if p.startswith('environment/water'):
             pd_water(p, im).save(dst); continue
         if p in PD_ITEMS:   # exactly as Pebble PD did its items (hue kept, no greying)
