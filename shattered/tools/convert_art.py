@@ -206,6 +206,46 @@ def cave_grit(p, src, out):
                     n = sum(cell[(y + dy) % 16][(x + dx) % 16] == dark for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
                     if n >= 2: op[cx + x, cy + y] = (0, 0, 0, 255)
 
+def pd_water(p, im):
+    """Pebble PD's water (convert_art.py, convert_regions.py): a few shades by brightness, each region's own colours.
+    Snapped pixel by pixel, the prison's water came out one flat grey (it read as metal), the caves' black (it vanished
+    into the dark), the city's as black blots on maroon."""
+    from convert_lib import near
+    k = int(p[-5]); w = im.convert('RGBA'); wp = w.load(); W, H = w.size
+    v = lambda x, y: sum(wp[x, y][:3])
+    ls = sorted(v(x, y) for y in range(H) for x in range(W))
+    q = lambda f: ls[min(len(ls) - 1, int(len(ls) * f))]
+    out = Image.new('RGBA', (W, H)); op = out.load()
+    if k == 0:   # sewers: deep teal, jade, soft teal
+        q1, q2 = q(0.50), q(0.88)
+        for y in range(H):
+            for x in range(W): op[x, y] = ((0, 85, 85) if v(x, y) < q1 else (0, 170, 85) if v(x, y) < q2 else (85, 170, 170)) + (255,)
+    elif k in (1, 3):   # prison: deep teal, its brightest ripples lighter; city: deep maroon with rose-brown ripples
+        t1 = q(0.85); lo, hi = ((0, 85, 85), (85, 170, 170)) if k == 1 else ((85, 0, 0), (170, 85, 85))
+        for y in range(H):
+            for x in range(W): op[x, y] = (hi if v(x, y) > t1 else lo) + (255,)
+    elif k == 4:   # halls: five heat levels, a dark crust to bubbling yellow
+        t1, t2, t3 = q(0.35), q(0.68), q(0.82)
+        cols = [(170, 0, 0), (255, 0, 0), (255, 85, 0), (255, 255, 0), (255, 255, 170)]
+        for y in range(H):
+            for x in range(W):
+                c = v(x, y); i = 0 if c <= t1 else 1 if c <= t2 else 2 if c <= t3 else 3
+                if i == 3 and all(v((x + dx) % W, (y + dy) % H) >= t3 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))): i = 4
+                op[x, y] = cols[i] + (255,)
+    else:   # caves: deep, mid and light by brightness, the water's colour lifted onto the palette
+        q1, q2 = q(0.50), q(0.88)
+        b = [[], [], []]
+        for y in range(H):
+            for x in range(W): b[0 if v(x, y) <= q1 else 1 if v(x, y) <= q2 else 2].append(wp[x, y][:3])
+        cols = []
+        for i, bb in enumerate(b):
+            if not bb: bb = b[i - 1] if i else b[1]
+            m = [sum(c[j] for c in bb) / len(bb) for j in range(3)]
+            cols.append(near(tuple(min(255, c * (1.6 + 0.5 * i) + 10 * i) for c in m)))
+        for y in range(H):
+            for x in range(W): op[x, y] = cols[0 if v(x, y) <= q1 else 1 if v(x, y) <= q2 else 2] + (255,)
+    return out
+
 if __name__ == '__main__':
     FRAME_W.update(frame_widths())
     ps = paths()
@@ -215,6 +255,8 @@ if __name__ == '__main__':
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         im = Image.open(src(p)).convert('RGBA')
         if p.startswith('pebxel/'): im.save(dst); continue   # already converted
+        if p.startswith('environment/water'):
+            pd_water(p, im).save(dst); continue
         if p in PD_ITEMS:   # exactly as Pebble PD did its items (hue kept, no greying)
             pd_items(im.copy()).save(dst); continue
         pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else im.copy()
