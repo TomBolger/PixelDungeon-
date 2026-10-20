@@ -516,3 +516,18 @@ index de5af72..b077a97 100644
  		txt.maxWidth(WIDTH);
  		txt.hardlight(0x999999);
  		txt.setPos(0, pos-2);
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndTabbed.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndTabbed.java
+index 05b4e01..6471f7f 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndTabbed.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndTabbed.java
+@@ -284,7 +284,9 @@ public class WndTabbed extends Window {
+ 		@Override
+ 		protected void select( boolean value ) {
+ 			super.select( value );
+-			icon.am = selected ? 1.0f : 0.6f;
++			//pebxel: never see-through (the watch shows that as a checker of dots, and darker shades lose the
++			// icon's colours in its few): the chosen tab is the one joined to the window
++			icon.am = 1f;
+ 		}
+ 	}
+ 
