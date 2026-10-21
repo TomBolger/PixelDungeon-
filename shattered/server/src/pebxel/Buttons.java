@@ -56,6 +56,10 @@ public class Buttons {
 				com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.add(com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob.seed(c, 30, com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Fire.class));
 				com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff.affect(Dungeon.hero, com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Burning.class).reignite(Dungeon.hero);
 			}
+			else if (p.equals("@up")) {   // (tests: up the stairs, as the hero's step onto them)
+				com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(true);
+				if (tr != null) StairsTest.jump(tr);
+			}
 			else if (p.equals("@down")) {   // (tests: straight down the stairs, as the hero's step onto them)
 				com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(false);
 				if (tr != null) StairsTest.jump(tr);
