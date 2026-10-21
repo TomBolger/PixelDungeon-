@@ -1,0 +1,8 @@
+# H-fix1
+bundle=Hfix-1021085705.tgz
+bin=simbot
+games=120
+chunk=10
+first=0
+run A SIMSEED=1 AS_SHORE=0 AS_OOZE=0 AS_HEALPCT=25 AS_CRABAMB=0
+run B SIMSEED=1
