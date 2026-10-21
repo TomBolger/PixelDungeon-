@@ -88,14 +88,17 @@ public class AssistBot {
 				cls = HeroClass.values()[System.getenv("CLS") != null ? Integer.parseInt(System.getenv("CLS")) : g % 6];
 				seed = Long.parseLong(System.getenv().getOrDefault("SEEDBASE", "1000")) + g;
 				maxTurns = Integer.parseInt(System.getenv().getOrDefault("MAXTURNS", "200000"));
-				System.out.println("== game " + g + " class " + cls.ordinal() + " seed " + seed + " at " + System.currentTimeMillis() / 1000);
+				System.out.println("== game " + g + " class " + cls.ordinal() + " seed " + seed + " at " + ms() / 1000);
 			} else {
 				cls = HeroClass.values()[a.length > 0 ? Integer.parseInt(a[0]) : 0];
 				seed = a.length > 1 ? Long.parseLong(a[1]) : 1;
 				maxTurns = a.length > 2 ? Integer.parseInt(a[2]) : 3000;
 			}
+			long w0 = System.currentTimeMillis(), m0 = System.nanoTime(), c0 = cpuMs();
 			String end = play(cls, seed, maxTurns);
-			if (batch) System.out.println("== game " + g + " ended at " + System.currentTimeMillis() / 1000);
+			// (wall clock against the monotonic clock: a clock jump moves one without the other; CPU: a game frozen, or crowded out, uses none)
+			if (batch) System.out.println("TIMING game " + g + " wall " + (System.currentTimeMillis() - w0) + " mono " + (System.nanoTime() - m0) / 1_000_000 + " cpu " + (cpuMs() - c0) + " ms");
+			if (batch) System.out.println("== game " + g + " ended at " + ms() / 1000);
 			System.out.flush();
 			if (fatal(end)) break;
 			if (g + 1 < last) { Game.switchScene(com.watabou.noosa.Scene.class); for (int i = 0; i < 3; i++) step(); }   // (the game's scene and windows gone)
@@ -104,6 +107,22 @@ public class AssistBot {
 		try { Gdx.files.external(saveDir).deleteDirectory(); Gdx.files.local(saveDir).deleteDirectory(); Gdx.files.local(dir0).deleteDirectory(); } catch (Throwable e) { }
 		System.exit(0);
 	}
+
+	/** Milliseconds since 1970 by the monotonic clock: Monolith's WSL clock jumps 75 s ahead and back about once a
+	 *  minute, which made games that ended in a jump look 75 s long (the "machine-wide freezes"). */
+	static long ms() { return EPOCH0 + System.nanoTime() / 1_000_000; }
+	static final long EPOCH0 = epoch0();
+	/** simbot passes PEBXEL_BOOT (the boot time in epoch seconds, taken where the clock wasn't in a jump): the epoch is
+	 *  then boot + /proc/uptime, the same in every JVM of the job; else this JVM's clock at its start. */
+	static long epoch0() {
+		try {
+			String b = System.getenv("PEBXEL_BOOT");
+			if (b != null) { double up = Double.parseDouble(new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("/proc/uptime"))).trim().split(" ")[0]);
+				return (long) (Double.parseDouble(b) * 1000 + up * 1000) - System.nanoTime() / 1_000_000; }
+		} catch (Throwable e) { }
+		return System.currentTimeMillis() - System.nanoTime() / 1_000_000;
+	}
+	static long cpuMs() { try { return ((com.sun.management.OperatingSystemMXBean) java.lang.management.ManagementFactory.getOperatingSystemMXBean()).getProcessCpuTime() / 1_000_000; } catch (Throwable e) { return -1; } }
 
 	/** Endings after which the game's threads can't be trusted to start another game in this JVM. */
 	static boolean fatal(String end) {
@@ -182,13 +201,13 @@ public class AssistBot {
 		String end = "turn limit";
 		long planNs = 0, plans = 0, maxPlanNs = 0;
 		Window lastWnd = null; int wndFrames = 0;
-		long t0 = System.currentTimeMillis();
+		long t0 = ms();
 		long readyF = 0, betweenF = 0, floorDecisions = 0, floorFrames = 0; float readyNow = -1;   // (the hang check counts frames in which game time stood still: no wall clock)
 		try {
 		for (long f = 0; f < 20_000_000; f++) {
 			Lockstep.doing = "frame";
 			step();
-			if (f % 20000 == 0 && f > 0) { Window hw = Ui.topWindow(); System.out.printf("  .. frame %d depth %d %s%s decisions %d %.0fs%n", f, Dungeon.depth, Game.scene().getClass().getSimpleName(), hw == null ? "" : " window " + hw.getClass().getName(), decisions, (System.currentTimeMillis() - t0) / 1000.0); }
+			if (f % 20000 == 0 && f > 0) { Window hw = Ui.topWindow(); System.out.printf("  .. frame %d depth %d %s%s decisions %d %.0fs%n", f, Dungeon.depth, Game.scene().getClass().getSimpleName(), hw == null ? "" : " window " + hw.getClass().getName(), decisions, (ms() - t0) / 1000.0); }
 			if (Lockstep.stuck != null) { end = "runaway: " + Lockstep.stuck; break; }
 			if (Game.scene() instanceof InterlevelScene) {
 				if (Ui.topWindow() != null) { end = "error between floors: " + Ui.topWindow().getClass().getName(); break; }
@@ -214,7 +233,7 @@ public class AssistBot {
 				if (watch != null) { floorWatchFrames = watch.frames; floorPresses = watch.presses; }
 				depth = Dungeon.depth; branch = Dungeon.branch; floorDecisions = 0; floorFrames = 0; maxD = Math.max(maxD, depth); floorStart = Statistics.duration;
 				GLog.update.remove(logL); GLog.update.add(logL);
-				System.out.printf("depth %d  turn %.0f  hp %d/%d  lvl %d  str %d  %.1fs%n", depth, Statistics.duration, Dungeon.hero.HP, Dungeon.hero.HT, Dungeon.hero.lvl, Dungeon.hero.STR(), (System.currentTimeMillis() - t0) / 1000.0);
+				System.out.printf("depth %d  turn %.0f  hp %d/%d  lvl %d  str %d  %.1fs%n", depth, Statistics.duration, Dungeon.hero.HP, Dungeon.hero.HT, Dungeon.hero.lvl, Dungeon.hero.STR(), (ms() - t0) / 1000.0);
 				if (depth > maxDepth) { end = "depth limit"; break; }
 				if (v) { StringBuilder sb = new StringBuilder("  level: heaps"); for (Heap h : Dungeon.level.heaps.valueList()) sb.append(' ').append(h.pos).append(':').append(h.peek().getClass().getSimpleName());
 					sb.append(" mobs"); for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) sb.append(' ').append(m.pos).append(':').append(m.getClass().getSimpleName()); System.out.println(sb); }
@@ -334,7 +353,7 @@ public class AssistBot {
 		Coverage.report(end);
 		System.out.printf("RESULT class %s seed %d: %s depth %d (max %d) turns %.0f lvl %d hp %d/%d picked %d stuck %d actfails %d windows %d decisions %d frames %d  %.1fs%s%n",
 				cls, seed, end, Dungeon.depth, maxD, Statistics.duration, Dungeon.hero == null ? 0 : Dungeon.hero.lvl, Dungeon.hero == null ? 0 : Dungeon.hero.HP, Dungeon.hero == null ? 0 : Dungeon.hero.HT,
-				picked, stuckEvents, actFails, windows, decisions, Lockstep.frames - frames0, (System.currentTimeMillis() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
+				picked, stuckEvents, actFails, windows, decisions, Lockstep.frames - frames0, (ms() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
 		GLog.update.remove(logL);
 		return end;
 	}

@@ -8,6 +8,35 @@
 # times quicker, and each game plays as it would alone); BATCH=0 gives each game a JVM of its own as before. If a JVM
 # ends early (a crash, a hang, GAMESECS), the game it was on gets a RESULT line here and a new JVM goes on from the next.
 cd "$(dirname "$0")/assets" || exit 1
+# The time: Monolith's WSL clock jumps ~75 s ahead for a moment about once a minute (F-diag0), so times here are the
+# boot time (the least of three looks, a second apart: a jump only ever adds) plus /proc/uptime, which doesn't jump
+boot() { awk -v t="$(date +%s.%N)" '{printf "%.3f", t - $1}' /proc/uptime; }
+if [ -z "$PEBXEL_BOOT" ] && [ -r /proc/uptime ]; then
+  PEBXEL_BOOT=$(boot); for k in 1 2; do sleep 1; b=$(boot); PEBXEL_BOOT=$(awk -v a="$PEBXEL_BOOT" -v b="$b" 'BEGIN { print (b < a ? b : a) }'); done; export PEBXEL_BOOT
+fi
+now() { if [ -n "$PEBXEL_BOOT" ]; then awk -v b="$PEBXEL_BOOT" -v f="${1:-%d}" '{printf f, b + $1}' /proc/uptime; else date +%s; fi; }
+# DIAG=1 (a diagnostic run): the task starting at FIRST (DIAGFIRST, default 0) logs the machine once a second for
+# DIAGSECS (default 300) instead of playing, as "MON" lines: wall clock and uptime (a clock jump shows as one moving
+# without the other), load, CPU split (user nice sys idle iowait steal, jiffies), memory and swap, page faults and swap
+# traffic, processes by state (R running, D waiting on the disk, T stopped), and every 5 s the java processes and
+# anything else busy. Other tasks of the run end at once.
+if [ "$DIAG" = 1 ]; then
+  [ "${START:-0}" = "${DIAGFIRST:-0}" ] || exit 0
+  echo "MON start $(date +%s.%N) uptime $(cut -d' ' -f1 /proc/uptime) nproc $(nproc) kernel $(uname -r)"
+  grep -E 'MemTotal|SwapTotal' /proc/meminfo | tr -s ' ' | sed 's/^/MON /'
+  [ -r /proc/pressure/cpu ] && echo "MON psi available" || echo "MON no psi"
+  for ((k = 0; k < ${DIAGSECS:-300}; k++)); do
+    c=$(awk '/^cpu /{print $2, $3, $4, $5, $6, $9}' /proc/stat)
+    m=$(awk '/^(MemFree|MemAvailable|Cached|Dirty|Writeback|SwapFree):/{printf "%s %d ", $1, $2/1024}' /proc/meminfo)
+    v=$(awk '/^(pgmajfault|pswpin|pswpout|pgsteal_kswapd|allocstall_normal) /{printf "%s %s ", $1, $2}' /proc/vmstat)
+    st=$(ps -eo stat= | cut -c1 | sort | uniq -c | tr -s ' ' | tr '\n' ' ')
+    p=""; [ -r /proc/pressure/cpu ] && p="psi-cpu $(sed -n 1p /proc/pressure/cpu | cut -d' ' -f2) psi-io $(sed -n 1p /proc/pressure/io | cut -d' ' -f2) psi-mem $(sed -n 1p /proc/pressure/memory | cut -d' ' -f2)"
+    echo "MON t $(date +%s.%N | cut -c1-14) up $(cut -d' ' -f1 /proc/uptime) load $(cut -d' ' -f1-4 /proc/loadavg) cpu $c mem $m vm $v states $st $p"
+    if [ $((k % 5)) = 0 ]; then top -c -b -n 2 -d 0.5 -w 200 | awk '/^top -/{n++} n==2' | sed -n '1,5p;7,22p' | cut -c1-200 | sed 's/^/MONPS /'; fi
+    sleep 1
+  done
+  exit 0
+fi
 # JIT=c1 (default for AssistBot): the quick compiler only. C2's compiling of the bot's big methods cost more CPU than
 # it saved, even over a whole cheat game (local: 1.7 against 2.4 ms of CPU a turn); JIT=c2 for the JVM's usual
 JAVA=(java -Xmx600m -XX:+UseSerialGC -XX:+UnlockExperimentalVMOptions -XX:hashCode=3 -Dpebxel.common=../common/ -cp "../game.jar:../lib/*")
@@ -16,15 +45,17 @@ if [ "${MAIN:-AssistBot}" = AssistBot ] && [ "$WATCH" != 1 ] && [ "${BATCH:-1}" 
   i=${START:-0}; log=.pebxel-simbot-$$.txt; export SAVETAG="${SAVETAG}-s$$"   # (its own save folders: others play beside it)
   while [ $i -lt $1 ]; do
     : > $log
+    echo "SIMBOT jvm from game $i at $(now %.2f) clock $(date +%s.%N | cut -c1-14)"
     # (the JVM ends any one game over GAMESECS itself; this is the backstop)
     timeout -k 30 $(( ${GAMESECS:-1800} * ($1 - i) + 120 )) "${JAVA[@]}" pebxel.AssistBot --games $i $1 2>&1 | grep --line-buffered -v '^Picked up JAVA_TOOL\|^\[GAME\]' | tee -a $log
     rc=${PIPESTATUS[0]}
+    echo "SIMBOT jvm exit $rc at $(now %.2f) clock $(date +%s.%N | cut -c1-14)"
     last=$(grep -o '^== game [0-9]* class [0-9]* seed [0-9]*' $log | tail -1)
-    [ -z "$last" ] && { echo "RESULT class ${CLS:-$((i % 6))} seed $((${SEEDBASE:-1000} + i)): crashed before the game (java exit $rc)"; echo "== game $i ended at $(date +%s)"; i=$((i + 1)); continue; }
+    [ -z "$last" ] && { echo "RESULT class ${CLS:-$((i % 6))} seed $((${SEEDBASE:-1000} + i)): crashed before the game (java exit $rc)"; echo "== game $i ended at $(now)"; i=$((i + 1)); continue; }
     n=$(echo "$last" | awk '{print $3}'); c=$(echo "$last" | awk '{print $5}'); s=$(echo "$last" | awk '{print $7}')
     if ! grep -q "^== game $n ended" $log; then
       sed -n "/^== game $n class/,\$p" $log | grep -q '^RESULT' || { [ "$rc" = 124 ] || [ "$rc" = 137 ] && echo "RESULT class $c seed $s: killed by simbot after ${GAMESECS:-1800} s" && echo "COVER end=killed;class=$c;" || echo "RESULT class $c seed $s: crashed (java exit $rc)"; }
-      echo "== game $n ended at $(date +%s)"
+      echo "== game $n ended at $(now)"
     fi
     i=$((n + 1))
     rm -rf .pebxel-assistbot-*"$SAVETAG" 2>/dev/null
@@ -34,11 +65,11 @@ if [ "${MAIN:-AssistBot}" = AssistBot ] && [ "$WATCH" != 1 ] && [ "${BATCH:-1}" 
 fi
 for ((i = ${START:-0}; i < $1; i++)); do
   c=${CLS:-$((i % 6))}; s=$((${SEEDBASE:-1000} + i))
-  echo "== game $i class $c seed $s at $(date +%s)"
+  echo "== game $i class $c seed $s at $(now)"
   # (a wall-clock kill as well, GAMESECS default 1800: the bot's own watchdog should end a stuck game long before)
   timeout -k 30 "${GAMESECS:-1800}" "${JAVA[@]}" "pebxel.${MAIN:-AssistBot}" "$c" "$s" "${MAXTURNS:-200000}" 2>&1 | grep -v '^Picked up JAVA_TOOL\|^\[GAME\]'
   rc=${PIPESTATUS[0]}
   [ "$rc" = 124 ] || [ "$rc" = 137 ] && echo "RESULT class $c seed $s: killed by simbot after ${GAMESECS:-1800} s" && echo "COVER end=killed;class=$c;"
-  echo "== game $i ended at $(date +%s)"
+  echo "== game $i ended at $(now)"
   rm -rf .pebxel-* 2>/dev/null
 done
