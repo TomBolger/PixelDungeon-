@@ -3,7 +3,7 @@
 #include "scene.h"
 
 #define PLAN_T 12                // targets planned
-#define PLAN_S 12                // steps planned per walk
+#define PLAN_S 32                // steps planned per walk (Controls.PLAN_STEPS)
 typedef struct { int16_t x, y; uint8_t k; uint8_t dir[PLAN_S]; } PlanTarget;
 typedef struct { bool on; uint16_t marker, hero, step_ms; uint8_t n, cur; PlanTarget t[PLAN_T]; } Plan;
 
@@ -15,4 +15,5 @@ bool predict_offset(uint16_t id, uint32_t now, int32_t *dx, int32_t *dy);   // h
 void predict_tick(uint32_t now);                       // hand back to the phone's frames once they agree
 bool predict_active(void);
 void predict_heard(uint32_t now);                     // a frame of the phone's was played
+void predict_lag(int32_t ms);                          // how far behind the phone its frames play now (game ms)
 void predict_reset(void);

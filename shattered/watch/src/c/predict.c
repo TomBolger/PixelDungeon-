@@ -46,17 +46,19 @@ void predict_set(const Plan *p) {
   if (keep) s_plan.cur = cur;   // our own presses aren't in it yet: keep counting from ours
 }
 
-// Until the phone's hero sets off, the first step is drawn out over the radio's usual delay (learnt from earlier
-// walks). From then on the hero walks at the phone's own pace (a step each s_wstep), whatever the radio does: over
+// The hero walks at the phone's own pace (a step each s_wstep) from the press on, whatever the radio does: over
 // real Bluetooth the phone's frames come a few at a time, a round trip apart, and the phone's hero, followed as he
-// was, went in jumps of a cell or two. He is never shown behind the phone's hero, nor more than LEAD steps ahead,
+// was, went in jumps of a cell or two. (His first step used to be drawn out until the phone's hero set off: every
+// walk began at 40% of the pace, then sped up.) He is never shown behind the phone's hero, nor further ahead than
+// the phone's frames are behind it (from the press until he set off, or the play-out's delay) and LEAD steps more,
 // so if the phone stops him early (a monster came into view) he only slides back a little.
 #define LEAD 512                 // steps x256
-static bool s_started;           // the phone's hero has set off
 static int32_t s_p0; static uint32_t s_t0;   // shown at s_p0 (steps x256) at s_t0, going on at the walking pace
 static uint32_t s_lat = 500;     // the usual delay before the phone's hero sets off (game ms)
+static int32_t s_plag;           // how far behind the phone its frames play now (main.c, game ms)
 static uint32_t s_heard;         // when the last of the phone's frames was played
 void predict_heard(uint32_t now) { s_heard = now; }
+void predict_lag(int32_t ms) { s_plag = ms < 0 ? 0 : ms; }
 
 static void cell_at(int j, int32_t *x, int32_t *y) {   // the j-th cell of the path
   int32_t px = s_wx0, py = s_wy0;
@@ -85,18 +87,20 @@ static int32_t raw_prog(int32_t rx, int32_t ry) {
   return best;
 }
 static int32_t shown_prog(uint32_t now) {
-  Obj *h = obj(s_wid);
-  if (!s_started || !h) {                                 // the phone hasn't started: the first step, drawn out
-    uint32_t span = s_lat > s_wstep ? s_lat : s_wstep, el = now - s_wt;
-    return el >= span ? 256 : (int32_t)(el * 256 / span);
-  }
-  int32_t rp = raw_prog(obj_dyn_raw(h, 0, now), obj_dyn_raw(h, 1, now));
-  if (rp < 0) rp = 0;
   int32_t p = s_p0 + (int32_t)((now - s_t0) * 256 / s_wstep);
-  // held back to the phone's hero (or caught up with him): the pace goes on from there, without a jump later
-  if (p > rp + LEAD) { p = rp + LEAD; s_p0 = p; s_t0 = now; }
-  else if (p < rp) { p = rp; s_p0 = p; s_t0 = now; }
-  return p > s_wn * 256 ? s_wn * 256 : p;
+  Obj *h = obj(s_wid);
+  // (off the path, the phone's hero holds nothing back: he went elsewhere, and predict_tick slides back from here.
+  // Held back to the start of the path instead, the hero leapt back to his second step at the end of every walk
+  // longer than the plan)
+  int32_t rp = h ? raw_prog(obj_dyn_raw(h, 0, now), obj_dyn_raw(h, 1, now)) : -1;
+  if (rp >= 0) {
+    uint32_t behind = (uint32_t)s_plag > s_lat ? (uint32_t)s_plag : s_lat;
+    int32_t lead = LEAD + (int32_t)(behind * 256 / s_wstep);
+    // held back (or caught up with him): the pace goes on from there, without a jump later
+    if (p > rp + lead) { p = rp + lead; s_p0 = p; s_t0 = now; }
+    else if (p < rp) { p = rp; s_p0 = p; s_t0 = now; }
+  }
+  return p < 0 ? 0 : p > s_wn * 256 ? s_wn * 256 : p;
 }
 static void walk_at(uint32_t now, int32_t *x, int32_t *y) { prog_at(shown_prog(now), x, y); }
 
@@ -121,7 +125,7 @@ bool predict_button(int code, uint32_t now) {
   if (!t->k || !h) return false;
   s_wid = s_plan.hero; s_wmarker = s_plan.marker; s_box = false; s_wx0 = obj_dyn(h, 0, now); s_wy0 = obj_dyn(h, 1, now);
   s_wt = now; s_wn = t->k; memcpy(s_wdir, t->dir, s_wn); s_wstep = s_plan.step_ms ? s_plan.step_ms : 100;
-  s_wmoved = false; s_wstill = 0; s_walk = true; s_started = false;
+  s_wmoved = false; s_wstill = 0; s_walk = true; s_p0 = 0; s_t0 = now;
   APP_LOG(APP_LOG_LEVEL_INFO, "predict: walk %d steps", s_wn);
   if (s_eid == s_wid) s_eid = NONE;
   return true;
@@ -188,8 +192,8 @@ void predict_tick(uint32_t now) {
     int32_t rx = obj_dyn_raw(h, 0, now), ry = obj_dyn_raw(h, 1, now), px, py, fx = s_wx0, fy = s_wy0;
     walk_at(now, &px, &py);
     for (int j = 0; j < s_wn; j++) { fx += dxof(s_wdir[j]) * CELL; fy += dyof(s_wdir[j]) * CELL; }
-    if (!s_wmoved && (iabs(rx - s_wx0) > 8 || iabs(ry - s_wy0) > 8)) {   // the phone's hero has set off: walk on from what is shown
-      s_p0 = shown_prog(now); s_t0 = now; s_started = s_wmoved = true;
+    if (!s_wmoved && (iabs(rx - s_wx0) > 8 || iabs(ry - s_wy0) > 8)) {   // the phone's hero has set off
+      s_wmoved = true;
       uint32_t l = now - s_wt; if (l > 1500) l = 1500;
       s_lat = (3 * s_lat + l) / 4;
     }
