@@ -15,6 +15,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
+import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndUseItem;
 import com.watabou.noosa.ColorBlock;
@@ -46,6 +47,9 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 	private void dropRows() { for (Button a : rowAreas) if (a.parent == null) a.destroy(); rowAreas.clear(); rowCells.clear(); }
 
 	@Override public void destroy() { dropRows(); super.destroy(); }
+
+	/** No longer the open bag (Shattered's WndBag.INSTANCE: see the constructor). */
+	@Override public void hide() { super.hide(); if (WndBag.INSTANCE == this) WndBag.INSTANCE = null; }
 
 	private void newRow(Button area) { rowAreas.add(area); rowCells.add(new ArrayList<>()); }
 	private void addToRow(Button b) { rowCells.get(rowCells.size() - 1).add(b); }
@@ -91,6 +95,13 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 		if (pebxel.Screen.round) place(0, 0); else { chrome.visible = false; place(10, 7); }
 		add(grid);
 		if (pebxel.Screen.round) buildRound(); else build();
+		// the one open bag, as Shattered's own WndBag is: a new one closes the last. Shattered keeps the bag it
+		// opened and hides it later (the shop's trade window, the energy one), but that was the WndBag swapped for
+		// this one, so this one stayed: one more under the next after every sale, 70 pictures each, and as many Backs
+		// to leave. (The WndBag being swapped isn't in the scene: Swaps destroys it.)
+		Window prev = WndBag.INSTANCE;
+		if (prev != null && prev != this && prev.parent != null) prev.hide();
+		WndBag.INSTANCE = this;
 	}
 
 	/**
