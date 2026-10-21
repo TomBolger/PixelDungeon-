@@ -143,7 +143,7 @@ public class Buttons {
 			if (System.getenv("FOCUS") != null) {   // (what Up/Down go through here, and which has the frame)
 				com.shatteredpixel.shatteredpixeldungeon.ui.Window tw = Ui.topWindow();
 				com.watabou.noosa.Group menu = tw != null ? tw : Game.scene();
-				StringBuilder sb = new StringBuilder(p + ": " + menu.getClass().getSimpleName() + " focus " + WatchDriver.get(controls, "focus") + " [");
+				StringBuilder sb = new StringBuilder(p + ": " + menu.getClass().getSimpleName() + " focus " + WatchDriver.get(controls, "focus") + (tw != null && tw.camera != null ? " camera y " + tw.camera.y + " height " + tw.camera.screenHeight() + " of " + Game.height + (Controls.tall(tw) ? " tall" : "") : "") + " [");
 				for (Ui.Part pt : Controls.buttons(menu)) sb.append(pt.g.getClass().getSimpleName()).append(':').append(pt.text.replace('\n', ' ')).append(", ");
 				System.out.println(sb.append(']'));
 			}

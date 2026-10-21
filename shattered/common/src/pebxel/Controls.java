@@ -268,9 +268,10 @@ public class Controls {
 		return w.camera != null && w.camera.screenHeight() > viewBottom(w) - viewTop(w) + 1;
 	}
 
-	/** Is the component fully on screen (window camera units -> phone pixels)? */
+	/** Is the component fully on screen (window camera units -> phone pixels; the camera starts at the frame's edge,
+	 *  above the content's 0: left out, a button at a tall window's foot counted as shown while cut off)? */
 	private static boolean visible(Window w, Component c) {
-		float top = w.camera.y + c.top() * w.camera.zoom, bottom = w.camera.y + c.bottom() * w.camera.zoom;
+		float top = w.camera.y + (c.top() - w.camera.scroll.y) * w.camera.zoom, bottom = w.camera.y + (c.bottom() - w.camera.scroll.y) * w.camera.zoom;
 		return top >= viewTop(w) && bottom <= viewBottom(w);
 	}
 
@@ -298,7 +299,7 @@ public class Controls {
 		if (!tall(w)) return;
 		scroll(w, 0);
 		if (c != null && !visible(w, c)) {
-			float top = w.camera.y + c.top() * w.camera.zoom, bottom = w.camera.y + c.bottom() * w.camera.zoom;
+			float top = w.camera.y + (c.top() - w.camera.scroll.y) * w.camera.zoom, bottom = w.camera.y + (c.bottom() - w.camera.scroll.y) * w.camera.zoom;
 			int vt = viewTop(w), vb = viewBottom(w);
 			if (bottom > vb && top > vt) scroll(w, (int) -Math.min(top - vt, bottom - vb));
 			else if (top < vt && bottom < vb) scroll(w, (int) Math.min(vt - top, vb - bottom));
