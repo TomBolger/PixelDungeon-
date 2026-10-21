@@ -495,7 +495,7 @@ public class Controls {
 		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; farView(-1, false); return; }
 		plan = new ArrayList<>(Assist.plan(aiming, Controls::onScreenFromHero));
 		if (Assist.lastError != null) { System.out.println("pebxel: assist " + Assist.lastError); Assist.lastError = null; }
-		if (!aiming) { once(plan); shots(plan); if (WatchSettings.assist() != 0) { veins(plan); talents(plan); } }   // (Off: the enemies only)
+		if (!aiming) { once(plan); steady(plan); shots(plan); if (WatchSettings.assist() != 0) { veins(plan); talents(plan); } }   // (Off: the enemies only)
 		targets = new ArrayList<>();
 		for (Assist.Target t : plan) targets.add(aiming ? t.cell : markCell(t));
 		target = 0;   // (Pebble PD 0.40: after each step the first one, what a good player would do next)
@@ -554,6 +554,31 @@ public class Controls {
 		if (!(g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.TalentButton)) return null;
 		try { if (talentF == null) { talentF = com.shatteredpixel.shatteredpixeldungeon.ui.TalentButton.class.getDeclaredField("talent"); talentF.setAccessible(true); } return talentF.get(g); }
 		catch (Exception e) { return null; }
+	}
+
+	/** Plan A's way kept steady: when the Assistant's plan A goes back to a place it left for another a turn or two ago
+	 *  (two spots to explore, each nearer from where the other led: the hero walked back and forth between them), the
+	 *  objective shown last stays plan A while it is still offered. Only for walks with no enemy about. */
+	private int shownObj = -1, shownDepth = -1; private final ArrayDeque<int[]> leftObjs = new ArrayDeque<>();   // {objective, game time left}
+	private void steady(List<Assist.Target> ts) {
+		float now = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now();
+		if (Dungeon.depth != shownDepth) { leftObjs.clear(); shownObj = -1; shownDepth = Dungeon.depth; }
+		while (!leftObjs.isEmpty() && now - leftObjs.peekFirst()[1] > 30) leftObjs.pollFirst();
+		if (ts.isEmpty()) { shownObj = -1; return; }
+		Assist.Target a = ts.get(0);
+		boolean walk = a.kind == Assist.GO && a.cell != Dungeon.hero.pos;
+		for (Assist.Target t : ts) if (t.kind == Assist.ENEMY) walk = false;
+		int ao = a.obj >= 0 ? a.obj : a.cell;
+		if (walk && shownObj >= 0 && ao != shownObj) {
+			boolean back = false; for (int[] l : leftObjs) back |= l[0] == ao;
+			if (back) for (int j = 1; j < ts.size(); j++) {
+				Assist.Target t = ts.get(j);
+				if ((t.kind == Assist.GO || t.kind == Assist.PICKUP) && (t.obj >= 0 ? t.obj : t.cell) == shownObj && t.cell != Dungeon.hero.pos) { ts.remove(j); ts.add(0, t); a = t; ao = shownObj; break; }
+			}
+		}
+		if (shownObj >= 0 && ao != shownObj) leftObjs.addLast(new int[]{shownObj, Math.round(now)});
+		while (leftObjs.size() > 4) leftObjs.pollFirst();
+		shownObj = a.kind == Assist.GO || a.kind == Assist.PICKUP ? ao : -1;
 	}
 
 	/** One entry an objective: a walk towards one already offered is left out (plan A's "read my mind" and "your choice"
