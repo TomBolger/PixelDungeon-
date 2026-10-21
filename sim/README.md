@@ -10,3 +10,8 @@ cores. Claude drives it from the cloud through two branches of this repo:
 
 Shattered PD bot: `shattered_bundle.sh NAME` packs the Java bot (after `shattered/build-server.sh`) with `simbot`,
 then `make_job.sh JOB bundle.tgz GAMES CHUNK FIRST "run SETTING=v ..."` and `submit.sh bundle.tgz out/JOB.job`.
+
+Settings the Shattered bot reads (job run lines): `SIMSEED=n` (repeatable games), `CHEAT=1` (the whole-game smoke test:
+the hero can't die, every quest, item kind, the alchemy pot and the win), `WATCH=1` (played with the watch's buttons
+through Controls, the Link and the WatchSim model), `MAXDEPTH`, `STARTDEPTH`, `MINES=0`, `ASCEND=0`. `cover.py report.txt...`
+adds up the games' COVER lines: wins, quests, bosses, subclasses, item kinds used, windows, the watch path's problems.

@@ -20,8 +20,12 @@ import java.util.*;
  * Plays Shattered PD by the Assistant alone: whenever the hero is ready, plan A ({@link Assist#plan}) is acted on
  * ({@link Assist#act}), as if the player only ever pressed Select. Windows are answered (closed, or their first button).
  * Args: class (0 warrior, 1 mage, 2 rogue, 3 huntress, 4 duelist, 5 cleric), seed, maxTurns.
- * Env: MODE (assist 1 near / 2 far, default 1), ITEMS (0/1, default 1), MAXDEPTH (default 26), V=1 (every decision).
- * Ends with one line "RESULT ..." for scripts.
+ * Env: MODE (assist 1 near / 2 far, default 1), ITEMS (0/1, default 1), MAXDEPTH (default 26), V=1 (every decision),
+ * SIMSEED=n (repeatable games: see Lockstep), CHEAT=1 (the whole-game smoke test: Cheat, BotWindows, BotItems, BotQuests,
+ * BotAlchemy, Rescue), WATCH=1 (played through the watch: WatchDriver), STARTDEPTH=n (cheat: straight down to n),
+ * ASCEND=0 (cheat: win at the Amulet instead of climbing out), MINES=0 (keep out of the Blacksmith's mine), MAXFRAMES,
+ * MAXWATCHFRAMES. Frames are a fixed 1/30 s of game time, in lockstep with the actor thread: no wall clock decides anything.
+ * Ends with "COVER ..." (sim/cover.py adds them up) and "RESULT ..." lines for scripts.
  */
 public class AssistBot {
 	static WatchApp app;
