@@ -24,12 +24,13 @@ import java.util.*;
 public final class BotStats {
 	private BotStats() { }
 
-	static final Map<String, Integer> lost = new TreeMap<>();
+	static final Map<String, Integer> lost = new TreeMap<>(), turnsBy = new TreeMap<>();
+	static String lastWhy = "";
 	static int lastHP = -1, healed, restTurns, starveTurns, decisions, attacks, surprised;
 	static float lastT = -1; static String lastSrc = "other"; static boolean lastRest;
 	static final int[] lostAt = new int[27], turnsAt = new int[27];
 
-	static void newGame() { lost.clear(); lastHP = -1; healed = 0; restTurns = 0; starveTurns = 0; lastT = -1; Arrays.fill(lostAt, 0); Arrays.fill(turnsAt, 0); attacks = 0; surprised = 0; }
+	static void newGame() { turnsBy.clear(); lastWhy = ""; lost.clear(); lastHP = -1; healed = 0; restTurns = 0; starveTurns = 0; lastT = -1; Arrays.fill(lostAt, 0); Arrays.fill(turnsAt, 0); attacks = 0; surprised = 0; }
 
 	/** Each decision (the hero ready), with the decision about to be acted on. */
 	static void decision(Assist.Target t) {
@@ -40,7 +41,7 @@ public final class BotStats {
 			if (dh < 0) { lost.merge(lastSrc, -dh, Integer::sum); lostAt[d] -= dh; } else healed += dh;
 			if (lastRest && dt > 0) restTurns += (int) dt;
 			Hunger hu = h.buff(Hunger.class); if (hu != null && hu.isStarving() && dt > 0) starveTurns += (int) dt;
-			if (dt > 0) turnsAt[d] += (int) dt;
+			if (dt > 0) { turnsAt[d] += (int) dt; turnsBy.merge(lastWhy, Math.round(dt), Integer::sum); }
 		}
 		lastHP = h.HP; lastT = now;
 		if (t != null && t.kind == Assist.ENEMY && t.action == null && t.cell >= 0 && L.adjacent(t.cell, h.pos)) {
@@ -49,6 +50,7 @@ public final class BotStats {
 		}
 		lastRest = t != null && t.kind == Assist.WAIT && Assist.REST_ACT.equals(t.action);
 		lastSrc = source(h, L);
+		lastWhy = t == null ? "?" : t.why.replaceAll("[;=,:]", " ");
 	}
 
 	static String source(Hero h, Level L) {
@@ -71,6 +73,7 @@ public final class BotStats {
 		int tot = 0; for (int v : lost.values()) tot += v;
 		sb.append("lost=").append(tot).append(";healed=").append(healed).append(";rest=").append(restTurns).append(";starve=").append(starveTurns).append(";attacks=").append(attacks).append(";surprised=").append(surprised).append(";");
 		sb.append("by="); for (Map.Entry<String, Integer> e : lost.entrySet()) sb.append(e.getKey()).append(':').append(e.getValue()).append(','); sb.append(';');
+		sb.append("turnsBy="); for (Map.Entry<String, Integer> e : turnsBy.entrySet()) sb.append(e.getKey()).append(':').append(e.getValue()).append(','); sb.append(';');
 		sb.append("lostAt="); for (int i = 1; i < 27; i++) if (lostAt[i] > 0 || turnsAt[i] > 0) sb.append(i).append(':').append(lostAt[i]).append('/').append(turnsAt[i]).append(','); sb.append(';');
 		if (h != null) {
 			int heal = 0, sou = 0, pos = 0, unkP = 0, unkS = 0;

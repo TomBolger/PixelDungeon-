@@ -127,7 +127,7 @@ public final class Assist {
 	private static int waitId = -1, waitCount;     // (the same enemy waited for again and again: stop)
 	private static int lastPos = -1, from = -1;
 	private static boolean[] srchFrom, checked;    // searched from / cells searched
-	private static boolean fishSeen;               // a piranha seen on this floor: keep out of the water
+	private static boolean fishSeen; private static float fishAt = -99;               // a piranha seen on this floor: keep out of the water
 	private static boolean[] hazMem;               // gas / fire seen on the cell and not seen gone since (only what the hero saw)
 	private static final Set<Integer> sentries = new HashSet<>();   // sentries seen (they never move)
 	private static boolean[] sentryZone; private static int sentryKey = -1;
@@ -164,7 +164,12 @@ public final class Assist {
 	static final boolean AMBUSH = opt("AMBUSH", false);   // (A/B H-amb1, 120 paired games: -0.16 depth, more starving: off)
 	static final boolean CRABAMB = opt("CRABAMB", true);
 	static final boolean SHORE = opt("SHORE", true);   // with piranhas about, the shore too (they bite from the water)
-	static final boolean OOZE = opt("OOZE", true);     // Goo's ooze: into water to wash it off   // the Great Crab: ambushes are the only blows it doesn't block
+	static final boolean OOZE = opt("OOZE", true);
+	static final boolean GRASS = opt("GRASS", true);
+	static final boolean STAIRS = opt("STAIRS", true);
+	static final boolean ADJZAP = opt("ADJZAP", true);
+	static final boolean STAFFUP = opt("STAFFUP", true);   // the Mage's first 3 upgrades into the staff
+	static final int HEALBOSS = optInt("HEALBOSS", 55);    // a boss in sight: Healing below this share (Goo's pumped blow is triple)   // the Mage's staff zapped point blank too (magic: double accuracy, more damage than the staff's own blow)   // low and losing: up the stairs (only allies follow), rest there, come back   // tall grass walked for dew and seeds (off: only within 2 steps)     // Goo's ooze: into water to wash it off   // the Great Crab: ambushes are the only blows it doesn't block
 	static int optInt(String name, int def) { try { String v = System.getenv("AS_" + name); return v == null ? def : Integer.parseInt(v); } catch (Throwable e) { return def; } }
 	static final int HEALPCT = optInt("HEALPCT", 40);   // (a known Healing potion is drunk in a fight below this share of health)
 
@@ -360,7 +365,7 @@ public final class Assist {
 		if (floor == l && srchFrom != null && srchFrom.length == l.length()) return;
 		floor = l; goal = -1; passed.clear(); declined.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
 		vetoId = -1; vetoStand = -1; resumeCell = -1; stepBackWaited = false; ambGoal = -1; ambId = -1; waitId = -1; lastPos = -1; from = -1;
-		srchFrom = new boolean[l.length()]; checked = new boolean[l.length()]; fishSeen = false; talked.clear(); bad.clear();
+		srchFrom = new boolean[l.length()]; checked = new boolean[l.length()]; fishSeen = false; fishAt = -99; talked.clear(); bad.clear();
 		hazMem = new boolean[l.length()]; sentries.clear(); sentryZone = new boolean[l.length()]; sentryKey = -1; crabSeen = -1; bossSeen = -1;
 		doorSpot = -1; floorT0 = Actor.now(); actCell = -1; actTime = -1; eatBand = 0;
 	}
@@ -378,7 +383,7 @@ public final class Assist {
 		if (from >= 0 && from != hp) { int dx = x(hp) - x(from), dy = y(hp) - y(from); if (Math.abs(dx) <= 8 && Math.abs(dy) <= 8) head = pang(dx, dy); }
 		seenFoe = false; fish = fishSeen;
 		for (Mob m : mobs()) if (L.heroFOV[m.pos] && m.isAlive()) {
-			if (m instanceof Piranha) { fish = true; fishSeen = true; }
+			if (m instanceof Piranha) { fish = true; fishSeen = true; fishAt = Actor.now(); }
 			if (m instanceof com.shatteredpixel.shatteredpixeldungeon.levels.rooms.special.SentryRoom.Sentry) sentries.add(m.pos);
 		}
 		for (int c = 0; c < LEN; c++) {
@@ -932,7 +937,7 @@ public final class Assist {
 			if (!way) { int d0 = 9; for (int c = 0; c < LEN; c++) if (walk(c) < d0 && deadEnd(c) && ahead(c) && !bad.containsKey(c)) { d0 = walk(c); best = c; }
 				if (best >= 0) { why[0] = "dead end: search"; return best; } }
 			Waterskin ws = bag(Waterskin.class);
-			if ((best = look(ws != null && !ws.isFull())) >= 0) { why[0] = "look"; return best; }
+			if ((best = look(ws != null && !ws.isFull())) >= 0) { why[0] = planAGrass ? "look: grass" : "look"; return best; }
 			if (!amulet || !way) {   // explore: the nearest spot beside the unknown (the one chosen before while no other is 3 nearer)
 				int g = goal; bk = INF;
 				for (int p = 0; p < 2 && best < 0; p++)
@@ -1009,7 +1014,7 @@ public final class Assist {
 			int d = dist[c];
 			if (d >= INF || d == 0 || !ahead(c) || bad.containsKey(c)) continue;
 			boolean k = c == goal;
-			boolean g = gr && L.map[c] == Terrain.HIGH_GRASS && (all || k || (onScreen(c) && d <= 8)) && seenChar(c) == null && seenHeap(c) == null;
+			boolean g = gr && L.map[c] == Terrain.HIGH_GRASS && (GRASS ? (all || k || (onScreen(c) && d <= 8)) : d <= 2) && seenChar(c) == null && seenHeap(c) == null;
 			if (!g && !((onScreen(c) || k) && unseenBy(c))) continue;
 			if (k) d = d > 3 ? d - 3 : 0;
 			else { if (od < 0 && head >= 0 && off(c, head) > 16) d += d / 4 + 2;
@@ -1152,11 +1157,26 @@ public final class Assist {
 			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && dist[c] <= (adjFoe ? 2 : 12) && water(c) && pass[c] && seenChar(c) == null && !foul(c)) { bk = dist[c]; best = c; }
 			if (best >= 0) return new Target(best, GO, "escape: wash off the ooze");
 		}
-		if (inDanger) {   // on a sentry's floor, or in the water with piranhas about: off it, the shortest way
+		Target up = STAIRS ? upstairs() : null;
+		if (up != null) return up;
+		if (inDanger && (sentryZone[hp] || hazMem[hp] || Actor.now() - fishAt <= 5)) {   // on a sentry's floor, or by the water with a piranha just seen: off it, the shortest way
 			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && !danger[c] && open[c] && seenChar(c) == null) { bk = dist[c]; best = c; }
 			if (best >= 0) return new Target(best, GO, sentryZone[hp] ? "escape: off the sentry's floor" : "escape: out of the water");
 		}
 		return null;
+	}
+
+	/** Low, an enemy after the hero, no known Healing: the way up is a sure escape (enemies stay behind; strategy-reference 2.3).
+	 *  Only from depth 2, not on a boss floor, not with the Amulet, and only when the stairs are nearer than the danger. */
+	private static Target upstairs() {
+		if (Dungeon.depth <= 1 || Dungeon.bossLevel() || bag(Amulet.class) != null || H.HP * 100 >= H.HT * 35) return null;
+		PotionOfHealing heal = bag(PotionOfHealing.class); if (heal != null && heal.isKnown()) return null;
+		int ent = L.entrance(); if (L.locked || ent < 0 || ent >= LEN || !known[ent] || dist[ent] >= INF || dist[ent] > 8 || bad.containsKey(ent)) return null;
+		int near = INF; boolean hunted = false;
+		for (Mob m : mobs()) if (enemy(m) && hunting(m) && !(m instanceof NPC)) { hunted = true; near = Math.min(near, distance(m.pos, ent)); }
+		if (!hunted || near < dist[ent]) return null;
+		Target t = new Target(ent, ent == hp ? PICKUP : GO, "escape: up the stairs");
+		return t;
 	}
 
 	private static Target tactics() {
@@ -1245,7 +1265,8 @@ public final class Assist {
 			if (f != null) return use(f, Food.AC_EAT, -1, "starving: eat");
 		}
 		PotionOfHealing heal = bag(PotionOfHealing.class); boolean pot = heal != null && heal.isKnown();
-		if (seen && H.HP * 100 < H.HT * HEALPCT && pot && (adj || hard > 0)) return use(heal, Potion.AC_DRINK, -1, "low: heal");
+		boolean bossSeenNow = false; for (Mob m : mobs()) if (enemy(m) && Char.hasProp(m, Char.Property.BOSS)) bossSeenNow = true;
+		if (seen && H.HP * 100 < H.HT * (bossSeenNow ? HEALBOSS : HEALPCT) && pot && (adj || hard > 0)) return use(heal, Potion.AC_DRINK, -1, "low: heal");
 		Waterskin ws = bag(Waterskin.class);
 		if (adj && H.HP * 4 < H.HT && !pot && ws != null && ws.actions(H).contains("DRINK")) return use(ws, "DRINK", -1, "low: waterskin");
 		if (adj && H.HP * 4 < H.HT && !pot) {   // dying beside one: a known way out first
@@ -1266,6 +1287,7 @@ public final class Assist {
 		if (scrollsOk && up != null && up.isKnown() && !declined(ScrollOfUpgrade.class, Scroll.AC_READ)) {
 			Armor a = H.belongings.armor(); Item wpn = H.belongings.weapon();
 			Item on = a != null && !(a.cursed && a.cursedKnown) ? a : wpn;
+			if (STAFFUP && wpn instanceof MagesStaff && wpn.level() < 3) on = wpn;   // (the Mage: the staff first, strategy-reference 2.1; its level is shown)
 			boolean behind = a == null || !a.levelKnown || a.level() * 3 < Dungeon.depth;
 			if (on != null && (!upgradeHeld || behind)) { Target t = use(up, Scroll.AC_READ, -1, "upgrade"); t.on = on; return t; }
 		}
@@ -1337,7 +1359,13 @@ public final class Assist {
 	private static Target ranged() {
 		Mob e = null; int ed = 99;
 		for (Mob m : mobs()) { if (!enemy(m) || !hunting(m) || m instanceof NPC) continue; int d = distance(m.pos, hp); if (d < ed && line(hp, m.pos)) { ed = d; e = m; } }
-		if (e == null || ed < 2) return null;
+		if (e == null) return null;
+		if (ed < 2) {   // beside the hero: only the staff, and only an attack bolt
+			MagesStaff st = ADJZAP ? bag(MagesStaff.class) : null;
+			Object w = st == null ? null : field(st, "wand");
+			if (w instanceof Wand && charged((Wand) w, st) && attackWand(w.getClass(), ed) && !(w instanceof WandOfLightning) && !(w instanceof WandOfFireblast) && !(w instanceof WandOfCorrosion)) return use(st, MagesStaff.AC_ZAP, e.pos, "zap point blank");
+			return null;
+		}
 		if (e instanceof Shaman || e instanceof Warlock) return null;   // those want melee from round a corner, not a duel
 		boolean shooter = e instanceof Tengu || e instanceof Eye || e instanceof Scorpio;
 		for (int q = 0; q < Math.min(QuickSlot.SIZE, 6); q++) {
