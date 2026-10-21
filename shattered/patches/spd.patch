@@ -109,7 +109,7 @@ index d83ff2e..e0ddaab 100644
  		float pan = rightVolume - leftVolume;
  		if (enabled && ids.containsKey( id )) {
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java b/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
-index 4fd4e90..9be55ea 100644
+index 4fd4e90..6db7bf7 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
 +++ b/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
 @@ -92,7 +92,11 @@ public class Emitter extends Group {
@@ -124,6 +124,36 @@ index 4fd4e90..9be55ea 100644
  		this.factory = factory;
  		this.lightMode = factory.lightMode();
  
+@@ -119,10 +123,14 @@ public class Emitter extends Group {
+ 			return;
+ 		}
+ 		
++		//Pebxel (headless bots): particles come from a generator of their own, never the game's (pebxelOff: none at all)
++		if (Random.pebxelVisuals) Random.pebxelVisual(true);
++		try {
+ 		if (on) {
+ 			time += Game.elapsed;
+ 			while (time > interval) {
+ 				time -= interval;
++				if (pebxelOff) count++; else
+ 				emit( count++ );
+ 				if (quantity > 0 && count >= quantity) {
+ 					on = false;
+@@ -134,8 +142,14 @@ public class Emitter extends Group {
+ 		}
+ 		
+ 		super.update();
++		} finally {
++			if (Random.pebxelVisuals) Random.pebxelVisual(false);
++		}
+ 	}
+ 
++	/** Pebxel: headless bots in a hurry, nothing to show: emitters keep their timing but make no particles. */
++	public static boolean pebxelOff;
++
+ 	@Override
+ 	public void revive() {
+ 		//ensure certain emitter variables default to true
 diff --git a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java b/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
 index 863b15b..4ef5ba4 100644
 --- a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
@@ -150,10 +180,10 @@ index 863b15b..4ef5ba4 100644
  	//this is very confusing, I know.
  	public BitmapFont getFont(int size, String text, boolean flipped, boolean border) {
 diff --git a/SPD-classes/src/main/java/com/watabou/utils/Random.java b/SPD-classes/src/main/java/com/watabou/utils/Random.java
-index 38c1fe5..d34e977 100644
+index 38c1fe5..86e0420 100644
 --- a/SPD-classes/src/main/java/com/watabou/utils/Random.java
 +++ b/SPD-classes/src/main/java/com/watabou/utils/Random.java
-@@ -39,13 +39,19 @@ public class Random {
+@@ -39,13 +39,28 @@ public class Random {
  		resetGenerators();
  	}
  
@@ -161,6 +191,15 @@ index 38c1fe5..d34e977 100644
 +	public static java.util.Random pebxelSource;
 +	private static java.util.Random unseeded(){
 +		return pebxelSource != null ? new java.util.Random(pebxelSource.nextLong()) : new java.util.Random();
++	}
++
++	//Pebxel: headless bots (in lockstep, so no other thread draws meanwhile) give the particles a generator of their own,
++	// so how many frames a game takes (how much the effects draw) never changes the game's own random numbers
++	public static boolean pebxelVisuals;
++	private static final java.util.Random pebxelVisualGen = new java.util.Random(0x5eed);
++	public static synchronized void pebxelVisual( boolean on ){
++		if (on) generators.push(pebxelVisualGen);
++		else if (generators.peekFirst() == pebxelVisualGen && generators.size() > 1) generators.pop();
 +	}
 +
  	public static synchronized void resetGenerators(){
@@ -296,7 +335,7 @@ index 1c02505..9254077 100644
  			
  			Actor.fixTime();
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
-index 346718f..50259d8 100644
+index 346718f..ed7e821 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 @@ -32,6 +32,7 @@ import com.watabou.utils.Bundlable;
@@ -307,7 +346,25 @@ index 346718f..50259d8 100644
  import java.util.HashSet;
  
  public abstract class Actor implements Bundlable {
-@@ -241,6 +242,46 @@ public abstract class Actor implements Bundlable {
+@@ -42,6 +43,17 @@ public abstract class Actor implements Bundlable {
+ 
+ 	private int id = 0;
+ 
++	//Pebxel: a hash code of its own, numbered as actors are made, in place of the JVM's identity hash: which actor of
++	// several due at the same time goes first, and the order of every set of characters, mobs and buffs, follow it. With
++	// the identity hash (even numbered in order, -XX:hashCode=3) anything else hashed first, an extra line printed by a
++	// bot, a field read by reflection, shifted every number after it and so the whole game.
++	private static int pebxelHashes;
++	private final int pebxelHash = ++pebxelHashes;
++	@Override
++	public int hashCode() {
++		return pebxelHash;
++	}
++
+ 	//default priority values for general actor categories
+ 	//note that some specific actors pick more specific values
+ 	//e.g. a buff acting before all normal buffs might have priority BUFF_PRIO + 1
+@@ -241,6 +253,49 @@ public abstract class Actor implements Bundlable {
  		return current != null;
  	}
  
@@ -318,8 +375,11 @@ index 346718f..50259d8 100644
 +	public static volatile boolean pebxelBusy;
 +	private static volatile Object pebxelOn;
 +	private static final ArrayList<Object> pebxelLater = new ArrayList<>();
++	public static volatile Thread pebxelWaiter;   //(the bot thread waiting for busy to clear: woken at once)
 +	public static void pebxelWait( Object o ) throws InterruptedException {
 +		pebxelOn = o; pebxelBusy = false;
++		Thread w = pebxelWaiter;
++		if (w != null) java.util.concurrent.locks.LockSupport.unpark(w);
 +		do o.wait(); while (pebxelLockstep && pebxelOn == o);   //(in lockstep, only a wake-up given between frames counts)
 +	}
 +	public static void pebxelWake( Object o ) {
@@ -354,7 +414,7 @@ index 346718f..50259d8 100644
  	public static int curActorPriority() {
  		return current != null ? current.actPriority : HERO_PRIO;
  	}
-@@ -283,7 +324,7 @@ public abstract class Actor implements Bundlable {
+@@ -283,7 +338,7 @@ public abstract class Actor implements Bundlable {
  					try {
  						synchronized (((Char)acting).sprite) {
  							if (((Char)acting).sprite.isMoving) {
@@ -363,7 +423,7 @@ index 346718f..50259d8 100644
  							}
  						}
  					} catch (InterruptedException e) {
-@@ -321,7 +362,7 @@ public abstract class Actor implements Bundlable {
+@@ -321,7 +376,7 @@ public abstract class Actor implements Bundlable {
  					Thread.currentThread().notify();
  					
  					try {

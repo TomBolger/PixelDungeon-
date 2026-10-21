@@ -32,6 +32,12 @@ public class AssistBot {
 	static boolean v;
 	static final boolean WATCH = "1".equals(System.getenv("WATCH"));
 	static WatchDriver watch;
+	/** FAST (default unless WATCH; FAST=0 for the old way): frames of FRAMEDT (default 0.2 s, the most Shattered itself
+	 *  takes in one frame) in place of 1/30 s, and emitters make no particles (PARTICLES=1 keeps them). Nothing the
+	 *  game decides waits on wall time or frame count, only on animations ending, and those end in a frame or two
+	 *  (a step's 0.2 s is one frame). Idea from Shatterfish's SceneStepper (github.com/watchthelight/shatterfish, GPL-3),
+	 *  which steps headless Shattered at 0.2 s a frame. */
+	static final boolean FAST = !WATCH && !"0".equals(System.getenv("FAST"));
 	static void step() { if (watch != null) watch.frame(); else Lockstep.frame(app); }
 	static Object lastScene; static int sceneFrames, branch;
 	static final ArrayDeque<String> log = new ArrayDeque<>(), recent = new ArrayDeque<>();
@@ -51,6 +57,10 @@ public class AssistBot {
 		game.drawAlways = WATCH;   // (the link needs the drawing code run: the fog and some pictures update while drawn)
 		app = new WatchApp(game, dir, WATCH);
 		if (WATCH) app.graphics.soft.raster = false;
+		if (FAST) {   // (the default without the watch: see FAST below)
+			app.graphics.delta = Float.parseFloat(System.getenv().getOrDefault("FRAMEDT", "0.2"));
+			com.watabou.noosa.particles.Emitter.pebxelOff = !"1".equals(System.getenv("PARTICLES"));
+		}
 		SPDSettings.set(app.getPreferences(SPDSettings.DEFAULT_PREFS_FILE));
 		FileUtils.setDefaultFileProperties(Files.FileType.External, dir + "/");
 		app.create();
@@ -164,6 +174,7 @@ public class AssistBot {
 			long dn = System.nanoTime() - n0; planNs += dn; plans++; maxPlanNs = Math.max(maxPlanNs, dn);
 			if (Assist.lastError != null) { System.out.println("  ASSIST ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; }
 			decisions++;
+			for (int k = 0; k < PERTURB; k++) System.identityHashCode(new Object());   // (tests: the game must not care)
 			if (depthDecisions.merge(depth, 1, Integer::sum) > FLOOR_TURNS * 2) { end = "depth timeout (" + FLOOR_TURNS * 2 + " decisions on depth " + depth + " over all visits)"; break; }
 			if (++floorDecisions > FLOOR_TURNS) { end = "floor timeout (" + FLOOR_TURNS + " decisions on depth " + depth + ")"; break; }
 			// (cheat games, in this order: a quest step, an item kind to try now and then, the rescue from a stall, the pot)
@@ -228,6 +239,7 @@ public class AssistBot {
 	}
 	static String saveDir;
 
+	static final int PERTURB = Integer.parseInt(System.getenv().getOrDefault("PERTURB", "0"));
 	static final boolean VRND = System.getenv("VRND") != null;
 	/** The random numbers' state (debugging repeatability: needs --add-opens java.base/java.util=ALL-UNNAMED and java.util.concurrent.atomic). */
 	static String rnd() {

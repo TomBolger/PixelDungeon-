@@ -68,7 +68,7 @@ public final class Lockstep {
 		com.watabou.utils.Random.resetGenerators();
 	}
 
-	public static void frame(WatchApp app) { Actor.pebxelLockstep = true; Game.pebxelCreated = Lockstep::settle; app.frame(); frames++; settle(); }
+	public static void frame(WatchApp app) { Actor.pebxelLockstep = true; com.watabou.utils.Random.pebxelVisuals = true; Game.pebxelCreated = Lockstep::settle; app.frame(); frames++; settle(); }
 
 	/** Waits (without the wall clock) until the actor thread and any floor building are idle. */
 	public static void settle() {
@@ -88,10 +88,13 @@ public final class Lockstep {
 		waits++;
 		Thread at = actorThread();
 		long c0 = at == null ? 0 : cpu(at), n = 0;
+		// (the actor thread unparks us the moment it waits again: a short spin, then asleep, not polling. With 12 games on
+		// 12 cores the old spin and 20 us naps spent CPU the other games needed)
+		Actor.pebxelWaiter = Thread.currentThread();
 		while (Actor.pebxelBusy) {
 			n++;
-			if (n < 2000) Thread.onSpinWait(); else LockSupport.parkNanos(20_000);
-			if ((n & 4095) == 0) {
+			if (n < 200) Thread.onSpinWait(); else LockSupport.parkNanos(1_000_000);
+			if (n > 200 && (n & 63) == 0 || (n & 4095) == 0) {
 				if (at == null) at = actorThread();
 				if (at == null || !at.isAlive()) return;
 				if (cpu(at) - c0 > RUNAWAY_NS) { stuck = "actor thread ran " + RUNAWAY_NS / 1_000_000_000 + " s of CPU without waiting"; dump(at); return; }
