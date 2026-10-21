@@ -2,6 +2,7 @@ package pebxel;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.Statistics;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
@@ -22,7 +23,7 @@ public final class Rescue {
 	static int floorsRescued, lastDepth = -1, still;
 	static long lastProgress = Long.MIN_VALUE;
 	static boolean on;
-	static Mob fightOn; static int fightHP, fightStill;
+	static Mob fightOn; static int fightHP, fightStill, upPos = -1; static float upNow = -1;
 	static int floorDecisions, lastDepth2 = -1, lastFrom = -1, lastTo = -1, noMove;
 
 	static int bossLow = Integer.MAX_VALUE;
@@ -94,7 +95,10 @@ public final class Rescue {
 			if (c >= 0 && c != h.pos) return walkOrPut(h, L, c, "rescue: lead them away from the boss");
 		}
 		if (near == null && other != null) return walkOrPut(h, L, other.pos, "rescue: the boss can't be hurt: " + other.getClass().getSimpleName());
-		if (near != null && !up) {
+		// climbing: no fights, unless the last step went nowhere (webbed, rooted, blocked)
+		boolean stuckUp = up && h.pos == upPos && Actor.now() == upNow;
+		upPos = h.pos; upNow = Actor.now();
+		if (near != null && (!up || stuckUp || h.rooted)) {
 			if (h.buff(com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Charm.class) != null) { com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff.detach(h, com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Charm.class); Coverage.problem("charmed: charm taken off"); }
 			// one that never gets hurt (the Ghost's crab parries every blow from one it sees): a moment unseen (the cheat)
 			if (near == fightOn && near.HP >= fightHP) { if (++fightStill >= 15) { com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff.affect(h, com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Invisibility.class, 3f); fightStill = 0; Coverage.problem("unhurt " + near.getClass().getSimpleName() + ": made the hero unseen"); } }

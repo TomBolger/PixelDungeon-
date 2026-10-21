@@ -95,6 +95,7 @@ public final class BotWindows {
 	public static Answer decideScene(com.watabou.noosa.Scene sc) {
 		List<Ui.Part> bs = Controls.buttons(sc);
 		String kind = sc.getClass().getSimpleName();
+		if (kind.equals("AlchemyScene")) return BotAlchemy.scene(sc);
 		if (kind.equals("AmuletScene")) {
 			Gizmo b = byText(bs, "0".equals(System.getenv("ASCEND")) ? "call it a day" : "not done");
 			if (b != null) return new Answer(b, null, "the Amulet");

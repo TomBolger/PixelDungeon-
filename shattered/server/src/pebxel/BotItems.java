@@ -30,7 +30,25 @@ public final class BotItems {
 	// never: dropping things, ending the game, things that only show information or would undo the run
 	static final Set<String> SKIP = new HashSet<>(Arrays.asList("DROP", "END", "INFO", "UNEQUIP", "AC_INFO", "REMOVE", "CHOOSE", "SET", "RETURN"));
 
-	static void newGame() { done.clear(); carried.clear(); tries = 0; lastTryTurn = -100; }
+	/** Item kind -> actions that took effect (game time went by, or the item changed: used up, worn, charges spent). */
+	static final Map<String, Set<String>> worked = new TreeMap<>();
+	private static Item pItem; private static String pAct; private static float pNow; private static int pQty, pChg; private static boolean pWorn, pHeld;
+	static int charges(Item i) { return i instanceof com.shatteredpixel.shatteredpixeldungeon.items.wands.Wand ? ((com.shatteredpixel.shatteredpixeldungeon.items.wands.Wand) i).curCharges
+			: i instanceof com.shatteredpixel.shatteredpixeldungeon.items.artifacts.Artifact && WatchDriver.get(i, "charge") instanceof Integer ? (Integer) WatchDriver.get(i, "charge") : 0; }
+	static void pending(Item i, String a) {
+		Hero h = Dungeon.hero; pItem = i; pAct = a; pNow = Actor.now(); pQty = i.quantity(); pChg = charges(i);
+		pWorn = i instanceof EquipableItem && ((EquipableItem) i).isEquipped(h); pHeld = h.belongings.contains(i);
+	}
+	/** The next decision: did the last item use take effect? */
+	static void settle() {
+		if (pItem == null) return;
+		Hero h = Dungeon.hero; Item i = pItem; pItem = null;
+		boolean worn = i instanceof EquipableItem && ((EquipableItem) i).isEquipped(h);
+		if (Actor.now() > pNow || i.quantity() != pQty || charges(i) != pChg || worn != pWorn || h.belongings.contains(i) != pHeld)
+			worked.computeIfAbsent(kind(i), k -> new TreeSet<>()).add(pAct);
+	}
+
+	static void newGame() { worked.clear(); pItem = null; done.clear(); carried.clear(); tries = 0; lastTryTurn = -100; }
 
 	static String kind(Item i) { String n = i.getClass().getName(); return n.substring(n.lastIndexOf('.') + 1).replace('$', '.'); }
 
@@ -57,6 +75,11 @@ public final class BotItems {
 				if (w > dw) { dw = w; drop = i; }
 			}
 			if (drop != null) { dropped++; Assist.Target t = new Assist.Target(h.pos, Assist.USE, "full pack: drop " + kind(drop)); t.item = drop; t.action = Item.AC_DROP; t.obj = -1; return t; }
+		}
+		// the subclass and the armour ability: as soon as there's the mask or the crown
+		for (Item i : h.belongings.backpack) if ((i instanceof TengusMask || i instanceof KingsCrown) && !done.containsKey(kind(i))) {
+			String a = "WEAR";
+			note(i, a); Assist.Target t = new Assist.Target(h.pos, Assist.USE, "wear " + kind(i)); t.item = i; t.action = a; t.obj = -1; return t;
 		}
 		if (turn - lastTryTurn < 6) return null;
 		for (Mob m : L.mobs) if (m.alignment == Char.Alignment.ENEMY && L.heroFOV[m.pos] && m.state == m.HUNTING && L.distance(m.pos, h.pos) <= 2) return null;
@@ -116,11 +139,18 @@ public final class BotItems {
 		if (h.belongings.ring() != null) worn.add(h.belongings.ring());
 		if (h.belongings.misc() != null) worn.add(h.belongings.misc());
 		try {
+			if (BotAlchemy.want != null) { Item w = BotAlchemy.want; BotAlchemy.want = null; if (sel.itemSelectable(w) && h.belongings.contains(w)) return w; }
 			for (Item i : worn) if (sel.itemSelectable(i)) return i;
 			for (Item i : h.belongings.backpack) if (!(i instanceof Bag) && sel.itemSelectable(i)) return i;
 			for (Item i : h.belongings) if (sel.itemSelectable(i)) return i;
 		} catch (Throwable e) { }
 		return null;
+	}
+
+	static String workedSummary() {
+		StringBuilder sb = new StringBuilder();
+		for (Map.Entry<String, Set<String>> e : worked.entrySet()) sb.append(e.getKey()).append(':').append(String.join("/", e.getValue())).append(',');
+		return sb.toString();
 	}
 
 	static String summary() {

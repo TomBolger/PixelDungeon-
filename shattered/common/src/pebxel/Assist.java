@@ -666,6 +666,8 @@ public final class Assist {
 		if (h.type == Heap.Type.HEAP) {
 			Item top = h.peek();
 			if (!roomFor(top) || junk(top)) return false;
+			// the Wandmaker's candles, set round the ritual spot: they stay there
+			if (top instanceof com.shatteredpixel.shatteredpixeldungeon.items.quest.CeremonialCandle && L.adjacent(c, com.shatteredpixel.shatteredpixeldungeon.items.quest.CeremonialCandle.ritualPos)) return false;
 			if (top instanceof Dewdrop) {   // with room in the waterskin it goes there; else it heals (at full health it stays put)
 				Waterskin ws = bag(Waterskin.class);
 				if (!(ws != null && !ws.isFull()) && H.HP * 2 >= H.HT) return false;

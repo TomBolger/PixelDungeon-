@@ -57,7 +57,7 @@ public class AssistBot {
 		WatchSettings.assist(Integer.parseInt(System.getenv().getOrDefault("MODE", "1")));
 		WatchSettings.itemAssist(!"0".equals(System.getenv("ITEMS")));
 		Assist.reset();
-		BotWindows.newGame(seed); BotItems.newGame(); Coverage.newGame();
+		BotWindows.newGame(seed); BotItems.newGame(); Coverage.newGame(); BotAlchemy.newGame();
 		Random talentR = new Random(seed * 13 + 5);
 
 		GamesInProgress.selectedClass = cls; GamesInProgress.curSlot = 1;
@@ -89,7 +89,7 @@ public class AssistBot {
 			}
 			betweenF = 0;
 			if (Statistics.gameWon || Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.SurfaceScene) { end = "WIN"; break; }
-			if (!(Game.scene() instanceof GameScene)) {   // another screen (the Amulet's): answered like a window
+			if (!(Game.scene() instanceof GameScene) && Ui.topWindow() == null) {   // another screen (the Amulet's, alchemy): answered like a window
 				Coverage.scene(Game.scene());
 				if (Game.scene() != lastScene) { lastScene = Game.scene(); sceneFrames = 0; }
 				if (++sceneFrames % 30 == 2) { BotWindows.Answer an = BotWindows.decideScene(Game.scene()); System.out.println("  SCENE " + Game.scene().getClass().getSimpleName() + " -> " + an);
@@ -133,7 +133,7 @@ public class AssistBot {
 				continue;
 			}
 			readyF = f; readyNow = Actor.now();
-			Coverage.look(); BotWindows.turn();
+			Coverage.look(); BotWindows.turn(); BotItems.settle();
 			if (Cheat.ON && Dungeon.depth < START_DEPTH && !Dungeon.bossLevel() && Dungeon.hero.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.Amulet.class) == null) {   // (tests: straight down to START_DEPTH)
 				com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(false);
 				if (tr != null) { Cheat.apply(); StairsTest.jump(tr); continue; }
@@ -154,7 +154,10 @@ public class AssistBot {
 			decisions++;
 			if (depthDecisions.merge(depth, 1, Integer::sum) > FLOOR_TURNS * 2) { end = "depth timeout (" + FLOOR_TURNS * 2 + " decisions on depth " + depth + " over all visits)"; break; }
 			if (++floorDecisions > FLOOR_TURNS) { end = "floor timeout (" + FLOOR_TURNS + " decisions on depth " + depth + ")"; break; }
-			Assist.Target t = Cheat.ON ? Rescue.check() : null;
+			Assist.Target t = Cheat.ON ? BotQuests.pick() : null;
+			Assist.Target rs = Cheat.ON ? Rescue.check() : null;   // (checked every decision: it counts the stall)
+			if (t == null) t = rs;
+			if (t == null && Cheat.ON) t = BotAlchemy.pick();
 			if (t == null && Cheat.ON) t = BotItems.pick();
 			if (t == null && plan.isEmpty()) { Dungeon.hero.rest(false); continue; }
 			if (t == null) t = plan.get(0);
@@ -181,6 +184,7 @@ public class AssistBot {
 			if (v) System.out.println(line);
 			if (t.kind == Assist.PICKUP) { Heap hh = Dungeon.level.heaps.get(t.cell); if (hh != null && t.cell == Dungeon.hero.pos) { pickHeap = hh; pickSize = hh.size(); } }
 			float tn = Actor.now(); int pn = Dungeon.hero.pos;
+			if (t.kind == Assist.USE && t.item != null) BotItems.pending(t.item, t.action);
 			boolean ok = watch != null && Controls.aiming() == false && watch.act(t);
 			if (!ok && Ui.topWindow() == null && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn) ok = Assist.act(t);
 			// (the actor thread picks the action up on a later frame: until then hero.ready still reads true)

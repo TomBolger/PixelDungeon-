@@ -9,7 +9,7 @@ import java.util.*;
 
 /**
  * CHEAT=1: a smoke test of the whole game, not a way to play it. The hero can't really be hurt (thousands of HP,
- * topped up between turns), is strong and a few levels ahead of the floor, knows every item it carries, never
+ * topped up between turns), is strong and a few levels ahead of the floor, knows every item it carries (in games with an even seed), never
  * starves and has gold to spend; everything else is the game as shipped. Results made this way never count as the
  * bot getting better.
  */
@@ -28,7 +28,8 @@ public final class Cheat {
 		if (h.STR < 22) h.STR = 22;
 		int want = Math.min(30, Dungeon.depth + 4);
 		for (int k = 0; k < 30 && h.lvl < want; k++) { h.earnExp(h.maxExp() - h.exp, Cheat.class); levelsGiven++; }
-		for (Item i : h.belongings) if (!i.isIdentified()) i.identify(false);
+		// (every other game: so Identify, Detect Magic and Intuition get used in the rest)
+		if (Dungeon.seed % 2 == 0) for (Item i : h.belongings) if (!i.isIdentified()) i.identify(false);
 		Hunger hu = h.buff(Hunger.class);
 		if (hu != null && hu.hunger() >= Hunger.STARVING - 5) hu.satisfy(Hunger.STARVING);
 		if (Dungeon.gold < 5000) Dungeon.gold = 5000;

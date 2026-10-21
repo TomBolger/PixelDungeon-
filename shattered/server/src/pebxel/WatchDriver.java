@@ -72,6 +72,9 @@ public final class WatchDriver {
 		}
 		return null;
 	}
+	static Object getStatic(Class<?> c, String name) {
+		try { Field f = c.getDeclaredField(name); f.setAccessible(true); return f.get(null); } catch (Exception e) { return null; }
+	}
 	/** The value of the first field of a type (a button's captured item or bag). */
 	static Object captured(Object o, Class<?> type) {
 		for (Field f : o.getClass().getDeclaredFields()) if (type.isAssignableFrom(f.getType())) { try { f.setAccessible(true); return f.get(o); } catch (Exception e) { } }

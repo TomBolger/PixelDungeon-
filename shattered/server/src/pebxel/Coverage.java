@@ -83,6 +83,8 @@ public final class Coverage {
 		kv(sb, "seen", seen.toString());
 		kv(sb, "used", used.toString());
 		kv(sb, "tried", BotItems.summary().replace(' ', ','));
+		kv(sb, "worked", BotItems.workedSummary());
+		kv(sb, "alchemy", BotAlchemy.summary());
 		kv(sb, "carried", String.join(",", BotItems.carried));
 		kv(sb, "windows", BotWindows.summary().replace(" ", "").replace("{", "").replace("}", ""));
 		kv(sb, "scenes", String.join(",", scenes));
