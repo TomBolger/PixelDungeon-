@@ -33,7 +33,7 @@ public class AssistBot {
 	static final boolean WATCH = "1".equals(System.getenv("WATCH"));
 	static WatchDriver watch;
 	static void step() { if (watch != null) watch.frame(); else Lockstep.frame(app); }
-	static Object lastScene; static int sceneFrames;
+	static Object lastScene; static int sceneFrames, branch;
 	static final ArrayDeque<String> log = new ArrayDeque<>(), recent = new ArrayDeque<>();
 
 	public static void main(String[] a) throws Exception {
@@ -103,9 +103,9 @@ public class AssistBot {
 			}
 			if (Dungeon.hero == null) continue;
 			if (!Dungeon.hero.isAlive()) { end = "died"; break; }
-			if (Dungeon.depth != depth) {
+			if (Dungeon.depth != depth || Dungeon.branch != branch) {
 				if (depth > 0) System.out.printf("  floor %d done in %.0f turns%n", depth, Statistics.duration - floorStart);
-				depth = Dungeon.depth; floorDecisions = 0; floorFrames = 0; maxD = Math.max(maxD, depth); floorStart = Statistics.duration;
+				depth = Dungeon.depth; branch = Dungeon.branch; floorDecisions = 0; floorFrames = 0; maxD = Math.max(maxD, depth); floorStart = Statistics.duration;
 				GLog.update.remove(logL); GLog.update.add(logL);
 				System.out.printf("depth %d  turn %.0f  hp %d/%d  lvl %d  str %d  %.1fs%n", depth, Statistics.duration, Dungeon.hero.HP, Dungeon.hero.HT, Dungeon.hero.lvl, Dungeon.hero.STR(), (System.currentTimeMillis() - t0) / 1000.0);
 				if (depth > maxDepth) { end = "depth limit"; break; }

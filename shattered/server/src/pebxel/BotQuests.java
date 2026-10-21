@@ -82,21 +82,22 @@ public final class BotQuests {
 	}
 
 	// ---- the Blacksmith: his mine (dig out the dark gold veins, then up the ladder: "I'm done"), then his favours ----
+	static float mineFrom;
 	static int mineSteps, mineDepth = -1, smithTalks; static boolean mineDone;
 
 	static Assist.Target blacksmith(Hero h, Level L) {
 		if (L instanceof com.shatteredpixel.shatteredpixeldungeon.levels.MiningLevel) {
-			if (mineDepth != Dungeon.depth) { mineDepth = Dungeon.depth; mineSteps = 0; badVeins.clear(); }
+			if (mineDepth != Dungeon.depth) { mineDepth = Dungeon.depth; mineSteps = 0; badVeins.clear(); mineFrom = com.shatteredpixel.shatteredpixeldungeon.Statistics.duration; }
 			mineSteps++;
 			for (Mob m : L.mobs) if (m.alignment == com.shatteredpixel.shatteredpixeldungeon.actors.Char.Alignment.ENEMY && L.heroFOV[m.pos] && L.adjacent(m.pos, h.pos)) return null;   // (fight first)
 			com.shatteredpixel.shatteredpixeldungeon.items.quest.DarkGold g = h.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.quest.DarkGold.class);
 			int gold = g == null ? 0 : g.quantity();
-			if (gold < 40 && mineSteps < 1500) {
+			if (gold < 40 && mineSteps < 1500 && com.shatteredpixel.shatteredpixeldungeon.Statistics.duration - mineFrom < 3000) {   // (not for ever: up with what there is)
 				int[] d = WatchDriver.stepsFrom(h.pos);
 				int best = -1, bn = -1, bd = Integer.MAX_VALUE;
 				for (int c = 0; c < L.length(); c++) {
 					if (L.map[c] != Terrain.WALL_DECO || !(L.visited[c] || L.mapped[c] || L.heroFOV[c]) || !L.insideMap(c) || badVeins.contains(c)) continue;
-					for (int k : com.watabou.utils.PathFinder.NEIGHBOURS8) { int n = c + k; if (n >= 0 && n < L.length() && d[n] < bd && Actor.findChar(n) == null) { bd = d[n]; best = c; bn = n; } }
+					for (int k : com.watabou.utils.PathFinder.NEIGHBOURS8) { int n = c + k; if (n >= 0 && n < L.length() && d[n] < bd && (n == h.pos || Actor.findChar(n) == null)) { bd = d[n]; best = c; bn = n; } }
 				}
 				if (best >= 0) {
 					if (L.adjacent(best, h.pos)) {   // beside it: dig (a vein that won't go is passed over)
