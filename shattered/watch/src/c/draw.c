@@ -189,7 +189,7 @@ static void fill(int32_t L, int32_t T, int32_t R, int32_t B, uint8_t c) {
 static void draw_tiles(Obj *o) {
   Tiles *t = o->ext; if (!t) return;
   int tw, th; if (!art_size(o->tex, &tw, &th) || !t->fw) return;
-  int cols = tw / t->fw;
+  int cols = tw / t->fw; if (!cols) return;
   int32_t X = obj_dyn(o, 0, s_now), Y = obj_dyn(o, 1, s_now);
   int32_t cw8 = t->cw * 8, ch8 = t->ch * 8;
   // only the cells the camera can see
@@ -425,11 +425,12 @@ static void draw_obj(Obj *o) {
     f.fx = o->flags & F_FLIPH; f.fy = o->flags & F_FLIPV;
     if (o->flags & F_ANIM) {
       Anim *a = scene_anim(o->tx); if (!a || !a->n) return;
-      int fr = o->frame;
+      int fr = o->frame < a->n ? o->frame : a->n - 1;   // (an animation the phone has since swapped for a shorter one)
       if (a->delay_ms) {
         uint32_t t = (uint32_t)o->timer * a->delay_ms / 256 + (s_now - o->at);
         int steps = t / a->delay_ms;
-        fr = a->looped ? (o->frame + steps) % a->n : (o->frame + steps < a->n - 1 ? o->frame + steps : a->n - 1);
+        fr = a->looped ? (fr + steps) % a->n : (fr + steps < a->n - 1 ? fr + steps : a->n - 1);
+        if (fr < 0) fr = 0;
       }
       f.tex = a->tex; f.tx = a->rects[fr * 4]; f.ty = a->rects[fr * 4 + 1]; f.tw = a->rects[fr * 4 + 2]; f.th = a->rects[fr * 4 + 3];
     }

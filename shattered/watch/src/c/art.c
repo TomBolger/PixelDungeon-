@@ -30,6 +30,10 @@ static int lz4(const uint8_t *src, int n, uint8_t *dst, int cap) {
   return d - dst;
 }
 
+static void s_scratch_get(void);
+static bool evict_one(void);
+typedef struct CacheEnt CacheEnt;
+static CacheEnt *s_cache;
 void art_init(void) {
   s_res = resource_get_handle(RESOURCE_ID_ART);
   uint8_t b[2];
@@ -38,6 +42,7 @@ void art_init(void) {
   s_off = malloc(4 * (s_count + 1));
   s_head = calloc(s_count, sizeof(Head));
   if (s_off) resource_load_byte_range(s_res, 2, (uint8_t *)s_off, 4 * (s_count + 1));
+  s_scratch_get();
 }
 
 static Head *head(int tex) {
@@ -70,16 +75,19 @@ static uint8_t *s_scratch;
 static int s_decodes;   // strips decoded (for PROFILE)
 int art_decodes(void) { int d = s_decodes; s_decodes = 0; return d; }
 static int s_stex = -1, s_strip = -1, s_sw;
+// (taken at the start and kept: later, with the heap in pieces, 8 KB in one piece may not be there)
+static void s_scratch_get(void) { if (!s_scratch) s_scratch = malloc(SCRATCH); }
 
 static const uint8_t *strip(int tex, int k) {
   if (tex == s_stex && k == s_strip) return s_scratch;
   Head *h = head(tex); if (!h || k >= h->strips) return NULL;
-  if (!s_scratch) s_scratch = malloc(SCRATCH);
+  s_scratch_get();
   if (!s_scratch) return NULL;
   uint32_t o[2];
   resource_load_byte_range(s_res, s_off[tex - 1] + 8 + 4 * k, (uint8_t *)o, 8);
   int n = o[1] - o[0];
   uint8_t *z = malloc(n);
+  while (!z && evict_one()) z = malloc(n);   // (short of memory: kept rectangles not on screen go first)
   if (!z) return NULL;
   resource_load_byte_range(s_res, s_off[tex - 1] + o[0], z, n);
   int rows = h->h - k * h->strip_h; if (rows > h->strip_h) rows = h->strip_h;
@@ -92,8 +100,7 @@ static const uint8_t *strip(int tex, int k) {
 }
 
 // ---- cache of rectangles ----
-typedef struct CacheEnt { struct CacheEnt *next, *hnext; uint16_t tex, x, y, w, h; uint32_t used; uint8_t px[]; } CacheEnt;
-static CacheEnt *s_cache;
+struct CacheEnt { struct CacheEnt *next, *hnext; uint16_t tex, x, y, w, h; uint32_t used; uint8_t px[]; };
 #define HASH 128
 static CacheEnt *s_hash[HASH];
 static inline int hkey(int tex, int x, int y) { return (tex * 31 + x * 7 + y * 13) & (HASH - 1); }
@@ -133,6 +140,20 @@ void art_release(int need) {
   }
   if ((int)heap_bytes_free() < need && s_scratch) { free(s_scratch); s_scratch = NULL; s_stex = -1; }
 }
+// n bytes in one piece for the screen's copy or a message, the cache giving way rect by rect (oldest first) until a
+// malloc succeeds, then the strip buffer. (Freeing until enough was free in all, as art_release does, wasn't
+// enough: with the heap in pieces among the cache's rects, a 2-8 KB tile map or message still found no room.)
+void *art_alloc(int n) {
+  void *m = malloc(n);
+  while (!m && s_cache) {
+    CacheEnt **best = &s_cache;
+    for (CacheEnt **e = &s_cache; *e; e = &(*e)->next) if ((*e)->used < (*best)->used) best = e;
+    CacheEnt *v = *best; *best = v->next; hash_remove(v); s_cache_bytes -= v->w * v->h; free(v);
+    m = malloc(n);
+  }
+  if (!m && s_scratch) { free(s_scratch); s_scratch = NULL; s_stex = -1; m = malloc(n); }
+  return m;
+}
 void art_stats(int *fails, int *skips) { *fails = s_fails; *skips = s_skips; }
 
 void art_forget(int tex) {
@@ -143,6 +164,9 @@ void art_forget(int tex) {
 }
 
 void art_forget_dynamic(void) { for (int t = 200; t < 255; t++) art_forget(t); }
+
+static uint8_t *s_rowbuf;
+
 
 bool art_open(ArtSrc *s, int tex, int x, int y, int w, int h) {
   s->tex = tex; s->x = x; s->y = y; s->w = w; s->h = h; s->px = NULL; s->stride = w;
@@ -185,8 +209,6 @@ bool art_open(ArtSrc *s, int tex, int x, int y, int w, int h) {
   s->px = e->px;
   return true;
 }
-
-static uint8_t *s_rowbuf;
 
 const uint8_t *art_row(ArtSrc *s, int row) {
   if (row < 0 || row >= s->h) return NULL;

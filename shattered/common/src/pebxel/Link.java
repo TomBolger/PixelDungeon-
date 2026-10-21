@@ -92,6 +92,9 @@ public final class Link {
 			"Sink", "Torch", "Vein", "GreenFlame", "Smoke", "Stream", "Ripple",
 			// the menus' drifting rubble background: busy behind text, and always moving
 			"TitleBackground",
+			// a new screen's fade from black (PixelScene.Fader): dithered on the watch it came out as a second of thinning
+			// dots over the new floor, after the loading screen; the watch shows the new screen whole instead
+			"Fader",
 			// Shattered's own screen furniture: the watch shows Pebble PD's instead (pebxel.ui.WatchHud), which
 			// presses these unseen ones
 			"StatusPane", "MenuPane", "Toolbar", "GameLog", "AttackIndicator", "LootIndicator", "ResumeIndicator",
@@ -107,7 +110,7 @@ public final class Link {
 	/** Forget everything the watch had (it restarted, or a new connection). */
 	public void reset() {
 		objs.clear(); shadowPrev.clear(); shadowNext.clear(); shadowHead = NONE;
-		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); dynUsed.clear(); nextDyn = 200;
+		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); dynUsed.clear(); dynShrink.clear(); nextDyn = 200;
 		anims.clear(); animsByContent.clear(); animUsed.clear();
 		out.reset(); marks.clear(); dropPending(); cmd(C_RESET); lastPlan = null;
 		for (int[] e : Sounds.state()) sound(e);
@@ -476,7 +479,8 @@ public final class Link {
 				boolean skin = g instanceof SkinnedBlock;
 				MovieClip.Animation a = g instanceof MovieClip ? NoosaAccess.curAnim((MovieClip) g) : null;
 				boolean animated = a != null && !((MovieClip) g).paused && a.delay > 0 && a.frames.length > 1;
-				int tx = tex(im.texture);
+				// (a big glow may go smaller; the fog of war never: the watch reads it cell by cell)
+				int tx = tex(im.texture, !(g instanceof com.shatteredpixel.shatteredpixeldungeon.tiles.FogOfWar) && !skin);
 				s8(skin ? K_SKIN : K_IMG); s8(cam); s8(tx);
 				s8((im.flipHorizontal ? F_FLIPH : 0) | (im.flipVertical ? F_FLIPV : 0) | (animated ? F_ANIM : 0)
 					| (g instanceof com.shatteredpixel.shatteredpixeldungeon.tiles.FogOfWar ? F_FOG : 0));
@@ -495,9 +499,10 @@ public final class Link {
 			if (t == null) { unknown.add(g.getClass().getName() + " (texture)"); return null; }
 			int n = Math.min(40, qs.size());
 			s8(K_QUADS); s8(cam); s8(tex(t)); s8(n);
+			float sk = shrinkOf(t);
 			for (int i = 0; i < n; i++) {
 				float[] q = qs.get(i);
-				s16(Math.round(q[1])); s16(Math.round(q[2])); s16(Math.round(q[3])); s16(Math.round(q[4]));
+				s16(Math.round(q[1] / sk)); s16(Math.round(q[2] / sk)); s16(Math.round(q[3] / sk)); s16(Math.round(q[4] / sk));
 				s16(Math.round(q[5] * 8)); s16(Math.round(q[6] * 8)); s16(Math.round((q[7] - q[5]) * 8)); s16(Math.round((q[8] - q[6]) * 8));
 			}
 			float[] q = qs.get(0);
@@ -534,8 +539,9 @@ public final class Link {
 	private void origin(Visual v) { s16(Math.round(v.origin.x * 8)); s16(Math.round(v.origin.y * 8)); }
 
 	private void texRect(RectF r, SmartTexture t) {
-		s16(Math.round(r.left * t.width)); s16(Math.round(r.top * t.height));
-		s16(Math.round(r.width() * t.width)); s16(Math.round(r.height() * t.height));
+		float k = shrinkOf(t);
+		s16(Math.round(r.left * t.width / k)); s16(Math.round(r.top * t.height / k));
+		s16(Math.round(r.width() * t.width / k)); s16(Math.round(r.height() * t.height / k));
 	}
 
 	/** Colour multiply (r, g, b) and add (r, g, b, a); alpha multiply moves separately. */
@@ -571,9 +577,10 @@ public final class Link {
 		animsByContent.put(k.toString(), id);
 		anims.put(a, id); animUsed.put(id, rounds);
 		cmd(C_ANIM); u16(id); u8(tx); u8(a.frames.length); u16(Math.round(a.delay * 1000)); u8(a.looped ? 1 : 0);
+		float sk = shrinkOf(t);
 		for (RectF r : a.frames) {
-			u16(Math.round(r.left * t.width)); u16(Math.round(r.top * t.height));
-			u16(Math.round(r.width() * t.width)); u16(Math.round(r.height() * t.height));
+			u16(Math.round(r.left * t.width / sk)); u16(Math.round(r.top * t.height / sk));
+			u16(Math.round(r.width() * t.width / sk)); u16(Math.round(r.height() * t.height / sk));
 		}
 		return id;
 	}
@@ -584,8 +591,11 @@ public final class Link {
 		int[] d = NoosaAccess.data(t);
 		int n = d.length;
 		int[] cur = new int[n];
-		for (int i = 0; i < n; i++) cur[i] = (d[i] < 0 || !NoosaAccess.needsRender(t, i)) ? NONE : d[i];
-		if (o.tiles == null || o.tiles.length != n) { o.tiles = new int[n]; Arrays.fill(o.tiles, -2); }
+		boolean[] clear = clearTiles(t);
+		for (int i = 0; i < n; i++) cur[i] = (d[i] < 0 || (d[i] < clear.length && clear[d[i]]) || !NoosaAccess.needsRender(t, i)) ? NONE : d[i];
+		// a new map on the watch starts with every cell empty (scene.c): only the others are sent. (Sending every
+		// cell made a floor change 20-40 KB, most of it empty cells, several seconds of radio.)
+		if (o.tiles == null || o.tiles.length != n) { o.tiles = new int[n]; Arrays.fill(o.tiles, NONE); }
 		int i = 0;
 		while (i < n) {
 			if (cur[i] == o.tiles[i]) { i++; continue; }
@@ -595,6 +605,29 @@ public final class Link {
 			for (int k = i; k < j; k++) { u16(cur[k]); o.tiles[k] = cur[k]; }
 			i = j;
 		}
+	}
+
+	/** Tiles of a map's picture that show nothing on the watch (all see-through: WallOcclusionTilemap's most
+	 *  common tile is an empty one): sent as no tile. */
+	private final IdentityHashMap<SmartTexture, boolean[]> clearTiles = new IdentityHashMap<>();
+	private boolean[] clearTiles(Tilemap t) {
+		SmartTexture tx = NoosaAccess.texture(t);
+		boolean[] c = clearTiles.get(tx);
+		if (c != null) return c;
+		TextureFilm film = NoosaAccess.film(t);
+		Pixmap p = tx.bitmap;
+		int cells = 0;
+		if (p != null) for (int i = 0; i < 4096 && film.get(i) != null; i++) cells = i + 1;
+		c = new boolean[cells];
+		for (int i = 0; i < cells; i++) {
+			RectF r = film.get(i);
+			int x0 = Math.round(r.left * tx.width), y0 = Math.round(r.top * tx.height), x1 = Math.round(r.right * tx.width), y1 = Math.round(r.bottom * tx.height);
+			boolean see = x1 > x0 && y1 > y0;
+			for (int y = y0; y < y1 && see; y++) for (int x = x0; x < x1 && see; x++) if ((p.getPixel(x, y) & 255) >= 43) see = false;   // (alpha to the watch's 4 levels: 0)
+			c[i] = see;
+		}
+		clearTiles.put(tx, c);
+		return c;
 	}
 
 	// ---- cameras ----
@@ -690,7 +723,20 @@ public final class Link {
 		return k;
 	}
 
-	private int tex(SmartTexture t) {
+	private int tex(SmartTexture t) { return tex(t, false); }
+
+	/**
+	 * Run-time pictures bigger than this many pixels are sent shrunk, if they may be (a glow: ShieldHalo and the other
+	 * Halos are 257 x 257, 33 KB on the watch at 4 bits a pixel, which with a big floor's tile maps ran its memory out).
+	 * Texture coordinates for them are sent in the shrunk picture's pixels (shrinkOf).
+	 */
+	static final int DYN_BIG = 64 * 64;
+	private final HashMap<Integer, Integer> dynShrink = new HashMap<>();
+
+	/** How much a picture is shrunk on the watch (1: not). */
+	private int shrinkOf(SmartTexture t) { Integer d = dynTex.get(t); return d == null ? 1 : dynShrink.getOrDefault(d, 1); }
+
+	private int tex(SmartTexture t, boolean shrinkable) {
 		String k = key(t);
 		Integer id = k == null ? null : assets.id(k);
 		if (id != null) return id;
@@ -700,11 +746,17 @@ public final class Link {
 			java.util.Set<Integer> taken = new java.util.HashSet<>(dynTex.values());   // (an IdentityHashMap's containsValue compares Integers by identity)
 			d = 200; while (taken.contains(d) && d < 254) d++;
 			dynTex.put(t, d); dynPixels.remove(d); dynPal.remove(d);
+			Pixmap p0 = t.bitmap;
+			int sk = 1;
+			if (shrinkable && p0 != null) while ((p0.getWidth() / sk) * (p0.getHeight() / sk) > DYN_BIG) sk++;
+			dynShrink.put(d, sk);
 		}
 		dynUsed.put(d, rounds);
 		Pixmap p = t.bitmap;
 		if (p != null) {
-			byte[] px = Assets.pebble(p);
+			int sk = dynShrink.getOrDefault(d, 1);
+			byte[] px = sk > 1 ? shrunk(p, sk) : Assets.pebble(p);
+			int pw = (p.getWidth() + sk - 1) / sk, ph = (p.getHeight() + sk - 1) / sk;
 			byte[] old = dynPixels.get(d);
 			if (!Arrays.equals(px, old)) {
 				dynPixels.put(d, px);
@@ -722,13 +774,28 @@ public final class Link {
 				for (int at = 0; at < px.length; at += DTEX_PIECE) {
 					int end = Math.min(px.length, at + DTEX_PIECE);
 					if (samePal && Arrays.equals(Arrays.copyOfRange(px, at, end), Arrays.copyOfRange(old, at, end))) continue;
-					cmd(C_DTEX); u8(d); u16(p.getWidth()); u16(p.getHeight()); u16(at / DTEX_PIECE);
+					cmd(C_DTEX); u8(d); u16(pw); u16(ph); u16(at / DTEX_PIECE);
 					u8(pal.length); for (int c : pal) u8(c);
 					rle(Arrays.copyOfRange(idx, at, end));
 				}
 			}
 		}
 		return d;
+	}
+
+	/** A picture made smaller k times, each pixel the average of a k x k block, in Pebble colours. */
+	private static byte[] shrunk(Pixmap p, int k) {
+		int w = p.getWidth(), h = p.getHeight(), sw = (w + k - 1) / k, sh = (h + k - 1) / k;
+		byte[] out = new byte[sw * sh];
+		for (int y = 0; y < sh; y++) for (int x = 0; x < sw; x++) {
+			int r = 0, g = 0, b = 0, a = 0, n = 0;
+			for (int j = y * k; j < Math.min(h, y * k + k); j++) for (int i = x * k; i < Math.min(w, x * k + k); i++) {
+				int c = p.getPixel(i, j), ca = c & 255;   // RGBA8888
+				r += ((c >>> 24) & 255) * ca; g += ((c >> 16) & 255) * ca; b += ((c >> 8) & 255) * ca; a += ca; n++;
+			}
+			out[y * sw + x] = a == 0 ? 0 : Assets.pebble(r / a, g / a, b / a, a / n);
+		}
+		return out;
 	}
 
 	/** Run-time pictures nothing has drawn for a while (an old level's fog of war): freed on the watch (C_DTEX with
@@ -748,15 +815,23 @@ public final class Link {
 		for (int id : gone) { animUsed.remove(id); cmd(C_ANIM); u16(id); u8(0); u8(0); u16(0); u8(0); }
 	}
 
+	/** The screen (scene) being shown, and the round it came. */
+	private Object lastScene; private int sceneRound;
+
 	private void freeDyn() {
 		freeAnims();
+		Scene sc = Game.scene();
+		if (sc != lastScene) { lastScene = sc; sceneRound = rounds; }   // (pictures drawn this round have last == rounds)
 		rounds++;
 		Iterator<Map.Entry<SmartTexture, Integer>> it = dynTex.entrySet().iterator();
 		while (it.hasNext()) {
 			int d = it.next().getValue();
 			Integer last = dynUsed.get(d);
-			if (last != null && rounds - last < DYN_KEEP) continue;
-			it.remove(); dynUsed.remove(d); dynPixels.remove(d); dynPal.remove(d);
+			// (an earlier screen's, a floor left behind say, go at once: on a floor change the old fog and glows
+			// were still held on the watch while the new floor's tile maps came in)
+			boolean oldScreen = last != null && last < sceneRound && rounds > sceneRound;
+			if (last != null && rounds - last < DYN_KEEP && !oldScreen) continue;
+			it.remove(); dynUsed.remove(d); dynPixels.remove(d); dynPal.remove(d); dynShrink.remove(d);
 			cmd(C_DTEX); u8(d); u16(0); u16(0); u16(0); u8(0); u16(0);
 		}
 	}

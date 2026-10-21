@@ -45,11 +45,14 @@ public final class WatchSim {
 	private final HashMap<Integer, Anim> anims = new HashMap<>();
 	private int head = Link.NONE;
 	private final HashMap<Integer, int[]> dyn = new HashMap<>(); // [w, h, px...]
+	private final HashMap<Integer, Integer> dynBits = new HashMap<>();   // bits a pixel on the watch
 	private final Assets assets;
 	private final HashMap<Integer, BufferedImage> texCache = new HashMap<>();
 	/** Pictures already converted to Pebble colours by tools/convert_art.py. */
 	public File art = new File(System.getProperty("pebxel.art", "../../../../../build/art"));
 	public float now;
+	/** Part of a frame has been applied, not yet its end (C_COMMIT): the watch keeps showing the last whole one. */
+	public boolean partial;
 
 	public WatchSim(File root, Assets assets) { this.assets = assets; W = Screen.w; H = Screen.h; }
 
@@ -132,6 +135,8 @@ public final class WatchSim {
 		while (p < b.length) {
 			if (stopAtTime && b[p] == Link.C_TIME && p > from) return p;
 			int c = u8();
+			// (as the watch: a frame only half here isn't drawn; the last whole one stays on screen)
+			if (c == Link.C_COMMIT) partial = false; else if (c != Link.C_TIME && c != Link.C_LATEST) partial = true;
 			switch (c) {
 				case Link.C_TIME: p += 4; break;
 				case Link.C_LATEST: p += 4; break;
@@ -165,7 +170,7 @@ public final class WatchSim {
 					if (px == null || px[0] != w || px[1] != h) { px = new int[2 + w * h]; px[0] = w; px[1] = h; }
 					int k = 2 + piece * Link.DTEX_PIECE;
 					while (p < end) { int n = u8(); if (n > 128) { int v = u8(); for (int i = 0; i < n - 127; i++) px[k++] = pal.length > 0 ? pal[v] : v; } else for (int i = 0; i < n; i++) { int v = u8(); px[k++] = pal.length > 0 ? pal[v] : v; } }
-					dyn.put(id, px); texCache.remove(id); break;
+					dyn.put(id, px); texCache.remove(id); dynBits.put(id, pal.length == 0 || pal.length > 16 ? 8 : pal.length <= 4 ? 2 : 4); break;
 				}
 				case Link.C_ANIM: {
 					int id = u16(); Anim a = new Anim(); a.tex = u8(); int n = u8(); a.delayMs = u16(); a.looped = u8() != 0;
@@ -587,6 +592,49 @@ public final class WatchSim {
 		g[Link.D_A] = Math.max(0, Math.min(255, g[Link.D_A]));
 		return g;
 	}
+
+	/** Roughly what the C watch app would hold for this screen (scene.c's pictures, animations and run-time
+	 *  pictures, 8 bytes of heap bookkeeping each, tiles as 16-bit cells) plus messages waiting to play. */
+	public int heapEstimate() {
+		int b = 0;
+		for (Obj o : objs.values()) {
+			b += 8 + 80;
+			switch (o.kind) {
+				case Link.K_TILES: if (o.tiles != null) b += 8 + 8 + (o.st[7] & 255) * (o.st[8] & 255) * cellBytes(o); break;   // (cells only once one is set)
+				case Link.K_TEXT: b += 8 + (o.st[10] & 255) + 1; break;
+				case Link.K_NINE: b += 8 + 4; break;
+				case Link.K_QUADS: b += 8 + 2 + (o.st[3] & 255) * 16; break;
+			}
+		}
+		for (Anim a : anims.values()) b += 8 + 8 + a.rects.length * 2;
+		for (Map.Entry<Integer, int[]> e : dyn.entrySet()) b += 8 + 20 + (e.getValue()[0] * e.getValue()[1] * dynBits.getOrDefault(e.getKey(), 8) + 7) / 8;
+		for (byte[] m : q) b += 8 + 8 + m.length;
+		return b;
+	}
+	public String heapParts() {
+		int pics = 0, tiles = 0, an = 0, dy = 0, qq = 0; StringBuilder t = new StringBuilder();
+		for (Obj o : objs.values()) {
+			pics += 88;
+			if (o.kind == Link.K_TILES) { int n = o.tiles == null ? 0 : 16 + (o.st[7] & 255) * (o.st[8] & 255) * cellBytes(o); tiles += n; t.append(" ").append(assets.paths.get((o.st[2] & 255) - 1).replaceAll(".*/", "")).append(":").append(o.st[7] & 255).append("x").append(o.st[8] & 255).append(":nonempty").append(o.tiles == null ? 0 : Arrays.stream(o.tiles).filter(v -> v != Link.NONE).count()); }
+		}
+		for (Anim a : anims.values()) an += 16 + a.rects.length * 2;
+		for (Map.Entry<Integer, int[]> e : dyn.entrySet()) { int[] d = e.getValue(); int bits = dynBits.getOrDefault(e.getKey(), 8); dy += 28 + (d[0] * d[1] * bits + 7) / 8; t.append(" dyn").append(d[0]).append("x").append(d[1]).append("@").append(bits); }
+		for (byte[] m : q) qq += 16 + m.length;
+		return "pics " + pics + " tiles " + tiles + " anims " + an + " dyn " + dy + " queue " + qq + " [" + t.toString().trim() + "]";
+	}
+	public int objCount() { return objs.size(); }
+	/** Bytes a tile map's cell takes on the watch (scene.c: two for pictures of more than 256 tiles). */
+	private final HashMap<Integer, Integer> cellsOf = new HashMap<>();
+	private int cellBytes(Obj o) {
+		int tex = o.st[2] & 255, fw = o.st[5] & 255, fh = o.st[6] & 255;
+		int n = cellsOf.computeIfAbsent(tex * 65536 + fw * 256 + fh, k -> {
+			try { BufferedImage t = ImageIO.read(new File(assets.paths.get(tex - 1))); return (t.getWidth() / fw) * (t.getHeight() / fh); }   // (the phone's own picture: the folder we run in)
+			catch (Exception e) { return 9999; }
+		});
+		return n > 256 ? 2 : 1;
+	}
+	public int animCount() { return anims.size(); }
+	public int dynCount() { return dyn.size(); }
 
 	public void dump() {
 		for (int id = head; id != Link.NONE; id = objs.get(id).next) {

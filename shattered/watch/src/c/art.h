@@ -24,6 +24,7 @@ const uint8_t *art_row(ArtSrc *s, int row);    // row 0..h-1 of the rectangle, w
 void art_frame(void);                         // a frame's drawing begins (draw.c)
 void art_stats(int *fails, int *skips);
 int art_decodes(void);
+void *art_alloc(int n);       // malloc, the cache giving way if need be (memory short)
 void art_release(int need);   // give memory back until need bytes are free   // strips decoded since the last call
 void art_forget(int tex);
 void art_forget_dynamic(void);

@@ -75,6 +75,7 @@ public class Server {
 			app.frame();
 			controls.frame();
 			Gallery.tick();
+			stairsTick();
 			sinceSync += Game.elapsed;
 			if (helloPending) { helloPending = false; synchronized (queue) { queue.clear(); } link.reset(); inFlight = false; }
 			if (connected) link.frame(sinceSync); sinceSync = 0;
@@ -89,6 +90,33 @@ public class Server {
 			else next = System.nanoTime();
 		}
 		System.exit(0);
+	}
+
+	// STAIRS=pattern (u/d letters, repeated) and STAIRS_EVERY=seconds (default 8): take the stairs by themselves, for
+	// testing floor changes on the emulator (see StairsTest)
+	static final String STAIRS = System.getenv("STAIRS");
+	static int stairsNo; static long stairsAt;
+	static long storyAt, wndAt;
+	static void stairsTick() {
+		if (STAIRS == null) return;
+		long t = System.currentTimeMillis();
+		if (Game.scene() instanceof InterlevelScene) {
+			// on through the story pages, a little slower than a reader
+			if (storyAt == 0) storyAt = t;
+			if (t - storyAt > 2500) { storyAt = t; for (Ui.Part p : Ui.parts(Game.scene())) if (p.button && !p.text.isEmpty() && !p.text.equals("Button")) { Ui.press(p.g); break; } }
+		} else storyAt = 0;
+		if (!(Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene)) { stairsAt = t; return; }
+		if (Ui.topWindow() != null) { if (wndAt == 0) wndAt = t; if (t - wndAt > 3000) { Ui.topWindow().hide(); wndAt = 0; } return; }
+		wndAt = 0;
+		if (Dungeon.hero == null || !Dungeon.hero.ready) return;
+		long every = (long) (1000 * Float.parseFloat(System.getenv().getOrDefault("STAIRS_EVERY", "8")));
+		if (System.currentTimeMillis() - stairsAt < every) return;
+		stairsAt = t;
+		boolean up = STAIRS.charAt(stairsNo++ % STAIRS.length()) == 'u';
+		com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(up);
+		if (tr == null || tr.type == com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition.Type.SURFACE) return;
+		System.out.println("stairs " + stairsNo + ": " + (up ? "up" : "down") + " from depth " + Dungeon.depth);
+		StairsTest.jump(tr);
 	}
 
 	static boolean queueEmpty() { synchronized (queue) { return queue.isEmpty(); } }

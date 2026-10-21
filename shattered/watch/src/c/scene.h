@@ -68,7 +68,8 @@ extern Obj *g_obj[MAX_ID];
 extern Cam g_cam[MAX_CAM];
 extern uint16_t g_head;
 extern bool g_dirty;             // a complete update arrived: redraw
-extern bool g_lost;              // a picture couldn't be kept (memory ran out): the watch's copy is wrong until the phone resends it all
+extern bool g_partial;           // a frame is half applied (its end is still on the way): keep showing the last whole one
+extern bool g_lost;              // the copy can't go on (out of memory, or out of step with the phone): main.c starts over
 
 // applies commands up to the next time stamp (C_TIME) after the start; returns the bytes used
 int scene_apply(const uint8_t *data, int len, uint32_t now);

@@ -311,7 +311,7 @@ index 179e9e8..a9d66a1 100644
  			cancel();
  
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
-index 463b529..8329920 100644
+index 463b529..5b4af78 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/InterlevelScene.java
 @@ -101,6 +101,14 @@ public class InterlevelScene extends PixelScene {
@@ -346,7 +346,16 @@ index 463b529..8329920 100644
  		add(fadeRight);
  
  		Image im = new Image(TextureCache.createGradient(0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0xFF000000)){
-@@ -273,24 +284,42 @@ public class InterlevelScene extends PixelScene {
+@@ -265,6 +276,8 @@ public class InterlevelScene extends PixelScene {
+ 		im.scale.x = h/5f;
+ 		im.scale.y = w;
+ 		add(im);
++		//Pebxel: no backdrop to darken on the watch (and its every-frame fade was radio time spent on nothing)
++		if (pebxelPages != null) im.visible = false;
+ 
+ 		String text = Messages.get(Mode.class, mode.name());
+ 		
+@@ -273,31 +286,57 @@ public class InterlevelScene extends PixelScene {
  				insets.left + w - loadingText.width() - 12,
  				insets.top + h - loadingText.height() - 6
  		);
@@ -391,8 +400,15 @@ index 463b529..8329920 100644
 +							}
  							phase = Phase.FADE_OUT;
  							timeLeft = fadeTime;
++							if (pebxelPages != null) {
++								// Pebxel: the story goes at once (no dotted fade, no stray button box) and the floor follows
++								storyBG.visible = storyMessage.visible = btnHideStory.visible = false;
++								visible = false;
++								timeLeft = 0;
++								loadingText.visible = true; loadingText.alpha(1);   // (while the floor comes over the radio)
++							}
  
-@@ -298,6 +327,7 @@ public class InterlevelScene extends PixelScene {
+ 							btnContinue.enable(false);
  							Document.INTROS.readPage(region);
  						}
  					};
@@ -400,7 +416,7 @@ index 463b529..8329920 100644
  					btnContinue.icon(Icons.STAIRS.get());
  					btnContinue.setSize(btnContinue.reqWidth()+10, 22);
  					btnContinue.visible = false;
-@@ -316,7 +346,7 @@ public class InterlevelScene extends PixelScene {
+@@ -316,7 +355,7 @@ public class InterlevelScene extends PixelScene {
  										protected void updateValues(float progress) {
  											float uiAlpha = progress;
  											btnContinue.alpha(uiAlpha);
@@ -409,7 +425,7 @@ index 463b529..8329920 100644
  											storyMessage.alpha(uiAlpha);
  											btnHideStory.icon().alpha(uiAlpha);
  											loadingText.alpha(uiAlpha);
-@@ -352,7 +382,7 @@ public class InterlevelScene extends PixelScene {
+@@ -352,7 +391,7 @@ public class InterlevelScene extends PixelScene {
  									protected void updateValues(float progress) {
  										float uiAlpha = 1 - progress;
  										btnContinue.alpha(uiAlpha);
@@ -418,7 +434,7 @@ index 463b529..8329920 100644
  										storyMessage.alpha(uiAlpha);
  										icon.alpha(uiAlpha);
  										loadingText.alpha(uiAlpha);
-@@ -376,7 +406,7 @@ public class InterlevelScene extends PixelScene {
+@@ -376,7 +415,7 @@ public class InterlevelScene extends PixelScene {
  									protected void updateValues(float progress) {
  										float uiAlpha = progress;
  										btnContinue.alpha(uiAlpha);
@@ -427,7 +443,16 @@ index 463b529..8329920 100644
  										storyMessage.alpha(uiAlpha);
  										icon.alpha(uiAlpha);
  										loadingText.alpha(uiAlpha);
-@@ -515,7 +545,7 @@ public class InterlevelScene extends PixelScene {
+@@ -399,6 +438,8 @@ public class InterlevelScene extends PixelScene {
+ 					align(btnHideStory);
+ 					btnHideStory.enable(false);
+ 					add(btnHideStory);
++					//Pebxel: the watch has no backdrop to uncover: no button to hide the story
++					if (pebxelPages != null) btnHideStory.visible = false;
+ 
+ 					btnContinue.alpha(0);
+ 					storyBG.alpha(0);
+@@ -515,7 +556,7 @@ public class InterlevelScene extends PixelScene {
  			if (btnContinue != null){
  				btnContinue.alpha((timeLeft/fadeTime));
  				storyMessage.alpha(btnContinue.alpha());
@@ -436,15 +461,44 @@ index 463b529..8329920 100644
  				btnHideStory.icon().alpha(btnContinue.alpha());
  			}
  			
-@@ -532,7 +562,7 @@ public class InterlevelScene extends PixelScene {
+@@ -530,9 +571,9 @@ public class InterlevelScene extends PixelScene {
+ 		case STATIC:
+ 
  			if (btnContinue != null && textFadingIn) {
- 				btnContinue.alpha(Math.min(1, btnContinue.alpha() + Game.elapsed));
+-				btnContinue.alpha(Math.min(1, btnContinue.alpha() + Game.elapsed));
++				btnContinue.alpha(Math.min(1, btnContinue.alpha() + (pebxelPages != null ? 1 : Game.elapsed)));   //Pebxel: the page at once (a fade dithers)
  				storyMessage.alpha(btnContinue.alpha());
 -				storyBG.alpha(btnContinue.alpha()*0.8f);
 +				storyBG.alpha(btnContinue.alpha() * storyShade());
  				btnHideStory.icon().alpha(btnContinue.alpha());
  
  				if (btnContinue.alpha() == 1){
+@@ -593,7 +634,7 @@ public class InterlevelScene extends PixelScene {
+ 			break;
+ 		}
+ 
+-		if (mode == Mode.FALL) {
++		if (mode == Mode.FALL && pebxelPages == null) {
+ 			loadingText.setPos(
+ 					//the randomization is effectively -2 to +2
+ 					// we don't use the generator stack as levelgen may be occurring
+@@ -608,6 +649,8 @@ public class InterlevelScene extends PixelScene {
+ 	private void afterLoading(){
+ 		if (btnContinue != null){
+ 			btnContinue.visible = true;
++			//Pebxel: the page and its button together, at once (the button's frame showed alone a moment first)
++			if (pebxelPages != null) { btnContinue.alpha(1); storyMessage.alpha(1); storyBG.alpha(1); }
+ 			float alpha = btnContinue.alpha();
+ 			btnContinue.enable(true);
+ 			btnContinue.alpha(alpha);
+@@ -615,6 +658,7 @@ public class InterlevelScene extends PixelScene {
+ 		} else {
+ 			phase = Phase.FADE_OUT;
+ 			timeLeft = fadeTime;
++			if (pebxelPages != null) timeLeft = 0;   //Pebxel: straight on to the floor (the watch shows it when it has all of it)
+ 		}
+ 
+ 	}
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java
 index 86c9dfb..f7b4602 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/PixelScene.java

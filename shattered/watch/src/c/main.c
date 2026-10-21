@@ -17,6 +17,7 @@ static Layer *s_layer;
 static AppTimer *s_timer;
 static uint32_t s_last, s_input_at, s_data_at;
 static bool s_connected;
+static bool s_wait_reset;   // the copy was given up (resync): the phone's messages wait until its fresh start comes
 
 // A clock that only goes forward: the wall clock can be set back (the phone syncing the time), which would
 // otherwise hold up the play-out queue until it caught up again.
@@ -32,19 +33,24 @@ static uint32_t now_ms(void) {
   return (uint32_t)((uint64_t)mono * GAME_SPEED_NUM / GAME_SPEED_DEN);
 }
 
+// the least heap free since the last report, and allocations that failed (scene.c g_oom)
+static uint32_t s_minfree = 0xFFFFFFFF;
+static void note_free(void) { uint32_t f = heap_bytes_free(); if (f < s_minfree) s_minfree = f; }
+
 static void update(Layer *l, GContext *ctx) {
   uint32_t now = now_ms();
   if (g_head == NONE) {
     graphics_context_set_fill_color(ctx, GColorBlack);
     graphics_fill_rect(ctx, layer_get_bounds(l), 0, GCornerNone);
     graphics_context_set_text_color(ctx, GColorWhite);
-    graphics_draw_text(ctx, s_connected ? "Waiting for the game..." : "Open Shattered PD on your phone",
+    graphics_draw_text(ctx, s_wait_reset ? "Loading..." : s_connected ? "Waiting for the game..." : "Open Shattered PD on your phone",
                        fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(20, PBL_DISPLAY_HEIGHT / 2 - 24, PBL_DISPLAY_WIDTH - 40, 60),
                        GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
     return;
   }
   predict_tick(now);
   draw_scene(ctx, layer_get_bounds(l), now);
+  note_free();
   uint32_t drawn = now_ms();
   sound_poll();
   static int frames; static uint32_t spent, spent_snd;
@@ -65,7 +71,9 @@ static void tick(void *data) {
   uint32_t now = now_ms(), dt = now - s_last; if (dt > 200) dt = 200;
   s_last = now;
   cams_follow(now, dt);
-  layer_mark_dirty(s_layer);
+  // (a frame only half here isn't drawn: on a floor change the new floor came in over several seconds of radio, a
+  // sheet of water first, then walls, then the fog; the loading screen stays until the whole floor is here)
+  if (!g_partial) layer_mark_dirty(s_layer);
 #ifndef STILL
   // power saving (as in the Pixel Dungeon port): idle animations stop 10 s after the last button
   // press, unless the game is still sending something new
@@ -112,6 +120,11 @@ static void resync(void *data) {
   if (!g_lost || (s_asked && now - s_asked < 5000 * GAME_SPEED_NUM / GAME_SPEED_DEN)) return;
   s_asked = now; g_lost = false;
   APP_LOG(APP_LOG_LEVEL_WARNING, "a picture was lost (free %d): asking for the whole screen", (int)heap_bytes_free());
+  // the copy goes now (its memory back at once; "Loading..." meanwhile), and what the phone sent before it heard
+  // the hello is skipped (inbox, s_wait_reset): it builds on the copy given up
+  scene_reset();
+  s_wait_reset = true;
+  if (s_layer) layer_mark_dirty(s_layer);
   s_connected = false; s_resyncing = true;
   hello(NULL);
 }
@@ -136,6 +149,7 @@ static void pump(void *data) {
     }
     int used = scene_apply(m->data + m->pos, m->len - m->pos, s_cur_at);
     m->pos = used > 0 ? m->pos + used : m->len;
+    note_free();
     if (g_dirty) { g_dirty = false; kick(); }
     if (m->pos >= m->len) { s_q = m->next; if (!s_q) s_qtail = NULL; s_qbytes -= m->len; free(m); }
   }
@@ -153,7 +167,7 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
   }
   Msg *m = malloc(sizeof(Msg) + len);
   // short of memory: the pictures' cache gives some back (it can decode them again; a message can't be had again)
-  if (!m) { art_release(sizeof(Msg) + len + 1024); m = malloc(sizeof(Msg) + len); }
+  if (!m) m = art_alloc(sizeof(Msg) + len);
   if (!m) {
     // still none: play everything waiting at once, then this message, all of it. (Only its first frame was played
     // here, in fact only its header: the rest was lost, and with it pictures the next messages speak of.)
@@ -172,13 +186,27 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
 
 static void dropped(AppMessageResult r, void *ctx) { APP_LOG(APP_LOG_LEVEL_WARNING, "message dropped: %d", (int)r); }
 
+// the phone's whole screen from the start (Link.reset: its first message begins with C_RESET after the time stamps)
+static bool fresh_start(const uint8_t *d, int len) {
+  return (len >= 1 && d[0] == C_RESET) || (len >= 11 && d[0] == C_LATEST && d[5] == C_TIME && d[10] == C_RESET);
+}
+
 static void inbox(DictionaryIterator *it, void *ctx) {
+  Tuple *dt = dict_find(it, KEY_DATA);
+  if (s_wait_reset) {
+    // what the phone sent before it heard the hello builds on the copy given up: skip it
+    if (!dt || dt->type != TUPLE_BYTE_ARRAY || !fresh_start(dt->value->data, dt->length)) return;
+    s_wait_reset = false;
+  }
   s_connected = true;
   static int n;
   if (++n % 20 == 1) {
     extern void scene_stats(int *, int *, int *, int *); extern int art_cache_bytes(void);
     int o, t, a, d, af, as; scene_stats(&o, &t, &a, &d); art_stats(&af, &as);
     APP_LOG(APP_LOG_LEVEL_INFO, "msg %d free %d pics %d tiles %d anim %d dyn %d cache %d (failed %d uncached %d)", n, (int)heap_bytes_free(), o, t, a, d, art_cache_bytes(), af, as);
+    extern int g_oom;
+    APP_LOG(APP_LOG_LEVEL_INFO, "least free %d, allocations failed %d", (int)s_minfree, g_oom);
+    s_minfree = 0xFFFFFFFF;
   }
   Tuple *t = dict_find(it, KEY_DATA);
   if (t && t->type == TUPLE_BYTE_ARRAY) {
@@ -344,6 +372,10 @@ static void hello(void *data) {
 }
 
 static void init(void) {
+#ifdef BALLAST
+  // (testing: BALLAST=bytes at build time holds that much heap, to try the watch short of memory)
+  static void *ballast; ballast = malloc(BALLAST); APP_LOG(APP_LOG_LEVEL_INFO, "ballast %p", ballast);
+#endif
   art_init();
   sound_init();
   s_win = window_create();
