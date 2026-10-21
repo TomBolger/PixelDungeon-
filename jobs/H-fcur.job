@@ -1,0 +1,9 @@
+# H-fcur
+bundle=HFcur-1021120450.tgz
+bin=simbot
+games=600
+chunk=50
+first=0
+run cur SIMSEED=1
+run s0 SIMSEED=1 SUBCLASS=0
+run s1 SIMSEED=1 SUBCLASS=1

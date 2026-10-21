@@ -1,0 +1,7 @@
+# H-fbase
+bundle=HFmain-1021120449.tgz
+bin=simbot
+games=600
+chunk=50
+first=0
+run base SIMSEED=1
