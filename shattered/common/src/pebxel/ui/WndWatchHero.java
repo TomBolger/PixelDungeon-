@@ -73,8 +73,10 @@ public class WndWatchHero extends WatchWindow {
 		}
 	}
 
-	private void talents() {
-		hide();
+	private void talents() { hide(); openTalents(); }
+
+	/** Shattered's own talent page, where points are spent (the Assistant's Select when points wait: one press). */
+	public static void openTalents() {
 		WndHero.lastIdx = 1;
 		Swaps.nativeHero = true;
 		try { GameScene.show(new WndHero()); } finally { Swaps.nativeHero = false; }

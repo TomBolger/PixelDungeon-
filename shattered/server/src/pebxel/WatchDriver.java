@@ -182,6 +182,8 @@ public final class WatchDriver {
 			@SuppressWarnings("unchecked") List<com.shatteredpixel.shatteredpixeldungeon.ui.Button> areas = (List<com.shatteredpixel.shatteredpixeldungeon.ui.Button>) get(w, "rowAreas");
 			@SuppressWarnings("unchecked") List<List<com.shatteredpixel.shatteredpixeldungeon.ui.Button>> cells = (List<List<com.shatteredpixel.shatteredpixeldungeon.ui.Button>>) get(w, "rowCells");
 			int r = -1, k = -1;
+			// (the frame on it already: the Assistant's pick in a choosing it opened)
+			if (w instanceof pebxel.ui.Navigable && ((pebxel.ui.Navigable) w).focused() instanceof com.shatteredpixel.shatteredpixeldungeon.ui.Button && captured(((pebxel.ui.Navigable) w).focused(), Item.class) == item) { press(Controls.SELECT); return true; }
 			for (int i = 0; i < cells.size() && r < 0; i++) for (int j = 0; j < cells.get(i).size(); j++) if (captured(cells.get(i).get(j), Item.class) == item) { r = i; k = j; break; }
 			if (r < 0) {   // in another bag: its tab
 				Bag holder = null;
@@ -225,9 +227,65 @@ public final class WatchDriver {
 		int j = -1;
 		for (int i = 0; i < ts.size(); i++) if (Controls.cellOf(ts.get(i)) == cell && Controls.shot(ts.get(i)) == shot) { j = i; break; }
 		if (j < 0) for (int i = 0; i < ts.size(); i++) if (Controls.cellOf(ts.get(i)) == cell) { j = i; break; }
-		if (j < 0) return false;
-		for (int i = 0; i < ts.size() + 1 && target() != j; i++) { controls.button(Controls.DOWN); presses++; frames(1); if (targets() != ts) return false; }
+		return j >= 0 && listTo(j);
+	}
+
+	@SuppressWarnings("unchecked") List<Assist.Target> plan() { Object v = get(controls, "plan"); return v instanceof List ? (List<Assist.Target>) v : Collections.emptyList(); }
+
+	/** Down (or long Down, the shorter way round) to entry j of the watch's list, then Select. */
+	boolean listTo(int j) {
+		List<Integer> ts = targets();
+		int n = ts.size();
+		if (j < 0 || j >= n) return false;
+		int fwd = (j - target() + n) % n, back = (target() - j + n) % n;
+		boolean up = back < fwd;
+		for (int i = 0; i < n + 1 && target() != j; i++) { controls.button(up ? Controls.DOWN | Controls.LONG : Controls.DOWN); presses++; downs++; frames(1); if (targets() != ts) return false; }
 		if (target() != j) return false;
+		press(Controls.SELECT);
+		return true;
+	}
+
+	/** Where the bot's choice is in the watch's list (-1: not there). The new list: the same entry, or a step towards
+	 *  the same objective (Near offers a far one at its last step on the screen); the old one: the cell. */
+	int findInList(Assist.Target t) {
+		Hero h = Dungeon.hero;
+		if (Controls.legacy != null) {
+			List<Integer> ts = targets();
+			boolean shoot = t.kind == Assist.USE && t.item instanceof com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow;
+			for (int i = 0; i < ts.size(); i++) {
+				int c = ts.get(i), cell = Controls.cellOf(c);
+				if (c == -2) { if ((t.kind == Assist.WAIT && !Assist.REST_ACT.equals(t.action) && !Assist.WAIT_ACT.equals(t.action)) || (t.kind == Assist.GO && t.cell == h.pos)) return i; continue; }
+				if (shoot) { if (Controls.shot(c) && cell == t.cell) return i; continue; }
+				if (Controls.shot(c)) continue;
+				if (t.kind == Assist.ENEMY && t.action == null && cell == t.cell) return i;
+				if ((t.kind == Assist.GO || t.kind == Assist.PICKUP) && t.cell != h.pos && (cell == t.cell || cell == t.obj)) return i;
+			}
+			return -1;
+		}
+		List<Assist.Target> ps = plan();
+		if (ps.size() != targets().size()) return -1;
+		for (int i = 0; i < ps.size(); i++) if (match(ps.get(i), t)) return i;
+		return -1;
+	}
+
+	static boolean match(Assist.Target w, Assist.Target b) {
+		if (w.same(b)) return true;
+		boolean walk = (w.kind == Assist.GO || w.kind == Assist.PICKUP) && (b.kind == Assist.GO || b.kind == Assist.PICKUP);
+		if (w.kind != b.kind && !walk) return false;
+		if (walk) return w.cell == b.cell || (b.obj >= 0 && w.obj == b.obj);
+		if (b.kind == Assist.USE) return w.item == b.item && Objects.equals(w.action, b.action) && w.cell == b.cell;
+		return w.cell == b.cell && Objects.equals(w.action, b.action);
+	}
+
+	// how the bot's choices sat in the watch's list: first (plan A), further down (Downs), not there
+	long decisions, planA, inList, notInList, downs, selects;
+	final Map<String, Integer> missKinds = new TreeMap<>();
+	final int[] at = new int[13];
+	/** PLAYER=select: the honest player who only ever presses Select (a Down more each time Select did nothing). */
+	int stall;
+	boolean selectOnly() {
+		decisions++; selects++;
+		for (int i = 0; i < stall && targets().size() > 1; i++) press(Controls.DOWN);
 		press(Controls.SELECT);
 		return true;
 	}
@@ -254,12 +312,22 @@ public final class WatchDriver {
 	boolean act(Assist.Target t) {
 		Hero h = Dungeon.hero;
 		if (t == null || h == null) return false;
-		Assist.noted(t);
 		boolean aiming = Controls.aiming();
 		if (aiming) {
 			if (targetTo(t.cell, false) || tap(t.cell)) return true;
 			fallback("aim at a cell not offered (" + t.why + ")"); return false;
 		}
+		// the watch's list first: what a player with the buttons would press (Downs to it, then Select)
+		int j = findInList(t);
+		decisions++;
+		if (j >= 0 && j < at.length) at[j]++;
+		if (j == 0) planA++; else if (j > 0) inList++; else { notInList++; missKinds.merge(t.kind + ":" + t.why.replaceAll("[^A-Za-z ]", "").trim().replace(' ', '_'), 1, Integer::sum); }
+		if (VW) System.out.println("    watch list " + plan() + " target " + target() + "; bot " + t + " at " + j);
+		if (j >= 0) {
+			if (t.kind == Assist.USE && t.on != null) BotAlchemy.want = t.on;   // (the bag it opens: the bot's pick, as the Assistant framed it)
+			if (listTo(j)) return true;
+		}
+		Assist.noted(t);
 		switch (t.kind) {
 			case Assist.USE: return use(t);
 			case Assist.WAIT:
@@ -275,7 +343,6 @@ public final class WatchDriver {
 				break;
 		}
 		if (t.cell < 0) return false;
-		if (targetTo(t.cell, false)) return true;
 		if (tap(t.cell)) { notOffered(t); return true; }
 		// off the screen and not in the list: the list's target that's the fewest steps from it (the watch's own way
 		// there), or a tap on the furthest cell of the way that's on the screen
@@ -403,6 +470,13 @@ public final class WatchDriver {
 		talentsSpent++;
 		for (int i = 0; i < 4 && Ui.topWindow() != null; i++) press(Controls.BACK);
 		return true;
+	}
+
+	/** How the bot's choices sat in the watch's list (the predictor's hit rate). */
+	String listSummary() {
+		StringBuilder sb = new StringBuilder(String.format("decisions %d planA %d (%.1f%%) inlist %d notinlist %d downs %d selectonly %d at", decisions, planA, 100.0 * planA / Math.max(1, decisions), inList, notInList, downs, selects));
+		for (int i = 0; i < at.length; i++) sb.append(i == 0 ? " " : ",").append(at[i]);
+		return sb.append(" misses ").append(missKinds).toString().replace(", ", ",");
 	}
 
 	String summary() {
