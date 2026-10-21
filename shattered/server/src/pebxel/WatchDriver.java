@@ -240,14 +240,32 @@ public final class WatchDriver {
 		if (t.cell < 0) return false;
 		if (targetTo(t.cell, false)) return true;
 		if (tap(t.cell)) { notOffered++; return true; }
-		// off the screen and not in the list: the list's target nearest to it (the watch's own way there)
-		List<Integer> ts = targets(); int best = -1, bd = 1 << 30;
-		for (int i = 0; i < ts.size(); i++) { int c = Controls.cellOf(ts.get(i)); if (c < 0) continue; int d = Dungeon.level.distance(c, t.cell); if (d < bd) { bd = d; best = c; } }
+		// off the screen and not in the list: the list's target that's the fewest steps from it (the watch's own way
+		// there), or a tap on the furthest cell of the way that's on the screen
+		int[] dg = stepsFrom(t.cell);
+		List<Integer> ts = targets(); int best = -1, bd = dg[h.pos];
+		for (int i = 0; i < ts.size(); i++) { int c = Controls.cellOf(ts.get(i)); if (c < 0 || c == h.pos) continue; if (dg[c] < bd) { bd = dg[c]; best = c; } }
 		if (best >= 0 && targetTo(best, false)) { notOffered++; return true; }
+		int on = -1, od = Integer.MAX_VALUE;
+		for (int c = 0; c < dg.length; c++) if (dg[c] < od && dg[c] < dg[h.pos] && Controls.onScreen(c) && Dungeon.level.passable[c]) { od = dg[c]; on = c; }
+		if (on >= 0 && tap(on)) { notOffered++; return true; }
 		fallback("reach a cell (" + t.why + ")");
 		return false;
 	}
 	int notOffered;
+
+	/** Steps from a cell over the known, walkable map (Integer.MAX_VALUE: no way). */
+	static int[] stepsFrom(int goal) {
+		com.shatteredpixel.shatteredpixeldungeon.levels.Level L = Dungeon.level;
+		int[] d = new int[L.length()]; Arrays.fill(d, Integer.MAX_VALUE);
+		if (goal < 0 || goal >= d.length) return d;
+		ArrayDeque<Integer> q = new ArrayDeque<>(); q.add(goal); d[goal] = 0;
+		while (!q.isEmpty()) { int c = q.poll();
+			for (int k : com.watabou.utils.PathFinder.NEIGHBOURS8) { int n = c + k;
+				if (n < 0 || n >= d.length || d[n] != Integer.MAX_VALUE || !(L.passable[n] || L.avoid[n]) || !(L.visited[n] || L.mapped[n])) continue;
+				d[n] = d[c] + 1; q.add(n); } }
+		return d;
+	}
 
 	/** An item's action: the backpack (long Select), its cell, the action's button in the item window, then aim. */
 	boolean use(Assist.Target t) {
@@ -275,7 +293,7 @@ public final class WatchDriver {
 	}
 
 	/** Spend talent points the watch's way: the portrait, the hero's Talents tab, a talent, Upgrade. */
-	int talentTries;
+	int talentTries, talentsSpent;
 	boolean talents() {
 		Hero h = Dungeon.hero;
 		boolean any = false; for (int tier = 1; tier <= 4; tier++) if (h.talentPointsAvailable(tier) > 0) any = true;
@@ -284,7 +302,8 @@ public final class WatchDriver {
 		toolbar(pebxel.ui.WatchHud.B_PORTRAIT, false);
 		Window w = Ui.topWindow();
 		if (!(w instanceof pebxel.ui.WndWatchHero)) { fallback("hero window (got " + (w == null ? "nothing" : w.getClass().getSimpleName()) + ")"); if (w != null) press(Controls.BACK); return false; }
-		Gizmo tab = BotWindows.byText(Controls.buttons(w), "talent");
+		Gizmo tab = null;   // (the tabs' words sit beside them: the Talents tab is number 1)
+		for (Ui.Part p : Controls.buttons(w)) if (p.g.getClass().getSimpleName().equals("Tab") && Integer.valueOf(1).equals(get(p.g, "k"))) tab = p.g;
 		if (tab == null || !focusTo(w, tab, 10)) { fallback("talents tab"); press(Controls.BACK); return false; }
 		press(Controls.SELECT);
 		Window th = Ui.topWindow();
@@ -305,12 +324,13 @@ public final class WatchDriver {
 		Gizmo up = info == null ? null : BotWindows.byText(Controls.buttons(info), "upgrade");
 		if (up == null || !focusTo(info, up, 10)) { fallback("talent upgrade button"); for (int i = 0; i < 3 && Ui.topWindow() != null; i++) press(Controls.BACK); return false; }
 		press(Controls.SELECT);
+		talentsSpent++;
 		for (int i = 0; i < 4 && Ui.topWindow() != null; i++) press(Controls.BACK);
 		return true;
 	}
 
 	String summary() {
-		return String.format("presses %d taps %d notoffered %d frames %d bytes %d watchpeak %d linkerrors %d frameerrors %d unknown %s fallbacks %s",
-				presses, taps, notOffered, frames, bytes, peak, linkErrors, frameErrors, link.unknown, fallbacks);
+		return String.format("talents %d presses %d taps %d notoffered %d frames %d bytes %d watchpeak %d linkerrors %d frameerrors %d unknown %s fallbacks %s",
+				talentsSpent, presses, taps, notOffered, frames, bytes, peak, linkErrors, frameErrors, link.unknown, fallbacks);
 	}
 }

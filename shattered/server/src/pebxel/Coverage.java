@@ -21,6 +21,7 @@ public final class Coverage {
 	static final Set<Integer> floors = new TreeSet<>();
 
 	static int keyMax, keyAt;
+	static String watch = "";
 	/** Shattered's key listeners (each button adds one; destroy removes it): a count that only grows is a leak. */
 	static int keyListeners() {
 		try {
@@ -86,6 +87,7 @@ public final class Coverage {
 		kv(sb, "windows", BotWindows.summary().replace(" ", "").replace("{", "").replace("}", ""));
 		kv(sb, "scenes", String.join(",", scenes));
 		kv(sb, "floors", floors.toString().replace(" ", ""));
+		if (!watch.isEmpty()) kv(sb, "watch", watch.replace(' ', ':'));
 		kv(sb, "keylisteners", Integer.toString(Math.max(keyMax, keyListeners())));
 		kv(sb, "problems", String.join(",", problems));
 		System.out.println(sb);

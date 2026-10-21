@@ -39,11 +39,13 @@ public final class Ui {
 				continue;
 			}
 			if (g instanceof RenderedTextBlock) { String t = ((RenderedTextBlock) g).text(); if (t != null && !t.isEmpty()) out.add(new Part(g, t, false)); continue; }
+			if (g instanceof pebxel.ui.WatchText) { String t = ((pebxel.ui.WatchText) g).text(); if (t != null && !t.isEmpty()) out.add(new Part(g, t, false)); continue; }
 			if (g instanceof Group) walk((Group) g, out);
 		}
 	}
 
 	public static String label(Group b) {
+		if (b instanceof pebxel.ui.WatchButton && !((pebxel.ui.WatchButton) b).text().isEmpty()) return ((pebxel.ui.WatchButton) b).text();
 		StringBuilder sb = new StringBuilder(); collect(b, sb);
 		return sb.length() == 0 ? b.getClass().getSimpleName() : sb.toString().trim();
 	}
@@ -52,6 +54,7 @@ public final class Ui {
 		for (Gizmo g : GroupAccess.members(grp)) {
 			if (g == null || !g.visible) continue;
 			if (g instanceof RenderedTextBlock) sb.append(((RenderedTextBlock) g).text()).append(' ');
+			else if (g instanceof pebxel.ui.WatchText) sb.append(((pebxel.ui.WatchText) g).text()).append(' ');
 			else if (g instanceof Group) collect((Group) g, sb);
 		}
 	}

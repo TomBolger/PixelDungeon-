@@ -13,6 +13,8 @@ public class WatchButton extends Button {
 	protected NinePatch bg;
 	protected Image icon;
 	protected String label = "";
+	/** What it says (tests read the watch's own buttons by their words). */
+	public String text() { return label; }
 	private final java.util.List<WatchText> lines = new java.util.ArrayList<>();
 	public int labelColor = 0xFFFFFF;
 	/** Where the label's box starts below the top (0: centred in the button). */
