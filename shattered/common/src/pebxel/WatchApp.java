@@ -13,7 +13,7 @@ public class WatchApp implements Application {
 	public final WatchGraphics graphics = new WatchGraphics();
 	private final Array<Runnable> runnables = new Array<>(), running = new Array<>();
 	private final java.util.HashMap<String, Preferences> prefs = new java.util.HashMap<>();
-	private final String prefDir;
+	private String prefDir;
 	private final java.util.function.Function<String, Preferences> prefsMaker;
 	public volatile boolean exited;
 
@@ -41,6 +41,9 @@ public class WatchApp implements Application {
 		for (Runnable r : running) r.run();
 		listener.render();
 	}
+
+	/** Settings from scratch, kept in another folder (bots: each game as if on a new phone). */
+	public void newPrefs(String dir) { prefDir = dir; prefs.clear(); }
 
 	@Override public ApplicationListener getApplicationListener() { return listener; }
 	@Override public Graphics getGraphics() { return graphics; }

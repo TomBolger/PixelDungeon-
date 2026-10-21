@@ -30,12 +30,26 @@ public final class Lockstep {
 	 * seconds of wall time. Frames take well under a millisecond, so this never decides anything in a game that runs,
 	 * however loaded the machine; it only turns a deadlock into a report (every thread's stack) and an exit.
 	 */
-	public static void watchdog(String who) {
+	public static void watchdog(String who) { watchdog(() -> who); }
+	/** When the game being played (for GAMESECS, default 1800) started: System.nanoTime. */
+	public static volatile long gameStart = System.nanoTime();
+	/** The same, for several games in one JVM: who is asked each time. Also ends a game that has taken more than
+	 *  GAMESECS (default 1800) seconds of wall time, as simbot's kill did when every game had a JVM of its own. */
+	public static void watchdog(java.util.function.Supplier<String> whom) {
 		int secs = Integer.parseInt(System.getenv().getOrDefault("HANGSECS", "120"));
+		long gameSecs = Long.parseLong(System.getenv().getOrDefault("GAMESECS", "1800"));
 		Thread t = new Thread(() -> {
 			long last = -1, since = System.nanoTime();
 			while (true) {
 				try { Thread.sleep(5000); } catch (InterruptedException e) { return; }
+				String who = whom.get();
+				if (System.nanoTime() - gameStart > gameSecs * 1_000_000_000L) {
+					int d = -1; try { d = com.shatteredpixel.shatteredpixeldungeon.Dungeon.depth; } catch (Throwable x) { }
+					System.out.println("COVER end=killed;class=" + who.split(" ")[1] + ";depth=" + d + ";problems=over " + gameSecs + " s doing " + doing.replace(';', ',').replace('=', ':') + ";");
+					System.out.println("RESULT " + who + ": killed after " + gameSecs + " s (doing " + doing + ") depth " + d + " frames " + frames);
+					System.out.flush();
+					Runtime.getRuntime().halt(3);
+				}
 				long f = frames;
 				if (f != last) { last = f; since = System.nanoTime(); continue; }
 				if (System.nanoTime() - since < secs * 1_000_000_000L) continue;
