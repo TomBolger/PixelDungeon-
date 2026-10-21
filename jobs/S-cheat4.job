@@ -1,0 +1,7 @@
+# S-cheat4
+bundle=S-cheat4-1021044600.tgz
+bin=simbot
+games=60
+chunk=1
+first=0
+run cheat CHEAT=1 SIMSEED=1
