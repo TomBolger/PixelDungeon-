@@ -73,6 +73,7 @@ public final class SellTest {
 			w.frames(30); w.toolbar(pebxel.ui.WatchHud.TB_WAIT, false); w.frames(30);
 			int first = -1, firstObjs = -1, firstWnd = -1, sold = 0, startGold = Dungeon.gold;
 			int[] objsAt = new int[sales + 1];
+			w.link.stats.clear();
 			// Down to the shopkeeper, Select: its window
 			if (!w.targetTo(sk.pos, false)) { System.out.println("shopkeeper at " + sk.pos + " hero " + Dungeon.hero.pos + " not in the Down list: targets " + w.targets() + " " + Assist.plan(false, null)); System.exit(2); }
 			w.frames(20);
@@ -106,6 +107,9 @@ public final class SellTest {
 			System.out.printf("sold %d for %d gold; Back pressed %d times to leave; then link pictures %d, watch objects %d, memory %d, windows %d%n",
 					sold, Dungeon.gold - startGold, backs, linkObjs(w), w.sim.objCount(), w.sim.heapEstimate(), windows());
 			System.out.println("WATCH " + w.summary());
+			StringBuilder st = new StringBuilder("the link's bytes over the sales, most first:");
+			w.link.stats.entrySet().stream().sorted((x, y) -> Long.compare(y.getValue()[1], x.getValue()[1])).limit(12).forEach(e -> st.append(' ').append(e.getKey()).append(' ').append(e.getValue()[1]).append('/').append(e.getValue()[0]));
+			System.out.println(st);
 			if (sold >= 4 && (objsAt[sold] > firstObjs + 20 || windows() > 0 || backs > 3)) { System.out.println("GREW: pictures " + firstObjs + " -> " + objsAt[sold] + ", windows " + firstWnd + " -> " + windows()); code = 1; }
 			else System.out.println(code == 0 ? "FLAT" : "FAILED");
 		} catch (Throwable e) { e.printStackTrace(System.out); code = 3; }
