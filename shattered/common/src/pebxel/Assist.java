@@ -143,7 +143,7 @@ public final class Assist {
 	private static boolean searchLast;
 
 	// per-plan scratch
-	private static Level L; private static Hero H; private static int W, LEN, hp;
+	private static Level L; private static Hero H; private static int W, LEN, hp, ENT, EXIT;
 	private static int[] dist, wlk, N8;
 	private static boolean[] known, open, pass;
 	private static IntPredicate screen;
@@ -348,7 +348,7 @@ public final class Assist {
 	}
 
 	private static void setup(IntPredicate onScreen) {
-		H = Dungeon.hero; L = Dungeon.level; W = L.width(); LEN = L.length(); hp = H.pos;
+		H = Dungeon.hero; L = Dungeon.level; W = L.width(); LEN = L.length(); hp = H.pos; ENT = L.entrance(); EXIT = L.exit();   // (the stairs looked up once: per cell they were a tenth of a bot game)
 		ensureFloor(L);
 		screen = mode() == 2 ? null : onScreen;
 		N8 = new int[] { -W, 1, W, -1, -W - 1, -W + 1, W + 1, W - 1 };
@@ -576,7 +576,7 @@ public final class Assist {
 	private static boolean blind() { for (Buff b : H.buffs()) if (b.getClass().getSimpleName().equals("Blindness")) return true; return false; }
 
 	private static boolean unseenBy(int c) {   // c is beside the unknown (not just beside the hero)
-		if (!known[c] || !open[c] || L.map[c] == Terrain.ALCHEMY || c == L.entrance() || c == L.exit() || (fish && water(c))) return false;
+		if (!known[c] || !open[c] || L.map[c] == Terrain.ALCHEMY || c == ENT || c == EXIT || (fish && water(c))) return false;
 		for (int k = 0; k < 8; k++) {
 			int n = c + N8[k]; if (!nb(c, n) || known[n] || distance(n, hp) <= 1) continue;
 			if (k >= 4) { int a = x(n) + y(c) * W, b = x(c) + y(n) * W;   // a diagonal unknown between two known walls: a room's corner
@@ -594,7 +594,7 @@ public final class Assist {
 	private static boolean searched(int w) { return checked[w]; }
 
 	private static boolean deadEnd(int c) {   // a corridor that just stops: a hidden door
-		if (!known[c] || !open[c] || c == L.entrance() || c == L.exit() || srchFrom[c]) return false;
+		if (!known[c] || !open[c] || c == ENT || c == EXIT || srchFrom[c]) return false;
 		int o = 0, oo = 0;
 		for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (!nb(c, n)) continue; if (!known[n]) return false;
 			if (!wall(n)) { o++; if (k < 4) oo++; } }
@@ -619,7 +619,7 @@ public final class Assist {
 	private static int srchSpot(int x1, int x2) {
 		int best = -1, fb = -1; long bk = 0;
 		for (int c = 0; c < LEN; c++) {
-			if (dist[c] >= INF || !open[c] || L.map[c] == Terrain.ALCHEMY || c == L.entrance() || c == L.exit() || (fish && water(c)) || (c != hp && Actor.findChar(c) != null) || bad.containsKey(c)) continue;
+			if (dist[c] >= INF || !open[c] || L.map[c] == Terrain.ALCHEMY || c == ENT || c == EXIT || (fish && water(c)) || (c != hp && Actor.findChar(c) != null) || bad.containsKey(c)) continue;
 			if ((x1 >= 0 && distance(c, x1) <= 2) || (x2 >= 0 && distance(c, x2) <= 2)) continue;
 			Heap hh = L.heaps.get(c); if (hh != null && hh.type == Heap.Type.FOR_SALE) continue;
 			int walls = 0, g = 0;
@@ -755,7 +755,7 @@ public final class Assist {
 			else waitId = -1;
 			if (bk < 1000 && m instanceof Piranha) {   // a piranha beside you: out of its reach, the shortest way
 				int c0 = -1, d0 = INF;
-				for (int c = 0; c < LEN; c++) if (dist[c] < d0 && dist[c] > 0 && open[c] && c != L.entrance() && c != L.exit()) {
+				for (int c = 0; c < LEN; c++) if (dist[c] < d0 && dist[c] > 0 && open[c] && c != ENT && c != EXIT) {
 					boolean wet = water(c); for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb(c, n)) wet |= water(n); }
 					if (!wet) { d0 = dist[c]; c0 = c; } }
 				if (c0 >= 0) { kind[0] = GO; why[0] = "out of the water"; waitF[0] = false; return c0; }

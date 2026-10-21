@@ -61,7 +61,7 @@ index c82cc00..eeaa939 100644
  		}
  	}
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java b/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
-index 447f3a6..ce85519 100644
+index 447f3a6..dc0707e 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
 +++ b/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
 @@ -53,7 +53,11 @@ public enum Music {
@@ -84,6 +84,24 @@ index 447f3a6..ce85519 100644
  
  		if (tracks == null || tracks.length == 0 || tracks.length != chances.length){
  			stop();
+@@ -134,7 +139,7 @@ public enum Music {
+ 			for (int i = 0; i < trackList.length; i++) {
+ 				//create all the players we need pre-emptively, so they will be cached
+ 				createPlayer(trackList[i]);
+-				if (Random.Float() < trackChances[i]) {
++				if (Random.pebxelVisualFloat() < trackChances[i]) {   //Pebxel: not the game's numbers (a new game's music was the old one's)
+ 					trackQueue.add(trackList[i]);
+ 				}
+ 			}
+@@ -202,7 +207,7 @@ public enum Music {
+ 
+ 		if (trackQueue.isEmpty()) {
+ 			for (int i = 0; i < trackList.length; i++) {
+-				if (Random.Float() < trackChances[i]) {
++				if (Random.pebxelVisualFloat() < trackChances[i]) {   //Pebxel: not the game's numbers (a new game's music was the old one's)
+ 					trackQueue.add(trackList[i]);
+ 				}
+ 			}
 @@ -236,6 +241,7 @@ public enum Music {
  	}
  
@@ -109,11 +127,15 @@ index d83ff2e..e0ddaab 100644
  		float pan = rightVolume - leftVolume;
  		if (enabled && ids.containsKey( id )) {
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java b/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
-index 4fd4e90..9be55ea 100644
+index 4fd4e90..5f999df 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
 +++ b/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
-@@ -92,7 +92,11 @@ public class Emitter extends Group {
- 		startDelayed( factory, interval, quantity, Random.Float(interval));
+@@ -89,10 +89,14 @@ public class Emitter extends Group {
+ 
+ 	public void start( Factory factory, float interval, int quantity ) {
+ 		//by default the delay is random, up to the interval
+-		startDelayed( factory, interval, quantity, Random.Float(interval));
++		startDelayed( factory, interval, quantity, Random.pebxelVisualFloat() * interval);   //Pebxel: not the game's numbers
  	}
  
 +	/** (Pebxel) how many times this emitter was started: the watch link tells a new burst from an old one by it */
@@ -124,6 +146,36 @@ index 4fd4e90..9be55ea 100644
  		this.factory = factory;
  		this.lightMode = factory.lightMode();
  
+@@ -119,10 +123,14 @@ public class Emitter extends Group {
+ 			return;
+ 		}
+ 		
++		//Pebxel (headless bots): particles come from a generator of their own, never the game's (pebxelOff: none at all)
++		if (Random.pebxelVisuals) Random.pebxelVisual(true);
++		try {
+ 		if (on) {
+ 			time += Game.elapsed;
+ 			while (time > interval) {
+ 				time -= interval;
++				if (pebxelOff) count++; else
+ 				emit( count++ );
+ 				if (quantity > 0 && count >= quantity) {
+ 					on = false;
+@@ -134,8 +142,14 @@ public class Emitter extends Group {
+ 		}
+ 		
+ 		super.update();
++		} finally {
++			if (Random.pebxelVisuals) Random.pebxelVisual(false);
++		}
+ 	}
+ 
++	/** Pebxel: headless bots in a hurry, nothing to show: emitters keep their timing but make no particles. */
++	public static boolean pebxelOff;
++
+ 	@Override
+ 	public void revive() {
+ 		//ensure certain emitter variables default to true
 diff --git a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java b/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
 index 863b15b..4ef5ba4 100644
 --- a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
@@ -150,10 +202,10 @@ index 863b15b..4ef5ba4 100644
  	//this is very confusing, I know.
  	public BitmapFont getFont(int size, String text, boolean flipped, boolean border) {
 diff --git a/SPD-classes/src/main/java/com/watabou/utils/Random.java b/SPD-classes/src/main/java/com/watabou/utils/Random.java
-index 38c1fe5..d34e977 100644
+index 38c1fe5..d31054b 100644
 --- a/SPD-classes/src/main/java/com/watabou/utils/Random.java
 +++ b/SPD-classes/src/main/java/com/watabou/utils/Random.java
-@@ -39,13 +39,19 @@ public class Random {
+@@ -39,13 +39,33 @@ public class Random {
  		resetGenerators();
  	}
  
@@ -161,6 +213,20 @@ index 38c1fe5..d34e977 100644
 +	public static java.util.Random pebxelSource;
 +	private static java.util.Random unseeded(){
 +		return pebxelSource != null ? new java.util.Random(pebxelSource.nextLong()) : new java.util.Random();
++	}
++
++	//Pebxel: headless bots (in lockstep, so no other thread draws meanwhile) give the particles a generator of their own,
++	// so how many frames a game takes (how much the effects draw) never changes the game's own random numbers
++	public static boolean pebxelVisuals;
++	private static final java.util.Random pebxelVisualGen = new java.util.Random(0x5eed);
++	public static synchronized void pebxelVisual( boolean on ){
++		if (on) generators.push(pebxelVisualGen);
++		else if (generators.peekFirst() == pebxelVisualGen && generators.size() > 1) generators.pop();
++	}
++
++	//Pebxel: a draw for the looks only (music, ripples, an emitter's first puff): from the particles' generator in lockstep
++	public static synchronized float pebxelVisualFloat(){
++		return pebxelVisuals ? pebxelVisualGen.nextFloat() : Float();
 +	}
 +
  	public static synchronized void resetGenerators(){
@@ -296,7 +362,7 @@ index 1c02505..9254077 100644
  			
  			Actor.fixTime();
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
-index 346718f..50259d8 100644
+index 346718f..52bf3d2 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 @@ -32,6 +32,7 @@ import com.watabou.utils.Bundlable;
@@ -307,7 +373,38 @@ index 346718f..50259d8 100644
  import java.util.HashSet;
  
  public abstract class Actor implements Bundlable {
-@@ -241,6 +242,46 @@ public abstract class Actor implements Bundlable {
+@@ -42,6 +43,17 @@ public abstract class Actor implements Bundlable {
+ 
+ 	private int id = 0;
+ 
++	//Pebxel: a hash code of its own, numbered as actors are made, in place of the JVM's identity hash: which actor of
++	// several due at the same time goes first, and the order of every set of characters, mobs and buffs, follow it. With
++	// the identity hash (even numbered in order, -XX:hashCode=3) anything else hashed first, an extra line printed by a
++	// bot, a field read by reflection, shifted every number after it and so the whole game.
++	private static int pebxelHashes;
++	private final int pebxelHash = ++pebxelHashes;
++	@Override
++	public int hashCode() {
++		return pebxelHash;
++	}
++
+ 	//default priority values for general actor categories
+ 	//note that some specific actors pick more specific values
+ 	//e.g. a buff acting before all normal buffs might have priority BUFF_PRIO + 1
+@@ -166,8 +178,10 @@ public abstract class Actor implements Bundlable {
+ 		
+ 		now = 0;
+ 
+-		all.clear();
+-		chars.clear();
++		//Pebxel: new sets, not emptied ones: an emptied HashSet keeps its grown table, and the order it goes round in
++		// (which actor first, of several due at once) followed how big the floor before (or the game before) had been
++		all = new HashSet<>();
++		chars = new HashSet<>();
+ 
+ 		ids.clear();
+ 	}
+@@ -241,6 +255,49 @@ public abstract class Actor implements Bundlable {
  		return current != null;
  	}
  
@@ -318,8 +415,11 @@ index 346718f..50259d8 100644
 +	public static volatile boolean pebxelBusy;
 +	private static volatile Object pebxelOn;
 +	private static final ArrayList<Object> pebxelLater = new ArrayList<>();
++	public static volatile Thread pebxelWaiter;   //(the bot thread waiting for busy to clear: woken at once)
 +	public static void pebxelWait( Object o ) throws InterruptedException {
 +		pebxelOn = o; pebxelBusy = false;
++		Thread w = pebxelWaiter;
++		if (w != null) java.util.concurrent.locks.LockSupport.unpark(w);
 +		do o.wait(); while (pebxelLockstep && pebxelOn == o);   //(in lockstep, only a wake-up given between frames counts)
 +	}
 +	public static void pebxelWake( Object o ) {
@@ -335,26 +435,26 @@ index 346718f..50259d8 100644
 +			o.notifyAll();
 +		}
 +	}
-+	//between frames (bots): the wake-ups the frame made; false when there were none
++	//between frames (bots): the first of the wake-ups the frame made; false when there were none. One at a time, the
++	// caller waiting for the thread to wait again in between: two given at once (a sprite's, then the thread's own)
++	// raced the woken thread, which some runs caught in time for a second round and some didn't
 +	public static boolean pebxelWakeLater() {
-+		Object[] l;
-+		synchronized (pebxelLater) { l = pebxelLater.toArray(); pebxelLater.clear(); }
-+		for (Object o : l) {
-+			if (o instanceof Thread && ((Thread) o).getState() == Thread.State.NEW) {
-+				pebxelOn = null; pebxelBusy = true;
-+				((Thread) o).start();
-+			} else synchronized (o) {
-+				pebxelWake(o);
-+				o.notifyAll();
-+			}
++		Object o;
++		synchronized (pebxelLater) { if (pebxelLater.isEmpty()) return false; o = pebxelLater.remove(0); }
++		if (o instanceof Thread && ((Thread) o).getState() == Thread.State.NEW) {
++			pebxelOn = null; pebxelBusy = true;
++			((Thread) o).start();
++		} else synchronized (o) {
++			pebxelWake(o);
++			o.notifyAll();
 +		}
-+		return l.length > 0;
++		return true;
 +	}
 +
  	public static int curActorPriority() {
  		return current != null ? current.actPriority : HERO_PRIO;
  	}
-@@ -283,7 +324,7 @@ public abstract class Actor implements Bundlable {
+@@ -283,7 +340,7 @@ public abstract class Actor implements Bundlable {
  					try {
  						synchronized (((Char)acting).sprite) {
  							if (((Char)acting).sprite.isMoving) {
@@ -363,7 +463,7 @@ index 346718f..50259d8 100644
  							}
  						}
  					} catch (InterruptedException e) {
-@@ -321,7 +362,7 @@ public abstract class Actor implements Bundlable {
+@@ -321,7 +378,7 @@ public abstract class Actor implements Bundlable {
  					Thread.currentThread().notify();
  					
  					try {
@@ -385,6 +485,19 @@ index faf596d..5c9bc29 100644
  					}
  				}
  			} catch (InterruptedException e) {
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/SewerLevel.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/SewerLevel.java
+index 270bfa5..e2a5c78 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/SewerLevel.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/SewerLevel.java
+@@ -278,7 +278,7 @@ public class SewerLevel extends RegularLevel {
+ 					Ripple ripple = GameScene.ripple( pos + Dungeon.level.width() );
+ 					if (ripple != null) {
+ 						ripple.y -= DungeonTilemap.SIZE / 2;
+-						rippleDelay = Random.Float(0.4f, 0.6f);
++						rippleDelay = 0.4f + 0.2f * Random.pebxelVisualFloat();   //Pebxel: not the game's numbers (one each half second of animation)
+ 					}
+ 				}
+ 			}
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java
 index ff17e01..c45646e 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java
