@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16, C_TILES2 = 17, C_ANIMTO = 18;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16, C_TILES2 = 17, C_ANIMTO = 18, C_RECIPE = 19, C_FOG = 20, C_READY = 21;
 	// ---- picture kinds ----
-	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8;
+	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8, K_EMIT = 9;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16, F_FOG = 32;   // F_FOG: the fog of war (the watch draws it as Pebble PD does)
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 10;   // 10: tile maps in runs (C_TILES2), animation changes (C_ANIMTO)
+	public static final int PROTOCOL = 11;   // 10: tile maps in runs (C_TILES2), animation changes (C_ANIMTO); 11: particles made on the watch (K_EMIT, C_RECIPE)
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -57,7 +57,7 @@ public final class Link {
 	}
 
 	private final IdentityHashMap<Gizmo, Obj> objs = new IdentityHashMap<>();
-	static final boolean DEBUG_NEW = System.getenv("DEBUG_NEW") != null;
+	static final boolean DEBUG_NEW = System.getenv("DEBUG_NEW") != null, DEBUG_RECIPES = System.getenv("DEBUG_RECIPES") != null;
 	static final boolean NO_UNTIL = System.getenv("NOUNTIL") != null;   // for comparing (LagTest)
 	static final boolean NO_REUSE = System.getenv("NOREUSE") != null || Pacer.OLD;   // (RadioTest: as it was)
 	/** Movements, fades and growths in progress this round, by picture: they say exactly where it is heading and when it arrives. */
@@ -81,16 +81,17 @@ public final class Link {
 	/** When each run-time picture was last drawn (sync rounds); unused ones are freed on the watch. */
 	private final HashMap<Integer, Integer> dynUsed = new HashMap<>();
 	private int rounds;
-	static final int DYN_KEEP = 90;   // rounds unused before a run-time picture is let go (3 s)
+	// rounds unused before a run-time picture is let go (20 s: a torch's glow, 770 bytes, went 3 s after the torch went
+	// out of sight, and came again with the next; a floor change lets them all go anyway)
+	static final int DYN_KEEP = 600;
 
 	/** Pictures that are pure scenery and cost more radio time than they are worth (none by default). */
 	public final Set<String> skip = new HashSet<>(Arrays.asList(
 			"BusyIndicator",  // the phone's 'thinking' spinner: meaningless on the watch
 			"CellSelector",   // an invisible touch area
-			// each floor's background decoration (dripping sewer pipes, prison torches, cave sparkles, city
-			// flames and smoke, hall fire streams) and water ripples: a steady stream of tiny pictures that
-			// would hold up what matters on a slow radio link
-			"Sink", "Torch", "Vein", "GreenFlame", "Smoke", "Stream", "Ripple",
+			// (water ripples and the floors' decorations, dripping sewer pipes, prison torches, cave sparkles, city
+			// flames and smoke, hall fire streams, were left out: a steady stream of tiny pictures that held up what
+			// matters on a slow radio link. Now the watch makes them: Particles)
 			// the menus' drifting rubble background: busy behind text, and always moving
 			"TitleBackground",
 			// a new screen's fade from black (PixelScene.Fader): dithered on the watch it came out as a second of thinning
@@ -106,13 +107,21 @@ public final class Link {
 	public long bytesTotal, syncs;
 	private float now;
 
-	public Link(Assets assets) { this.assets = assets; reset(); }
+	public Link(Assets assets) {
+		this.assets = assets;
+		// (tests: DECOR=1 sends the floors' decorations too, to measure them)
+		if (System.getenv("DECOR") != null) skip.removeAll(Arrays.asList("Sink", "Torch", "Vein", "GreenFlame", "Smoke", "Stream", "Ripple"));
+		// (WATCH_PARTICLES=0 or PACE_OLD, for comparing: particles sent one by one, so the decorations left out again)
+		else if (Particles.OFF || NO_REUSE) skip.addAll(Arrays.asList("Sink", "Torch", "Vein", "GreenFlame", "Smoke", "Stream", "Ripple"));
+		reset();
+	}
 
 	/** Forget everything the watch had (it restarted, or a new connection). */
 	public void reset() {
 		objs.clear(); shadowPrev.clear(); shadowNext.clear(); shadowHead = NONE;
-		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); dynUsed.clear(); dynShrink.clear(); nextDyn = 200;
+		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); fogStates.clear(); dynUsed.clear(); dynShrink.clear(); nextDyn = 200;
 		anims.clear(); animsByContent.clear(); animUsed.clear();
+		recipeIds.clear(); Arrays.fill(recipeKey, null);
 		out.reset(); marks.clear(); dropPending(); cmd(C_RESET); lastPlan = null;
 		Sounds.take();   // (effects from while the watch was away are stale)
 		for (int[] e : Sounds.state()) sound(e);
@@ -128,7 +137,7 @@ public final class Link {
 		Scene scene = Game.scene();
 		if (scene != null) {
 			List<Gizmo> order = new ArrayList<>();
-			tweens.clear();
+			tweens.clear(); emitDescs.clear(); particles.round();
 			walk(scene, order);
 			// removed pictures
 			Set<Gizmo> present = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -202,7 +211,14 @@ public final class Link {
 			byte[] pl;
 			try { pl = planner.apply(this); } catch (Throwable t) { pl = null; }
 			if (pl == null) pl = new byte[]{0};
-			if (!Arrays.equals(pl, lastPlan)) { lastPlan = pl; cmd(C_PREDICT); out.write(pl, 0, pl.length); stat("press plan", pl.length + 1); }
+			if (!Arrays.equals(pl, lastPlan)) {
+				// the hero ready again (no plan while he walks, one now): where he stands goes at the head of the next
+				// message (take), so a watch walking him ahead stops him there as soon as it arrives, not when this
+				// frame plays a while later
+				if (pl.length > 1 && lastPlan != null && lastPlan.length == 1 && com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero != null && com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero.sprite != null)
+					ready = new int[]{Math.round(com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero.sprite.x * 8), Math.round(com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero.sprite.y * 8)};
+				lastPlan = pl; cmd(C_PREDICT); out.write(pl, 0, pl.length); stat("press plan", pl.length + 1);
+			}
 		}
 		if (out.size() == 0) { marks.clear(); return new byte[0]; }
 		cmd(C_COMMIT);
@@ -326,6 +342,7 @@ public final class Link {
 	 * Water adds its offset and speed; an animation adds its frame and timer.
 	 */
 	private void sendDyn(Gizmo g, Obj o, float[] dyn) {
+		if (!(g instanceof Visual) || emitDescs.containsKey(g)) { emitDyn(g, o, dyn); return; }
 		float[] vel = new float[N];
 		Visual v = (Visual) g;
 		// guessing a speed from the last two places suits things moving in the dungeon; on the interface (a focus box
@@ -425,13 +442,131 @@ public final class Link {
 		return per > 0 ? d - per * Math.round(d / per) : d;
 	}
 
+	// ---- particles made on the watch (Particles) ----
+
+	private final Particles particles = new Particles(this);
+	private final IdentityHashMap<Gizmo, Particles.Desc> emitDescs = new IdentityHashMap<>();
+	static final int RECIPES = 64;   // the watch keeps this many (scene.c MAX_RECIPE)
+	private final HashMap<String, Integer> recipeIds = new HashMap<>();
+	private final String[] recipeKey = new String[RECIPES];
+	private final int[] recipeUsed = new int[RECIPES];
+
+	/** A texture the watch has among its own pictures (art), or -1. */
+	int assetTex(SmartTexture t) {
+		String k = key(t);
+		Integer id = k == null ? null : assets.id(k);
+		return id == null ? -1 : id;
+	}
+
+	/** The watch's number for a recipe, sent first if it hasn't it (-1: no room). */
+	private int recipeId(Particles.Recipe r) {
+		String k = new String(r.bytes, StandardCharsets.ISO_8859_1);
+		Integer id = recipeIds.get(k);
+		if (id == null) {
+			// a free number, or the one no emitter has used for longest (not this round, nor the last: they'd change)
+			int best = -1;
+			for (int i = 0; i < RECIPES; i++) {
+				if (recipeKey[i] == null) { best = i; break; }
+				if (recipeUsed[i] < rounds - 1 && (best < 0 || recipeUsed[i] < recipeUsed[best])) best = i;
+			}
+			if (best < 0) return -1;
+			if (recipeKey[best] != null) recipeIds.remove(recipeKey[best]);
+			id = best; recipeIds.put(k, id); recipeKey[id] = k;
+			int b0 = out.size();
+			cmd(C_RECIPE); u8(id); u8(r.bytes.length); out.write(r.bytes, 0, r.bytes.length);
+			if (DEBUG_RECIPES) System.out.println("recipe " + id + " " + r.cls.getName().replaceAll(".*\\.", "") + " life " + r.life + ": " + Particles.describe(r.bytes));
+			stat("particle recipe", out.size() - b0);
+		}
+		recipeUsed[id] = rounds;
+		return id;
+	}
+
+	/**
+	 * An emitter as the watch makes it (K_EMIT): camera, recipe, flags (1 fills the followed picture, 2 on, 4 over
+	 * cells, 8 only in cells in sight), followed picture u16 (NONE), width, height (x8), interval (game ms; 0 all at
+	 * once), how many (0 no end), start number, how many to make at once on this start; with cells: cell size, left,
+	 * top, columns, rows, the part of a cell they start in (left, top, right, bottom: s8, 1/64 of a cell), one bit a cell. Its moving part: where it is (x8).
+	 */
+	private byte[] emitState(Gizmo g, float[] dyn) {
+		Particles.Desc d = emitDescs.get(g);
+		Camera c = g.camera();
+		if (d == null || c == null) return null;
+		int cam = cam(c);
+		int rid = recipeId(d.recipe);
+		if (rid < 0) return null;
+		Obj fo = d.follow != null ? objs.get(d.follow) : null;
+		float x = d.x, y = d.y, w = d.w, h = d.h;
+		boolean fill = false;
+		if (d.follow != null) {
+			Visual t = d.follow;
+			if (fo != null) { fill = d.fill; if (fill) x = y = 0; }
+			else if (d.fill) { x = t.x; y = t.y; w = t.width(); h = t.height(); }
+			else { x = t.x + d.x; y = t.y + d.y; }
+		}
+		Arrays.fill(dyn, 0);
+		dyn[D_X] = x * 8; dyn[D_Y] = y * 8; dyn[D_A] = 255; dyn[D_SX] = dyn[D_SY] = 256;
+		sb.reset();
+		s8(K_EMIT); s8(cam); s8(rid); s8((fill ? 1 : 0) | (d.on ? 2 : 0) | (d.cells ? 4 : 0) | (d.sight ? 8 : 0));
+		s16(fo != null ? fo.id : NONE); s16(Math.round(w * 8)); s16(Math.round(h * 8));
+		s16(Math.min(65535, Math.round(d.interval * 1000))); s8(Math.min(255, d.quantity)); s8(d.starts & 255); s8(Math.min(255, d.pre));
+		if (d.cells) {
+			s8(d.cellSize); s8(d.cl); s8(d.ct); s8(d.cw); s8(d.ch);
+			for (float b : d.bound) s8(Math.max(-128, Math.min(127, Math.round(b * 64))) & 255);
+			sb.write(d.bits, 0, d.bits.length);
+		}
+		return sb.toByteArray();
+	}
+
+	/** An emitter's moving part: where it is, and how fast it goes (a flying spell). */
+	private void emitDyn(Gizmo g, Obj o, float[] dyn) {
+		float[] vel = new float[N];
+		if (o.prev != null && now > o.prevAt) {
+			float dt = now - o.prevAt;
+			vel[D_X] = (dyn[D_X] - o.prev[D_X]) / dt; vel[D_Y] = (dyn[D_Y] - o.prev[D_Y]) / dt;
+			if (Math.abs(vel[D_X]) > 30000 || Math.abs(vel[D_Y]) > 30000) vel[D_X] = vel[D_Y] = 0;
+		}
+		boolean moving = r(vel[D_X]) != 0 || r(vel[D_Y]) != 0;
+		int untilMs = moving ? Math.round(GUESS_HOLD * 100) : 0;
+		u8(moving ? 1 | 16 : 1);
+		s16o(r(dyn[D_X])); s16o(r(dyn[D_Y]));
+		if (moving) { s16o(r(vel[D_X])); s16o(r(vel[D_Y])); u8(untilMs); }
+		o.dyn = dyn.clone(); for (int i = 0; i < N; i++) o.dyn[i] = r(o.dyn[i]);
+		o.vel = new float[N]; if (moving) { o.vel[D_X] = r(vel[D_X]); o.vel[D_Y] = r(vel[D_Y]); }
+		o.until = untilMs / 100f; o.sentAt = now; o.anim = null; o.tw = null;
+	}
+
 	// ---- scene walk ----
 
-	private void walk(Group grp, List<Gizmo> order) {
+	private void walk(Group grp, List<Gizmo> order) { walk(grp, order, null); }
+
+	private void walk(Group grp, List<Gizmo> order, Class<?> except) {
 		for (Gizmo g : GroupAccess.members(grp)) {
-			if (g == null || !g.exists || !g.visible) continue;
+			if (g == null || !g.exists) continue;
 			if (!skip.isEmpty() && skip.contains(g.getClass().getSimpleName())) continue;
-			if (g instanceof Group) { walk((Group) g, order); continue; }
+			if (except != null && g.getClass() == except) continue;   // (an emitter's particles: the watch makes them)
+			if (!NO_REUSE && !Particles.OFF && Particles.decoration(g)) {
+				// a floor decoration: its kind's floor-wide emitter (once, where the first of them is), and what else it
+				// shows while in sight (a torch's glow)
+				Particles.Decor dc = particles.decor(g);
+				if (dc != null && dc.desc != null) {
+					if (!emitDescs.containsKey(dc)) {
+						emitDescs.put(dc, dc.desc); order.add(dc);
+						if (dc.companion != null) { emitDescs.put(dc.companion, dc.companion.desc); order.add(dc.companion); }
+					}
+					if (g.visible && g instanceof Group) walk((Group) g, order, dc.desc.recipe.cls);
+					continue;
+				}
+			}
+			if (!g.visible) continue;
+			if (g instanceof Group) {
+				Particles.Desc d = NO_REUSE ? null : particles.describe(g);
+				if (d != null) { walk((Group) g, order, d.recipe.cls); emitDescs.put(g, d); order.add(g); continue; }
+				walk((Group) g, order); continue;
+			}
+			if (g instanceof com.shatteredpixel.shatteredpixeldungeon.effects.Ripple && !NO_REUSE) {
+				Particles.Desc d = particles.ripple((Visual) g);
+				if (d != null) { if (d.recipe != null) { emitDescs.put(g, d); order.add(g); } continue; }
+			}
 			if (g instanceof Visual) order.add(g);
 			else if (g instanceof com.watabou.noosa.tweeners.Tweener) {
 				com.watabou.noosa.tweeners.Tweener t = (com.watabou.noosa.tweeners.Tweener) g;
@@ -459,6 +594,7 @@ public final class Link {
 
 	/** The unchanging part of how a picture looks (first byte = kind), or null to skip it; fills dyn. */
 	private byte[] state(Gizmo g, float[] dyn) {
+		if (!(g instanceof Visual) || emitDescs.containsKey(g)) return emitState(g, dyn);
 		Visual v = (Visual) g;
 		Camera c = v.camera();
 		if (c == null) return null;
@@ -855,6 +991,7 @@ public final class Link {
 		}
 		dynUsed.put(d, rounds);
 		Pixmap p = t.bitmap;
+		if (p != null && k != null && k.startsWith("FogOfWar") && !NO_REUSE && !FOG_OLD) { fog(d, p); return d; }
 		if (p != null) {
 			int sk = dynShrink.getOrDefault(d, 1);
 			byte[] px = sk > 1 ? shrunk(p, sk) : Assets.pebble(p);
@@ -886,6 +1023,76 @@ public final class Link {
 		}
 		return d;
 	}
+
+	/**
+	 * The fog of war, as what changed. The watch reads it texel by texel as one of three states (in sight,
+	 * remembered, never seen: draw.c fog_at), so that is all it gets, and only where it changed, cell by cell (two
+	 * texels a side): each step of the hero changes the cells along the edge of what he sees, a dozen or two, where
+	 * the texture's changed 1 KB pieces cost about 100 bytes a step, the biggest share of a walk's radio.
+	 * C_FOG: id, w, h u16 (texels), length u16, then items, each a varint: cells on from the last item's (the first
+	 * from -1) << 2 | its state for all four texels (0 in sight, 1 remembered, 2 never seen); 3: a varint follows,
+	 * odd: that many >> 1 more cells after it alike, even: its four texels' states >> 1 (two bits each, from the top
+	 * left, row by row). A new fog starts all never seen.
+	 */
+	static final boolean FOG_CHECK = System.getenv("FOG_CHECK") != null, FOG_OLD = System.getenv("FOG_OLD") != null;   // (tests: FOG_OLD=1 sends it as pictures, as before)
+	private final HashMap<Integer, byte[]> fogStates = new HashMap<>();
+	private void fog(int d, Pixmap p) {
+		byte[] px = Assets.pebble(p);
+		int n = px.length, w = p.getWidth(), h = p.getHeight(), cw = w / 2, ch = h / 2;
+		byte[] st = new byte[n];
+		for (int i = 0; i < n; i++) { int a = (px[i] & 255) >> 6; st[i] = (byte) (a == 3 ? 2 : a > 0 ? 1 : 0); }
+		byte[] old = fogStates.get(d);
+		if (old == null || old.length != n) { old = new byte[n]; Arrays.fill(old, (byte) 2); dynPixels.remove(d); }
+		if (Arrays.equals(st, old)) { fogStates.put(d, st); return; }
+		ByteArrayOutputStream b = new ByteArrayOutputStream();
+		int last = -1, lastState = -1;
+		for (int c = 0; c < cw * ch; c++) {
+			int x = c % cw * 2, y = c / cw * 2, t0 = y * w + x;
+			int[] t = {t0, t0 + 1, t0 + w, t0 + w + 1};
+			boolean changed = false; for (int q : t) if (st[q] != old[q]) changed = true;
+			if (!changed) continue;
+			boolean one = st[t[0]] == st[t[1]] && st[t[0]] == st[t[2]] && st[t[0]] == st[t[3]];
+			if (one && c == last + 1 && st[t[0]] == lastState) {
+				// a run of cells alike, each changed, one after another
+				int r = 1;
+				while (c + r < cw * ch) {
+					int cx = (c + r) % cw * 2, cy = (c + r) / cw * 2, u0 = cy * w + cx;
+					int[] u = {u0, u0 + 1, u0 + w, u0 + w + 1};
+					boolean ch2 = false, same = true;
+					for (int q : u) { if (st[q] != old[q]) ch2 = true; if (st[q] != lastState) same = false; }
+					if (!ch2 || !same) break;
+					r++;
+				}
+				if (r >= 2) { varint(b, 1 << 2 | 3); varint(b, r << 1 | 1); last = c + r - 1; c += r - 1; continue; }
+			}
+			if (one) varint(b, (c - last) << 2 | st[t[0]]);
+			else { varint(b, (c - last) << 2 | 3); varint(b, (st[t[0]] << 6 | st[t[1]] << 4 | st[t[2]] << 2 | st[t[3]]) << 1); }
+			last = c; lastState = one ? st[t[0]] : -1;
+		}
+		byte[] bb = b.toByteArray();
+		if (FOG_CHECK) {   // (tests: the watch's reading of it gives the states)
+			byte[] chk = old.clone(); int[] q = {0};
+			java.util.function.IntSupplier vi = () -> { int v = 0, sh = 0, c; do { c = bb[q[0]++] & 255; v |= (c & 127) << sh; sh += 7; } while ((c & 128) != 0); return v; };
+			int cell = -1, prev = -1;
+			while (q[0] < bb.length) {
+				int v = vi.getAsInt(), s4 = v & 3; cell += v >> 2;
+				int[] st4;
+				if (s4 == 3) {
+					int e = vi.getAsInt();
+					if ((e & 1) != 0) { int r = e >> 1; for (int z = 0; z < r; z++) { int c = cell + z, x = c % cw * 2, y = c / cw * 2, t0 = y * w + x; chk[t0] = chk[t0 + 1] = chk[t0 + w] = chk[t0 + w + 1] = (byte) prev; } cell += r - 1; continue; }
+					e >>= 1; st4 = new int[]{e >> 6 & 3, e >> 4 & 3, e >> 2 & 3, e & 3}; prev = -1;
+				} else { st4 = new int[]{s4, s4, s4, s4}; prev = s4; }
+				int x = cell % cw * 2, y = cell / cw * 2, t0 = y * w + x;
+				chk[t0] = (byte) st4[0]; chk[t0 + 1] = (byte) st4[1]; chk[t0 + w] = (byte) st4[2]; chk[t0 + w + 1] = (byte) st4[3];
+			}
+			if (!Arrays.equals(chk, st)) System.out.println("FOG MISMATCH " + d);
+		}
+		fogStates.put(d, st);
+		int b0 = out.size();
+		cmd(C_FOG); u8(d); u16(w); u16(h); u16(bb.length); out.write(bb, 0, bb.length);
+		stat("fog of war", out.size() - b0);
+	}
+	private static void varint(ByteArrayOutputStream b, int v) { while (v >= 128) { b.write(v & 127 | 128); v >>>= 7; } b.write(v); }
 
 	/** A picture made smaller k times, each pixel the average of a k x k block, in Pebble colours. */
 	private static byte[] shrunk(Pixmap p, int k) {
@@ -935,7 +1142,7 @@ public final class Link {
 			// were still held on the watch while the new floor's tile maps came in)
 			boolean oldScreen = last != null && last < sceneRound && rounds > sceneRound;
 			if (last != null && rounds - last < DYN_KEEP && !oldScreen) continue;
-			it.remove(); dynUsed.remove(d); dynPixels.remove(d); dynPal.remove(d); dynShrink.remove(d);
+			it.remove(); dynUsed.remove(d); dynPixels.remove(d); dynPal.remove(d); dynShrink.remove(d); fogStates.remove(d);
 			cmd(C_DTEX); u8(d); u16(0); u16(0); u16(0); u8(0); u16(0);
 		}
 	}
@@ -1069,6 +1276,7 @@ public final class Link {
 	/** The plan for the watch's next press (Controls.plan), and the last one sent. */
 	public java.util.function.Function<Link, byte[]> planner;
 	private byte[] lastPlan;
+	private int[] ready;   // the hero ready again, where he stands (x8), for the head of the next message
 
 	/** A picture's number on the watch (-1: not there). */
 	public int idOf(Gizmo g) { Obj o = g == null ? null : objs.get(g); return o == null ? -1 : o.id; }
@@ -1094,18 +1302,23 @@ public final class Link {
 		// watch then held everything after a big change, a level, seconds late)
 		List<byte[]> out = new ArrayList<>();
 		int ms = pendNewest;
-		for (byte[] pk : packets(all, max - 5)) {
+		// C_READY x, y (s16, x8): the hero is ready again there (see sync), right after C_LATEST
+		int[] rd = ready; ready = null;
+		int head = rd != null && !Pacer.OLD ? 10 : 5;
+		for (byte[] pk : packets(all, max - head)) {
 			if (!out.isEmpty() && !Pacer.OLD) { out.add(pk); continue; }
-			byte[] b = new byte[pk.length + 5];
+			byte[] b = new byte[pk.length + (out.isEmpty() ? head : 5)];
 			b[0] = (byte) C_LATEST; b[1] = (byte) ms; b[2] = (byte) (ms >> 8); b[3] = (byte) (ms >> 16); b[4] = (byte) (ms >> 24);
-			System.arraycopy(pk, 0, b, 5, pk.length);
+			int at = 5;
+			if (out.isEmpty() && head == 10) { b[5] = (byte) C_READY; b[6] = (byte) rd[0]; b[7] = (byte) (rd[0] >> 8); b[8] = (byte) rd[1]; b[9] = (byte) (rd[1] >> 8); at = 10; }
+			System.arraycopy(pk, 0, b, at, pk.length);
 			out.add(b);
 		}
 		return out;
 	}
 
 	/** Forget what was waiting (the watch starts over). */
-	public void dropPending() { pend.reset(); pendMarks.clear(); }
+	public void dropPending() { pend.reset(); pendMarks.clear(); ready = null; }
 
 	/** The last sync's bytes cut into messages of at most max bytes, each holding whole commands. */
 	public List<byte[]> packets(byte[] all, int max) {

@@ -9,6 +9,7 @@ Per scenario (all files together):
             screen speeds up or slows down for a moment), frames played over 60 ms after their time (their pictures
             jump on to catch up), and how many frames
   press     a press to the watch playing the phone's first frame after it took the press (real ms): mean, p90
+  arrived   how late the phone's frames reached the watch (real ms, over the quickest lately): p50, p90, p95
 Per walk of the hero (from a Select to the next press): short (up to 12 steps), long, and cut (walks the phone cut
 short, scenario wstop: "back" is the hero shown past where he stopped and sliding back):
   steps     how long each step from cell to cell takes on screen (mean, spread, shortest, longest; real ms), and
@@ -19,7 +20,7 @@ short, scenario wstop: "back" is the hero shown past where he stopped and slidin
   cam       the camera over the walk: change in speed from frame to frame (px/s), jumps
 Units: watch pixels at the map's zoom.
 """
-import sys, math, bisect, os
+import sys, math, bisect, os, re
 
 CELL = 128   # a cell in the map's units x8
 STEP = 133.3   # real ms a step
@@ -46,7 +47,7 @@ def load(path):
         if a[0] == 'F': F.append((float(a[1]),) + tuple(int(x) for x in a[2:11]))
         elif a[0] == 'P': P.append((float(a[1]),) + tuple(int(x) for x in a[2:7]))
         elif a[0] == 'S': S.append((float(a[1]), a[2]))
-        elif a[0] == 'A': A.append((float(a[1]), int(a[2]), int(a[3]), int(a[4])))
+        elif a[0] == 'A': A.append((float(a[1]), int(a[2]), int(a[3]), int(a[4]), int(a[5]) if len(a) > 5 else 0))
         elif a[0] == 'B': B.append((float(a[1]), int(a[2])))
         elif a[0] == 'Q': Q.append((float(a[1]), int(a[2])))
     # each press: when the phone played its first frame after taking it (real ms after the press)
@@ -117,6 +118,12 @@ def scenario(F, A, out):
     out['changes'] = out.get('changes', 0) + sum(1 for d in dsh if d > 20)
     out['late'] = out.get('late', 0) + sum(1 for a in A if 60 < u32d(a[3], a[2]) < 100000)
     out['n'] = out.get('n', 0) + len(A)
+    # how late each frame came (real ms), over the quickest within 8 s either side (the clocks' offset)
+    arr = [(a[0], u32d(a[4], a[1])) for a in A if a[4]]
+    ts = [x[0] for x in arr]
+    for t, l in arr:
+        lo, hi = bisect.bisect_left(ts, t - 8000), bisect.bisect_right(ts, t + 8000)
+        out.setdefault('arr', []).append((l - min(x[1] for x in arr[lo:hi])) / 1.5)
 
 def hero_walks(F, P, B, accs, tag):
     """Each walk: from a Select to the next press."""
@@ -184,7 +191,12 @@ def main():
     scen, accs = {}, {'short': Acc(), 'long': Acc(), 'cut': Acc()}
     for path in sys.argv[1:]:
         F, P, S, A, Bs, R = load(path)
-        bounds = S + [(1e18, 'end')]
+        # (after a floor's own scenario, dN, the next ones are named after it: d7.walks)
+        fl, S2 = '', []
+        for t, nm in S:
+            if re.match(r'd\d+$', nm): fl = nm + '.'; S2.append((t, nm))
+            else: S2.append((t, fl + nm if os.environ.get('BYFLOOR') else nm))
+        bounds = S2 + [(1e18, 'end')]
         for (t0, name), (t1, _) in zip(bounds, bounds[1:]):
             if name == 'end': continue
             f = [x for x in F if t0 <= x[0] < t1]
@@ -192,13 +204,13 @@ def main():
             scenario(f, [x for x in A if t0 <= x[0] < t1], scen.setdefault(name, {}))
             scen[name].setdefault('resp', []).extend(r[1] for r in R if t0 <= r[0] < t1)
             hero_walks(f, [x for x in P if t0 <= x[0] < t1], [x for x in Bs if t0 <= x[0] < t1], accs, name)
-    print('%-7s | %-19s | %-25s | %-41s | %s' % ('', 'frames: mean p95 max', 'camera: dv/frame turns jumps', 'play: spread moved changes late (frames)', 'press->answer: mean p90'))
+    print('%-7s | %-19s | %-25s | %-41s | %-23s | %s' % ('', 'frames: mean p95 max', 'camera: dv/frame turns jumps', 'play: spread moved changes late (frames)', 'press->answer: mean p90', 'arrived late: p50 p90 p95'))
     for name, o in scen.items():
         g = o['gaps']
         rs = o.get('resp', [])
         print('%-7s | %5.0f %5.0f %5.0f   | %7.1f %5d %5d         | %5.0f %7.0f %5d %5d (%5d)          | %5.0f %5.0f' % (name, sum(g) / len(g) if g else 0, pct(g, 0.95), max(g) if g else 0,
               sum(o['cdv']) / len(o['cdv']) if o['cdv'] else 0, o['turns'], o['cjumps'], stats(o['sh'])[1], o['moved'], o['changes'], o['late'], o['n'],
-              sum(rs) / len(rs) if rs else 0, pct(rs, 0.9)))
+              sum(rs) / len(rs) if rs else 0, pct(rs, 0.9)) + '        | %5.0f %5.0f %5.0f' % (pct(o.get('arr', []), 0.5), pct(o.get('arr', []), 0.9), pct(o.get('arr', []), 0.95)))
     print('%-7s | %-31s | %-24s | %-22s | %-19s | %s' % ('walks', 'steps: mean spread min max (n) stalls', 'speed: spread slow fast', 'back: n px   jumps n px', 'delay: mean spread', 'cam: dv/frame jumps'))
     for k, a in accs.items():
         st = stats(a.steps); m = sum(a.speeds) / len(a.speeds) if a.speeds else 0; lg = stats(a.lag)

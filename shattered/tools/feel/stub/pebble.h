@@ -97,3 +97,7 @@ bool touch_service_is_enabled(void);
 typedef struct { void (*will_focus)(bool); void (*did_focus)(bool); } AppFocusHandlers;
 void app_focus_service_subscribe_handlers(AppFocusHandlers h);
 void app_event_loop(void);
+#define TRIG_MAX_RATIO 0xffff
+#define TRIG_MAX_ANGLE 0x10000
+int32_t sin_lookup(int32_t angle);
+int32_t cos_lookup(int32_t angle);

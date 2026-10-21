@@ -16,5 +16,6 @@ bool predict_offset(uint16_t id, uint32_t now, int32_t *dx, int32_t *dy);   // h
 void predict_tick(uint32_t now);                       // hand back to the phone's frames once they agree
 bool predict_active(void);
 void predict_heard(uint32_t due, uint32_t now);       // a frame of the phone's was played (when it was due, and now)
-void predict_lag(int32_t ms);                          // how far behind the phone its frames play now (game ms)
+void predict_lag(int32_t ms);
+void predict_ready(int32_t x, int32_t y);              // the phone's hero is ready again, there (C_READY, on arrival)                          // how far behind the phone its frames play now (game ms)
 void predict_reset(void);

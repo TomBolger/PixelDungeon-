@@ -80,6 +80,9 @@ void touch_service_unsubscribe(void) { }
 bool touch_service_is_enabled(void) { return true; }
 void app_focus_service_subscribe_handlers(AppFocusHandlers h) { }
 void app_event_loop(void) { }
+#include <math.h>
+int32_t sin_lookup(int32_t a) { return (int32_t)(sin(a * 6.283185307 / 65536) * 0xffff); }
+int32_t cos_lookup(int32_t a) { return (int32_t)(cos(a * 6.283185307 / 65536) * 0xffff); }
 
 // ---- pictures and sound: none ----
 void art_init(void) { }

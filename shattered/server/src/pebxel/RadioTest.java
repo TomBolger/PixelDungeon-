@@ -22,7 +22,7 @@ import java.util.*;
  * the phone's first frame made after it (what the press changed), plus what took the bytes.
  *
  * Args: scenarios (walk fight menu bag floor idle; default all). Env, as tools/bridge.py:
- *   RTT_MS=100 JITTER_MS=40 RATE=3000 (bytes/s) NACK_PCT=1 DROP_PCT=0.5 TIMEOUT_MS=3000 INBOX=8000
+ *   RTT_MS=100 JITTER_MS=40 RATE=3000 (bytes/s) NACK_PCT=0 DROP_PCT=0 TIMEOUT_MS=10000 INBOX=8000 (see bridge.py)
  *   PACE_OLD=1: the pacing as it was (every frame noted, all sent, a whole new screen on any failure)
  *   SEED=n (radio dice)  VERBOSE=1
  *   TRACE=file: everything the watch got and when (M real-ms hex), its presses (B real-ms code) and the phone's hero
@@ -35,7 +35,8 @@ public class RadioTest {
 	static double env(String k, double d) { String v = System.getenv(k); return v == null ? d : Double.parseDouble(v); }
 	static final boolean RADIO = !"0".equals(System.getenv("RADIO"));   // RADIO=0: the emulator's own link (a few ms, no limit)
 	static final double RTT = RADIO ? env("RTT_MS", 100) / 1000 : 0.006, JIT = RADIO ? env("JITTER_MS", 40) / 1000 : 0.002, RATE = RADIO ? env("RATE", 3000) : 1e7,
-			NACK = RADIO ? env("NACK_PCT", 1) / 100 : 0, DROP = RADIO ? env("DROP_PCT", 0.5) / 100 : 0, TIMEOUT = env("TIMEOUT_MS", 3000) / 1000;
+			NACK = RADIO ? env("NACK_PCT", 0) / 100 : 0, DROP = RADIO ? env("DROP_PCT", 0) / 100 : 0,   // (as tools/bridge.py)
+			TIMEOUT = env("TIMEOUT_MS", 10000) / 1000;
 	static final int INBOX = (int) env("INBOX", 8000);
 	static final boolean VERBOSE = System.getenv("VERBOSE") != null;
 	static final double FRAME = 1 / 30.0;
@@ -128,6 +129,9 @@ public class RadioTest {
 	}
 	static int peak;
 	static final int FRAME_SLEEP = (int) env("FRAME_SLEEP", 0);
+	/** STATS_OUT=file: every scenario's bytes by kind (depth scenario seconds count bytes kind) */
+	static java.io.PrintWriter STATS_OUT;
+	static { try { if (System.getenv("STATS_OUT") != null) STATS_OUT = new java.io.PrintWriter(new java.io.FileWriter(System.getenv("STATS_OUT"), true)); } catch (Exception e) { } }
 
 	static void run(double seconds) { for (double end = t + seconds; t < end; ) frame(); }
 
@@ -208,6 +212,54 @@ public class RadioTest {
 	}
 
 	static void idle() { run(10); }
+
+	/** To floor n (a fresh one), the hero at its entrance, whole and ready. */
+	static void depth(int n) {
+		Gallery.go(n);
+		for (int k = 0; k < 3000 && !(Game.scene() instanceof GameScene && Dungeon.depth == n && Dungeon.hero != null && Dungeon.hero.ready); k++) frame();
+		for (int k = 0; k < 10 && Ui.topWindow() != null; k++) { Ui.topWindow().hide(); run(0.3); }
+		Dungeon.hero.HP = Dungeon.hero.HT = 1000;
+		settle(20);
+		System.out.println("  now on floor " + Dungeon.depth + " (" + Dungeon.level.getClass().getSimpleName() + ")");
+	}
+
+	/** Gas and fire beside the hero, for a while (toxic gas, a fire, a storm cloud). */
+	@SuppressWarnings("unchecked")
+	static void gas() {
+		Gallery.calm();
+		String[] gs = {"ToxicGas", "Fire", "StormCloud"};
+		List<Integer> cells = Gallery.spots(3, gs.length);
+		for (int i = 0; i < gs.length && i < cells.size(); i++) {
+			try { GameScene.add(com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob.seed(cells.get(i), 200, (Class<? extends com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob>) Class.forName("com.shatteredpixel.shatteredpixeldungeon.actors.blobs." + gs[i]))); }
+			catch (Throwable e) { System.out.println("gas " + gs[i] + ": " + e); }
+		}
+		Dungeon.hero.HP = Dungeon.hero.HT = 1000;
+		for (int i = 0; i < 8; i++) { press("wait", () -> { if (Dungeon.hero.ready) { Dungeon.hero.rest(false); } }); run(1.0); }
+		for (com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob b : Dungeon.level.blobs.values()) b.fullyClear();
+		run(1);
+	}
+
+	/** Spells: wands of lightning, fire and magic missile at a monster a few cells off. */
+	static void zap() {
+		Gallery.calm();
+		String[] ws = {"WandOfLightning", "WandOfFireblast", "WandOfMagicMissile", "WandOfFrost"};
+		for (int i = 0; i < 8; i++) {
+			waitReady(5);
+			List<Integer> cells = Gallery.spots(3, 4);
+			if (cells.isEmpty()) break;
+			int c = cells.get(cells.size() - 1);
+			Mob m = new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Gnoll(); m.pos = c; m.HP = m.HT = 500; m.state = m.PASSIVE; GameScene.add(m);
+			run(0.4);
+			try {
+				com.shatteredpixel.shatteredpixeldungeon.items.wands.Wand w = (com.shatteredpixel.shatteredpixeldungeon.items.wands.Wand) Class.forName("com.shatteredpixel.shatteredpixeldungeon.items.wands." + ws[i % ws.length]).getDeclaredConstructor().newInstance();
+				w.identify(); w.curCharges = w.maxCharges;
+				press("zap", () -> { if (Dungeon.hero.ready) { w.execute(Dungeon.hero, com.shatteredpixel.shatteredpixeldungeon.items.wands.Wand.AC_ZAP); GameScene.handleCell(c); } });
+			} catch (Throwable e) { System.out.println("zap: " + e); }
+			run(1.5);
+			m.destroy(); if (m.sprite != null) m.sprite.killAndErase();
+		}
+		Gallery.calm();
+	}
 
 	/** The targets Down cycles through, and how many steps Select would walk to each (0: not a walk). */
 	@SuppressWarnings("unchecked")
@@ -407,9 +459,12 @@ public class RadioTest {
 			switch (s) {
 				case "walk": walk(); break; case "fight": fight(); break; case "menu": menu(); break;
 				case "bag": bag(); break; case "floor": floor(); break; case "idle": idle(); break; case "sleepers": sleepers(); break;
-				case "walks": walks(8); break;
+				case "walks": walks((int) env("WALKS", 8)); break;
 				case "wstop": wstop(6); break; case "wfight": wfight(); break;
-				default: System.out.println("no scenario " + s); continue;
+				case "gas": gas(); break; case "zap": zap(); break;
+				default:
+					if (s.matches("d\\d+")) { depth(Integer.parseInt(s.substring(1))); break; }
+					System.out.println("no scenario " + s); continue;
 			}
 			double dt = t - t0;
 			List<Double> lat = new ArrayList<>(); int unseen = 0;
@@ -419,6 +474,9 @@ public class RadioTest {
 			System.out.printf("RESULT %-6s %5.0f B/s %4.1f msg/s | press->shown mean %4.0f ms, median %4.0f, worst %5.0f%s | peak wait %5d B, full resends %d, frames merged %d%n",
 					s, (pacer.bytes - b0) / dt, (pacer.msgs - m0) / dt, mean * 1000, lat.isEmpty() ? 0 : lat.get(lat.size() / 2) * 1000,
 					lat.isEmpty() ? 0 : lat.get(lat.size() - 1) * 1000, unseen > 0 ? " (" + unseen + " never)" : "", peak, pacer.resets - r0, pacer.merged - mg0);
+			if (STATS_OUT != null) for (Map.Entry<String, long[]> e : link.stats.entrySet())
+				STATS_OUT.printf("%d %s %.2f %d %d %s%n", Dungeon.depth, s, dt, e.getValue()[0], e.getValue()[1], e.getKey());
+			if (STATS_OUT != null) STATS_OUT.flush();
 			TreeMap<Long, String> top = new TreeMap<>();
 			for (Map.Entry<String, long[]> e : link.stats.entrySet()) top.put(-e.getValue()[1] * 1000 - top.size(), String.format("%-34s x%-5d %7d B", e.getKey(), e.getValue()[0], e.getValue()[1]));
 			int n = 0; for (String x : top.values()) { System.out.println("    " + x); if (++n == (VERBOSE ? 20 : 6)) break; }

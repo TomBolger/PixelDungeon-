@@ -9,7 +9,7 @@
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
 #define GAME_SPEED_NUM 3   // 1.5 x real time: must match Game.pebxelSpeed (WatchGame.java)
 #define GAME_SPEED_DEN 2
-#define PROTOCOL 10  // must match Link.PROTOCOL on the phone
+#define PROTOCOL 11  // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -211,7 +211,10 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
     // how late this message is: its newest frame (the stamp up front), and its oldest (the first frame's), which
     // waited longest on the phone for the radio
     int32_t lat = (int32_t)(now - stamp_at(data));
-    int32_t old = len >= 10 && data[5] == C_TIME ? (int32_t)(now - stamp_at(data + 5)) : lat;
+    // (C_READY: the phone's hero is ready again, there: a walk shown ahead stops there now, not when it plays)
+    int t5 = 5;
+    if (len >= 10 && data[5] == C_READY) { predict_ready((int16_t)(data[6] | data[7] << 8), (int16_t)(data[8] | data[9] << 8)); t5 = 10; }
+    int32_t old = len >= t5 + 5 && data[t5] == C_TIME ? (int32_t)(now - stamp_at(data + t5)) : lat;
     // the quickest lately: down at once, up slowly (the phone's clock may fall behind, when it stalls)
     if (!s_have_off || lat < s_base) s_base = lat; else s_base += (lat - s_base) / 32;
     // the slower ones: up quickly, down slowly (it settles where few come later than it)
@@ -245,7 +248,8 @@ static void dropped(AppMessageResult r, void *ctx) { APP_LOG(APP_LOG_LEVEL_WARNI
 
 // the phone's whole screen from the start (Link.reset: its first message begins with C_RESET after the time stamps)
 static bool fresh_start(const uint8_t *d, int len) {
-  return (len >= 1 && d[0] == C_RESET) || (len >= 11 && d[0] == C_LATEST && d[5] == C_TIME && d[10] == C_RESET);
+  int k = len >= 10 && d[0] == C_LATEST && d[5] == C_READY ? 5 : 0;   // (look past a C_READY)
+  return (len >= 1 && d[0] == C_RESET) || (len >= 11 + k && d[0] == C_LATEST && d[5 + k] == C_TIME && d[10 + k] == C_RESET);
 }
 
 static void inbox(DictionaryIterator *it, void *ctx) {

@@ -112,7 +112,8 @@ public final class WatchSim {
 			haveOff = true;
 		} else if (msg.length >= 5 && msg[0] == Link.C_LATEST) {   // (as main.c enqueue: a steady delay)
 			float lat = now - stamp(msg, 0) / 1000f;
-			float old = msg.length >= 10 && msg[5] == Link.C_TIME ? now - stamp(msg, 5) / 1000f : lat;
+			int t5 = msg.length >= 10 && msg[5] == Link.C_READY ? 10 : 5;
+			float old = msg.length >= t5 + 5 && msg[t5] == Link.C_TIME ? now - stamp(msg, t5) / 1000f : lat;
 			if (!haveOff || lat < base) base = lat; else base += (lat - base) / 32;
 			float need = Math.max(0, Math.min(LATE_MAX, old - base));
 			if (!haveOff) jit = need; else if (need > jit) jit += (need - jit) / 4; else jit -= (jit - need) / 32;
@@ -216,6 +217,26 @@ public final class WatchSim {
 					while (p < end) { int n = u8(); if (n > 128) { int v = u8(); for (int i = 0; i < n - 127; i++) px[k++] = pal.length > 0 ? pal[v] : v; } else for (int i = 0; i < n; i++) { int v = u8(); px[k++] = pal.length > 0 ? pal[v] : v; } }
 					dyn.put(id, px); texCache.remove(id); dynBits.put(id, pal.length == 0 || pal.length > 16 ? 8 : pal.length <= 4 ? 2 : 4); break;
 				}
+				case Link.C_FOG: {   // (as scene.c read_fog: the fog's texel states, cell by cell where they changed)
+					int id = u8(), w = u16(), h = u16(), len = u16(), end = p + len, cw = w / 2, cells = cw * (h / 2);
+					int[] px = dyn.get(id);
+					if (px == null || px[0] != w || px[1] != h) { px = new int[2 + w * h]; px[0] = w; px[1] = h; Arrays.fill(px, 2, px.length, 0xC0); }
+					final int[] FS = {0x00, 0x40, 0xC0, 0xC0};
+					int cell = -1, prev = 0;
+					while (p < end) {
+						int v = varint(), s4 = v & 3, run = 1, t = 0;
+						cell += v >> 2;
+						if (s4 == 3) { int e = varint(); if ((e & 1) != 0) { run = e >> 1; s4 = prev; } else { t = e >> 1; s4 = -1; } } else prev = s4;
+						for (int r = 0; r < run; r++, cell++) {
+							if (cell < 0 || cell >= cells) continue;
+							int k = 2 + cell / cw * 2 * w + cell % cw * 2;
+							if (s4 >= 0) px[k] = px[k + 1] = px[k + w] = px[k + w + 1] = FS[s4];
+							else { px[k] = FS[t >> 6 & 3]; px[k + 1] = FS[t >> 4 & 3]; px[k + w] = FS[t >> 2 & 3]; px[k + w + 1] = FS[t & 3]; }
+						}
+						cell--;
+					}
+					p = end; dyn.put(id, px); texCache.remove(id); dynBits.put(id, 2); break;
+				}
 				case Link.C_ANIM: {
 					int id = u16(); Anim a = new Anim(); a.tex = u8(); int n = u8(); a.delayMs = u16(); a.looped = u8() != 0;
 					a.rects = new int[n * 4]; for (int i = 0; i < n * 4; i++) a.rects[i] = u16();
@@ -223,6 +244,8 @@ public final class WatchSim {
 				}
 				case Link.C_INPUT: p++; break;
 				case Link.C_PREDICT: plans.add(readPlan()); break;
+				case Link.C_RECIPE: { u8(); int n = u8(); p += n; break; }
+				case Link.C_READY: p += 4; break;
 				case Link.C_SOUND: { int k = u8(), v = u8(); sounds.add(k + ":" + v); break; }
 				case Link.C_COMMIT: break;
 				default: throw new IllegalStateException("bad command " + c + " at " + (p - 1));
@@ -230,6 +253,8 @@ public final class WatchSim {
 		}
 		return p;
 	}
+
+	private int varint() { int v = 0, sh = 0, c; do { c = u8(); v |= (c & 127) << sh; sh += 7; } while ((c & 128) != 0); return v; }
 
 	/** One picture's unchanging part (its length depends on its kind). */
 	private byte[] readStatic() {
@@ -242,6 +267,11 @@ public final class WatchSim {
 			case Link.K_TEXT: p += 11 + (b[p + 10] & 255); break;
 			case Link.K_QUADS: p += 4 + (b[p + 3] & 255) * 16 + 7; break;
 			case Link.K_SHAPE: p += 15; break;
+			case Link.K_EMIT: {   // (particles the watch makes: not drawn here)
+				boolean cells = (b[p + 3] & 4) != 0;
+				int cw = cells ? b[p + 18] & 255 : 0, ch = cells ? b[p + 19] & 255 : 0;
+				p += 15 + (cells ? 9 + (cw * ch + 7) / 8 : 0); break;
+			}
 			default: throw new IllegalStateException("bad kind " + kind);
 		}
 		return Arrays.copyOfRange(b, start, p);

@@ -97,6 +97,22 @@ index d83ff2e..e0ddaab 100644
  		float volume = Math.max(leftVolume, rightVolume);
  		float pan = rightVolume - leftVolume;
  		if (enabled && ids.containsKey( id )) {
+diff --git a/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java b/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
+index 4fd4e90..9be55ea 100644
+--- a/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
++++ b/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
+@@ -92,7 +92,11 @@ public class Emitter extends Group {
+ 		startDelayed( factory, interval, quantity, Random.Float(interval));
+ 	}
+ 
++	/** (Pebxel) how many times this emitter was started: the watch link tells a new burst from an old one by it */
++	public int pebxelStarts;
++
+ 	public void startDelayed( Factory factory, float interval, int quantity, float delay ) {
++		pebxelStarts++;
+ 		this.factory = factory;
+ 		this.lightMode = factory.lightMode();
+ 
 diff --git a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java b/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java
 index 863b15b..4ef5ba4 100644
 --- a/SPD-classes/src/main/java/com/watabou/utils/PlatformSupport.java

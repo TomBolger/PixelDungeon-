@@ -10,9 +10,15 @@ Settings (environment):
   RTT_MS=100       one round trip (message out, answer back), the quiet-radio part; real: about 50-150 ms
   JITTER_MS=40     each half of a round trip varies by up to half this, either way
   RATE=3000        bytes a second the radio carries (each message also takes its size / RATE); real: a few KB/s
-  NACK_PCT=1       messages refused (the watch's answer is a nack; the phone app sends it again)
-  DROP_PCT=0.5     messages lost (no answer at all: the phone hears a failure after TIMEOUT_MS)
-  TIMEOUT_MS=3000  how long a lost message takes to count as failed
+  NACK_PCT=0      messages refused (the watch's answer is a nack; the phone app sends it again). The watch app
+                   answers each message when its inbox handler returns and the phone sends the next only then, so
+                   the watch refuses only a message bigger than its inbox (modelled below) or while the app closes
+  DROP_PCT=0       messages lost (no answer at all: the phone hears a failure after TIMEOUT_MS). Under the Pebble
+                   app (libpebble3) the link is reliable: BLE retransmits at the link layer and PPoGATT on top
+                   acknowledges and resends its packets, so a message is not lost while connected; when one is
+                   (a dropped connection), nothing comes back for 10 s
+  TIMEOUT_MS=10000 how long a lost message takes to count as failed: libpebble3's AppMessage timeout
+                   (APPMESSAGE_TIMEOUT, and PebbleKit 2's WATCH_SENDING_TIMEOUT) and the phone's Pacer.WATCHDOG
   INBOX=0          the watch's inbox in bytes (0: the size the watch app says in its hello); bigger messages are
                    refused, as the real watch does
   LAG=ms           extra time before the game hears a press or touch (added to half a round trip)
@@ -32,7 +38,7 @@ KEY_DATA, KEY_HELLO, KEY_BUTTON = 1, 2, 3
 def env(k, d): return float(os.environ.get(k, d))
 RADIO = os.environ.get('RADIO', '1') != '0'
 RTT, JIT, RATE = env('RTT_MS', 100) / 1000, env('JITTER_MS', 40) / 1000, env('RATE', 3000)
-NACK, DROP, TIMEOUT = env('NACK_PCT', 1) / 100, env('DROP_PCT', 0.5) / 100, env('TIMEOUT_MS', 3000) / 1000
+NACK, DROP, TIMEOUT = env('NACK_PCT', 0) / 100, env('DROP_PCT', 0) / 100, env('TIMEOUT_MS', 10000) / 1000
 INBOX, LAG = int(env('INBOX', 0)), env('LAG', 0) / 1000
 
 def half(): return max(0.005, RTT / 2 + (random.random() - 0.5) * JIT) if RADIO else 0

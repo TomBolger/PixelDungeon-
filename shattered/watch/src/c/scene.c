@@ -1,8 +1,10 @@
 // Applies the phone's commands to the watch's copy of the screen (format: server/src/pebxel/Link.java).
+#pragma GCC optimize ("Os")   // (the app's code, data and bss must stay under 64 KB, and the heap is what is left: small beats quick here)
 #include "scene.h"
 #include "snd.h"
 #include "predict.h"
 #include "art.h"
+#include "particles.h"
 
 Obj *g_obj[MAX_ID];
 Cam g_cam[MAX_CAM];
@@ -46,10 +48,12 @@ static void free_obj(Obj *o) {
 }
 
 int8_t g_map_cam = -1;
+static int s_fog_tex = -1;       // the fog of war's run-time picture (scene_in_sight)
 int32_t g_pan_x, g_pan_y;
 
 void scene_reset(void) {
   g_map_cam = -1; g_lost = false;
+  particles_reset(); recipes_reset();
   for (int i = 0; i < MAX_ID; i++) { free_obj(g_obj[i]); g_obj[i] = NULL; }
   for (int i = 0; i < MAX_ANIM; i++) { free(s_anim[i]); s_anim[i] = NULL; }
   for (int i = 0; i < MAX_DYN; i++) { free(s_dyn[i]); s_dyn[i] = NULL; }
@@ -79,6 +83,24 @@ static void unlink_obj(int id) {
 
 static void read_col(Obj *o) { for (int i = 0; i < 7; i++) o->col[i] = u8(); }
 
+// an emitter's unchanging part (K_EMIT; Link.emitState): a new start of it makes its particles afresh
+#define SMALL __attribute__((noinline, optimize("Os")))   // (seldom run: kept small, the app's 64 KB)
+static void SMALL read_emit(Obj *o) {   // an emitter (Link.emitState): the watch makes its particles (particles.c)
+      int rec = u8(), fl = u8(), follow = u16(), w = s16(), h = s16(), iv = u16(), q = u8(), st = u8(), pre = u8();
+      int cs = 0, cl = 0, ct = 0, cw = 0, ch = 0; int8_t bd[4] = {0, 0, 64, 64};
+      if (fl & E_CELLS) { cs = u8(); cl = u8(); ct = u8(); cw = u8(); ch = u8(); for (int i = 0; i < 4; i++) bd[i] = u8(); }
+      int nb = (fl & E_CELLS) ? (cw * ch + 7) / 8 : 0;
+      Emit *e = o->ext;
+      bool fresh = !e || e->starts != st || e->recipe != rec;
+      if (e && (e->cw * e->ch + 7) / 8 != nb) { Emit *n = salloc(sizeof(Emit) + nb); if (n) memcpy(n, e, sizeof(Emit)); free(e); o->ext = e = n; }
+      else if (!e) { e = scalloc(sizeof(Emit) + nb); o->ext = e; }
+      if (!e) { p += nb; return; }
+      e->recipe = rec; e->flags = fl; e->follow = follow; e->w = w; e->h = h; e->interval = iv; e->quantity = q; e->starts = st; e->pre = pre;
+      e->cs = cs; e->cl = cl; e->ct = ct; e->cw = cw; e->ch = ch; memcpy(e->bound, bd, 4);
+      for (int i = 0; i < nb; i++) e->bits[i] = u8();
+      if (fresh) e->fresh = 1;
+      }
+
 // the unchanging part of a picture
 static void read_static(Obj *o) {
   int kind = u8();
@@ -87,6 +109,7 @@ static void read_static(Obj *o) {
   switch (kind) {
     case K_IMG: case K_SKIN:
       o->tex = u8(); o->flags = u8();
+      if (o->flags & F_FOG) s_fog_tex = o->tex;
       o->ox = s16(); o->oy = s16(); o->w = s16(); o->h = s16();
       o->tx = s16(); o->ty = s16(); o->tw = s16(); o->th = s16();
       read_col(o); break;
@@ -126,6 +149,7 @@ static void read_static(Obj *o) {
       read_col(o);
       break;
     }
+    case K_EMIT: read_emit(o); break;   // an emitter (Link.emitState): the watch makes its particles (particles.c)
     case K_SHAPE:   // a disc or a band (round screens): kind, Pebble colour, radii, bearings, slant
       o->flags = u8(); o->tex = u8(); o->tx = u8(); o->ty = u8(); o->tw = s16(); o->th = s16(); o->w = s16(); o->h = s16(); o->frame = u8();
       break;
@@ -172,6 +196,15 @@ int32_t obj_dyn_raw(const Obj *o, int i, uint32_t now) {
   return v;
 }
 
+// the fog of war's picture (the last one told), for particles made only in sight (particles.c)
+bool scene_in_sight(int cx, int cy) {
+  DynTex *d = scene_dyntex(s_fog_tex);
+  if (!d) return true;
+  int x = cx * 2, y = cy * 2;   // (two texels a cell: FogOfWar's PIX_PER_TILE)
+  if (x < 0 || y < 0 || x >= d->w || y >= d->h) return false;
+  return !(dyn_px(d, y * d->w + x) >> 6);
+}
+
 // the moving part (see Link.sendDyn)
 static void read_dyn(Obj *o, uint32_t now) {
   int m = u8();
@@ -203,7 +236,7 @@ void scene_stats(int *objs, int *tiles, int *anims, int *dyns) {
 bool scene_moving(uint32_t now) {
   for (int id = g_head; id != NONE; id = g_obj[id]->next) {
     Obj *o = g_obj[id];
-    if (o->flags & F_ANIM) return true;
+    if (o->kind == K_EMIT || (o->flags & F_ANIM)) return true;
     if (o->until && now - o->at > o->until) continue;   // arrived
     for (int i = 0; i < 8; i++) if (o->vel[i]) return true;
   }
@@ -244,6 +277,46 @@ static void read_dtex(void) {
     else for (int i = 0; i < c && p < stop; i++) { int v = *p++; PUT(v); }
   }
   #undef PUT
+  art_forget(id);
+}
+
+// the fog of war's texel states where they changed, cell by cell (Link.fog): 0 in sight, 1 remembered, 2 never
+// seen, as the palette indices of a 2-bit run-time picture whose alpha draw.c reads
+static int varint(void) { int v = 0, sh = 0, c; do { c = u8(); v |= (c & 127) << sh; sh += 7; } while ((c & 128) && sh < 28); return v; }
+static void SMALL read_fog(void) {
+  int id = u8(), w = u16(), h = u16(), len = u16();
+  const uint8_t *stop = p + len; if (stop > end) stop = end;
+  if (id < 200 || id >= 200 + MAX_DYN || w < 2 || h < 2) { p = stop; return; }
+  DynTex *d = s_dyn[id - 200];
+  int n = w * h, bytes = (n + 3) / 4, cw = w / 2, cells = cw * (h / 2);
+  if (!d || d->w != w || d->h != h || d->bits != 2) {
+    free(d); s_dyn[id - 200] = NULL; art_forget(id);
+    d = salloc(sizeof(DynTex) + bytes);
+    if (!d) { g_lost = true; p = stop; return; }
+    d->w = w; d->h = h; d->bits = 2; d->ncol = 3;
+    memset(d->pal, 0, 16); d->pal[1] = 0x40; d->pal[2] = 0xC0; d->pal[3] = 0xC0;
+    memset(d->px, 0xAA, bytes);   // (all never seen)
+    s_dyn[id - 200] = d;
+  }
+  #define SET(k, v) (d->px[(k) >> 2] = (d->px[(k) >> 2] & ~(3 << (((k) & 3) * 2))) | (((v) & 3) << (((k) & 3) * 2)))
+  int cell = -1, prev = 0;
+  while (p < stop) {
+    int v = varint(), s4 = v & 3, run = 1, t = 0;
+    cell += v >> 2;
+    if (s4 == 3) {
+      int e = varint();
+      if (e & 1) { run = e >> 1; s4 = prev; } else { t = e >> 1; s4 = -1; }
+    } else prev = s4;
+    for (int r = 0; r < run; r++, cell++) {
+      if (cell < 0 || cell >= cells) continue;
+      int k = cell / cw * 2 * w + cell % cw * 2;
+      if (s4 >= 0) { SET(k, s4); SET(k + 1, s4); SET(k + w, s4); SET(k + w + 1, s4); }
+      else { SET(k, t >> 6); SET(k + 1, t >> 4); SET(k + w, t >> 2); SET(k + w + 1, t); }
+    }
+    cell--;
+  }
+  #undef SET
+  p = stop;
   art_forget(id);
 }
 
@@ -335,12 +408,13 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
     switch (c) {
       case C_TIME: p += 4; break;
       case C_LATEST: p += 4; break;
+      case C_READY: p += 4; break;   // (read as the message arrived: main.c enqueue)
       case C_RESET: scene_reset(); break;
       case C_CAM: read_cam(now); break;
       case C_NEW: {
         int id = u16(), after = u16();
         if (id >= MAX_ID || !there(after)) { g_lost = true; return len; }
-        if (g_obj[id]) { unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; }
+        if (g_obj[id]) { unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; particles_free(id); }
         Obj *o = scalloc(sizeof(Obj));
         if (!o) return len;   // out of memory (g_lost: main.c asks the phone for the whole screen again)
         g_obj[id] = o;
@@ -357,7 +431,8 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
         int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; return len; }
         Obj *o = g_obj[id]; o->flags = u8(); o->tx = u16(); read_dyn(o, now); break;
       }
-      case C_DEL: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; break; } unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; break; }
+      case C_DEL: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; break; } unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; particles_free(id); break; }
+      case C_RECIPE: { int id = u8(), n = u8(); if (p + n > end) n = end - p; recipe_set(id, p, n); p += n; break; }
       case C_ORDER: { int id = u16(), after = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; break; } unlink_obj(id); link_after(id, after); break; }
       case C_TILES: {
         int id = u16(), start = u16(), n = u8();
@@ -395,6 +470,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
         break;
       }
       case C_DTEX: read_dtex(); break;
+      case C_FOG: read_fog(); break;
       case C_ANIM: {
         int id = u16(), tex = u8(), n = u8(), delay = u16(), looped = u8();
         Anim *a = n ? salloc(sizeof(Anim) + n * 8) : NULL;

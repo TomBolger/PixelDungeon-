@@ -3,6 +3,7 @@
 #include "draw.h"
 #include "scene.h"
 #include "art.h"
+#include "particles.h"
 
 static uint8_t *s_fb;
 static int s_stride, s_W, s_H;
@@ -392,6 +393,46 @@ static void draw_fog(int tex, int tx, int ty, int tw, int th, int32_t L, int32_t
   }
 }
 
+// ---- particles the watch makes (particles.c): solid squares, or a picture's frame ----
+static uint16_t s_id;   // the picture being drawn's number
+static void __attribute__((noinline, optimize("Os"))) fill_a(int32_t L, int32_t T, int32_t R, int32_t B, uint8_t c, int A) {   // a square, see-through by A (0-255)
+  int x0 = (L + 4) >> 3, x1 = (R + 4) >> 3, y0 = (T + 4) >> 3, y1 = (B + 4) >> 3;
+  if (x1 == x0 && R > L) x1 = x0 + 1;   // (at least a pixel)
+  if (y1 == y0 && B > T) y1 = y0 + 1;
+  if (x0 < s_cx0) x0 = s_cx0; if (x1 > s_cx1) x1 = s_cx1;
+  if (y0 < s_cy0) y0 = s_cy0; if (y1 > s_cy1) y1 = s_cy1;
+  for (int y = y0; y < y1; y++) {
+    int xa = x0, xb = x1; ROWCLIP(y, xa, xb);
+    uint8_t *d = ROWPTR(y) + xa;
+    const uint8_t *bt = BAYER + ((y & 3) << 2);
+    for (int x = xa; x < xb; x++, d++) if (A > 247 || A > bt[x & 3]) *d = c;
+  }
+}
+static void __attribute__((noinline, optimize("Os"))) draw_emit(Obj *o) {
+  emit_update(s_id, o, s_now);
+  Emit *e = o->ext; const Recipe *r = e ? recipe_get(e->recipe) : NULL;
+  if (!r) return;
+  PDraw p; int it = 0;
+  while (emit_next(s_id, s_now, &it, &p)) {
+    if (p.alpha < 30 || p.size <= 0) continue;
+    if (r->flags & R_FRAME) {
+      int32_t hw = (int32_t)r->tw * 4 * p.size / 4096, hh = (int32_t)r->th * 4 * p.size / 4096;   // half its size, x8
+      if (!hw || !hh) continue;
+      int32_t L = scx(p.x - hw), R = scx(p.x + hw), T = scy(p.y - hh), B = scy(p.y + hh);
+      if (R < s_cx0 * 8 || L > s_cx1 * 8 || B < s_cy0 * 8 || T > s_cy1 * 8) continue;
+      colour_setup(p.col, p.alpha);
+      blit(r->tex, r->tx, r->ty, r->tw, r->th, L, T, R, B, false, false);
+    } else {
+      int32_t h = p.size / 2;
+      int32_t L = scx(p.x - h), R = scx(p.x + h), T = scy(p.y - h), B = scy(p.y + h);
+      if (R < s_cx0 * 8 || L > s_cx1 * 8 || B < s_cy0 * 8 || T > s_cy1 * 8) continue;
+      // a white square through the colour: multiply + add
+      int rr = clamp255(p.col[0] + p.col[3]), gg = clamp255(p.col[1] + p.col[4]), bb = clamp255(p.col[2] + p.col[5]);
+      fill_a(L, T, R, B, 0xC0 | (q4(rr) << 4) | (q4(gg) << 2) | q4(bb), p.alpha);
+    }
+  }
+}
+
 static void draw_obj(Obj *o) {
   if (o->cam >= MAX_CAM || !g_cam[o->cam].used) return;
   s_cam = &g_cam[o->cam];
@@ -399,6 +440,7 @@ static void draw_obj(Obj *o) {
   if (o->cam == g_map_cam && (g_pan_x || g_pan_y)) { s_panned = *s_cam; s_panned.sx += g_pan_x; s_panned.sy += g_pan_y; s_cam = &s_panned; }
   s_cx0 = s_cam->x >> 3; s_cy0 = s_cam->y >> 3; s_cx1 = (s_cam->x + s_cam->w) >> 3; s_cy1 = (s_cam->y + s_cam->h) >> 3;
   if (s_cx0 < 0) s_cx0 = 0; if (s_cy0 < 0) s_cy0 = 0; if (s_cx1 > s_W) s_cx1 = s_W; if (s_cy1 > s_H) s_cy1 = s_H;
+  if (o->kind == K_EMIT) { draw_emit(o); return; }
   int alpha = obj_dyn(o, 2, s_now);
   if (o->kind == K_TEXT) { draw_text(o); return; }
   if (o->kind == K_SHAPE) { draw_shape(o); return; }
@@ -462,6 +504,7 @@ void draw_scene(GContext *ctx, GRect bounds, uint32_t now) {
   if (!s_fb) return;
   for (int y = 0; y < s_H; y++) { int a = 0, b = s_W; ROWCLIP(y, a, b); if (b > a) memset(ROWPTR(y) + a, GColorBlackARGB8, b - a); }
   for (int id = g_head; id != NONE; id = g_obj[id]->next) {
+    s_id = id;
 #ifdef PROFILE
     uint32_t t0 = ms(); draw_obj(g_obj[id]); g_prof[g_obj[id]->kind & 7] += ms() - t0;
 #else
@@ -482,7 +525,7 @@ int scene_hit(int x, int y, uint32_t now) {
       if (x >= c->x >> 3 && y >= c->y >> 3 && x < (c->x + c->w) >> 3 && y < (c->y + c->h) >> 3) cam = o->cam;
       continue;
     }
-    if (o->kind == K_TILES || o->kind == K_TEXT || o->kind == K_QUADS || o->kind == K_SHAPE) continue;
+    if (o->kind == K_TILES || o->kind == K_TEXT || o->kind == K_QUADS || o->kind == K_SHAPE || o->kind == K_EMIT) continue;
     if (obj_dyn(o, 2, now) < 30) continue;
     s_cam = c;
     int32_t X = obj_dyn(o, 0, now), Y = obj_dyn(o, 1, now), sx = obj_dyn(o, 3, now), sy = obj_dyn(o, 4, now);

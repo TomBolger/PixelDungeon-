@@ -3,9 +3,9 @@
 #include <pebble.h>
 
 // commands
-enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_INPUT, C_LATEST, C_SOUND, C_COMMIT, C_PREDICT, C_TILES2, C_ANIMTO };   // C_SOUND: kind (0 effect, 1 music, 2 settings), value; C_PREDICT: the plan for the next press (predict.c)
+enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_INPUT, C_LATEST, C_SOUND, C_COMMIT, C_PREDICT, C_TILES2, C_ANIMTO, C_RECIPE, C_FOG, C_READY };   // C_SOUND: kind (0 effect, 1 music, 2 settings), value; C_PREDICT: the plan for the next press (predict.c)
 // picture kinds
-enum { K_IMG = 1, K_RECT, K_NINE, K_TILES, K_TEXT, K_SKIN, K_QUADS, K_SHAPE };
+enum { K_IMG = 1, K_RECT, K_NINE, K_TILES, K_TEXT, K_SKIN, K_QUADS, K_SHAPE, K_EMIT };   // K_EMIT: particles made here (particles.c)
 enum { F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16, F_FOG = 32 };   // F_FOG: the fog of war (draw.c draw_fog)
 #define NONE 0xFFFF
 
@@ -86,5 +86,6 @@ void cams_follow(uint32_t now, uint32_t dt);
 // touch (see main.c): the map's camera, and the map moved by the finger ahead of the phone (cam units x256)
 extern int8_t g_map_cam;
 extern int32_t g_pan_x, g_pan_y;
-int scene_hit(int x, int y, uint32_t now);   // the camera of the topmost picture under (x, y), -1 none
+int scene_hit(int x, int y, uint32_t now);
+bool scene_in_sight(int cx, int cy);         // a map cell in sight, by the fog of war (true with no fog)   // the camera of the topmost picture under (x, y), -1 none
 void touch_acked(uint8_t seq);               // main.c: the phone has applied touches up to seq
