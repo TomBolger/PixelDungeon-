@@ -24,7 +24,7 @@ public final class BotItems {
 	/** Item kind -> actions done with it (this game). */
 	static final Map<String, Set<String>> done = new TreeMap<>();
 	static final Set<String> carried = new TreeSet<>();   // kinds held at some point
-	static int tries;
+	static int tries, dropped;
 	private static int lastTryTurn = -100;
 
 	// never: dropping things, ending the game, things that only show information or would undo the run
@@ -47,6 +47,17 @@ public final class BotItems {
 		Hero h = Dungeon.hero; Level L = Dungeon.level;
 		if (h == null || L == null || !h.ready) return null;
 		int turn = (int) Actor.now();
+		// a full pack (the Amulet itself won't go in): drop something already tried, the heaviest gear first
+		Bag bp = h.belongings.backpack;
+		if (bp.items.size() >= bp.capacity() - 1) {
+			Item drop = null; int dw = -1;
+			for (Item i : bp.items) {
+				if (i instanceof Bag || i instanceof Amulet || i instanceof com.shatteredpixel.shatteredpixeldungeon.items.keys.Key || i.unique) continue;
+				int w = i instanceof EquipableItem ? 3 : done.containsKey(kind(i)) ? 2 : 1;
+				if (w > dw) { dw = w; drop = i; }
+			}
+			if (drop != null) { dropped++; Assist.Target t = new Assist.Target(h.pos, Assist.USE, "full pack: drop " + kind(drop)); t.item = drop; t.action = Item.AC_DROP; t.obj = -1; return t; }
+		}
 		if (turn - lastTryTurn < 6) return null;
 		for (Mob m : L.mobs) if (m.alignment == Char.Alignment.ENEMY && L.heroFOV[m.pos] && m.state == m.HUNTING && L.distance(m.pos, h.pos) <= 2) return null;
 		List<Item> all = new ArrayList<>();

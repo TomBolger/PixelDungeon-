@@ -1,6 +1,7 @@
 package pebxel;
 
 import com.badlogic.gdx.Files;
+import com.badlogic.gdx.Gdx;
 import com.shatteredpixel.shatteredpixeldungeon.*;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
@@ -37,7 +38,9 @@ public class AssistBot {
 		int maxTurns = a.length > 2 ? Integer.parseInt(a[2]) : 3000;
 		int maxDepth = Integer.parseInt(System.getenv().getOrDefault("MAXDEPTH", "26"));
 		v = System.getenv("V") != null;
-		String dir = ".pebxel-assistbot-" + cls.ordinal() + "-" + seed + System.getenv().getOrDefault("SAVETAG", "");
+		// (its own save folder: two runs of one job play the same seeds at once, and shared folders broke their saves)
+		String dir = ".pebxel-assistbot-" + cls.ordinal() + "-" + seed + "-" + ProcessHandle.current().pid() + System.getenv().getOrDefault("SAVETAG", "");
+		saveDir = dir;
 		Game.version = "4.0.2"; Game.versionCode = 922;
 		Screen.set(System.getenv().getOrDefault("SCREEN", "emery"));
 		WatchGame game = new WatchGame();
@@ -196,8 +199,10 @@ public class AssistBot {
 		System.out.printf("RESULT class %s seed %d: %s depth %d (max %d) turns %.0f lvl %d hp %d/%d picked %d stuck %d actfails %d windows %d decisions %d frames %d  %.1fs%s%n",
 				cls, seed, end, Dungeon.depth, maxD, Statistics.duration, Dungeon.hero == null ? 0 : Dungeon.hero.lvl, Dungeon.hero == null ? 0 : Dungeon.hero.HP, Dungeon.hero == null ? 0 : Dungeon.hero.HT,
 				picked, stuckEvents, actFails, windows, decisions, Lockstep.frames, (System.currentTimeMillis() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
+		try { Gdx.files.external(saveDir).deleteDirectory(); Gdx.files.local(saveDir).deleteDirectory(); } catch (Throwable e) { }
 		System.exit(0);
 	}
+	static String saveDir;
 
 	static final boolean VRND = System.getenv("VRND") != null;
 	/** The random numbers' state (debugging repeatability: needs --add-opens java.base/java.util=ALL-UNNAMED and java.util.concurrent.atomic). */
