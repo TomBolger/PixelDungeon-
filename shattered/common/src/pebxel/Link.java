@@ -558,6 +558,10 @@ public final class Link {
 				}
 			}
 			if (!g.visible) continue;
+			// an emitter done and empty draws nothing. (Shattered never kills a magic missile once it lands: reset()
+			// ends with revive(), which clears "started", so autoKill never fires. On Yog's floor a fight left 2000
+			// of them in the scene; sent as pictures they filled the watch's 1024 ids and 150 KB of its heap.)
+			if (g instanceof com.watabou.noosa.particles.Emitter && !((com.watabou.noosa.particles.Emitter) g).on && ((com.watabou.noosa.particles.Emitter) g).countLiving() == 0) continue;
 			if (g instanceof Group) {
 				Particles.Desc d = NO_REUSE ? null : particles.describe(g);
 				if (d != null) { walk((Group) g, order, d.recipe.cls); emitDescs.put(g, d); order.add(g); continue; }

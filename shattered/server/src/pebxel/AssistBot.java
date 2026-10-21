@@ -109,6 +109,7 @@ public class AssistBot {
 					sb.append(" mobs"); for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) sb.append(' ').append(m.pos).append(':').append(m.getClass().getSimpleName()); System.out.println(sb); }
 			}
 			if (Statistics.duration > maxTurns) { end = "turn limit"; break; }
+			if (watch != null && watch.frames > WATCH_FRAMES) { end = "game frame limit (" + WATCH_FRAMES + " watch frames)"; break; }
 			if (f > GAME_FRAMES) { end = "game frame limit (" + GAME_FRAMES + ")"; break; }
 			if (++floorFrames > FLOOR_FRAMES) { end = "floor timeout (" + FLOOR_FRAMES + " frames on depth " + depth + ")"; break; }
 			if (Statistics.duration - floorStart > FLOOR_TURNS) { end = "floor timeout (" + FLOOR_TURNS + " turns on depth " + depth + ")"; break; }
@@ -221,6 +222,7 @@ public class AssistBot {
 	}
 	static final int FLOOR_TURNS = Cheat.ON ? 6000 : 2500;
 	static final int FLOOR_FRAMES = WATCH ? 200_000 : Cheat.ON ? 60_000 : 150_000;
+	static final long WATCH_FRAMES = Long.parseLong(System.getenv().getOrDefault("MAXWATCHFRAMES", "900000"));
 	static final long GAME_FRAMES = Long.parseLong(System.getenv().getOrDefault("MAXFRAMES", "1200000"));
 	static final int START_DEPTH = Integer.parseInt(System.getenv().getOrDefault("STARTDEPTH", "0"));   // (about 3 game hours on a floor)
 	static final int HANG_FRAMES = 3000;   // 100 s of game time with the hero waiting and the clock not moving

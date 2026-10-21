@@ -24,7 +24,9 @@ import java.util.*;
 public final class WatchDriver {
 	final WatchApp app; final Link link; final WatchSim sim; final Controls controls; final Touches touches = new Touches();
 	static final int MAXMSG = 7984;
-	int seq, peak, linkErrors, frameErrors; long presses, taps, frames, bytes;
+	int seq, peak, linkErrors, frameErrors; long peakNoted = -1000; String peakAt = "";
+	static final int PEAK_NOTE = 70_000;   // (the watch has about 85 KB free; past this the model's memory is worth a look)
+	long presses, taps, frames, bytes;
 	static final Map<String, Integer> fallbacks = new TreeMap<>();
 
 	WatchDriver(WatchApp app) {
@@ -56,7 +58,38 @@ public final class WatchDriver {
 			if (linkErrors < 5) { System.out.println("LINK ERROR:"); t.printStackTrace(System.out); }
 			Coverage.problem("link error: " + t);
 		}
-		int est = sim.heapEstimate(); if (est > peak) peak = est;
+		int est = sim.heapEstimate();
+		if (est > peak) {
+			peak = est;
+			if (est > PEAK_NOTE && frames - peakNoted > 300) {   // (where the watch's memory went: the model's parts, the screen)
+				peakNoted = frames;
+				com.shatteredpixel.shatteredpixeldungeon.ui.Window w = Ui.topWindow();
+				peakAt = "depth " + Dungeon.depth + " " + Game.scene().getClass().getSimpleName() + (w == null ? "" : " " + w.getClass().getSimpleName()) + " objs " + sim.objCount() + " " + sim.heapParts();
+				System.out.println("  WATCH PEAK " + est + " at " + peakAt);
+				System.out.println("    the link's pictures by kind: " + census());
+			}
+		}
+	}
+
+	/** The Link's pictures (what the watch holds) by kind of thing, most first. */
+	String firstMissile = "";
+	String census() {
+		Object m = get(link, "objs");
+		if (!(m instanceof Map)) return "?";
+		Map<String, Integer> c = new HashMap<>();
+		for (Object g : ((Map<?, ?>) m).keySet()) {
+			Gizmo gz = (Gizmo) g; String k = gz.getClass().getSimpleName().isEmpty() ? gz.getClass().getName().replaceAll(".*\\.", "") : gz.getClass().getSimpleName();
+			k += "<" + (gz.parent == null ? "-" : gz.parent.getClass().getSimpleName().isEmpty() ? gz.parent.getClass().getName().replaceAll(".*\\.", "") : gz.parent.getClass().getSimpleName());
+			c.merge(k, 1, Integer::sum);
+		}
+		int on = 0, living = 0, mm = 0;
+		for (Object g : ((Map<?, ?>) m).keySet()) if (g instanceof com.shatteredpixel.shatteredpixeldungeon.effects.MagicMissile) { mm++; com.watabou.noosa.particles.Emitter e = (com.watabou.noosa.particles.Emitter) g; if (e.on) on++; living += e.countLiving();
+			if (mm == 1) { Object st = null; try { java.lang.reflect.Field f = com.watabou.noosa.particles.Emitter.class.getDeclaredField("started"); f.setAccessible(true); st = f.get(e); } catch (Exception x) { }
+				StringBuilder up = new StringBuilder(); for (com.watabou.noosa.Group p = e.parent; p != null; p = p.parent) up.append(p.getClass().getSimpleName()).append(p.active ? "" : "(inactive)").append(p.exists ? "" : "(dead)").append('/');
+				firstMissile = ("(first missile: started " + st + " autoKill " + e.autoKill + " active " + e.active + " x " + (int) e.x + "," + (int) e.y + " up " + up + ")"); } }
+		if (mm > 0) c.put("(missiles on " + on + " particles " + living + " frozen " + com.watabou.noosa.particles.Emitter.freezeEmitters + ")", 0);
+		List<Map.Entry<String, Integer>> l = new ArrayList<>(c.entrySet()); l.sort((a, b) -> b.getValue() - a.getValue());
+		return ((Map<?, ?>) m).size() + " " + l.subList(0, Math.min(12, l.size())) + (mm > 0 ? " missiles on " + on + " particles " + living + " frozen " + com.watabou.noosa.particles.Emitter.freezeEmitters + " " + firstMissile : "");
 	}
 
 	void frames(int n) { for (int i = 0; i < n; i++) frame(); }
@@ -145,7 +178,7 @@ public final class WatchDriver {
 		for (int hop = 0; hop < 4; hop++) {
 			Window w = Ui.topWindow();
 			if (w == null) { press(Controls.SELECT | Controls.LONG); w = Ui.topWindow(); }
-			if (!(w instanceof pebxel.ui.WndWatchBag)) { fallback("backpack (got " + (w == null ? "nothing" : w.getClass().getSimpleName()) + ")"); return false; }
+			if (!(w instanceof pebxel.ui.WndWatchBag)) { fallback("backpack (got " + (w == null ? "nothing" : w.getClass().getName()) + ")"); return false; }
 			@SuppressWarnings("unchecked") List<com.shatteredpixel.shatteredpixeldungeon.ui.Button> areas = (List<com.shatteredpixel.shatteredpixeldungeon.ui.Button>) get(w, "rowAreas");
 			@SuppressWarnings("unchecked") List<List<com.shatteredpixel.shatteredpixeldungeon.ui.Button>> cells = (List<List<com.shatteredpixel.shatteredpixeldungeon.ui.Button>>) get(w, "rowCells");
 			int r = -1, k = -1;
@@ -333,7 +366,7 @@ public final class WatchDriver {
 	}
 
 	String summary() {
-		return String.format("talents %d presses %d taps %d notoffered %d frames %d bytes %d watchpeak %d linkerrors %d frameerrors %d unknown %s fallbacks %s",
+		return (peakAt.isEmpty() ? "" : "peakat " + peakAt.replace(' ', '_').replace(':', '-').replace(',', '.').replace('=', '-') + " ") + String.format("talents %d presses %d taps %d notoffered %d frames %d bytes %d watchpeak %d linkerrors %d frameerrors %d unknown %s fallbacks %s",
 				talentsSpent, presses, taps, notOffered, frames, bytes, peak, linkErrors, frameErrors, link.unknown, fallbacks);
 	}
 }
