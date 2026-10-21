@@ -161,7 +161,14 @@ public final class Assist {
 	static boolean opt(String name, boolean def) {
 		try { String v = System.getenv(name.startsWith("ADBG") ? name : "AS_" + name); return v == null ? def : !v.equals("0"); } catch (Throwable e) { return def; }
 	}
-	static final boolean AMBUSH = opt("AMBUSH", false);   // (A/B H-amb1, 120 paired games: -0.16 depth, more starving: off)
+	// The ambush (first H-amb1: -0.16, more starving, the Mage worse: it waited instead of zapping). Tuned: not when a ranged
+	// blow is to hand (AMBRANGED), the wait for an unseen one AMBWAIT turns, for one seen at most AMBSEEN + its distance.
+	static final boolean AMBUSH = opt("AMBUSH", true);
+	static final boolean AMBRANGED = opt("AMBRANGED", true);
+	static final int AMBWAIT = optInt("AMBWAIT", 4), AMBSEEN = optInt("AMBSEEN", 2);
+	static final int GRASSD = optInt("GRASSD", 8);   // tall grass walked to within this many steps (dew, seeds); 0 none
+	static final int DEWKEEP = optInt("DEWKEEP", 5);  // drops kept in the waterskin when dew stands in for a rest
+	static final boolean SHOOTDM = opt("SHOOTDM", false);   // DM-100 among the shooters to hide from (it zapped more as the hero backed off)
 	static final boolean CRABAMB = opt("CRABAMB", true);
 	static final boolean SHORE = opt("SHORE", true);   // with piranhas about, the shore too (they bite from the water)
 	static final boolean OOZE = opt("OOZE", true);
@@ -171,15 +178,16 @@ public final class Assist {
 	static final boolean STAFFUP = opt("STAFFUP", true);
 	static final int RESTPCT = optInt("RESTPCT", 50);
 	static final boolean CLOAK = opt("CLOAK", true);
-	// (H-fix3, 120 paired: these four together -0.11, 30/32, DM-100 deaths 11 -> 14: off)
-	static final boolean FIRE2 = opt("FIRE2", false);
-	static final boolean SHOOTERS = opt("SHOOTERS", false);
-	static final boolean DEWREST = opt("DEWREST", false);
+	// (H-fix3, 120 paired: these four together -0.11, DM-100 deaths 11 -> 14: the DM-100 part off (SHOOTDM), the rest tuned)
+	static final boolean FIRE2 = opt("FIRE2", true);
+	static final boolean SHOOTERS = opt("SHOOTERS", true);
+	static final boolean DEWREST = opt("DEWREST", true);
 	static final boolean FAIRHUNT = opt("FAIRHUNT", true);
 	static final boolean GOOREACH = opt("GOOREACH", true);
 	static final boolean SHOP = opt("SHOP", true);
-	static final boolean CLERIC = opt("CLERIC", true);   // the Cleric casts Guiding Light   // buy by the guide's order with the gold there is   // Goo's blast by its own reach test; no ooze washing with Goo close   // "hunting" only as drawn (emotes, steps), not the AI state   // hurt, nothing about: the waterskin (keeping 5 drops) before resting   // DM-100 and the Gnoll Trickster too: out of their line, round a corner   // the fire escape: water, else out of fire's reach
-	static final boolean MEAT = opt("MEAT", false);     // raw mystery meat (4 in 5 a bad effect, burning among them): eaten standing in water   // the Rogue's cloak before a fight   // nothing in sight: rest below this share of health   // the Mage's first 3 upgrades into the staff
+	static final boolean CLERIC = opt("CLERIC", true);   // (H-cl1, 120 Clerics paired: +1.19, 61/23)
+	static final boolean CRABSTEP = opt("CRABSTEP", true);   // beside the crab with no hidden spot: step off rather than swing   // the Cleric casts Guiding Light   // buy by the guide's order with the gold there is   // Goo's blast by its own reach test; no ooze washing with Goo close   // "hunting" only as drawn (emotes, steps), not the AI state   // hurt, nothing about: the waterskin (keeping 5 drops) before resting   // DM-100 and the Gnoll Trickster too: out of their line, round a corner   // the fire escape: water, else out of fire's reach
+	static final boolean MEAT = opt("MEAT", true);     // raw mystery meat (4 in 5 a bad effect, burning among them): eaten standing in water   // the Rogue's cloak before a fight   // nothing in sight: rest below this share of health   // the Mage's first 3 upgrades into the staff
 	static final int HEALBOSS = optInt("HEALBOSS", 55);    // a boss in sight: Healing below this share (Goo's pumped blow is triple)   // the Mage's staff zapped point blank too (magic: double accuracy, more damage than the staff's own blow)   // low and losing: up the stairs (only allies follow), rest there, come back   // tall grass walked for dew and seeds (off: only within 2 steps)     // Goo's ooze: into water to wash it off   // the Great Crab: ambushes are the only blows it doesn't block
 	static int optInt(String name, int def) { try { String v = System.getenv("AS_" + name); return v == null ? def : Integer.parseInt(v); } catch (Throwable e) { return def; } }
 	static final int HEALPCT = optInt("HEALPCT", 40);   // (a known Healing potion is drunk in a fight below this share of health)
@@ -935,9 +943,13 @@ public final class Assist {
 				for (int c = 0; c < LEN; c++) if (dist[c] >= 1 && dist[c] <= 6 && open[c] && seenChar(c) == null && !danger[c]) {
 					int sc = 3 * distance(c, m.pos) - 2 * dist[c] + (sight(m.pos, c) ? 0 : 20);
 					if (sc > fs) { fs = sc; fc = c; } }
-				if (fc >= 0 && fs > 3 * distance(hp, m.pos)) { kind[0] = GO; why[0] = "away from the crab"; return fc; } }
-			int amb = AMBUSH && !crab && bk >= 1000 && w <= 8 && hunting(m) && !held(m) && !ranged(m) && !fast && !Char.hasProp(m, Char.Property.IMMOVABLE) ? ambushSpot(m) : -1;
-			if (amb == hp && waitId == m.id() && waitCount > 2 * w + 2) amb = -1;   // (it isn't coming)
+				if (fc >= 0 && fs > 3 * distance(hp, m.pos)) { kind[0] = GO; why[0] = "away from the crab"; return fc; }
+				if (bk < 1000 && CRABSTEP) {   // beside it and seen: any free step that leaves its side (a blow it sees is blocked for ever; it is the slower)
+					int sc0 = -1, sd = 1; for (int k = 0; k < 8; k++) { int c = hp + N8[k]; if (nb(hp, c) && open[c] && seenChar(c) == null && !danger[c] && distance(c, m.pos) > sd) { sd = distance(c, m.pos); sc0 = c; } }
+					if (sc0 >= 0) { kind[0] = GO; why[0] = "off the crab's side"; return sc0; }
+				} }
+			int amb = AMBUSH && !crab && !(AMBRANGED && rangedToHand()) && bk >= 1000 && w <= 8 && hunting(m) && !held(m) && !ranged(m) && !fast && !Char.hasProp(m, Char.Property.IMMOVABLE) ? ambushSpot(m) : -1;
+			if (amb == hp && waitId == m.id() && waitCount > AMBSEEN + w) amb = -1;   // (it isn't coming)
 			if (amb == hp) { waitF[0] = true; if (waitId == m.id()) waitCount++; else { waitId = m.id(); waitCount = 1; } why[0] = "ambush: wait unseen"; ambushing = true; return best; }
 			if (amb >= 0) { kind[0] = GO; why[0] = "ambush: a step out of its sight"; ambushing = true; return amb; }
 			if (!waitF[0] && bk >= 1000 && w <= 3 && from >= 0 && distance(from, best) <= 1 && !stepBackWaited) { waitF[0] = true; stepBackWaited = true; }
@@ -1061,7 +1073,7 @@ public final class Assist {
 			int d = k < 0 ? 0 : s == ambGoal ? 0 : dist[s];
 			if (d < bd) { bd = d; best = s; }
 		}
-		if (best >= 0 && best != hp) { if (ambGoal != best || ambId != m.id()) ambUntil = Actor.now() + (slow ? 14 : 8); ambGoal = best; ambId = m.id(); }
+		if (best >= 0 && best != hp) { if (ambGoal != best || ambId != m.id()) ambUntil = Actor.now() + (slow ? 14 : AMBWAIT); ambGoal = best; ambId = m.id(); }
 		return best;
 	}
 	private static int ambGoal = -1, ambId = -1; private static float ambUntil;
@@ -1093,7 +1105,7 @@ public final class Assist {
 			int d = dist[c];
 			if (d >= INF || d == 0 || !ahead(c) || bad.containsKey(c)) continue;
 			boolean k = c == goal;
-			boolean g = gr && L.map[c] == Terrain.HIGH_GRASS && (GRASS ? (all || k || (onScreen(c) && d <= 8)) : d <= 2) && seenChar(c) == null && seenHeap(c) == null;
+			boolean g = gr && L.map[c] == Terrain.HIGH_GRASS && (GRASS ? (all && d <= Math.max(GRASSD, 2) || k || (onScreen(c) && d <= GRASSD)) : d <= 2) && seenChar(c) == null && seenHeap(c) == null;
 			if (!g && !((onScreen(c) || k) && unseenBy(c))) continue;
 			if (k) d = d > 3 ? d - 3 : 0;
 			else { if (od < 0 && head >= 0 && off(c, head) > 16) d += d / 4 + 2;
@@ -1303,7 +1315,7 @@ public final class Assist {
 			int d = distance(m.pos, hp);
 			if (m instanceof Goo && pumped(m)) goo = m;
 			else if (d < 2) return null;   // one beside you: fight it
-			if ((m instanceof Eye || m instanceof Scorpio || m instanceof Shaman || m instanceof Warlock || (SHOOTERS && (m instanceof DM100 || m instanceof GnollTrickster))) && hunting(m) && (sh == null || d < distance(sh.pos, hp))) sh = m;
+			if ((m instanceof Eye || m instanceof Scorpio || m instanceof Shaman || m instanceof Warlock || (SHOOTERS && ((SHOOTDM && m instanceof DM100) || m instanceof GnollTrickster))) && hunting(m) && (sh == null || d < distance(sh.pos, hp))) sh = m;
 		}
 		if (goo != null) {   // Goo pumped up hits hard and reaches 2 cells: out of its reach and let it waste it
 			if (!gooReach(goo.pos, hp)) { Target t = new Target(hp, WAIT, "tactic: let Goo waste it"); t.action = WAIT_ACT; return t; }
@@ -1448,7 +1460,7 @@ public final class Assist {
 		}
 		boolean bossHere = bossSeen >= 0 && Actor.now() - bossSeen < 100;   // (a boss seen on this floor lately)
 		if (Dungeon.bossLevel() && bossHere && H.HP * 20 < H.HT * 19 && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "rest before the boss"); t.action = REST_ACT; t.obj = -1; return t; }
-		if (DEWREST && H.HP * 100 < H.HT * RESTPCT && ws != null && field(ws, "volume") instanceof Integer && (Integer) field(ws, "volume") > 5 && !declined(Waterskin.class, "DRINK")) return use(ws, "DRINK", -1, "hurt: dew, not food");   // (resting costs 10 turns of food a point)
+		if (DEWREST && H.HP * 100 < H.HT * RESTPCT && ws != null && field(ws, "volume") instanceof Integer && (Integer) field(ws, "volume") > DEWKEEP && !declined(Waterskin.class, "DRINK")) return use(ws, "DRINK", -1, "hurt: dew, not food");   // (resting costs 10 turns of food a point)
 		if (H.HP * 100 < H.HT * RESTPCT && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "hurt: rest"); t.action = REST_ACT; t.obj = -1; return t; }
 		return null;
 	}
@@ -1467,6 +1479,17 @@ public final class Assist {
 		if (c == WandOfLightning.class || c == WandOfCorrosion.class) return ed >= 3;
 		if (c == WandOfFireblast.class) return ed >= 2 && !L.flamable[hp];
 		return c == WandOfMagicMissile.class || c == WandOfDisintegration.class || c == WandOfFrost.class || c == WandOfBlastWave.class || c == WandOfPrismaticLight.class;
+	}
+
+	/** A ranged blow to hand (the bow, a charged staff, Guiding Light, a thrown weapon): better spent than an ambush's wait. */
+	private static boolean rangedToHand() {
+		if (bag(SpiritBow.class) != null) return true;
+		MagesStaff st = bag(MagesStaff.class); Object w = st == null ? null : field(st, "wand");
+		if (w instanceof Wand && charged((Wand) w, st)) return true;
+		com.shatteredpixel.shatteredpixeldungeon.items.artifacts.HolyTome tome = bag(com.shatteredpixel.shatteredpixeldungeon.items.artifacts.HolyTome.class);
+		try { if (CLERIC && tome != null && tome.canCast(H, com.shatteredpixel.shatteredpixeldungeon.actors.hero.spells.GuidingLight.INSTANCE)) return true; } catch (Throwable e) { }
+		for (Item i : H.belongings.backpack) if (i instanceof MissileWeapon) return true;
+		return false;
 	}
 
 	public static final String SPELL_GL = "SPELL:GuidingLight";
