@@ -264,7 +264,8 @@ public final class WatchDriver {
 			case Assist.USE: return use(t);
 			case Assist.WAIT:
 				if (Assist.SEARCH_ACT.equals(t.action) || (t.action == null && t.cell == h.pos)) toolbar(pebxel.ui.WatchHud.TB_SEARCH, true);
-				else { float n0 = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now(); toolbar(pebxel.ui.WatchHud.TB_WAIT, Assist.REST_ACT.equals(t.action)); waitCheck(n0); }
+				else { float n0 = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now(); waitBefore = "before: curAction " + h.curAction + " resting " + h.resting + " aiming " + Controls.aiming() + " ready " + h.ready + " key " + com.watabou.input.KeyBindings.getFirstKeyForAction(com.shatteredpixel.shatteredpixeldungeon.SPDAction.WAIT, false);
+					toolbar(pebxel.ui.WatchHud.TB_WAIT, Assist.REST_ACT.equals(t.action)); waitCheck(n0); }
 				return true;
 			case Assist.ENEMY:
 				if (Assist.WAIT_ACT.equals(t.action)) { toolbar(pebxel.ui.WatchHud.TB_WAIT, false); return true; }
@@ -288,7 +289,7 @@ public final class WatchDriver {
 		fallback("reach a cell (" + t.why + ")");
 		return false;
 	}
-	int notOffered, waitsLost;
+	int notOffered, waitsLost; String waitBefore = "";
 	/** What the Down list didn't offer (the reason's first words), counted: what a player without the touch screen would miss. */
 	final Map<String, Integer> notOfferedWhy = new TreeMap<>();
 	void notOffered(Assist.Target t) { notOffered++; notOfferedWhy.merge(t.why == null ? "?" : t.why.replaceAll("\\(.*", "").replaceAll("[^A-Za-z ]", "").trim().replace(' ', '_'), 1, Integer::sum); }
@@ -320,7 +321,7 @@ public final class WatchDriver {
 		if (waitsLost <= 3) {
 			Object tb = getStatic(com.shatteredpixel.shatteredpixeldungeon.ui.Toolbar.class, "instance");
 			Object bw = tb == null ? null : get(tb, "btnWait");
-			System.out.println("  WAIT LOST: curAction " + h.curAction + " resting " + h.resting + " aiming " + Controls.aiming() + " window " + Ui.topWindow() + " onToolbar " + get(controls, "onToolbar")
+			System.out.println("  WAIT LOST " + waitBefore + "; after: curAction " + h.curAction + " resting " + h.resting + " aiming " + Controls.aiming() + " window " + Ui.topWindow() + " onToolbar " + get(controls, "onToolbar")
 					+ " toolbar " + (tb == null ? "none" : "visible " + ((Gizmo) tb).visible + " active " + ((Gizmo) tb).active) + " btnWait " + (bw == null ? "none" : "active " + ((Gizmo) bw).active + " visible " + ((Gizmo) bw).visible)
 					+ " paralysed " + h.paralysed + " key listeners (first 6) " + keyHolders());
 		}

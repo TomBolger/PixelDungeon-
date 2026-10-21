@@ -105,7 +105,9 @@ public class Controls {
 		if (Dungeon.hero == null) return;
 		boolean ready = Dungeon.hero.ready;
 		switch (k) {
-			case pebxel.ui.WatchHud.TB_WAIT: key(held ? SPDAction.REST : SPDAction.WAIT); break;
+			// as Shattered's own wait button does (its key, SPDAction.WAIT, has no key bound by default: sent as a key,
+			// the watch's Wait did nothing at all, and only a held one rested)
+			case pebxel.ui.WatchHud.TB_WAIT: if (ready && !GameScene.cancel()) Dungeon.hero.rest(held); break;
 			// Shattered's one search button: pressed, it asks which cell to examine (pressed again: search); held: search
 			case pebxel.ui.WatchHud.TB_SEARCH:
 				if (held) { if (ready && !GameScene.cancel()) Dungeon.hero.search(true); }

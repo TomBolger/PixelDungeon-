@@ -107,7 +107,7 @@ public class Buttons {
 			sim.render();
 			sim.save(new File(dir, String.format("%02d-%s.png", shot++, p)), 2);
 		}
-		System.out.println("scene " + Game.scene().getClass().getSimpleName() + ", " + shot + " pictures");
+		System.out.println("scene " + Game.scene().getClass().getSimpleName() + ", " + shot + " pictures" + (Dungeon.hero != null ? ", game time " + com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now() : ""));
 		System.out.println("sounds " + sim.sounds);
 		if (System.getenv("DUMP") != null) sim.dump();
 		if (System.getenv("PLANS") != null) for (String pl : sim.plans) System.out.println("plan " + pl);
