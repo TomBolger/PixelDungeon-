@@ -493,7 +493,7 @@ public class Controls {
 		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; farView(-1, false); return; }
 		plan = new ArrayList<>(Assist.plan(aiming, Controls::onScreenFromHero));
 		if (Assist.lastError != null) { System.out.println("pebxel: assist " + Assist.lastError); Assist.lastError = null; }
-		if (!aiming) { shots(plan); veins(plan); talents(plan); }
+		if (!aiming) { shots(plan); if (WatchSettings.assist() != 0) { veins(plan); talents(plan); } }   // (Off: the enemies only)
 		targets = new ArrayList<>();
 		for (Assist.Target t : plan) targets.add(aiming ? t.cell : markCell(t));
 		target = 0;   // (Pebble PD 0.40: after each step the first one, what a good player would do next)
@@ -502,9 +502,12 @@ public class Controls {
 		keepEnemy();
 		// Far: the camera shows plan A wherever it is (Pebble PD 0.76: on whatever is chosen, cycled to or not); else back on the hero
 		farView(aiming || targets.isEmpty() ? -1 : targets.get(0), false);
+		if (log) System.out.println("pebxel: plan d" + Dungeon.depth + " t" + Math.round(now) + " hero " + Dungeon.hero.pos + (aiming ? " aiming" : "") + ": " + plan);
 	}
 	/** Lists made (tests: once a turn, never a frame). */
 	public static long plans;
+	/** Tests: print each list made. */
+	public static boolean log;
 	private int keptId = -1;
 	private void keepEnemy() {
 		Assist.Target t = current();

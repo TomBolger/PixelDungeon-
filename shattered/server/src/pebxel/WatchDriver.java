@@ -279,12 +279,26 @@ public final class WatchDriver {
 
 	// how the bot's choices sat in the watch's list: first (plan A), further down (Downs), not there
 	long decisions, planA, inList, notInList, downs, selects;
+	/** Plan A dithering: its objective went back to the one before last (A, B, A on three decisions in a row). */
+	long flips; private int pa1 = -1, pa2 = -1;
+	void notePlanA() {
+		List<Assist.Target> ps = plan(); List<Integer> ts = targets();
+		if (ts.isEmpty()) return;
+		boolean fight = false; int k;
+		if (ps.size() == ts.size()) { Assist.Target a = ps.get(0); fight = a.kind == Assist.ENEMY; k = a.kind * 100000 + (a.obj >= 0 ? a.obj : a.cell); }
+		else { int c = Controls.cellOf(ts.get(0)); fight = c >= 0 && com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c) != null; k = c; }   // (the old list: its first cell)
+		if (k == pa2 && k != pa1 && !fight) flips++;
+		pa2 = pa1; pa1 = k;
+	}
 	final Map<String, Integer> missKinds = new TreeMap<>();
 	final int[] at = new int[13];
 	/** PLAYER=select: the honest player who only ever presses Select (a Down more each time Select did nothing). */
 	int stall;
-	boolean selectOnly() {
-		decisions++; selects++;
+	boolean selectOnly(Assist.Target t) {
+		int j = t == null ? -1 : findInList(t);
+		decisions++; selects++; notePlanA();
+		if (j >= 0 && j < at.length) at[j]++;
+		if (j == 0) planA++; else if (j > 0) inList++; else if (t != null) { notInList++; missKinds.merge(t.kind + ":" + t.why.replaceAll("[^A-Za-z ]", "").trim().replace(' ', '_'), 1, Integer::sum); }
 		for (int i = 0; i < stall && targets().size() > 1; i++) press(Controls.DOWN);
 		press(Controls.SELECT);
 		return true;
@@ -319,7 +333,7 @@ public final class WatchDriver {
 		}
 		// the watch's list first: what a player with the buttons would press (Downs to it, then Select)
 		int j = findInList(t);
-		decisions++;
+		decisions++; notePlanA();
 		if (j >= 0 && j < at.length) at[j]++;
 		if (j == 0) planA++; else if (j > 0) inList++; else { notInList++; missKinds.merge(t.kind + ":" + t.why.replaceAll("[^A-Za-z ]", "").trim().replace(' ', '_'), 1, Integer::sum); }
 		if (VW) System.out.println("    watch list " + plan() + " target " + target() + "; bot " + t + " at " + j);
@@ -474,7 +488,7 @@ public final class WatchDriver {
 
 	/** How the bot's choices sat in the watch's list (the predictor's hit rate). */
 	String listSummary() {
-		StringBuilder sb = new StringBuilder(String.format("decisions %d planA %d (%.1f%%) inlist %d notinlist %d downs %d selectonly %d at", decisions, planA, 100.0 * planA / Math.max(1, decisions), inList, notInList, downs, selects));
+		StringBuilder sb = new StringBuilder(String.format("decisions %d planA %d (%.1f%%) inlist %d notinlist %d downs %d selectonly %d flips %d at", decisions, planA, 100.0 * planA / Math.max(1, decisions), inList, notInList, downs, selects, flips));
 		for (int i = 0; i < at.length; i++) sb.append(i == 0 ? " " : ",").append(at[i]);
 		return sb.append(" misses ").append(missKinds).toString().replace(", ", ",");
 	}

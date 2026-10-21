@@ -308,7 +308,7 @@ public class AssistBot {
 			if (t.kind == Assist.USE && t.item != null) BotItems.pending(t.item, t.action);
 			Lockstep.doing = "acting on " + t + " at depth " + Dungeon.depth;
 			if (decisions == TEST_HANG) synchronized (AssistBot.class) { try { AssistBot.class.wait(); } catch (InterruptedException e) { } }   // (tests: the watchdog)
-			boolean ok = watch != null && Controls.aiming() == false && (SELECTONLY ? watch.selectOnly() : watch.act(t));
+			boolean ok = watch != null && Controls.aiming() == false && (SELECTONLY ? watch.selectOnly(t) : watch.act(t));
 			if (!ok && Ui.topWindow() == null && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn) ok = Assist.act(t);
 			// (the actor thread picks the action up on a later frame: until then hero.ready still reads true. Once it has
 			// and the action came to nothing, the hero is the actor waiting again with no action: no use waiting longer.

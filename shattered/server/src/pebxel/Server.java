@@ -49,6 +49,9 @@ public class Server {
 		link.planner = controls::plan;
 		pacer = new Pacer(link, Server::transmit);
 		pacer.hello(2016);
+		if (System.getenv("ASSIST") != null) WatchSettings.assist(Integer.parseInt(System.getenv("ASSIST")));   // (tests: the Assistant's reach, 0 off 1 near 2 far)
+		Controls.log = System.getenv("PLANLOG") != null;
+		if (System.getenv("ITEMS") != null) WatchSettings.itemAssist(!"0".equals(System.getenv("ITEMS")));
 		if (System.getenv("NEWGAME") != null) {
 			for (int i = 0; i < 5; i++) app.frame();
 			SPDSettings.intro(false);
