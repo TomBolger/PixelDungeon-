@@ -188,6 +188,7 @@ public class AssistBot {
 				StringBuilder ms = new StringBuilder("  mobs at the loop:");
 				for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) ms.append(' ').append(m.getClass().getSimpleName()).append('@').append(m.pos).append(" hp").append(m.HP).append(m.isInvulnerable(Dungeon.hero.getClass()) ? " INV" : "").append(m.alignment == com.shatteredpixel.shatteredpixeldungeon.actors.Char.Alignment.ENEMY ? "" : " " + m.alignment).append(',');
 				System.out.println(ms + " hero@" + Dungeon.hero.pos);
+				if (ch != null) System.out.println("  loop target: in Actor.chars " + com.shatteredpixel.shatteredpixeldungeon.actors.Actor.chars().contains(ch) + ", hero.canAttack " + Dungeon.hero.canAttack(ch) + ", in heroFOV " + Dungeon.level.heroFOV[ch.pos] + ", hero fov " + (Dungeon.hero.fieldOfView != null && Dungeon.hero.fieldOfView[ch.pos]));
 				break;
 			}
 			lastPos = Dungeon.hero.pos; lastKey = key;

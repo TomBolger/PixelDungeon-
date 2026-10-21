@@ -283,6 +283,10 @@ public final class Assist {
 					return true;
 				case ENEMY:
 					if (WAIT_ACT.equals(t.action)) { h.rest(false); return true; }
+					if (bad.containsKey(t.cell) && Dungeon.level.adjacent(t.cell, h.pos)) {   // (a tap on it did nothing: the scene's cell selector swallowed it; what its default listener does, done)
+						if (h.handle(t.cell)) h.next();
+						return true;
+					}
 					break;
 				case GO:
 					if (t.cell == h.pos || (h.rooted && Dungeon.level.adjacent(t.cell, h.pos) && Actor.findChar(t.cell) == null)) { noteSearch(); h.search(true); return true; }
