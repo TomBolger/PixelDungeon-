@@ -1,0 +1,8 @@
+# O-fight1
+bundle=O1-1021115536.tgz
+bin=simbot
+games=300
+chunk=25
+first=0
+run A SIMSEED=1 FIGHTCAL=1
+run B SIMSEED=1 FIGHTCAL=1 AS_OFIGHT=1

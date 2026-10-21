@@ -1,7 +1,0 @@
-# S-lock1
-bundle=S-lock1-1020234908.tgz
-bin=simbot
-games=24
-chunk=2
-first=0
-run lock SIMSEED=1 MAXDEPTH=6
