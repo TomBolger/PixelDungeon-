@@ -86,6 +86,7 @@ public class Gallery {
 					if (k.contains("low")) { h.HP = Math.max(1, h.HT / 4); com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing p = new com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing(); p.identify(); p.collect(); }
 					if (k.contains("identify")) { com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfIdentify sc = new com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfIdentify(); sc.identify(); sc.collect(); new com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfHaste().collect(); }
 					if (k.contains("talent")) h.earnExp(h.maxExp() - h.exp, Gallery.class);
+					h.spendAndNext(1f);   // (a turn goes by: the watch's list is made again)
 				} catch (Exception e) { e.printStackTrace(); }
 			});
 			return;
