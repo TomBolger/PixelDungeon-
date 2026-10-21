@@ -261,6 +261,16 @@ public final class Assist {
 		} catch (Throwable e) { lastError = e; return false; }
 	}
 
+	/** t was carried out some other way (the watch's own buttons, in a test): what act notes, noted. */
+	public static void noted(Target t) {
+		try {
+			Hero h = Dungeon.hero; if (t == null || h == null) return;
+			actPos = h.pos; actTime = Actor.now(); actCell = t.cell; actKind = t.kind; actItem = t.item;
+			if (t.kind == WAIT && (SEARCH_ACT.equals(t.action) || (t.action == null && t.cell == h.pos))) noteSearch();
+			if (t.kind != USE && t.kind != WAIT && t.cell >= 0) noteTalk(t.cell);
+		} catch (Throwable e) { lastError = e; }
+	}
+
 	/** After an item use: aim it, answer the item selector, confirm an upgrade. True if something was done. */
 	private static boolean followUp(Target t) {
 		if (Controls.aiming()) {

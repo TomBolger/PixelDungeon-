@@ -59,6 +59,7 @@ public class AssistBot {
 		int maxD = 0, depth = 0, decisions = 0, stuckEvents = 0, sameRun = 0, picked = 0, actFails = 0, windows = 0;
 		float floorStart = 0; int lastPos = -1; String lastKey = "";
 		Map<String, Integer> whys = new TreeMap<>();
+		Map<Integer, Integer> depthDecisions = new HashMap<>();
 		Heap pickHeap = null; int pickSize = 0;
 		String end = "turn limit";
 		long planNs = 0, plans = 0, maxPlanNs = 0;
@@ -132,6 +133,7 @@ public class AssistBot {
 			long dn = System.nanoTime() - n0; planNs += dn; plans++; maxPlanNs = Math.max(maxPlanNs, dn);
 			if (Assist.lastError != null) { System.out.println("  ASSIST ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; }
 			decisions++;
+			if (depthDecisions.merge(depth, 1, Integer::sum) > FLOOR_TURNS * 2) { end = "depth timeout (" + FLOOR_TURNS * 2 + " decisions on depth " + depth + " over all visits)"; break; }
 			if (++floorDecisions > FLOOR_TURNS) { end = "floor timeout (" + FLOOR_TURNS + " decisions on depth " + depth + ")"; break; }
 			Assist.Target t = Cheat.ON ? Rescue.check() : null;
 			if (t == null && Cheat.ON) t = BotItems.pick();
@@ -189,6 +191,6 @@ public class AssistBot {
 		} catch (Throwable e) { return e.toString(); }
 	}
 	static final int FLOOR_TURNS = Cheat.ON ? 6000 : 2500;
-	static final int FLOOR_FRAMES = 300_000;   // (about 3 game hours on a floor)
+	static final int FLOOR_FRAMES = 150_000;   // (about 3 game hours on a floor)
 	static final int HANG_FRAMES = 3000;   // 100 s of game time with the hero waiting and the clock not moving
 }
