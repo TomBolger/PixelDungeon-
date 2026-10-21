@@ -69,6 +69,7 @@ public class AssistBot {
 		if (FAST) {   // (the default without the watch: see FAST below)
 			app.graphics.delta = Float.parseFloat(System.getenv().getOrDefault("FRAMEDT", "0.2"));
 			com.watabou.noosa.particles.Emitter.pebxelOff = !"1".equals(System.getenv("PARTICLES"));
+			app.graphics.useNoGL(); Gdx.gl = Gdx.gl20 = app.graphics.getGL20();   // (nothing is drawn: the tracking chip's clearing every frame was half a game's CPU with the quick JIT)
 		}
 		SPDSettings.set(app.getPreferences(SPDSettings.DEFAULT_PREFS_FILE));
 		FileUtils.setDefaultFileProperties(Files.FileType.External, dir0 + "/");

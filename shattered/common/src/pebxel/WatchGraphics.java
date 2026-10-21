@@ -15,6 +15,9 @@ public class WatchGraphics extends MockGraphics {
 
 	public void useSoftGL() { soft = new SoftGL(w, h); gl = soft.proxy(); }
 
+	/** Bots in a hurry: a chip that does nothing at all (the tracking one still cleared its picture every frame). */
+	public void useNoGL() { soft = null; gl = NoGL.make(); }
+
 	/** On the phone: the software chip only keeps track (no pictures), so the link can capture odd pictures. */
 	public void useTrackingGL() { useSoftGL(); soft.keepPixels = false; soft.raster = false; }
 
