@@ -1,7 +1,0 @@
-# smoke1
-bundle=test-1020232215.tgz
-bin=simbot
-games=12
-chunk=1
-first=0
-run base MODE=1

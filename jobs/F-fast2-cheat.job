@@ -1,0 +1,7 @@
+# F-fast2-cheat
+bundle=Ffast2-1021112812.tgz
+bin=simbot
+games=24
+chunk=2
+first=0
+run cheat CHEAT=1 SIMSEED=1

@@ -1,0 +1,7 @@
+# F-fast2-hon
+bundle=Ffast2-1021112812.tgz
+bin=simbot
+games=60
+chunk=5
+first=0
+run hon SIMSEED=1

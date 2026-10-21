@@ -1,0 +1,7 @@
+# F-fast2-c2
+bundle=Ffast2-1021112812.tgz
+bin=simbot
+games=60
+chunk=5
+first=0
+run c2 SIMSEED=1 JIT=c2
