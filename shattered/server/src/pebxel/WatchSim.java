@@ -97,21 +97,29 @@ public final class WatchSim {
 	// ---- play-out, as on the watch (main.c): messages wait and each stamped frame plays at its time ----
 	private final ArrayDeque<int[]> qPos = new ArrayDeque<>();
 	private final ArrayDeque<byte[]> q = new ArrayDeque<>();
-	private float off, base, curAt; private boolean haveOff;
-	static final float LATE_MAX = 0.450f;
+	private float off, base, jit, offAt, curAt; private boolean haveOff;
+	static final float LATE_MAX = 0.450f, DRIFT = 16, SNAP = 0.9f;
 	static final boolean OLD_OFF = Pacer.OLD;   // (RadioTest: as the watch app was)
 	static final float MARGIN = 0.040f;
 	private static long stamp(byte[] d, int i) { return (d[i + 1] & 255L) | (d[i + 2] & 255L) << 8 | (d[i + 3] & 255L) << 16 | (d[i + 4] & 255L) << 24; }
 
 	/** A message arrives from the phone now. */
 	public void receive(byte[] msg) {
-		if (msg.length >= 5 && msg[0] == Link.C_LATEST) {   // (as main.c: only the newest frame's stamp sets the delay)
+		if (msg.length >= 5 && msg[0] == Link.C_LATEST && OLD_OFF) {   // (as the watch was: each message set the delay)
 			float lat = now - stamp(msg, 0) / 1000f, want = lat + MARGIN;
 			if (!haveOff || lat < base) base = lat; else base += (lat - base) / 32;
 			if (!haveOff || want > off) off = want; else off -= (off - want) / 3;
-			if (!OLD_OFF && off > base + MARGIN + LATE_MAX) off = base + MARGIN + LATE_MAX;
 			haveOff = true;
-			if (System.getenv("OFFS") != null) System.out.printf("recv at %.3f stamp %.3f want %.3f off %.3f len %d%n", now, stamp(msg, 0) / 1000f, want, off, msg.length);
+		} else if (msg.length >= 5 && msg[0] == Link.C_LATEST) {   // (as main.c enqueue: a steady delay)
+			float lat = now - stamp(msg, 0) / 1000f;
+			float old = msg.length >= 10 && msg[5] == Link.C_TIME ? now - stamp(msg, 5) / 1000f : lat;
+			if (!haveOff || lat < base) base = lat; else base += (lat - base) / 32;
+			float need = Math.max(0, Math.min(LATE_MAX, old - base));
+			if (!haveOff) jit = need; else if (need > jit) jit += (need - jit) / 4; else jit -= (jit - need) / 32;
+			if (!haveOff) { off = base + MARGIN + jit; offAt = now; }
+			haveOff = true;
+			offMove();
+			if (System.getenv("OFFS") != null) System.out.printf("recv at %.3f stamp %.3f off %.3f len %d%n", now, stamp(msg, 0) / 1000f, off, msg.length);
 		}
 		q.add(msg); qPos.add(new int[]{0});
 		pump();
@@ -122,7 +130,16 @@ public final class WatchSim {
 	/** Messages that didn't fit what the watch had (the picture would be wrong until a full resend). */
 	public int errors;
 
+	/** As main.c off_move: the delay towards where the messages want it, at most 1/DRIFT of the time passing. */
+	private void offMove() {
+		if (OLD_OFF || !haveOff) return;
+		float want = base + MARGIN + jit, d = want - off, step = (now - offAt) / DRIFT;
+		offAt = now;
+		if (Math.abs(d) > SNAP) off = want; else off += Math.max(-step, Math.min(step, d));
+	}
+
 	private void pump() {
+		offMove();
 		while (!q.isEmpty()) {
 			byte[] m = q.peek(); int[] pos = qPos.peek();
 			if (pos[0] < m.length && m[pos[0]] == Link.C_TIME) {

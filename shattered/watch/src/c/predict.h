@@ -3,16 +3,18 @@
 #include "scene.h"
 
 #define PLAN_T 12                // targets planned
-#define PLAN_S 12                // steps planned per walk
+#define PLAN_S 32                // steps planned per walk (Controls.PLAN_STEPS)
 typedef struct { int16_t x, y; uint8_t k; uint8_t dir[PLAN_S]; } PlanTarget;
 typedef struct { bool on; uint16_t marker, hero, step_ms; uint8_t n, cur; PlanTarget t[PLAN_T]; } Plan;
 
-void predict_set(const Plan *p);                       // a new plan (C_PREDICT)
+Plan *predict_plan(void);                              // a new plan (C_PREDICT): read it into this,
+void predict_set(void);                                // then say so
 bool predict_button(int code, uint32_t now);           // a press: true if the screen was changed ahead of the phone
 void predict_touch(void);                              // a touch: the plan no longer holds
 bool predict_pos(const Obj *o, int i, uint32_t now, int32_t *v);   // a picture's place while it is being predicted
 bool predict_offset(uint16_t id, uint32_t now, int32_t *dx, int32_t *dy);   // how far ahead of the phone a picture is shown
 void predict_tick(uint32_t now);                       // hand back to the phone's frames once they agree
 bool predict_active(void);
-void predict_heard(uint32_t now);                     // a frame of the phone's was played
+void predict_heard(uint32_t due, uint32_t now);       // a frame of the phone's was played (when it was due, and now)
+void predict_lag(int32_t ms);                          // how far behind the phone its frames play now (game ms)
 void predict_reset(void);

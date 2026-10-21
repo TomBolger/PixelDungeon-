@@ -252,6 +252,7 @@ static void read_dtex(void) {
 static void read_cam(uint32_t now) {
   int id = u8();
   Cam *k = &g_cam[id < MAX_CAM ? id : 0];
+  Cam was = *k;
   k->x = s16(); k->y = s16(); k->w = s16(); k->h = s16(); k->zoom = u16();
   k->sx = s16() * 256; k->sy = s16() * 256;
   int m = u8(); k->mode = m & 0x7F;
@@ -263,6 +264,14 @@ static void read_cam(uint32_t now) {
   // the phone's scroll follows its own hero; while the watch shows him ahead (predict.c), keep the same lead
   int32_t dx, dy;
   if (k->mode == 1 && predict_offset(k->follow, now, &dx, &dy)) { k->sx += dx * 256; k->sy += dy * 256; }
+  // Still following the same picture at the same zoom: a small correction from the phone (its copy of this easing
+  // drifts from its own camera by a pixel or two, and comes late over the radio) is eased in by cams_follow rather
+  // than taken at once: taken at once, the view jumped back and forth a few pixels as the hero walked.
+  k->cx = k->cy = 0;
+  if (was.used && was.mode == 1 && k->mode == 1 && was.follow == k->follow && was.zoom == k->zoom && was.w == k->w && was.h == k->h) {
+    int32_t ex = k->sx - was.sx + was.cx, ey = k->sy - was.sy + was.cy;
+    if (ex < 3 * 128 * 256 && ex > -3 * 128 * 256 && ey < 3 * 128 * 256 && ey > -3 * 128 * 256) { k->sx = was.sx; k->sy = was.sy; k->cx = ex; k->cy = ey; }
+  }
 }
 
 static int32_t dead(int32_t p, int32_t dz) { return p > dz ? p - dz : p < -dz ? p + dz : 0; }
@@ -289,6 +298,13 @@ void cams_follow(uint32_t now, uint32_t dt) {
     if (share > 1000) share = 1000;
     c->sx += (int32_t)((int64_t)panx * share / 1000);
     c->sy += (int32_t)((int64_t)pany * share / 1000);
+    // the phone's correction waiting (read_cam), over about 300 ms
+    if (c->cx || c->cy) {
+      int32_t take = dt >= 300 ? 1000 : (int32_t)dt * 1000 / 300;
+      int32_t ex = (int32_t)((int64_t)c->cx * take / 1000), ey = (int32_t)((int64_t)c->cy * take / 1000);
+      if (take == 1000 || (ex == 0 && ey == 0)) { ex = c->cx; ey = c->cy; }
+      c->sx += ex; c->sy += ey; c->cx -= ex; c->cy -= ey;
+    }
   }
 }
 
@@ -394,20 +410,19 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
       case C_SOUND: { int k = u8(), v = u8(); if (k == 0) sound_effect(v); else if (k == 1) sound_music(v == 255 ? -1 : v); else sound_settings(v); break; }
       case C_COMMIT: g_dirty = true; g_partial = false; break;
       case C_PREDICT: {
-        static Plan pl;
-        memset(&pl, 0, sizeof pl);
+        Plan *pl = predict_plan();
         if (u8()) {
-          pl.on = true; pl.marker = u16(); pl.hero = u16(); pl.step_ms = u8() * 4; pl.n = u8(); pl.cur = u8();
-          for (int i = 0; i < pl.n; i++) {
-            PlanTarget t; t.x = s16(); t.y = s16(); t.k = u8();
-            for (int j = 0; j < t.k; j++) { int d = u8(); if (j < PLAN_S) t.dir[j] = d; }
-            if (t.k > PLAN_S) t.k = PLAN_S;
-            if (i < PLAN_T) pl.t[i] = t;
+          pl->on = true; pl->marker = u16(); pl->hero = u16(); pl->step_ms = u8() * 4; pl->n = u8(); pl->cur = u8();
+          for (int i = 0; i < pl->n; i++) {
+            PlanTarget *t = &pl->t[i < PLAN_T ? i : PLAN_T - 1];   // (any past PLAN_T are read, then dropped)
+            int x = s16(), y = s16(), k = u8();
+            t->x = x; t->y = y; t->k = k > PLAN_S ? PLAN_S : k;
+            for (int j = 0; j < k; j++) { int d = u8(); if (j < PLAN_S) t->dir[j] = d; }
           }
-          if (pl.n > PLAN_T) pl.n = PLAN_T;
-          if (pl.cur >= pl.n) pl.cur = 0;
+          if (pl->n > PLAN_T) pl->n = PLAN_T;
+          if (pl->cur >= pl->n) pl->cur = 0;
         }
-        predict_set(&pl);
+        predict_set();
         break;
       }
       default: APP_LOG(APP_LOG_LEVEL_ERROR, "bad command %d", c); return len;

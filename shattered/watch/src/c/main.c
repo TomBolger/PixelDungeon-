@@ -21,24 +21,22 @@ static bool s_wait_reset;   // the copy was given up (resync): the phone's messa
 
 // The wall clock in ms only goes forward here: it can be set back (the phone syncing the time), which would otherwise
 // hold up the play-out queue until it caught up again.
-// Its seconds and milliseconds can also disagree for a moment at the turn of a second: a reading comes out a whole
-// second off (the emulator does it a few times a minute: +1000 one frame, back the next). Taken as it came, that pushed
-// the watch's time a second ahead for good: everything on screen jumped 1.5 s at once, and frames waiting played in a
-// rush. So a reading about a whole second away from the last waits: if the clock goes on from it for 100 ms, it was a real gap.
+// Its seconds and milliseconds can also disagree for a while at the turn of a second: readings come out a whole second
+// off, back or forward (the emulator: for up to a few hundred ms, a few times a minute). Waiting for such a reading to
+// go on for 100 ms and then taking it, as it was, stopped the clock for that while and then leapt it a second on: the
+// hero stood still for a second, then everything jumped 1.5 s (seen as gaps of 1.1 s in every walk on the emulator).
+// So such a reading is put right: about a second back with the milliseconds just past 0 (they turned, the seconds
+// not yet), or a second on with them still high (the seconds turned first), and the next reading is measured from the
+// reading put right. Other steps back (the time set) count as none, gaps (the app held up) as they came.
 static uint32_t now_ms(void) {
-  static uint32_t mono, raw_last, odd_raw; static bool started; static uint8_t odd;
+  static uint32_t mono, raw_last; static bool started;
   time_t s; uint16_t ms; time_ms(&s, &ms);
   uint32_t raw = (uint32_t)s * 1000 + ms;
-  int32_t d = (int32_t)(raw - raw_last), e = d > 0 ? d - 1000 : d + 1000;
-  if (started && e > -100 && e < 100) {
-    int32_t g = (int32_t)(raw - odd_raw);
-    if (!odd || g < 0 || g > 1000) { odd = 1; odd_raw = raw; goto out; }
-    if (g < 100) goto out;              // (it has to go on from there for a while: a slip lasts a few ms, and a busy
-  }                                     // loop can read the clock many times within one)
-  odd = 0;
+  int32_t d = (int32_t)(raw - raw_last);
+  if (started && d <= -200 && d > -1300 && ms < 400) { raw += 1000; d += 1000; }
+  else if (started && d >= 1000 && d < 1300 && ms >= 600) { raw -= 1000; d -= 1000; }
   if (started && d > 0 && d < 60000) mono += d;
   raw_last = raw; started = true;
-out:
   // the game's clock: its animations run GAME_SPEED times real time (Game.pebxelSpeed on the phone, which must match);
   // frame stamps, moves and touches are all in that time
   return (uint32_t)((uint64_t)mono * GAME_SPEED_NUM / GAME_SPEED_DEN);
@@ -105,16 +103,24 @@ static void kick(void) { if (!s_timer) { s_last = now_ms(); s_timer = app_timer_
 
 // ---- play-out: each frame's changes at the pace they happened on the phone ----
 // Messages arrive in bursts (one per radio round trip), each holding several game frames stamped with
-// the phone's clock. They wait here and are played a little behind, so movements come out smooth
+// the phone's clock. They wait here and are played a steady while behind, so movements come out smooth
 // rather than in jumps.
+// The delay stays put: it was set by each message as it came (the newest frame played as it arrived), and since
+// every message comes a little sooner or later than the last (its size, the radio), everything on screen kept
+// speeding up and slowing down, even on the emulator's instant link (a walking hero went 160, 125, 110, 100 px/s
+// within each step). Now it covers how late most messages come lately and moves only slowly (frames play at most
+// 1/DRIFT quicker or slower), so the pace on screen is the phone's; a message later than that plays as it comes.
 typedef struct Msg { struct Msg *next; uint16_t len, pos; uint8_t data[]; } Msg;
 static Msg *s_q, *s_qtail;
 static int s_qbytes;
 static int32_t s_off;        // watch time = phone time + s_off (enough to have heard of a frame before playing it)
 static int32_t s_base;       // the quickest messages lately: watch time - phone time of their newest frame
+static int32_t s_jit;        // how much later than the quickest the slower messages come lately (most of them)
+static uint32_t s_off_at;    // when s_off last moved
 static bool s_have_off;
 static uint32_t s_cur_at;    // when the frame being played happened, in watch time
 static uint32_t s_cur_stamp; // ... and in phone time
+static uint32_t s_cur_due;   // ... and when it was due here (later than s_cur_at when it came very late)
 static AppTimer *s_ptimer;
 static bool s_flush;         // play everything waiting now, due or not
 #define MARGIN 40            // ms of slack for uneven radio
@@ -125,6 +131,17 @@ static bool s_flush;         // play everything waiting now, due or not
 #define LATE_MAX 450         // ms (game time) of delay kept for slow messages beyond the quickest: a message later
                              // than that (one sent again after a refusal or a loss, a big one) plays as it comes,
                              // rather than holding everything after it back as late (that played "fast then slow")
+#define DRIFT 16             // the delay moves at most 1/16 of the time passing (6%: too little to see)
+#define SNAP 900             // ...unless it is this far off (game ms): the phone's clock jumped, or stood still
+
+// the delay towards where the messages lately want it (at most DRIFT's pace, a jump of the phone's clock at once)
+static void off_move(uint32_t now) {
+  int32_t want = s_base + MARGIN + s_jit, d = want - s_off, step = (int32_t)(now - s_off_at) / DRIFT;
+  s_off_at = now;
+  if (d > SNAP || d < -SNAP) s_off = want;
+  else s_off += d > step ? step : d < -step ? -step : d;
+  predict_lag(s_off - s_base);
+}
 
 static uint32_t stamp_at(const uint8_t *d) { return d[1] | d[2] << 8 | d[3] << 16 | (uint32_t)d[4] << 24; }
 
@@ -166,6 +183,7 @@ static void pump(void *data) {
   uint32_t now = now_ms();
   bool rush = s_flush || s_qbytes > QMAX || heap_bytes_free() < 10000;
   uint32_t t0 = now;
+  if (s_have_off) off_move(now);
   while (s_q) {
     Msg *m = s_q;
     if (m->pos < m->len && m->data[m->pos] == C_TIME && m->len - m->pos >= 5) {
@@ -175,10 +193,11 @@ static void pump(void *data) {
       // the whole of a radio hiccup)
       s_cur_at = rush ? now : (int32_t)(now - due) > LATE_MAX ? now - LATE_MAX : due;
       s_cur_stamp = stamp_at(m->data + m->pos);
+      s_cur_due = due;
     }
     int used = scene_apply(m->data + m->pos, m->len - m->pos, s_cur_at);
     m->pos = used > 0 ? m->pos + used : m->len;
-    predict_heard(now);
+    predict_heard(s_cur_due, now);
     note_free();
     if (g_dirty) { g_dirty = false; kick(); }
     if (m->pos >= m->len) { s_q = m->next; if (!s_q) s_qtail = NULL; s_qbytes -= m->len; free(m); }
@@ -189,15 +208,19 @@ static void pump(void *data) {
 
 static void enqueue(const uint8_t *data, int len, uint32_t now) {
   if (len >= 5 && data[0] == C_LATEST) {
-    // the message's newest frame plays as it arrives; older ones in it are already past (their moves go on from
-    // where they'd be by now). Waiting to play them all at their own pace cost a whole radio round trip of delay.
-    int32_t lat = (int32_t)(now - stamp_at(data)), want = lat + MARGIN;
+    // how late this message is: its newest frame (the stamp up front), and its oldest (the first frame's), which
+    // waited longest on the phone for the radio
+    int32_t lat = (int32_t)(now - stamp_at(data));
+    int32_t old = len >= 10 && data[5] == C_TIME ? (int32_t)(now - stamp_at(data + 5)) : lat;
     // the quickest lately: down at once, up slowly (the phone's clock may fall behind, when it stalls)
     if (!s_have_off || lat < s_base) s_base = lat; else s_base += (lat - s_base) / 32;
-    if (!s_have_off || want > s_off) s_off = want;
-    else s_off -= (s_off - want) / 3;   // (quickly back down after a slow message: the delay is what players feel)
-    if (s_off > s_base + MARGIN + LATE_MAX) s_off = s_base + MARGIN + LATE_MAX;
+    // the slower ones: up quickly, down slowly (it settles where few come later than it)
+    int32_t need = old - s_base; if (need < 0) need = 0; if (need > LATE_MAX) need = LATE_MAX;
+    if (!s_have_off) s_jit = need;
+    else if (need > s_jit) s_jit += (need - s_jit + 3) / 4; else s_jit -= (s_jit - need) / 32;
+    if (!s_have_off) { s_off = s_base + MARGIN + s_jit; s_off_at = now; }
     s_have_off = true;
+    off_move(now);
   }
   Msg *m = malloc(sizeof(Msg) + len);
   // short of memory: the pictures' cache gives some back (it can decode them again; a message can't be had again)

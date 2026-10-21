@@ -594,7 +594,7 @@ public class Controls {
 
 	// ---- what the watch may do by itself before hearing back (its predict.c) ----
 
-	static final int PLAN_TARGETS = 12, PLAN_WALKS = 6, PLAN_STEPS = 12, STEP_MS = Math.round(WatchGame.STEP * 1000);   // (CharSprite's move a cell, game ms)
+	static final int PLAN_TARGETS = 12, PLAN_WALKS = 6, PLAN_STEPS = 32, STEP_MS = Math.round(WatchGame.STEP * 1000);   // (CharSprite's move a cell, game ms)
 
 	/**
 	 * The plan for the watch's next press, so the target box and the hero answer at once rather than a radio
