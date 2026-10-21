@@ -156,7 +156,15 @@ bool obj_moving(const Obj *o, uint32_t now) {
 int32_t obj_dyn_raw(const Obj *o, int i, uint32_t now) {
   int32_t v = o->dyn[i];
   if (o->vel[i]) {
-    uint32_t dt = now - o->at; if (dt > 60000) dt = 60000;
+    uint32_t dt = now - o->at;
+    if (i >= 6) {
+      // water's drift goes on for good, round its texture (the phone no longer corrects it at each wrap)
+      int tw, th; int32_t per = art_size(o->tex, &tw, &th) ? (i == 6 ? tw : th) * 8 : 0;
+      int64_t d = (int64_t)o->vel[i] * dt / 1000;
+      if (per > 0) d %= per;
+      return v + (int32_t)d;
+    }
+    if (dt > 60000) dt = 60000;
     if (o->until && dt > o->until) dt = o->until;
     v += (int32_t)((int64_t)o->vel[i] * dt / 1000);
   }
@@ -316,6 +324,10 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
       // (a picture the watch doesn't have: one it lost; the rest of the message can't be read without it)
       case C_SET: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; return len; } read_static(g_obj[id]); read_dyn(g_obj[id], now); break; }
       case C_MOVE: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; return len; } read_dyn(g_obj[id], now); break; }
+      case C_ANIMTO: {   // an animated sprite's new animation (and flips), then its moving part
+        int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; return len; }
+        Obj *o = g_obj[id]; o->flags = u8(); o->tx = u16(); read_dyn(o, now); break;
+      }
       case C_DEL: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; break; } unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; break; }
       case C_ORDER: { int id = u16(), after = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; break; } unlink_obj(id); link_after(id, after); break; }
       case C_TILES: {
@@ -337,6 +349,23 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
           if (start + i < total) {
             if (t->wide) ((uint16_t *)t->cells)[start + i] = v;
             else t->cells[start + i] = v > 254 ? 255 : v;
+          }
+        }
+        break;
+      }
+      case C_TILES2: {   // (Link.tiles: in runs; one byte a cell, 255 empty, unless flagged two)
+        int id = u16(), start = u16(), n = u16(), two = u8() & 1;
+        Obj *o = id < MAX_ID ? g_obj[id] : NULL;
+        Tiles *t = o && o->kind == K_TILES ? o->ext : NULL;
+        int total = t ? t->mw * t->mh : 0, k = 0, v = 0;
+        while (k < n && p < end) {
+          int h = u8(), cnt = h < 128 ? h + 1 : h - 126;
+          for (int i = 0; i < cnt && k < n; i++, k++) {
+            if (h < 128 || i == 0) { v = two ? u16() : u8(); if (!two && v == 255) v = 0xFFFF; }
+            if (t && start + k < total) {
+              if (t->wide) ((uint16_t *)t->cells)[start + k] = v;
+              else t->cells[start + k] = v > 254 ? 255 : v;
+            }
           }
         }
         break;

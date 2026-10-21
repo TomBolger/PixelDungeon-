@@ -19,7 +19,8 @@ import java.util.List;
  *
  * TCP frames, both ways: u16 length (big-endian), then a type byte and its data.
  *   server -> bridge: 'D' + one AppMessage worth of link commands
- *   bridge -> server: 'A' the watch took the last message, 'H' + u16 size: the watch (re)started,
+ *   bridge -> server: 'A' the watch took the last message, 'N' it didn't (refused, lost: Pacer sends it again),
+ *                     'H' + u16 size: the watch (re)started,
  *                     'B' + u8 button code, 'T' + 12 bytes: a touch (see Touches)
  */
 public class Server {
@@ -27,12 +28,10 @@ public class Server {
 	static Link link;
 	static Controls controls;
 	static final Touches touches = new Touches();
-	static final ArrayDeque<byte[]> queue = new ArrayDeque<>();
-	static volatile boolean inFlight, connected;
-	static volatile int maxMsg = 2000;
+	static Pacer pacer;
+	static volatile boolean connected;
 	static DataOutputStream outStream;
 	static final ArrayDeque<Integer> buttons = new ArrayDeque<>();
-	static volatile boolean helloPending;
 
 	public static void main(String[] a) throws Exception {
 		int port = a.length > 0 ? Integer.parseInt(a[0]) : 9180;
@@ -48,6 +47,8 @@ public class Server {
 		link = new Link(assets);
 		controls = new Controls();
 		link.planner = controls::plan;
+		pacer = new Pacer(link, Server::transmit);
+		pacer.hello(2016);
 		if (System.getenv("NEWGAME") != null) {
 			for (int i = 0; i < 5; i++) app.frame();
 			SPDSettings.intro(false);
@@ -66,7 +67,6 @@ public class Server {
 
 		// the game loop: real time, 30 frames a second; the link sends whenever the watch has taken the last message
 		long frameNs = 1_000_000_000L / 30, next = System.nanoTime();
-		float sinceSync = 0;
 		while (!app.exited) {
 			Integer b;
 			synchronized (buttons) { b = buttons.poll(); }
@@ -76,14 +76,18 @@ public class Server {
 			controls.frame();
 			Gallery.tick();
 			stairsTick();
-			sinceSync += Game.elapsed;
-			if (helloPending) { helloPending = false; synchronized (queue) { queue.clear(); } link.reset(); inFlight = false; }
-			if (connected) link.frame(sinceSync); sinceSync = 0;
-			if (connected && !inFlight && queueEmpty() && link.pending()) {
-				List<byte[]> ps = link.take(maxMsg);
-				synchronized (queue) { queue.addAll(ps); }
-				sendNext();
+			pacer.frame(Game.elapsed, connected);
+			if (++frames % 150 == 0 && connected)
+				System.out.printf("link: %.0f bytes/s, %.1f messages/s, radio %.0f bytes/s, %d frames merged, %d sent again, %d whole screens%n",
+						(pacer.bytes - lastBytes) / 5.0, (pacer.msgs - lastMsgs) / 5.0, pacer.rate(), pacer.merged, pacer.retries, pacer.resets);
+			if (frames % 150 == 0 && connected && System.getenv("STATS") != null && pacer.bytes - lastBytes > 500) {
+				// STATS=1: what took the bytes these 5 s
+				StringBuilder w = new StringBuilder("  most:");
+				link.stats.entrySet().stream().sorted((x, y) -> Long.compare(y.getValue()[1], x.getValue()[1])).limit(5)
+						.forEach(e -> w.append(" ").append(e.getKey()).append(" ").append(e.getValue()[1]));
+				System.out.println(w);
 			}
+			if (frames % 150 == 0) { lastBytes = pacer.bytes; lastMsgs = pacer.msgs; link.stats.clear(); }
 			next += frameNs;
 			long sleep = next - System.nanoTime();
 			if (sleep > 0) Thread.sleep(sleep / 1_000_000, (int) (sleep % 1_000_000));
@@ -92,6 +96,7 @@ public class Server {
 		System.exit(0);
 	}
 
+	static long frames, lastBytes, lastMsgs;
 	// STAIRS=pattern (u/d letters, repeated) and STAIRS_EVERY=seconds (default 8): take the stairs by themselves, for
 	// testing floor changes on the emulator (see StairsTest)
 	static final String STAIRS = System.getenv("STAIRS");
@@ -119,18 +124,13 @@ public class Server {
 		StairsTest.jump(tr);
 	}
 
-	static boolean queueEmpty() { synchronized (queue) { return queue.isEmpty(); } }
-
-	static void sendNext() {
-		byte[] p;
-		synchronized (queue) { p = queue.poll(); }
-		if (p == null) { inFlight = false; return; }
-		inFlight = true;
+	/** One message to the bridge (its answer comes back as 'A' or 'N'). */
+	static void transmit(byte[] p) {
 		try {
 			synchronized (Server.class) {
 				outStream.writeShort(p.length + 1); outStream.write('D'); outStream.write(p); outStream.flush();
 			}
-		} catch (IOException e) { connected = false; inFlight = false; }
+		} catch (Exception e) { connected = false; }
 	}
 
 	static void serve(int port) {
@@ -142,14 +142,15 @@ public class Server {
 					DataInputStream in = new DataInputStream(new BufferedInputStream(s.getInputStream()));
 					outStream = new DataOutputStream(new BufferedOutputStream(s.getOutputStream()));
 					System.out.println("bridge connected");
-					helloPending = true; connected = true;   // the watch may hold an old picture: start it over
+					pacer.hello(2016); connected = true;   // the watch may hold an old picture: start it over
 					while (true) {
 						int len = in.readUnsignedShort();
 						byte[] f = new byte[len]; in.readFully(f);
 						switch (f[0]) {
-							case 'A': if (queueEmpty()) inFlight = false; else sendNext(); break;
+							case 'A': pacer.done(true); break;
+							case 'N': pacer.done(false); break;
 							case 'H':
-								maxMsg = Math.max(200, ((f[1] & 255) << 8 | (f[2] & 255)) - 16);
+								int size = (f[1] & 255) << 8 | (f[2] & 255);
 								int ver = f.length > 3 ? f[3] & 255 : 1;
 								if (ver != Link.PROTOCOL) {
 									System.out.println("watch app speaks version " + ver + ", phone " + Link.PROTOCOL);
@@ -157,15 +158,15 @@ public class Server {
 									synchronized (Server.class) { outStream.writeShort(e.length + 1); outStream.write('D'); outStream.write(e); outStream.flush(); }
 									break;
 								}
-								System.out.println("watch says hello, messages up to " + maxMsg + " bytes");
-								helloPending = true; connected = true; break;
+								System.out.println("watch says hello, messages up to " + size + " bytes");
+								pacer.hello(size); connected = true; break;
 							case 'B': synchronized (buttons) { buttons.add(f[1] & 255); } break;
 							case 'T': touches.add(java.util.Arrays.copyOfRange(f, 1, f.length)); break;
 						}
 					}
 				} catch (IOException e) {
 					System.out.println("bridge gone: " + e);
-					connected = false; inFlight = false;
+					connected = false;
 				}
 			}
 		} catch (IOException e) { throw new RuntimeException(e); }

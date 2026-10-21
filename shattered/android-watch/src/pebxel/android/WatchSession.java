@@ -10,7 +10,6 @@ import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.watabou.noosa.Game;
 import com.watabou.utils.FileUtils;
 import java.util.ArrayDeque;
-import java.util.List;
 import pebxel.*;
 import pebxel.Shared;
 
@@ -20,11 +19,11 @@ import pebxel.Shared;
  */
 class WatchSession extends Thread {
 	private final WatchService service;
-	private volatile boolean running = true, closing, helloPending, inFlight;
-	private volatile int maxMsg = 1000;
-	private volatile long retryAt;
+	private volatile boolean running = true, closing, helloPending, away;
+	private volatile int helloSize = 1016;
 	private final ArrayDeque<Integer> buttons = new ArrayDeque<>();
-	private final ArrayDeque<byte[]> queue = new ArrayDeque<>();
+	/** The outbox to the watch, paced to the radio (one message at a time; see Pacer). */
+	private Pacer pacer;
 	private WatchApp app;
 
 	WatchSession(WatchService s) { super("Watch game"); service = s; }
@@ -35,13 +34,13 @@ class WatchSession extends Thread {
 	int screen() { return screenCode; }
 	boolean started() { return started; }
 
-	void hello(int size) { maxMsg = Math.max(200, size - 16); helloPending = true; opening = true; }
+	void hello(int size) { helloSize = size; helloPending = true; opening = true; away = false; }
 	void button(int code) { synchronized (buttons) { buttons.add(code); } }
 	private final Touches touches = new Touches();
 	void touch(byte[] b) { touches.add(b); }
-	void watchClosed() { closing = true; opening = false; }
+	void watchClosed() { closing = true; opening = false; away = true; }
 	/** The watch app opened again while this game was still running. */
-	void watchOpened() { opening = true; closing = false; }
+	void watchOpened() { opening = true; closing = false; away = false; }
 	private volatile boolean opening;
 
 	private volatile Boolean phoneChange;
@@ -88,6 +87,7 @@ class WatchSession extends Thread {
 		Link link = new Link(new Assets());
 		Controls controls = new Controls();
 		link.planner = controls::plan;
+		pacer = new Pacer(link, bytes -> service.send(bytes, ok -> pacer.done(ok)));
 
 		Shared.mark(Shared.WATCH_ON, true);
 		try { loop(c, game, link, controls); }
@@ -101,13 +101,11 @@ class WatchSession extends Thread {
 	private long lastError; private int errorRun;
 
 	private void standAside() {
-		synchronized (queue) { queue.clear(); }
-		service.send(Link.errorScreen("Playing on your phone.\n\nLeave the game there\nto carry on here."), ok -> { });
+		pacer.replace(Link.errorScreen("Playing on your phone.\n\nLeave the game there\nto carry on here."));
 	}
 
 	private void loop(Context c, WatchGame game, Link link, Controls controls) {
 		long frameNs = 1_000_000_000L / 30, next = System.nanoTime();
-		float sinceSync = 0;
 		if (Shared.marked(Shared.PHONE_ON)) {
 			// the phone screen has the game: wait for it (our copy in memory is nothing yet)
 			phoneHas = true;
@@ -140,6 +138,7 @@ class WatchSession extends Thread {
 			if (phoneHas) {
 				// still standing aside; if the phone screen went away without telling us, notice from its file
 				if (!Shared.marked(Shared.PHONE_ON)) phoneChange = false;
+				pacer.frame(0, false);   // (the notice above may need sending again)
 				try { Thread.sleep(100); } catch (InterruptedException e) { break; }
 				continue;
 			}
@@ -166,21 +165,16 @@ class WatchSession extends Thread {
 				if (++errorRun >= 5) throw t;
 				try { com.shatteredpixel.shatteredpixeldungeon.ui.Window w = pebxel.Ui.topWindow(); if (w != null) w.hide(); } catch (Throwable t2) { }
 			}
-			sinceSync += Game.elapsed;
-			if (helloPending) { helloPending = false; synchronized (queue) { queue.clear(); } link.reset(); inFlight = false; }
+			if (helloPending) { helloPending = false; pacer.hello(helloSize); }
 			if (closing) {
 				// the watch app was closed: save, like the phone does when it goes to the background
 				closing = false;
 				game.pause();
 				Shared.release(Shared.WATCH);
 			}
-			if (retryAt != 0 && System.currentTimeMillis() > retryAt) { retryAt = 0; helloPending = true; }
-			if (retryAt == 0) link.frame(sinceSync); sinceSync = 0;
-			if (!inFlight && isEmpty() && retryAt == 0 && link.pending()) {
-				List<byte[]> ps = link.take(maxMsg);
-				synchronized (queue) { queue.addAll(ps); }
-				sendNext();
-			}
+			// note this frame's changes and send what the radio can take (never a backlog; a slow or failed
+			// message never holds the game up; nothing while the watch app is closed)
+			pacer.frame(Game.elapsed, !away);
 			next += frameNs;
 			long sleep = next - System.nanoTime();
 			try {
@@ -190,21 +184,4 @@ class WatchSession extends Thread {
 		}
 	}
 
-	private boolean isEmpty() { synchronized (queue) { return queue.isEmpty(); } }
-
-	private void sendNext() {
-		byte[] p;
-		synchronized (queue) { p = queue.poll(); }
-		if (p == null) { inFlight = false; return; }
-		inFlight = true;
-		service.send(p, ok -> {
-			if (ok) sendNext();
-			else {
-				// the watch didn't take it (closed, out of range): send it the whole screen again in a moment
-				synchronized (queue) { queue.clear(); }
-				retryAt = System.currentTimeMillis() + 2000;
-				inFlight = false;
-			}
-		});
-	}
 }

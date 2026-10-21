@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16, C_TILES2 = 17, C_ANIMTO = 18;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16, F_FOG = 32;   // F_FOG: the fog of war (the watch draws it as Pebble PD does)
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 9;
+	public static final int PROTOCOL = 10;   // 10: tile maps in runs (C_TILES2), animation changes (C_ANIMTO)
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -48,7 +48,7 @@ public final class Link {
 
 	/** What the watch currently believes about one picture. */
 	private static final class Obj {
-		int id, kind; byte[] stat; int[] tiles;
+		int id, kind; byte[] stat; int[] tiles; int tilesKey, tilesDims;
 		float[] dyn = new float[N], vel = new float[N];   // see D_* below
 		float sentAt, until;                                 // speeds last until (0: no end)
 		com.watabou.noosa.tweeners.Tweener tw;              // the movement/fade those speeds came from
@@ -59,6 +59,7 @@ public final class Link {
 	private final IdentityHashMap<Gizmo, Obj> objs = new IdentityHashMap<>();
 	static final boolean DEBUG_NEW = System.getenv("DEBUG_NEW") != null;
 	static final boolean NO_UNTIL = System.getenv("NOUNTIL") != null;   // for comparing (LagTest)
+	static final boolean NO_REUSE = System.getenv("NOREUSE") != null || Pacer.OLD;   // (RadioTest: as it was)
 	/** Movements, fades and growths in progress this round, by picture: they say exactly where it is heading and when it arrives. */
 	private final IdentityHashMap<Gizmo, com.watabou.noosa.tweeners.Tweener> tweens = new IdentityHashMap<>();
 	private final HashMap<Integer, Integer> shadowPrev = new HashMap<>(), shadowNext = new HashMap<>();
@@ -113,6 +114,7 @@ public final class Link {
 		freeIds.clear(); nextId = 0; camIds.clear(); camState.clear(); camObjs.clear(); dynTex.clear(); dynPixels.clear(); dynPal.clear(); dynUsed.clear(); dynShrink.clear(); nextDyn = 200;
 		anims.clear(); animsByContent.clear(); animUsed.clear();
 		out.reset(); marks.clear(); dropPending(); cmd(C_RESET); lastPlan = null;
+		Sounds.take();   // (effects from while the watch was away are stale)
 		for (int[] e : Sounds.state()) sound(e);
 	}
 
@@ -131,10 +133,26 @@ public final class Link {
 			// removed pictures
 			Set<Gizmo> present = Collections.newSetFromMap(new IdentityHashMap<>());
 			present.addAll(order);
+			HashMap<Integer, ArrayDeque<Obj>> gone = new HashMap<>();
 			for (Iterator<Map.Entry<Gizmo, Obj>> it = objs.entrySet().iterator(); it.hasNext(); ) {
 				Map.Entry<Gizmo, Obj> e = it.next();
-				if (!present.contains(e.getKey())) { Obj o = e.getValue(); cmd(C_DEL); u16(o.id); unlink(o.id); freeIds.add(o.id); it.remove(); }
+				if (!present.contains(e.getKey())) { Obj o = e.getValue(); gone.computeIfAbsent(Arrays.hashCode(o.stat), x -> new ArrayDeque<>()).add(o); it.remove(); }
 			}
+			// a new picture just like one that went (a window page or a menu built again on each change, every
+			// picture of it new): the watch keeps the old one, moved if it must be, rather than getting it all again
+			if (!gone.isEmpty() && !NO_REUSE) for (Gizmo g : order) {
+				if (objs.containsKey(g)) continue;
+				byte[] st = state(g, new float[N]);
+				ArrayDeque<Obj> same = st == null ? null : gone.get(Arrays.hashCode(st));
+				if (same == null) continue;
+				for (Iterator<Obj> it = same.iterator(); it.hasNext(); ) {
+					Obj o = it.next();
+					if (!Arrays.equals(o.stat, st)) continue;
+					it.remove(); o.prev = null; o.tw = null; objs.put(g, o); stat(g, "reused", 0);
+					break;
+				}
+			}
+			for (ArrayDeque<Obj> q : gone.values()) for (Obj o : q) { cmd(C_DEL); u16(o.id); unlink(o.id); freeIds.add(o.id); }
 			// new, moved and changed pictures, in draw order
 			int prev = NONE;
 			for (Gizmo g : order) {
@@ -158,8 +176,14 @@ public final class Link {
 							for (int i = 0; i < Math.min(st.length, o.stat.length); i++) if (st[i] != o.stat[i]) w.append(" ").append(i).append(":").append(o.stat[i]).append("->").append(st[i]);
 							System.out.println(w);
 						}
-						cmd(C_SET); u16(o.id); out.write(st, 0, st.length); o.stat = st;
-						sendDyn(g, o, dyn); stat(g, "set", out.size() - before);
+						if (animOnly(st, o.stat)) {
+							// a sprite changing animation (or turning): C_ANIMTO id, flags, animation, then the moving part
+							cmd(C_ANIMTO); u16(o.id); u8(st[3]); out.write(st, 12, 2); o.stat = st;
+							sendDyn(g, o, dyn); stat(g, "animation to", out.size() - before);
+						} else {
+							cmd(C_SET); u16(o.id); out.write(st, 0, st.length); o.stat = st;
+							sendDyn(g, o, dyn); stat(g, "set", out.size() - before);
+						}
 					} else if (drifted(g, o, dyn) || (tweens.get(g) != null && tweens.get(g) != o.tw && !NO_UNTIL)) {
 						// (a new movement starting is sent at once, not a frame later when it shows as a drift)
 						cmd(C_MOVE); u16(o.id); sendDyn(g, o, dyn); stat(g, "move", out.size() - before);
@@ -178,10 +202,11 @@ public final class Link {
 			byte[] pl;
 			try { pl = planner.apply(this); } catch (Throwable t) { pl = null; }
 			if (pl == null) pl = new byte[]{0};
-			if (!Arrays.equals(pl, lastPlan)) { lastPlan = pl; cmd(C_PREDICT); out.write(pl, 0, pl.length); }
+			if (!Arrays.equals(pl, lastPlan)) { lastPlan = pl; cmd(C_PREDICT); out.write(pl, 0, pl.length); stat("press plan", pl.length + 1); }
 		}
 		if (out.size() == 0) { marks.clear(); return new byte[0]; }
 		cmd(C_COMMIT);
+		stat("frame stamps", 6);
 		// stamped with the game clock: the watch plays each frame's changes at the same pace they happened
 		int ms = Math.round(now * 1000);
 		byte[] body = out.toByteArray(); out.reset();
@@ -193,6 +218,14 @@ public final class Link {
 		marks.clear();
 		bytesTotal += b.length; syncs++;
 		return b;
+	}
+
+	/** Two states of an animated sprite that differ only in its animation and flips (bytes 3, 12, 13). */
+	private static boolean animOnly(byte[] a, byte[] b) {
+		if (NO_REUSE || a.length != b.length || a[0] != b[0] || (a[0] != K_IMG && a[0] != K_SKIN)) return false;
+		if ((a[3] & F_ANIM) == 0 || (b[3] & F_ANIM) == 0) return false;
+		for (int i = 0; i < a.length; i++) if (a[i] != b[i] && i != 3 && i != 12 && i != 13) return false;
+		return true;
 	}
 
 	/** A picture that only pulses in colour is updated at most this often (seconds). */
@@ -254,16 +287,20 @@ public final class Link {
 
 	/** Does the watch's guess (last values plus speed x time) differ visibly from the real picture? */
 	private boolean drifted(Gizmo g, Obj o, float[] dyn) {
-		float t = now - o.sentAt;
+		float tAll = now - o.sentAt, t = tAll;
 		if (o.until > 0) t = Math.min(t, o.until);
 		// specks of dust, blood and sparks live a moment: a few pixels off isn't worth radio time
-		float loose = g.parent instanceof com.watabou.noosa.particles.Emitter ? 6 : 1;
+		// so for the little icons over monsters (EmoIcon: a sleeper's "Zz" pulses in size, its place following in whole
+		// pixels): exact, they cost several corrections a second, as long as a monster slept in view, and kept the
+		// watch awake drawing
+		float loose = g.parent instanceof com.watabou.noosa.particles.Emitter
+				|| (g instanceof com.shatteredpixel.shatteredpixeldungeon.effects.EmoIcon && !NO_REUSE) ? 6 : 1;
 		for (int i = 0; i < N; i++) {
-			float guess = o.dyn[i] + o.vel[i] * t;
+			float guess = o.dyn[i] + o.vel[i] * (i >= D_OX ? tAll : t);   // (water drifts on for good: scene.c)
 			if (i == D_A) guess = Math.max(0, Math.min(255, guess));
-			boolean off = i == D_A ? Math.abs(guess - dyn[i]) > 85 * loose / 2 && Math.round(guess / 85) != Math.round(dyn[i] / 85) : Math.abs(guess - dyn[i]) > TOL[i] * loose;
+			boolean off = i == D_A ? Math.abs(guess - dyn[i]) > 85 * loose / 2 && Math.round(guess / 85) != Math.round(dyn[i] / 85) : Math.abs(wrap(g, i, guess - dyn[i])) > TOL[i] * loose;
 			if (off) {
-				if (System.getenv("DRIFT") != null && g.getClass().getSimpleName().equals(System.getenv("DRIFT")))
+				if (System.getenv("DRIFT") != null && g.getClass().getName().replaceAll(".*\\.", "").equals(System.getenv("DRIFT")))
 					System.out.printf("drift %s field %d guess %.0f real %.0f (sent %.0f vel %.0f t %.3f)%n", g.getClass().getSimpleName(), i, guess, dyn[i], o.dyn[i], o.vel[i], t);
 				return true;
 			}
@@ -295,8 +332,13 @@ public final class Link {
 		// jumping from cell to cell) it sends the box sailing on past its place until corrected: there, no guess
 		if (o.prev != null && now > o.prevAt && v.camera() == Camera.main && !JUMPS.contains(g)) {
 			float dt = now - o.prevAt;
-			for (int i = 0; i < N; i++) vel[i] = (dyn[i] - o.prev[i]) / dt;
+			for (int i = 0; i < N; i++) vel[i] = wrap(g, i, dyn[i] - o.prev[i]) / dt;
 		}
+		// damage numbers and the like (FloatingText) rise a tile a second while they last: say so from the start
+		// (guessed from their last two places, it came out wrong when one appeared and after each push up the stack:
+		// two or three corrections each, the biggest share of a fight's radio time)
+		if (g.parent instanceof com.shatteredpixel.shatteredpixeldungeon.effects.FloatingText && !NO_REUSE)
+			vel[D_Y] = -com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.SIZE * 8;
 		// motion SPD integrates itself is exact; use it (acceleration is left to corrections)
 		if (v.speed.x != 0 || v.speed.y != 0) { vel[D_X] = v.speed.x * 8; vel[D_Y] = v.speed.y * 8; }
 		if (v.angularSpeed != 0) vel[D_ANG] = v.angularSpeed * 64;
@@ -326,6 +368,12 @@ public final class Link {
 			}
 		}
 		for (int i = 0; i < N; i++) if (Math.abs(vel[i]) > 30000) vel[i] = 0;  // a jump, not a movement
+		// the little icons over monsters (a sleeper's "Zz") pulse and step in whole pixels: no speed is better than one
+		// guessed from two frames (wrong a moment later, and corrected several times a second for as long as they show)
+		if (g instanceof com.shatteredpixel.shatteredpixeldungeon.effects.EmoIcon && !NO_REUSE) Arrays.fill(vel, 0);
+		// a guessed speed (no movement says where it ends) holds GUESS_HOLD at most: if no word comes (a message lost,
+		// a slow radio), the watch stops it there rather than carrying it on (a pulsing icon grew to fill the screen)
+		if (until == 0 && !NO_REUSE) for (int i = 0; i < D_OX; i++) if (r(vel[i]) != 0) { until = GUESS_HOLD; break; }
 		// blinking (alpha jumping between levels) is not a fade: hold the new value
 		if (o.prev != null && Math.abs(dyn[D_A] - o.prev[D_A]) > 60) vel[D_A] = 0;
 		o.dyn = dyn.clone(); o.vel = vel; o.sentAt = now;
@@ -366,6 +414,16 @@ public final class Link {
 	}
 
 	private static int r(float f) { return Math.round(f); }
+	static final float GUESS_HOLD = 1.5f;   // game seconds (one of real time)
+
+	/** A difference in water's drift goes round its texture (SkinnedBlock wraps it there; so does the watch): a
+	 *  wrap is no change (it was sent as two corrections, and a wild speed between them, every few seconds). */
+	private static float wrap(Gizmo g, int i, float d) {
+		if ((i != D_OX && i != D_OY) || !(g instanceof SkinnedBlock)) return d;
+		SmartTexture t = ((SkinnedBlock) g).texture;
+		float per = (i == D_OX ? t.width : t.height) * 8;
+		return per > 0 ? d - per * Math.round(d / per) : d;
+	}
 
 	// ---- scene walk ----
 
@@ -576,12 +634,14 @@ public final class Link {
 		id = 0; while (taken.contains(id)) id++;   // the lowest free number (old levels' animations are let go: freeAnims)
 		animsByContent.put(k.toString(), id);
 		anims.put(a, id); animUsed.put(id, rounds);
+		int b0 = out.size();
 		cmd(C_ANIM); u16(id); u8(tx); u8(a.frames.length); u16(Math.round(a.delay * 1000)); u8(a.looped ? 1 : 0);
 		float sk = shrinkOf(t);
 		for (RectF r : a.frames) {
 			u16(Math.round(r.left * t.width / sk)); u16(Math.round(r.top * t.height / sk));
 			u16(Math.round(r.width() * t.width / sk)); u16(Math.round(r.height() * t.height / sk));
 		}
+		stat("animation", out.size() - b0);
 		return id;
 	}
 
@@ -593,11 +653,48 @@ public final class Link {
 		int[] cur = new int[n];
 		boolean[] clear = clearTiles(t);
 		for (int i = 0; i < n; i++) cur[i] = (d[i] < 0 || (d[i] < clear.length && clear[d[i]]) || !NoosaAccess.needsRender(t, i)) ? NONE : d[i];
+		if (Pacer.OLD) {
+			if (o.tiles == null || o.tiles.length != n) { o.tiles = new int[n]; Arrays.fill(o.tiles, -2); }
+			oldTiles(cur, o); return;
+		}
 		// a new map on the watch starts with every cell empty (scene.c): only the others are sent. (Sending every
-		// cell made a floor change 20-40 KB, most of it empty cells, several seconds of radio.)
-		if (o.tiles == null || o.tiles.length != n) { o.tiles = new int[n]; Arrays.fill(o.tiles, NONE); }
+		// cell made a floor change 20-40 KB, most of it empty cells, several seconds of radio.) The same for a map
+		// of a new size; a map whose pictures changed: everything again, as the watch may have kept or cleared it
+		int key = (o.stat[2] & 255) | (o.stat[5] & 255) << 8 | (o.stat[6] & 255) << 16, dims = (o.stat[7] & 255) | (o.stat[8] & 255) << 8;
+		if (o.tiles == null || o.tilesKey != key || o.tilesDims != dims || o.tiles.length != n) {
+			boolean empty = o.tiles == null || o.tilesKey == key;
+			o.tiles = new int[n]; Arrays.fill(o.tiles, empty ? NONE : -2); o.tilesKey = key; o.tilesDims = dims;
+		}
 		int i = 0;
 		while (i < n) {
+			if (cur[i] == o.tiles[i]) { i++; continue; }
+			// a stretch of changed cells (short unchanged gaps in it cost less than a new command)
+			int j = i, last = i;
+			while (j < n && j - i < TILE_RUN) { if (cur[j] != o.tiles[j]) last = j; else if (j - last > 6) break; j++; }
+			j = last + 1;
+			boolean wide = false;
+			for (int k = i; k < j; k++) if (cur[k] != NONE && cur[k] > 254) wide = true;
+			// C_TILES2: id, first cell, count, 1 if two bytes a cell (else one: 255 = empty), then runs: a byte
+			// h < 128: h + 1 cells follow; h >= 128: one cell for h - 126 in a row
+			cmd(C_TILES2); u16(o.id); u16(i); u16(j - i); u8(wide ? 1 : 0);
+			int k = i;
+			while (k < j) {
+				int r = 1;
+				while (k + r < j && cur[k + r] == cur[k] && r < 129) r++;
+				if (r >= 2) { u8(126 + r); cell(cur[k], wide); k += r; continue; }
+				int s0 = k, m = 0;
+				while (k < j && m < 128 && !(k + 1 < j && cur[k + 1] == cur[k])) { k++; m++; }
+				if (m == 0) { k++; m = 1; }
+				u8(m - 1); for (int q = s0; q < s0 + m; q++) cell(cur[q], wide);
+			}
+			for (int q = i; q < j; q++) o.tiles[q] = cur[q];
+			i = j;
+		}
+	}
+
+	/** As tile maps went before protocol 10 (RadioTest's PACE_OLD, for comparing): every cell, two bytes each. */
+	private void oldTiles(int[] cur, Obj o) {
+		for (int i = 0, n = cur.length; i < n; ) {
 			if (cur[i] == o.tiles[i]) { i++; continue; }
 			int j = i;
 			while (j < n && j - i < 120 && (cur[j] != o.tiles[j] || (j + 1 < n && cur[j + 1] != o.tiles[j + 1]))) j++;
@@ -607,6 +704,8 @@ public final class Link {
 		}
 	}
 
+	static final int TILE_RUN = 512;
+	private void cell(int v, boolean wide) { if (wide) u16(v); else u8(v == NONE ? 255 : v); }
 	/** Tiles of a map's picture that show nothing on the watch (all see-through: WallOcclusionTilemap's most
 	 *  common tile is an empty one): sent as no tile. */
 	private final IdentityHashMap<SmartTexture, boolean[]> clearTiles = new IdentityHashMap<>();
@@ -774,9 +873,11 @@ public final class Link {
 				for (int at = 0; at < px.length; at += DTEX_PIECE) {
 					int end = Math.min(px.length, at + DTEX_PIECE);
 					if (samePal && Arrays.equals(Arrays.copyOfRange(px, at, end), Arrays.copyOfRange(old, at, end))) continue;
+					int b0 = out.size();
 					cmd(C_DTEX); u8(d); u16(pw); u16(ph); u16(at / DTEX_PIECE);
 					u8(pal.length); for (int c : pal) u8(c);
 					rle(Arrays.copyOfRange(idx, at, end));
+					stat("run-time picture " + (k == null ? t.getClass().getSimpleName() : k), out.size() - b0);
 				}
 			}
 		}
@@ -884,6 +985,7 @@ public final class Link {
 
 	public final TreeMap<String, long[]> stats = new TreeMap<>();
 	private static final boolean STAT_PARENTS = System.getenv("STAT_PARENTS") != null;
+	private void stat(String k, int bytes) { stats.computeIfAbsent(k, x -> new long[2]); stats.get(k)[0]++; stats.get(k)[1] += bytes; }
 	private void stat(Gizmo g, String what, int bytes) {
 		String k = what + " " + g.getClass().getName().replaceAll(".*\\.", "");
 		if (STAT_PARENTS && g.parent != null) k += " in " + g.parent.getClass().getName().replaceAll(".*\\.", "") + (g.parent.parent != null ? " < " + g.parent.parent.getClass().getName().replaceAll(".*\\.", "") : "");
@@ -917,6 +1019,7 @@ public final class Link {
 	}
 
 	public boolean pending() { return pend.size() > 0; }
+	public int pendingBytes() { return pend.size(); }
 
 	// ---- touch: placing a tap on what the watch was showing ----
 	private static final class Snap { int ms; Object top; Map<Integer, float[]> cams = new HashMap<>(); }
@@ -982,11 +1085,14 @@ public final class Link {
 		byte[] all = pend.toByteArray(); pend.reset();
 		lastMarks = new ArrayList<>(pendMarks); pendMarks.clear();
 		if (all.length == 0) return new ArrayList<>();
-		// each message starts with the newest frame's time (C_LATEST): the watch plays the newest at once and the
-		// older ones as already past (their moves carry on from where they would be by now), not a round trip late
+		// the first message starts with the newest frame's time (C_LATEST): the watch plays the newest at once and the
+		// older ones as already past (their moves carry on from where they would be by now), not a round trip late.
+		// The rest just carry on (each marked newest, they arrived ever later than their time: on a slow radio the
+		// watch then held everything after a big change, a level, seconds late)
 		List<byte[]> out = new ArrayList<>();
 		int ms = pendNewest;
 		for (byte[] pk : packets(all, max - 5)) {
+			if (!out.isEmpty() && !Pacer.OLD) { out.add(pk); continue; }
 			byte[] b = new byte[pk.length + 5];
 			b[0] = (byte) C_LATEST; b[1] = (byte) ms; b[2] = (byte) (ms >> 8); b[3] = (byte) (ms >> 16); b[4] = (byte) (ms >> 24);
 			System.arraycopy(pk, 0, b, 5, pk.length);

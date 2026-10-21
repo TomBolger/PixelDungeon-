@@ -97,15 +97,19 @@ public final class WatchSim {
 	// ---- play-out, as on the watch (main.c): messages wait and each stamped frame plays at its time ----
 	private final ArrayDeque<int[]> qPos = new ArrayDeque<>();
 	private final ArrayDeque<byte[]> q = new ArrayDeque<>();
-	private float off, curAt; private boolean haveOff;
+	private float off, base, curAt; private boolean haveOff;
+	static final float LATE_MAX = 0.450f;
+	static final boolean OLD_OFF = Pacer.OLD;   // (RadioTest: as the watch app was)
 	static final float MARGIN = 0.040f;
 	private static long stamp(byte[] d, int i) { return (d[i + 1] & 255L) | (d[i + 2] & 255L) << 8 | (d[i + 3] & 255L) << 16 | (d[i + 4] & 255L) << 24; }
 
 	/** A message arrives from the phone now. */
 	public void receive(byte[] msg) {
-		if (msg.length >= 5 && (msg[0] == Link.C_TIME || msg[0] == Link.C_LATEST)) {
-			float want = now - stamp(msg, 0) / 1000f + MARGIN;
+		if (msg.length >= 5 && msg[0] == Link.C_LATEST) {   // (as main.c: only the newest frame's stamp sets the delay)
+			float lat = now - stamp(msg, 0) / 1000f, want = lat + MARGIN;
+			if (!haveOff || lat < base) base = lat; else base += (lat - base) / 32;
 			if (!haveOff || want > off) off = want; else off -= (off - want) / 3;
+			if (!OLD_OFF && off > base + MARGIN + LATE_MAX) off = base + MARGIN + LATE_MAX;
 			haveOff = true;
 			if (System.getenv("OFFS") != null) System.out.printf("recv at %.3f stamp %.3f want %.3f off %.3f len %d%n", now, stamp(msg, 0) / 1000f, want, off, msg.length);
 		}
@@ -113,15 +117,23 @@ public final class WatchSim {
 		pump();
 	}
 
+	/** The newest phone frame (its stamp, ms) played so far. */
+	public long played = -1;
+	/** Messages that didn't fit what the watch had (the picture would be wrong until a full resend). */
+	public int errors;
+
 	private void pump() {
 		while (!q.isEmpty()) {
 			byte[] m = q.peek(); int[] pos = qPos.peek();
 			if (pos[0] < m.length && m[pos[0]] == Link.C_TIME) {
 				float due = stamp(m, pos[0]) / 1000f + off;
 				if (due > now + 1e-4f) return;
-				curAt = due;
+				curAt = OLD_OFF || now - due <= LATE_MAX ? due : now - LATE_MAX;
+				played = Math.max(played, stamp(m, pos[0]));
 			}
-			int used = apply(m, pos[0], true);
+			int used;
+			// (a command for a picture the watch doesn't have: the watch drops the rest of that message; count it)
+			try { used = apply(m, pos[0], true); } catch (RuntimeException e) { errors++; used = m.length; }
 			pos[0] = used > pos[0] ? used : m.length;
 			if (pos[0] >= m.length) { q.poll(); qPos.poll(); }
 		}
@@ -149,9 +161,10 @@ public final class WatchSim {
 					if (k.mode != 0) { k.intensity = u8() / 16f; k.dead = u8() / 255f; }
 					cams[id] = k; break;
 				}
-				case Link.C_NEW: { int id = u16(), after = u16(); Obj o = new Obj(); o.st = readStatic(); o.kind = o.st[0]; objs.put(id, o); readDyn(o); link(id, after); break; }
+				case Link.C_NEW: { int id = u16(), after = u16(); if (objs.containsKey(id)) unlink(id); Obj o = new Obj(); o.st = readStatic(); o.kind = o.st[0]; objs.put(id, o); readDyn(o); link(id, after); break; }
 				case Link.C_SET: { int id = u16(); Obj o = objs.get(id); o.st = readStatic(); o.kind = o.st[0]; readDyn(o); break; }
 				case Link.C_MOVE: { int id = u16(); readDyn(objs.get(id)); break; }
+				case Link.C_ANIMTO: { int id = u16(); Obj o = objs.get(id); o.st = o.st.clone(); o.st[3] = (byte) u8(); o.st[12] = (byte) u8(); o.st[13] = (byte) u8(); readDyn(o); break; }
 				case Link.C_DEL: { int id = u16(); unlink(id); objs.remove(id); break; }
 				case Link.C_ORDER: { int id = u16(), after = u16(); unlink(id); link(id, after); break; }
 				case Link.C_TILES: {
@@ -159,6 +172,20 @@ public final class WatchSim {
 					int need = (o.st[7] & 255) * (o.st[8] & 255);
 					if (o.tiles == null || o.tiles.length != need) { o.tiles = new int[need]; Arrays.fill(o.tiles, Link.NONE); }
 					for (int i = 0; i < n; i++) o.tiles[start + i] = u16();
+					break;
+				}
+				case Link.C_TILES2: {
+					int id = u16(), start = u16(), n = u16(), two = u8() & 1; Obj o = objs.get(id);
+					int need = (o.st[7] & 255) * (o.st[8] & 255);
+					if (o.tiles == null || o.tiles.length != need) { o.tiles = new int[need]; Arrays.fill(o.tiles, Link.NONE); }
+					int k = 0, v = 0;
+					while (k < n) {
+						int h = u8(), cnt = h < 128 ? h + 1 : h - 126;
+						for (int i = 0; i < cnt && k < n; i++, k++) {
+							if (h < 128 || i == 0) { v = two == 1 ? u16() : u8(); if (two == 0 && v == 255) v = Link.NONE; }
+							o.tiles[start + k] = v;
+						}
+					}
 					break;
 				}
 				case Link.C_DTEX: {

@@ -9,7 +9,7 @@
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
 #define GAME_SPEED_NUM 3   // 1.5 x real time: must match Game.pebxelSpeed (WatchGame.java)
 #define GAME_SPEED_DEN 2
-#define PROTOCOL 9   // must match Link.PROTOCOL on the phone
+#define PROTOCOL 10  // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -92,6 +92,7 @@ typedef struct Msg { struct Msg *next; uint16_t len, pos; uint8_t data[]; } Msg;
 static Msg *s_q, *s_qtail;
 static int s_qbytes;
 static int32_t s_off;        // watch time = phone time + s_off (enough to have heard of a frame before playing it)
+static int32_t s_base;       // the quickest messages lately: watch time - phone time of their newest frame
 static bool s_have_off;
 static uint32_t s_cur_at;    // when the frame being played happened, in watch time
 static uint32_t s_cur_stamp; // ... and in phone time
@@ -99,6 +100,12 @@ static AppTimer *s_ptimer;
 static bool s_flush;         // play everything waiting now, due or not
 #define MARGIN 40            // ms of slack for uneven radio
 #define QMAX 6000            // more waiting than this (or memory running short): catch up at once
+// the inbox comes out of the heap; the phone sends at most 2.4 KB at a time (Pacer.CAP: a slow radio gains
+// nothing from bigger ones), so 8 KB of it was 4 KB of memory the dungeon could use
+#define INBOX 4096
+#define LATE_MAX 450         // ms (game time) of delay kept for slow messages beyond the quickest: a message later
+                             // than that (one sent again after a refusal or a loss, a big one) plays as it comes,
+                             // rather than holding everything after it back as late (that played "fast then slow")
 
 static uint32_t stamp_at(const uint8_t *d) { return d[1] | d[2] << 8 | d[3] << 16 | (uint32_t)d[4] << 24; }
 
@@ -144,7 +151,9 @@ static void pump(void *data) {
     if (m->pos < m->len && m->data[m->pos] == C_TIME && m->len - m->pos >= 5) {
       uint32_t due = stamp_at(m->data + m->pos) + s_off;
       if ((int32_t)(due - now) > 0 && !rush) { pump_at(due, now); return; }
-      s_cur_at = rush ? now : due;
+      // (a frame that comes late plays as at most LATE_MAX late: its pictures' guessed moves don't run on for
+      // the whole of a radio hiccup)
+      s_cur_at = rush ? now : (int32_t)(now - due) > LATE_MAX ? now - LATE_MAX : due;
       s_cur_stamp = stamp_at(m->data + m->pos);
     }
     int used = scene_apply(m->data + m->pos, m->len - m->pos, s_cur_at);
@@ -160,9 +169,12 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
   if (len >= 5 && data[0] == C_LATEST) {
     // the message's newest frame plays as it arrives; older ones in it are already past (their moves go on from
     // where they'd be by now). Waiting to play them all at their own pace cost a whole radio round trip of delay.
-    int32_t want = (int32_t)(now - stamp_at(data)) + MARGIN;
+    int32_t lat = (int32_t)(now - stamp_at(data)), want = lat + MARGIN;
+    // the quickest lately: down at once, up slowly (the phone's clock may fall behind, when it stalls)
+    if (!s_have_off || lat < s_base) s_base = lat; else s_base += (lat - s_base) / 32;
     if (!s_have_off || want > s_off) s_off = want;
     else s_off -= (s_off - want) / 3;   // (quickly back down after a slow message: the delay is what players feel)
+    if (s_off > s_base + MARGIN + LATE_MAX) s_off = s_base + MARGIN + LATE_MAX;
     s_have_off = true;
   }
   Msg *m = malloc(sizeof(Msg) + len);
@@ -181,7 +193,7 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
   m->next = NULL; m->len = len; m->pos = 0; memcpy(m->data, data, len);
   if (s_qtail) s_qtail->next = m; else s_q = m;
   s_qtail = m; s_qbytes += len;
-  pump(NULL);
+  pump_at(now, now);   // (in a moment, not here: the phone hears the answer to this message when this returns)
 }
 
 static void dropped(AppMessageResult r, void *ctx) { APP_LOG(APP_LOG_LEVEL_WARNING, "message dropped: %d", (int)r); }
@@ -362,8 +374,8 @@ static void hello(void *data) {
   if (!s_resyncing) { s_ntq = 0; s_npd = 0; g_pan_x = g_pan_y = 0; }
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) == APP_MSG_OK) {
-    uint32_t in = app_message_inbox_size_maximum();
-    dict_write_int32(it, KEY_HELLO, in > 8000 ? 8000 : (int32_t)in);
+    uint32_t in = app_message_inbox_size_maximum(); if (in > INBOX) in = INBOX;
+    dict_write_int32(it, KEY_HELLO, (int32_t)in);
     dict_write_int32(it, KEY_VERSION, PROTOCOL);
     dict_write_int32(it, KEY_SCREEN, (PBL_IF_ROUND_ELSE(1, 0) << 24) | (PBL_DISPLAY_WIDTH << 12) | PBL_DISPLAY_HEIGHT);   // round?, width, height
     if (app_message_outbox_send() == APP_MSG_OK) s_resyncing = false;
@@ -391,7 +403,7 @@ static void init(void) {
   app_message_register_outbox_sent(sent);
   app_message_register_outbox_failed(failed);
   if (touch_service_is_enabled()) touch_service_subscribe(touch, NULL);
-  uint32_t in = app_message_inbox_size_maximum(); if (in > 8200) in = 8200;
+  uint32_t in = app_message_inbox_size_maximum(); if (in > INBOX) in = INBOX;
   app_message_open(in, 64);
   // the game streams from the phone: the quick radio setting cuts each round trip (at some battery cost while open)
   app_comm_set_sniff_interval(SNIFF_INTERVAL_REDUCED);
