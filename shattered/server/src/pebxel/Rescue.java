@@ -77,7 +77,8 @@ public final class Rescue {
 		if (up && !on && Dungeon.depth < 26) on = true;   // the climb back with the Amulet (enemies grow ever stronger): straight for the stairs
 		if (!on) return null;
 		Mob near = null, boss = null, other = null; int od = 999; boolean anyInv = false;
-		for (Mob m : L.mobs) if (m.isAlive() && m.alignment == Char.Alignment.ENEMY && Char.hasProp(m, Char.Property.BOSS)) boss = m;
+		// (a boss floor's boss: the mine's quest bosses are optional, and sleep in the rock)
+		if (Dungeon.bossLevel()) for (Mob m : L.mobs) if (m.isAlive() && m.alignment == Char.Alignment.ENEMY && Char.hasProp(m, Char.Property.BOSS)) boss = m;
 		// a boss that can't be hurt now (DM-300 charged by a pylon, Yog with fists, the Dwarf King on his throne): the others first
 		boolean bossOff = boss != null && boss.isInvulnerable(h.getClass());
 		for (Mob m : L.mobs) {

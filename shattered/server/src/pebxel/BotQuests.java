@@ -12,6 +12,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.quest.CeremonialCandle;
 import com.shatteredpixel.shatteredpixeldungeon.items.quest.CorpseDust;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
+import java.util.*;
 
 /**
  * The quest steps the Assistant doesn't take by itself (cheat games, for coverage): the Wandmaker's three tasks.
@@ -34,6 +35,8 @@ public final class BotQuests {
 		if (h == null || L == null || !h.ready) return null;
 		Assist.Target b = blacksmith(h, L);
 		if (b != null) return b;
+		Assist.Target g = ghost(h, L);
+		if (g != null) return g;
 		if (!Coverage.flag(Wandmaker.class, "given") || !wandmakerHere()) return null;
 		if (Wandmaker.Quest.wand1 == null) return null;   // (done)
 		if (Dungeon.depth != stepsDepth) { stepsDepth = Dungeon.depth; steps = 0; }
@@ -57,24 +60,52 @@ public final class BotQuests {
 		return null;
 	}
 
+	// ---- the Ghost: his foe found (the cheat knows where it is) and killed, then back to him for the reward ----
+	static int ghostTalks;
+	static Assist.Target ghost(Hero h, Level L) {
+		com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost gh = null;
+		for (Mob m : L.mobs) if (m instanceof com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost) gh = (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost) m;
+		if (gh == null || !Coverage.flag(com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost.class, "given") || com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost.Quest.completed()) return null;
+		for (Mob m : L.mobs) if (m.alignment == com.shatteredpixel.shatteredpixeldungeon.actors.Char.Alignment.ENEMY && L.heroFOV[m.pos] && L.adjacent(m.pos, h.pos)) return null;   // (fight first)
+		if (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost.Quest.processed()) {
+			if (ghostTalks > 8) return null;
+			if (L.adjacent(gh.pos, h.pos)) { ghostTalks++; return new Assist.Target(gh.pos, Assist.GO, "quest: back to the Ghost"); }
+			return walk(h, L, gh.pos, "quest: back to the Ghost");
+		}
+		for (Mob m : L.mobs) if (m.isAlive() && (m instanceof com.shatteredpixel.shatteredpixeldungeon.actors.mobs.FetidRat || m instanceof com.shatteredpixel.shatteredpixeldungeon.actors.mobs.GnollTrickster || m instanceof com.shatteredpixel.shatteredpixeldungeon.actors.mobs.GreatCrab)) {
+			if (L.heroFOV[m.pos]) return null;   // (in sight: the Assistant fights it)
+			int[] d = WatchDriver.stepsFrom(m.pos);
+			if (d[h.pos] == Integer.MAX_VALUE) { for (int c = 0; c < L.length(); c++) if (L.discoverable[c]) L.mapped[c] = true; }   // (the cheat: the map, to get there)
+			return walk(h, L, m.pos, "quest: after the Ghost's foe");
+		}
+		return null;
+	}
+
 	// ---- the Blacksmith: his mine (dig out the dark gold veins, then up the ladder: "I'm done"), then his favours ----
 	static int mineSteps, mineDepth = -1, smithTalks; static boolean mineDone;
 
 	static Assist.Target blacksmith(Hero h, Level L) {
 		if (L instanceof com.shatteredpixel.shatteredpixeldungeon.levels.MiningLevel) {
-			if (mineDepth != Dungeon.depth) { mineDepth = Dungeon.depth; mineSteps = 0; }
+			if (mineDepth != Dungeon.depth) { mineDepth = Dungeon.depth; mineSteps = 0; badVeins.clear(); }
 			mineSteps++;
 			for (Mob m : L.mobs) if (m.alignment == com.shatteredpixel.shatteredpixeldungeon.actors.Char.Alignment.ENEMY && L.heroFOV[m.pos] && L.adjacent(m.pos, h.pos)) return null;   // (fight first)
 			com.shatteredpixel.shatteredpixeldungeon.items.quest.DarkGold g = h.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.quest.DarkGold.class);
 			int gold = g == null ? 0 : g.quantity();
 			if (gold < 40 && mineSteps < 1500) {
 				int[] d = WatchDriver.stepsFrom(h.pos);
-				int best = -1, bd = Integer.MAX_VALUE;
+				int best = -1, bn = -1, bd = Integer.MAX_VALUE;
 				for (int c = 0; c < L.length(); c++) {
-					if (L.map[c] != Terrain.WALL_DECO || !(L.visited[c] || L.mapped[c] || L.heroFOV[c]) || !L.insideMap(c)) continue;
-					for (int k : com.watabou.utils.PathFinder.NEIGHBOURS8) { int n = c + k; if (n >= 0 && n < L.length() && d[n] < bd) { bd = d[n]; best = c; } }
+					if (L.map[c] != Terrain.WALL_DECO || !(L.visited[c] || L.mapped[c] || L.heroFOV[c]) || !L.insideMap(c) || badVeins.contains(c)) continue;
+					for (int k : com.watabou.utils.PathFinder.NEIGHBOURS8) { int n = c + k; if (n >= 0 && n < L.length() && d[n] < bd && Actor.findChar(n) == null) { bd = d[n]; best = c; bn = n; } }
 				}
-				if (best >= 0) { veinsDug++; return new Assist.Target(best, Assist.GO, "quest: dig the gold vein"); }
+				if (best >= 0) {
+					if (L.adjacent(best, h.pos)) {   // beside it: dig (a vein that won't go is passed over)
+						if (best == lastVein && ++veinTries > 4) { badVeins.add(best); veinTries = 0; }
+						if (best != lastVein) { lastVein = best; veinTries = 0; }
+						veinsDug++; return new Assist.Target(best, Assist.GO, "quest: dig the gold vein");
+					}
+					return walk(h, L, bn, "quest: to a gold vein");
+				}
 				if (mineSteps < 600) return null;   // (none known: the Assistant explores)
 			}
 			com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(true);
@@ -99,7 +130,7 @@ public final class BotQuests {
 		}
 		return null;
 	}
-	static int veinsDug;
+	static int veinsDug, lastVein = -1, veinTries; static final Set<Integer> badVeins = new HashSet<>();
 
 	/** A walk there (the hero stuck for two tries: put there, the cheat, as the rescue does). */
 	static Assist.Target walk(Hero h, Level L, int c, String why) { return Rescue.walkOrPut(h, L, c, why); }

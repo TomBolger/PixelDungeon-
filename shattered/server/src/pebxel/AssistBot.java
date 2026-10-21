@@ -111,7 +111,7 @@ public class AssistBot {
 			if (Statistics.duration > maxTurns) { end = "turn limit"; break; }
 			if (watch != null && watch.frames > WATCH_FRAMES) { end = "game frame limit (" + WATCH_FRAMES + " watch frames)"; break; }
 			if (f > GAME_FRAMES) { end = "game frame limit (" + GAME_FRAMES + ")"; break; }
-			if (++floorFrames > FLOOR_FRAMES) { end = "floor timeout (" + FLOOR_FRAMES + " frames on depth " + depth + ")"; break; }
+			if (++floorFrames > (Dungeon.bossLevel() ? FLOOR_FRAMES * 3 : FLOOR_FRAMES)) { end = "floor timeout (" + FLOOR_FRAMES + " frames on depth " + depth + ")"; break; }
 			if (Statistics.duration - floorStart > FLOOR_TURNS) { end = "floor timeout (" + FLOOR_TURNS + " turns on depth " + depth + ")"; break; }
 			Window w = Ui.topWindow();
 			if (w != null) {
