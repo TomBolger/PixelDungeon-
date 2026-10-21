@@ -1,7 +1,0 @@
-# S-watch1
-bundle=S-cheat2-1021024205.tgz
-bin=simbot
-games=12
-chunk=1
-first=100
-run watch WATCH=1 CHEAT=1 SIMSEED=1

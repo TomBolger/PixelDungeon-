@@ -1,0 +1,11 @@
+# O-mods1
+bundle=O2-1021120246.tgz
+bin=simbot
+games=300
+chunk=25
+first=0
+run A SIMSEED=1
+run GEAR SIMSEED=1 AS_OGEAR=1
+run UPG SIMSEED=1 AS_OUPG=1
+run SHOP SIMSEED=1 AS_OSHOP=1
+run IDENT SIMSEED=1 AS_OIDENT=1
