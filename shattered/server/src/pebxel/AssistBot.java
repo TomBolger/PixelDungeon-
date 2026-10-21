@@ -81,6 +81,11 @@ public class AssistBot {
 		Window lastWnd = null; int wndFrames = 0;
 		long t0 = System.currentTimeMillis();
 		long readyF = 0, betweenF = 0, floorDecisions = 0, floorFrames = 0; float readyNow = -1;   // (the hang check counts frames in which game time stood still: no wall clock)
+		// (any thread dying of an exception ends the game with a report: the render thread dying once left the actor
+		// thread waiting for ever, and the game hung, using no CPU, until it was cancelled)
+		Thread.setDefaultUncaughtExceptionHandler((th, ex) -> { System.out.println("UNCAUGHT in " + th.getName() + ": " + ex); ex.printStackTrace(System.out);
+			System.out.println("RESULT class " + cls + " seed " + seed + ": crashed (" + ex + " in " + th.getName() + ")"); System.out.flush(); Runtime.getRuntime().halt(4); });
+		try {
 		for (long f = 0; f < 20_000_000; f++) {
 			Lockstep.doing = "frame";
 			step();
@@ -163,8 +168,8 @@ public class AssistBot {
 			if (++floorDecisions > FLOOR_TURNS) { end = "floor timeout (" + FLOOR_TURNS + " decisions on depth " + depth + ")"; break; }
 			// (cheat games, in this order: a quest step, an item kind to try now and then, the rescue from a stall, the pot)
 			Assist.Target t = Cheat.ON ? BotQuests.pick() : null;
-			Assist.Target rs = Cheat.ON ? Rescue.check() : null;   // (checked every decision: it counts the stall)
 			if (t == null && Cheat.ON) t = BotItems.pick();
+			Assist.Target rs = Cheat.ON ? Rescue.check(t == null) : null;   // (every decision: it counts the stall)
 			if (t == null) t = rs;
 			if (t == null && Cheat.ON) t = BotAlchemy.pick();
 			if (t == null && plan.isEmpty()) { Dungeon.hero.rest(false); continue; }
@@ -200,6 +205,11 @@ public class AssistBot {
 			// (the actor thread picks the action up on a later frame: until then hero.ready still reads true)
 			for (int k = 0; k < 150 && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn && Ui.topWindow() == null && Dungeon.hero.isAlive(); k++) step();
 			if (!ok) { actFails++; if (Assist.lastError != null) { System.out.println("  ACT ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; } Dungeon.hero.rest(false); }
+		}
+		} catch (Throwable ex) {
+			System.out.println("BOT EXCEPTION: " + ex); ex.printStackTrace(System.out);
+			end = "bot exception (" + ex.toString().replace(';', ',') + ")";
+			Coverage.problem("bot exception: " + ex);
 		}
 		if (Dungeon.hero != null) System.out.println("state: ready " + Dungeon.hero.ready + " action " + Dungeon.hero.curAction + " aiming " + Controls.aiming() + " window " + Ui.topWindow() + " scene " + Game.scene() + " resting " + Dungeon.hero.resting + " now " + Actor.now());
 		String cause = "";

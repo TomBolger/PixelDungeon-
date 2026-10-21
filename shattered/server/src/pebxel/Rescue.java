@@ -60,7 +60,10 @@ public final class Rescue {
 	static void force() { on = true; floorsRescued++; }
 
 	/** Every decision (cheat games): null, or what to do instead of the Assistant's plan. */
-	static Assist.Target check() {
+	static Assist.Target check() { return check(true); }
+
+	/** want false: only the stall's bookkeeping (another step was chosen: its walk keeps the "no walk" count). */
+	static Assist.Target check(boolean want) {
 		if (Dungeon.depth != lastDepth) { lastDepth = Dungeon.depth; still = 0; on = false; lastProgress = Long.MIN_VALUE; bossLow = Integer.MAX_VALUE; }
 		long p = progress();
 		if (p != lastProgress) { lastProgress = p; if (!on) still = 0; } else still++;
@@ -75,7 +78,7 @@ public final class Rescue {
 		Hero h = Dungeon.hero; Level L = Dungeon.level;
 		boolean up = h.belongings.getItem(Amulet.class) != null;
 		if (up && !on && Dungeon.depth < 26) on = true;   // the climb back with the Amulet (enemies grow ever stronger): straight for the stairs
-		if (!on) return null;
+		if (!on || !want) return null;
 		Mob near = null, boss = null, other = null; int od = 999; boolean anyInv = false;
 		// (a boss floor's boss: the mine's quest bosses are optional, and sleep in the rock)
 		if (Dungeon.bossLevel()) for (Mob m : L.mobs) if (m.isAlive() && m.alignment == Char.Alignment.ENEMY && Char.hasProp(m, Char.Property.BOSS)) boss = m;

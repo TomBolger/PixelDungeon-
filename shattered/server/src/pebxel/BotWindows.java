@@ -63,7 +63,9 @@ public final class BotWindows {
 		}
 		if (sameKind > 6 || visits > 4) return answer(null, "same window again and again: back");
 		// item selectors (a scroll, the alchemy, a quest asking for an item)
-		WndBag.ItemSelector sel = selector(w);
+		// (only a bag asks for an item: other windows keep a selector of their own for after one of their buttons,
+		// and answering it directly broke them: the Blacksmith's reforge window threw, killing the game's thread)
+		WndBag.ItemSelector sel = w instanceof WndBag || w instanceof pebxel.ui.WndWatchBag ? selector(w) : null;
 		if (sel != null) {
 			Item it = BotItems.answerSelector(sel);
 			return it != null ? new Answer(null, it, "select") : new Answer(null, null, "nothing to select: back");
