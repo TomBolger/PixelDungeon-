@@ -19,15 +19,26 @@ static uint32_t s_last, s_input_at, s_data_at, s_frame_end;
 static bool s_connected;
 static bool s_wait_reset;   // the copy was given up (resync): the phone's messages wait until its fresh start comes
 
-// A clock that only goes forward: the wall clock can be set back (the phone syncing the time), which would
-// otherwise hold up the play-out queue until it caught up again.
+// The wall clock in ms only goes forward here: it can be set back (the phone syncing the time), which would otherwise
+// hold up the play-out queue until it caught up again.
+// Its seconds and milliseconds can also disagree for a moment at the turn of a second: a reading comes out a whole
+// second off (the emulator does it a few times a minute: +1000 one frame, back the next). Taken as it came, that pushed
+// the watch's time a second ahead for good: everything on screen jumped 1.5 s at once, and frames waiting played in a
+// rush. So a reading about a whole second away from the last waits: if the clock goes on from it for 100 ms, it was a real gap.
 static uint32_t now_ms(void) {
-  static uint32_t mono, raw_last; static bool started;
+  static uint32_t mono, raw_last, odd_raw; static bool started; static uint8_t odd;
   time_t s; uint16_t ms; time_ms(&s, &ms);
   uint32_t raw = (uint32_t)s * 1000 + ms;
-  int32_t d = (int32_t)(raw - raw_last);
+  int32_t d = (int32_t)(raw - raw_last), e = d > 0 ? d - 1000 : d + 1000;
+  if (started && e > -100 && e < 100) {
+    int32_t g = (int32_t)(raw - odd_raw);
+    if (!odd || g < 0 || g > 1000) { odd = 1; odd_raw = raw; goto out; }
+    if (g < 100) goto out;              // (it has to go on from there for a while: a slip lasts a few ms, and a busy
+  }                                     // loop can read the clock many times within one)
+  odd = 0;
   if (started && d > 0 && d < 60000) mono += d;
   raw_last = raw; started = true;
+out:
   // the game's clock: its animations run GAME_SPEED times real time (Game.pebxelSpeed on the phone, which must match);
   // frame stamps, moves and touches are all in that time
   return (uint32_t)((uint64_t)mono * GAME_SPEED_NUM / GAME_SPEED_DEN);
@@ -52,6 +63,7 @@ static void update(Layer *l, GContext *ctx) {
   draw_scene(ctx, layer_get_bounds(l), now);
   note_free();
   uint32_t drawn = now_ms();
+  if (drawn - now > 300) APP_LOG(APP_LOG_LEVEL_WARNING, "slow frame: %d ms (game time)", (int)(drawn - now));   // (rare: worth knowing)
   s_frame_end = drawn;
   sound_poll();
   static int frames; static uint32_t spent, spent_snd;
@@ -153,6 +165,7 @@ static void pump(void *data) {
   s_ptimer = NULL;
   uint32_t now = now_ms();
   bool rush = s_flush || s_qbytes > QMAX || heap_bytes_free() < 10000;
+  uint32_t t0 = now;
   while (s_q) {
     Msg *m = s_q;
     if (m->pos < m->len && m->data[m->pos] == C_TIME && m->len - m->pos >= 5) {
@@ -171,6 +184,7 @@ static void pump(void *data) {
     if (m->pos >= m->len) { s_q = m->next; if (!s_q) s_qtail = NULL; s_qbytes -= m->len; free(m); }
   }
   if (g_lost) app_timer_register(1, resync, NULL);   // (not from in here: it empties the queue)
+  if (now_ms() - t0 > 300) APP_LOG(APP_LOG_LEVEL_WARNING, "slow messages: %d ms (game time)", (int)(now_ms() - t0));
 }
 
 static void enqueue(const uint8_t *data, int len, uint32_t now) {

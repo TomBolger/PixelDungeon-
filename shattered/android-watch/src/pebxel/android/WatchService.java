@@ -69,6 +69,12 @@ public class WatchService extends BaseJavaPebbleListenerService {
 	@Override
 	protected void onMessageReceived(UUID app, Map<Integer, ? extends PebbleDictionaryItem> data, String watch, Consumer<ReceiveResult> responder) {
 		if (!APP.equals(app)) { responder.accept(ReceiveResult.Nack.INSTANCE); return; }
+		// always answer: an exception here would leave the watch's outbox waiting ~10 s with no buttons or taps going out
+		try { received(data); } catch (Throwable e) { Crashes.note(getApplicationContext(), e); }
+		responder.accept(ReceiveResult.Ack.INSTANCE);
+	}
+
+	private void received(Map<Integer, ? extends PebbleDictionaryItem> data) {
 		WatchSession s = session();
 		Integer hello = number(data.get(KEY_HELLO)), button = number(data.get(KEY_BUTTON)), version = number(data.get(KEY_VERSION));
 		if (hello != null) {
@@ -85,7 +91,6 @@ public class WatchService extends BaseJavaPebbleListenerService {
 		if (button != null) s.button(button);
 		PebbleDictionaryItem t = data.get(KEY_TOUCH);
 		if (t instanceof PebbleDictionaryItem.Bytes) s.touch(((PebbleDictionaryItem.Bytes) t).getValue());
-		responder.accept(ReceiveResult.Ack.INSTANCE);
 	}
 
 	private static Integer number(PebbleDictionaryItem item) {

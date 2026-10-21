@@ -297,6 +297,19 @@ void cams_follow(uint32_t now, uint32_t dt) {
 // a picture the phone says the watch has (NONE: the start of the list)
 static bool there(int id) { return id == NONE || (id < MAX_ID && g_obj[id]); }
 
+// a map's cells, made with the first tiles that come for it (see K_TILES); NULL: no memory (g_lost set by salloc)
+static Tiles *tiles_of(Obj *o) {
+  Tiles *t = o->ext;
+  if (t) return t;
+  int cells = o->tx * o->ty * (o->tw ? 2 : 1);
+  t = salloc(sizeof(Tiles) + cells);
+  if (!t) return NULL;
+  memset(t->cells, 0xFF, cells);
+  t->cw = o->ox; t->ch = o->oy; t->fw = o->w; t->fh = o->h; t->mw = o->tx; t->mh = o->ty; t->wide = o->tw;
+  o->ext = t;
+  return t;
+}
+
 int scene_apply(const uint8_t *data, int len, uint32_t now) {
   p = data; end = data + len;
   while (p < end) {
@@ -334,15 +347,8 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
         int id = u16(), start = u16(), n = u8();
         Obj *o = id < MAX_ID ? g_obj[id] : NULL;
         if (!o || o->kind != K_TILES) { g_lost = true; return len; }
-        Tiles *t = o->ext;
-        if (!t) {
-          int cells = o->tx * o->ty * (o->tw ? 2 : 1);
-          t = salloc(sizeof(Tiles) + cells);
-          if (!t) return len;   // (g_lost: start over)
-          memset(t->cells, 0xFF, cells);
-          t->cw = o->ox; t->ch = o->oy; t->fw = o->w; t->fh = o->h; t->mw = o->tx; t->mh = o->ty; t->wide = o->tw;
-          o->ext = t;
-        }
+        Tiles *t = tiles_of(o);
+        if (!t) return len;   // (g_lost: start over)
         int total = t->mw * t->mh;
         for (int i = 0; i < n; i++) {
           int v = u16();
@@ -356,8 +362,10 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
       case C_TILES2: {   // (Link.tiles: in runs; one byte a cell, 255 empty, unless flagged two)
         int id = u16(), start = u16(), n = u16(), two = u8() & 1;
         Obj *o = id < MAX_ID ? g_obj[id] : NULL;
-        Tiles *t = o && o->kind == K_TILES ? o->ext : NULL;
-        int total = t ? t->mw * t->mh : 0, k = 0, v = 0;
+        if (!o || o->kind != K_TILES) { g_lost = true; return len; }
+        Tiles *t = tiles_of(o);   // (it was never given its cells here: every map stayed empty, no walls or floors)
+        if (!t) return len;
+        int total = t->mw * t->mh, k = 0, v = 0;
         while (k < n && p < end) {
           int h = u8(), cnt = h < 128 ? h + 1 : h - 126;
           for (int i = 0; i < cnt && k < n; i++, k++) {
