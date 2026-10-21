@@ -41,6 +41,12 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 	private boolean rowMode = true;
 	private int row, col;
 
+	/** Forget the rows; the areas only Up/Down uses (never in the window, so never destroyed with it) are destroyed
+	 *  here: their touch areas stayed listening otherwise, one more each time a bag opened. */
+	private void dropRows() { for (Button a : rowAreas) if (a.parent == null) a.destroy(); rowAreas.clear(); rowCells.clear(); }
+
+	@Override public void destroy() { dropRows(); super.destroy(); }
+
 	private void newRow(Button area) { rowAreas.add(area); rowCells.add(new ArrayList<>()); }
 	private void addToRow(Button b) { rowCells.get(rowCells.size() - 1).add(b); }
 
@@ -92,7 +98,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 	 * 35x34 cells with 1 px gaps), "Backpack" on an upside-down tab centred over it, the bags as tabs under it.
 	 */
 	private void build() {
-		grid.clear(); rowAreas.clear(); rowCells.clear();
+		wipe(grid); dropRows();
 		Belongings b = Dungeon.hero.belongings;
 		int gh = ROWS * (CELL_H + 1) - 1;
 		// the frame and the black between the cells
@@ -177,7 +183,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 	}
 
 	private void buildRound() {
-		grid.clear();
+		wipe(grid);
 		String title = selector != null ? selector.textPrompt() : bag == Dungeon.hero.belongings.backpack ? "Backpack" : Messages(bag);
 		if (selector != null) {
 			List<String> ls = WatchHud.wrap(title, WatchText.G14, 150);
@@ -188,7 +194,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 		List<Object> cells = contents();
 		int[] perRow = {5, 7, 7, 6};
 		int i = 0;
-		rowAreas.clear(); rowCells.clear();
+		dropRows();
 		for (int r = 0; r < perRow.length; r++) {
 			int n = perRow[r], y = rowY(r + 1);
 			grid.add(WatchHud.block(0x000000, cellX(0, n) - 2, y - 2, 33 * n + 3, 36));

@@ -73,7 +73,7 @@ public class WndWatchItem extends WatchWindow {
 	private List<String> acts() { return Dungeon.hero.isAlive() && Dungeon.hero.belongings.contains(item) ? item.actions(Dungeon.hero) : new ArrayList<>(); }
 
 	private int build() {
-		body.clear();
+		wipe(body);
 		boolean round = pebxel.Screen.round;
 		// the head: the item, its name
 		ItemSprite spr = new ItemSprite(item); spr.scale.set(2); spr.y = Math.round((34 - spr.height()) / 2); body.add(spr);

@@ -59,6 +59,18 @@ static inline void put(uint8_t *d, uint8_t c, int x, int y) {
   if (A > BAYER[((y & 3) << 2) | (x & 3)]) *d = c | 0xC0;
 }
 
+// pixels xa..xb-1 of row y (d: the first) all from one source colour c, as put() would draw them: the colour and
+// alpha worked out once, a solid run copied at once. (Windows are mostly such runs: the shade over the game, their
+// bodies and buttons stretched from a few texels, the tabs' blocks.)
+static void span(uint8_t *d, int xa, int xb, int y, uint8_t c) {
+  int A; uint8_t out;
+  if (s_plain) { int a = c >> 6; if (!a) return; out = c | 0xC0; A = a == 3 ? 256 : a * 85; }
+  else { A = s_la[c]; out = s_lc[c] | 0xC0; if (A > 247) A = 256; }
+  if (A == 256) { memset(d, out, xb - xa); return; }
+  const uint8_t *bt = BAYER + ((y & 3) << 2);
+  for (int x = xa; x < xb; x++, d++) if (A > bt[x & 3]) *d = out;
+}
+
 // ---- camera ----
 static Cam *s_cam;
 // camera units x8 -> screen px x8
@@ -89,11 +101,15 @@ static void blit(int tex, int tx, int ty, int tw, int th, int32_t L, int32_t T, 
     int xa = x0, xb = x1; ROWCLIP(y, xa, xb); if (xa >= xb) continue;
     uint8_t *d = ROWPTR(y) + xa;
     int32_t u = u0 + (xa - x0) * du;
-    if (s_plain && du == 65536 && !fx) {
+    if (s_plain && du == 65536 && !fx && (u >> 16) + (xb - xa) <= tw) {   // (a picture at a half pixel: its last pixel would read past the row)
       // the common case: no scaling, no colour change
       const uint8_t *sp = row + (u >> 16);
       for (int x = xa; x < xb; x++, d++) { uint8_t c = *sp++; if ((c >> 6) == 3) *d = c; else if (c >> 6) put(d, c, x, y); }
       continue;
+    }
+    if (tw <= 32) {   // a stretched piece of one colour (a window's or a button's middle)
+      int k = 1; while (k < tw && row[k] == row[0]) k++;
+      if (k == tw) { span(d, xa, xb, y, row[0]); continue; }
     }
     for (int x = xa; x < xb; x++, u += du, d++) {
       int su = u >> 16; if (su >= tw) su = tw - 1;
@@ -164,8 +180,7 @@ static void fill(int32_t L, int32_t T, int32_t R, int32_t B, uint8_t c) {
   if (y0 < s_cy0) y0 = s_cy0; if (y1 > s_cy1) y1 = s_cy1;
   for (int y = y0; y < y1; y++) {
     int xa = x0, xb = x1; ROWCLIP(y, xa, xb);
-    uint8_t *d = ROWPTR(y) + xa;
-    for (int x = xa; x < xb; x++) put(d++, c, x, y);
+    if (xa < xb) span(ROWPTR(y) + xa, xa, xb, y, c);
   }
 }
 
@@ -439,6 +454,7 @@ uint32_t g_prof[8];
 
 void draw_scene(GContext *ctx, GRect bounds, uint32_t now) {
   s_ctx = ctx; s_now = now; s_W = bounds.size.w; s_H = bounds.size.h;
+  art_frame();
   fb_take();
   if (!s_fb) return;
   for (int y = 0; y < s_H; y++) { int a = 0, b = s_W; ROWCLIP(y, a, b); if (b > a) memset(ROWPTR(y) + a, GColorBlackARGB8, b - a); }

@@ -8,6 +8,7 @@ Obj *g_obj[MAX_ID];
 Cam g_cam[MAX_CAM];
 uint16_t g_head = NONE;
 bool g_dirty;
+bool g_lost;
 
 #define MAX_ANIM 512
 static Anim *s_anim[MAX_ANIM];
@@ -36,7 +37,7 @@ int8_t g_map_cam = -1;
 int32_t g_pan_x, g_pan_y;
 
 void scene_reset(void) {
-  g_map_cam = -1;
+  g_map_cam = -1; g_lost = false;
   for (int i = 0; i < MAX_ID; i++) { free_obj(g_obj[i]); g_obj[i] = NULL; }
   for (int i = 0; i < MAX_ANIM; i++) { free(s_anim[i]); s_anim[i] = NULL; }
   for (int i = 0; i < MAX_DYN; i++) { free(s_dyn[i]); s_dyn[i] = NULL; }
@@ -48,6 +49,8 @@ void scene_reset(void) {
 
 static void link_after(int id, int after) {
   Obj *o = g_obj[id];
+  // after a picture this watch never got (memory ran out): first, until the phone sends everything again (g_lost)
+  if (after != NONE && (after >= MAX_ID || !g_obj[after])) { after = NONE; g_lost = true; }
   int nx = after == NONE ? g_head : g_obj[after]->next;
   o->prev = after; o->next = nx;
   if (after == NONE) g_head = id; else g_obj[after]->next = id;
@@ -96,7 +99,7 @@ static void read_static(Obj *o) {
         free(t);
         int n = mw * mh * (wide ? 2 : 1);
         t = malloc(sizeof(Tiles) + n);
-        if (t) memset(t->cells, 0xFF, n);
+        if (t) memset(t->cells, 0xFF, n); else g_lost = true;
         o->ext = t;
       }
       if (t) { t->cw = cw; t->ch = ch; t->fw = fw; t->fh = fh; t->mw = mw; t->mh = mh; t->wide = wide; }
@@ -121,6 +124,7 @@ static void read_static(Obj *o) {
       read_col(o);
       int n = u8();
       char *s = malloc(n + 1);
+      if (!s) g_lost = true;
       for (int i = 0; i < n; i++) { int c = u8(); if (s) s[i] = c; }
       if (s) s[n] = 0;
       o->ext = s;
@@ -209,7 +213,7 @@ static void read_dtex(void) {
     if (d) { d->w = w; d->h = h; d->bits = bits; memset(d->px, 0, bytes); }
     s_dyn[id - 200] = d;
   }
-  if (!d) { p = stop; return; }
+  if (!d) { g_lost = true; p = stop; return; }
   d->ncol = ncol; memcpy(d->pal, pal, 16);
   int k = piece * 1024, n = w * h;
   #define PUT(v) do { if (k < n) { int vv = (v); \
@@ -288,16 +292,17 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
         free_obj(g_obj[id]);
         Obj *o = calloc(1, sizeof(Obj));
         g_obj[id] = o;
-        if (!o) return len;   // out of memory: the phone will resend after a reset
+        if (!o) { g_lost = true; return len; }   // out of memory: main.c asks the phone for everything again
         o->prev = o->next = NONE;
         read_static(o); read_dyn(o, now);
         link_after(id, after);
         break;
       }
-      case C_SET: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return len; read_static(g_obj[id]); read_dyn(g_obj[id], now); break; }
-      case C_MOVE: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return len; read_dyn(g_obj[id], now); break; }
-      case C_DEL: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) return len; unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; break; }
-      case C_ORDER: { int id = u16(), after = u16(); if (id >= MAX_ID || !g_obj[id]) return len; unlink_obj(id); link_after(id, after); break; }
+      // (a picture the watch doesn't have: one it lost; the rest of the message can't be read without it)
+      case C_SET: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; return len; } read_static(g_obj[id]); read_dyn(g_obj[id], now); break; }
+      case C_MOVE: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; return len; } read_dyn(g_obj[id], now); break; }
+      case C_DEL: { int id = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; break; } unlink_obj(id); free_obj(g_obj[id]); g_obj[id] = NULL; break; }
+      case C_ORDER: { int id = u16(), after = u16(); if (id >= MAX_ID || !g_obj[id]) { g_lost = true; break; } unlink_obj(id); link_after(id, after); break; }
       case C_TILES: {
         int id = u16(), start = u16(), n = u8();
         Obj *o = id < MAX_ID ? g_obj[id] : NULL;
@@ -316,6 +321,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
       case C_ANIM: {
         int id = u16(), tex = u8(), n = u8(), delay = u16(), looped = u8();
         Anim *a = malloc(sizeof(Anim) + n * 8);
+        if (!a && n) g_lost = true;
         for (int i = 0; i < n * 4; i++) { int v = u16(); if (a) a->rects[i] = v; }
         if (!n) { free(a); a = NULL; }   // no frames: let go (Link.freeAnims)
         if (id < MAX_ANIM) {

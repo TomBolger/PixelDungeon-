@@ -67,6 +67,8 @@ int art_cells(int tex, int fw, int fh) {
 // ---- one decoded strip at a time ----
 #define SCRATCH 8192
 static uint8_t *s_scratch;
+static int s_decodes;   // strips decoded (for PROFILE)
+int art_decodes(void) { int d = s_decodes; s_decodes = 0; return d; }
 static int s_stex = -1, s_strip = -1, s_sw;
 
 static const uint8_t *strip(int tex, int k) {
@@ -82,6 +84,7 @@ static const uint8_t *strip(int tex, int k) {
   resource_load_byte_range(s_res, s_off[tex - 1] + o[0], z, n);
   int rows = h->h - k * h->strip_h; if (rows > h->strip_h) rows = h->strip_h;
   int got = lz4(z, n, s_scratch, SCRATCH);
+  s_decodes++;
   free(z);
   if (got != rows * h->w) { s_stex = -1; return NULL; }
   s_stex = tex; s_strip = k; s_sw = h->w;
@@ -102,16 +105,35 @@ static uint32_t s_tick;
 #define CACHE_MAX (26 * 1024)
 #define CACHE_ONE 4096
 
-static void evict_one(void) {
+static uint32_t s_frame_tick;   // s_tick as this frame's drawing began: rects used since are on screen now
+static int s_fails, s_skips;    // rects that couldn't be decoded (memory), rects drawn without the cache (no room)
+
+void art_frame(void) { s_frame_tick = s_tick + 1; }
+
+// the least recently used rect not drawn in this frame (false: every one is on screen now)
+static bool evict_one(void) {
   CacheEnt **best = NULL;
-  for (CacheEnt **e = &s_cache; *e; e = &(*e)->next) if (!best || (*e)->used < (*best)->used) best = e;
-  if (!best) return;
+  for (CacheEnt **e = &s_cache; *e; e = &(*e)->next) if ((*e)->used < s_frame_tick && (!best || (*e)->used < (*best)->used)) best = e;
+  if (!best) return false;
   CacheEnt *v = *best; *best = v->next;
   hash_remove(v);
   s_cache_bytes -= v->w * v->h; free(v);
+  return true;
 }
 
 int art_cache_bytes(void) { return s_cache_bytes; }
+
+// give memory back until `need` bytes are free (a message arriving when memory is short): the oldest rects first,
+// then the strip buffer
+void art_release(int need) {
+  while ((int)heap_bytes_free() < need && s_cache) {
+    CacheEnt **best = &s_cache;
+    for (CacheEnt **e = &s_cache; *e; e = &(*e)->next) if ((*e)->used < (*best)->used) best = e;
+    CacheEnt *v = *best; *best = v->next; hash_remove(v); s_cache_bytes -= v->w * v->h; free(v);
+  }
+  if ((int)heap_bytes_free() < need && s_scratch) { free(s_scratch); s_scratch = NULL; s_stex = -1; }
+}
+void art_stats(int *fails, int *skips) { *fails = s_fails; *skips = s_skips; }
 
 void art_forget(int tex) {
   for (CacheEnt **e = &s_cache; *e;) {
@@ -139,17 +161,23 @@ bool art_open(ArtSrc *s, int tex, int x, int y, int w, int h) {
   for (CacheEnt *e = s_hash[hkey(tex, x, y)]; e; e = e->hnext)
     if (e->tex == tex && e->x == x && e->y == y && e->w == w && e->h == h) { e->used = s_tick; s->px = e->px; return true; }
   if (w * h > CACHE_ONE) return true;   // too big to keep: rows are decoded as they are drawn
-  // keep the cache within its budget, and give memory back when the screen needs it (big floors, long windows)
-  while (s_cache && (s_cache_bytes + w * h > CACHE_MAX || (int)heap_bytes_free() < 12000 + w * h)) evict_one();
+  // keep the cache within its budget, and give memory back when the screen needs it (big floors, long windows),
+  // but only from rects this frame isn't drawing: when memory was short (a menu open over a big floor), giving up
+  // the very rects on screen to decode them again, every frame, made each frame many times slower
+  #define ROOM() (s_cache_bytes + w * h <= CACHE_MAX && (int)heap_bytes_free() >= 12000 + w * h)
+  while (!ROOM() && evict_one()) {}
+  if (!ROOM()) { s_skips++; return true; }   // no room: drawn from the picture row by row, uncached
+  #undef ROOM
   CacheEnt *e = malloc(sizeof(CacheEnt) + w * h);
-  while (!e && s_cache) { evict_one(); e = malloc(sizeof(CacheEnt) + w * h); }
-  if (!e) return true;
+  if (!e) { s_skips++; return true; }
   for (int r = 0; r < h; r++) {
     int yy = y + r;
     if (d) { for (int c = 0; c < w; c++) e->px[r * w + c] = dyn_px(d, yy * d->w + x + c); continue; }
     const uint8_t *st = strip(tex, yy / hd->strip_h);
-    if (st) memcpy(e->px + r * w, st + (yy % hd->strip_h) * s_sw + x, w);
-    else memset(e->px + r * w, 0, w);
+    // couldn't decode (memory short): not kept, the next frame tries again. (A blank rect was kept here, and an
+    // icon on screen, drawn every frame, stayed see-through for good: the menu's gear tab.)
+    if (!st) { free(e); s_fails++; return true; }
+    memcpy(e->px + r * w, st + (yy % hd->strip_h) * s_sw + x, w);
   }
   e->tex = tex; e->x = x; e->y = y; e->w = w; e->h = h; e->used = s_tick;
   e->next = s_cache; s_cache = e; s_cache_bytes += w * h;

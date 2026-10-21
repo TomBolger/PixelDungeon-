@@ -225,18 +225,32 @@ public class WatchWindow extends Window {
 	/** Pebble PD's tab (tab_art): fills joining the window's bottom edge; the chosen one opens into the window.
 	 *  x, y: the tab's top-left in content coordinates (y = the frame's bottom line). */
 	public static void tabArt(Group into, int x, int cb, int w, int h, boolean selected) {
+		for (int[] r : tabRects(x, cb, w, h, selected)) fill(into, r[0], r[1], r[2], r[3], r[4]);
+	}
+
+	/** tab_art's pieces {x, y, w, h, rgb}, always TAB_RECTS of them, drawn in order (later ones over earlier ones;
+	 *  an empty one is drawn as nothing). Dark under everything, then the lines: 8 pictures a tab rather than 13,
+	 *  the same pixels (fewer for the watch to hold, draw and hear about). */
+	public static int[][] tabRects(int x, int cb, int w, int h, boolean selected) {
 		int L = 0xAAAAAA, D = 0x555555, K = 0x000000;
 		int bot = cb + h - (selected ? 0 : 1), top = selected ? cb : cb + 4;
 		int kt = selected ? cb : top, lt = selected ? cb + 1 : top, dt = selected ? cb + 2 : top;
-		if (selected) fill(into, x + 4, cb, w - 8, 4, D);
-		fill(into, x + 4, top, w - 8, bot - 4 - top, D);
-		fill(into, x, lt, 1, bot - 1 - lt, L); fill(into, x + 1, dt, 2, bot - dt, D); fill(into, x + 3, kt, 1, bot - 4 - kt, K);
-		fill(into, x + w - 4, kt, 1, bot - 4 - kt, K); fill(into, x + w - 3, lt, 1, bot - 2 - lt, L); fill(into, x + w - 2, dt, 2, bot - dt, D);
-		fill(into, x, bot - 1, 1, 1, D); fill(into, x + w - 3, bot - 2, 1, 2, D);
-		fill(into, x + 3, bot - 4, w - 6, 1, K); fill(into, x + 3, bot - 3, w - 5, 1, L); fill(into, x + 1, bot - 2, w - 4, 2, D);
+		return new int[][]{
+				{x, dt, w, bot - dt, D}, {x + 4, top, w - 8, dt - top, D},    // the body (chosen: open to the window above)
+				{x, lt, 1, bot - 1 - lt, L}, {x + 3, kt, 1, bot - 4 - kt, K},   // left: light edge, black line
+				{x + w - 4, kt, 1, bot - 4 - kt, K}, {x + w - 3, lt, 1, bot - 2 - lt, L},   // right
+				{x + 3, bot - 4, w - 6, 1, K}, {x + 3, bot - 3, w - 5, 1, L}};  // bottom
 	}
+	public static final int TAB_RECTS = 8;
 
 	static void fill(Group into, int x, int y, int w, int h, int rgb) { if (w > 0 && h > 0) into.add(WatchHud.block(rgb, x, y, w, h)); }
+
+	/** Empty a group to build it again. Group.clear() alone leaves its buttons' touch areas listening: unseen, they
+	 *  went on catching taps meant for whatever was under them (the map, the HUD) until the next floor. */
+	public static void wipe(Group g) {
+		for (com.watabou.noosa.Gizmo m : GroupAccess.members(g)) if (m != null) m.destroy();
+		g.clear();
+	}
 
 	/** Is this window taller than the screen (it scrolls)? */
 	public boolean tall() { return camera.screenHeight() > Game.height + 1; }

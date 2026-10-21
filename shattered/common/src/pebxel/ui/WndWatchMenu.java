@@ -63,8 +63,7 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 	private void show(int p) {
 		if (parent == null && camera != null && page.parent == null) return;   // (closed already: a late tap)
 		pageNo = p; if (p >= 0) lastPage = p;
-		page.clear();
-		tabs.clear();
+		wipe(page);
 		pageButtons.clear();
 		String title = p < 0 ? "Game Over" : p == 0 ? "Shattered PD" : p == 1 ? "Catalogue & Journal" : "Audio";
 		WatchText t = new WatchText(WatchText.G14B, title, ICTERINE);
@@ -95,18 +94,42 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 			else
 				big(0, HEAD + ROW + GAP, W, ROW, 7, "Badges", () -> { hide(); WndJournal.last_index = 4; GameScene.show(new WndJournal()); });
 		}
-		// the tabs under the window: the floppy disk (game), the quill (records), the gear (settings)
+		tabs(p);
+	}
+
+	/** The tabs' pictures, made once: changing page only moves them (a few bytes for the watch, rather than all
+	 *  of them deleted and sent again, and no churn in its memory). */
+	private com.watabou.noosa.ColorBlock[][] tabArt;
+	private Image[] tabIcons;
+
+	/** The tabs under the window: the floppy disk (game), the quill (records), the gear (settings); p's is open. */
+	private void tabs(int p) {
+		int tw = pebxel.Screen.round ? 50 : TAB_W;
+		if (tabArt == null) {
+			tabArt = new com.watabou.noosa.ColorBlock[3][TAB_RECTS];
+			tabIcons = new Image[3];
+			for (int k = 0; k < 3; k++) {
+				final int kk = k;
+				int[][] rs = tabRects(0, 0, tw, TAB_H, false);
+				for (int i = 0; i < TAB_RECTS; i++) { tabArt[k][i] = WatchHud.block(rs[i][4], 0, 0, 1, 1); tabs.add(tabArt[k][i]); }
+				tabIcons[k] = PdArt.image("menu_icons", k * 16, 0, 16, 16, 2); tabs.add(tabIcons[k]);
+				Button b = new Button() { @Override protected void onClick() { show(kk); focusIdx = 0; } };
+				b.setRect(tabX(k), ch + 1, tw, TAB_H - 4); tabs.add(b);
+			}
+		}
 		for (int k = 0; k < 3; k++) {
-			final int kk = k;
-			int tw = pebxel.Screen.round ? 50 : TAB_W;
-			int x = pebxel.Screen.round ? 54 + 51 * k - contentX : -4 + k * (TAB_W + 1), y = ch + 1;   // over the frame's bottom edge: the chosen one joins the window (Pebble PD)
-			tabArt(tabs, x, y - 1, tw, TAB_H, k == p);
-			Image ic = PdArt.image("menu_icons", k * 16, 0, 16, 16, 2);
-			ic.x = x + (tw - 32) / 2; ic.y = y + (k == p ? 3 : 5) + (pebxel.Screen.round ? 1 : 0); tabs.add(ic);
-			Button b = new Button() { @Override protected void onClick() { show(kk); focusIdx = 0; } };
-			b.setRect(x, y, tw, TAB_H - 4); tabs.add(b);
+			int x = tabX(k), y = ch + 1;   // over the frame's bottom edge: the chosen one joins the window (Pebble PD)
+			int[][] rs = tabRects(x, y - 1, tw, TAB_H, k == p);
+			for (int i = 0; i < TAB_RECTS; i++) {
+				com.watabou.noosa.ColorBlock c = tabArt[k][i];
+				c.x = rs[i][0]; c.y = rs[i][1]; c.size(Math.max(0, rs[i][2]), Math.max(0, rs[i][3]));   // (an empty piece: drawn as nothing)
+			}
+			Image ic = tabIcons[k];
+			ic.x = x + (tw - 32) / 2; ic.y = y + (k == p ? 3 : 5) + (pebxel.Screen.round ? 1 : 0);
 		}
 	}
+
+	private int tabX(int k) { return pebxel.Screen.round ? 54 + 51 * k - contentX : -4 + k * (TAB_W + 1); }
 
 	/**
 	 * The settings page (Pebble PD's: two headed rows of two tiles, a switched-off one with its icon crossed out):
@@ -165,17 +188,33 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 		}
 	}
 
-	/** Pebble PD's "Return to Game" picture: a big white arrow pointing right, outlined in black (34 x 26). */
-	private void arrow(float x, float y) {
-		for (int pass = 0; pass < 2; pass++) {
-			int o = pass == 0 ? 1 : 0, rgb = pass == 0 ? 0x000000 : 0xFFFFFF;
-			page.add(WatchHud.block(rgb, x - o, y + 8 - o, 19 + 2 * o, 10 + 2 * o));   // the shaft
-			for (int dy = -13; dy <= 13; dy++) {                                     // the head, row by row
-				int len = 16 - Math.abs(dy) * 16 / 13;
-				if (len + o * 2 <= 0) continue;
-				page.add(WatchHud.block(rgb, x + 18 - o, y + 13 + dy, len + 2 * o, 1));
+	/** Pebble PD's "Return to Game" picture: a big white arrow pointing right, outlined in black (34 x 26; with the
+	 *  outline 36 x 27, from (-1, 0)). One picture made here (the watch is sent its pixels once, about 150 bytes),
+	 *  rather than the 54 one-pixel-high blocks it was drawn with (2 KB each time the page was shown, and 5 KB of the
+	 *  watch's memory while it showed). */
+	static com.watabou.gltextures.SmartTexture arrowTex() {
+		String k = "pebxel/arrow";
+		if (!com.watabou.gltextures.TextureCache.contains(k)) {
+			com.watabou.gltextures.SmartTexture t = com.watabou.gltextures.TextureCache.create(k, 36, 27);
+			com.badlogic.gdx.graphics.Pixmap px = t.bitmap;
+			px.setBlending(com.badlogic.gdx.graphics.Pixmap.Blending.None);
+			px.setColor(0); px.fill();
+			for (int pass = 0; pass < 2; pass++) {
+				int o = pass == 0 ? 1 : 0;
+				px.setColor(pass == 0 ? 0x000000FF : 0xFFFFFFFF);   // (RGBA)
+				px.fillRectangle(1 - o, 8 - o, 19 + 2 * o, 10 + 2 * o);   // the shaft
+				for (int dy = -13; dy <= 13; dy++) {                       // the head, row by row
+					int len = 16 - Math.abs(dy) * 16 / 13;
+					if (len + o * 2 > 0) px.fillRectangle(1 + 18 - o, 13 + dy, len + 2 * o, 1);
+				}
 			}
 		}
+		return com.watabou.gltextures.TextureCache.get(k);
+	}
+
+	private void arrow(float x, float y) {
+		Image a = new Image(arrowTex());
+		a.x = (float) Math.floor(x - 1 + 0.5f); a.y = (float) Math.floor(y + 0.5f); page.add(a);   // (on whole pixels, as the blocks were drawn)
 	}
 
 	private WatchButton big(int x, int y, int w, int h, int icon, String label, Runnable r) {

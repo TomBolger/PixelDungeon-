@@ -53,7 +53,7 @@ static void update(Layer *l, GContext *ctx) {
     APP_LOG(APP_LOG_LEVEL_INFO, "draw: %d ms per frame (sound %d)", (int)(spent / 20), (int)(spent_snd / 20)); spent = spent_snd = 0;
 #ifdef PROFILE
     extern uint32_t g_prof[8];
-    APP_LOG(APP_LOG_LEVEL_INFO, "img %d rect %d nine %d tiles %d text %d skin %d", (int)g_prof[1] / 20, (int)g_prof[2] / 20, (int)g_prof[3] / 20, (int)g_prof[4] / 20, (int)g_prof[5] / 20, (int)g_prof[6] / 20);
+    APP_LOG(APP_LOG_LEVEL_INFO, "img %d rect %d nine %d tiles %d text %d skin %d; strips decoded %d per frame", (int)g_prof[1] / 20, (int)g_prof[2] / 20, (int)g_prof[3] / 20, (int)g_prof[4] / 20, (int)g_prof[5] / 20, (int)g_prof[6] / 20, art_decodes() / 20);
     memset(g_prof, 0, sizeof(g_prof));
 #endif
   }
@@ -88,6 +88,7 @@ static bool s_have_off;
 static uint32_t s_cur_at;    // when the frame being played happened, in watch time
 static uint32_t s_cur_stamp; // ... and in phone time
 static AppTimer *s_ptimer;
+static bool s_flush;         // play everything waiting now, due or not
 #define MARGIN 40            // ms of slack for uneven radio
 #define QMAX 6000            // more waiting than this (or memory running short): catch up at once
 
@@ -99,6 +100,21 @@ static void queue_clear(void) {
 }
 
 static void pump(void *data);
+static void hello(void *data);
+static bool s_resyncing;   // asking for the whole screen again (a picture was lost): the presses waiting are kept
+
+// A picture couldn't be kept (memory ran out, scene.c g_lost): from then on the watch's copy of the screen is wrong
+// (a picture missing for good, or worse, every later message about it cut short). Ask the phone for the whole
+// screen again, as when the app starts; at most every 5 s.
+static void resync(void *data) {
+  static uint32_t s_asked;
+  uint32_t now = now_ms();
+  if (!g_lost || (s_asked && now - s_asked < 5000 * GAME_SPEED_NUM / GAME_SPEED_DEN)) return;
+  s_asked = now; g_lost = false;
+  APP_LOG(APP_LOG_LEVEL_WARNING, "a picture was lost (free %d): asking for the whole screen", (int)heap_bytes_free());
+  s_connected = false; s_resyncing = true;
+  hello(NULL);
+}
 
 static void pump_at(uint32_t due, uint32_t now) {
   if (s_ptimer) app_timer_cancel(s_ptimer);
@@ -109,7 +125,7 @@ static void pump_at(uint32_t due, uint32_t now) {
 static void pump(void *data) {
   s_ptimer = NULL;
   uint32_t now = now_ms();
-  bool rush = s_qbytes > QMAX || heap_bytes_free() < 10000;
+  bool rush = s_flush || s_qbytes > QMAX || heap_bytes_free() < 10000;
   while (s_q) {
     Msg *m = s_q;
     if (m->pos < m->len && m->data[m->pos] == C_TIME && m->len - m->pos >= 5) {
@@ -123,6 +139,7 @@ static void pump(void *data) {
     if (g_dirty) { g_dirty = false; kick(); }
     if (m->pos >= m->len) { s_q = m->next; if (!s_q) s_qtail = NULL; s_qbytes -= m->len; free(m); }
   }
+  if (g_lost) app_timer_register(1, resync, NULL);   // (not from in here: it empties the queue)
 }
 
 static void enqueue(const uint8_t *data, int len, uint32_t now) {
@@ -135,8 +152,18 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
     s_have_off = true;
   }
   Msg *m = malloc(sizeof(Msg) + len);
-  if (!m) { pump(NULL); m = malloc(sizeof(Msg) + len); }   // short of memory: play what's waiting first
-  if (!m) { s_cur_at = now; scene_apply(data, len, now); return; }
+  // short of memory: the pictures' cache gives some back (it can decode them again; a message can't be had again)
+  if (!m) { art_release(sizeof(Msg) + len + 1024); m = malloc(sizeof(Msg) + len); }
+  if (!m) {
+    // still none: play everything waiting at once, then this message, all of it. (Only its first frame was played
+    // here, in fact only its header: the rest was lost, and with it pictures the next messages speak of.)
+    s_flush = true; pump(NULL); s_flush = false;
+    s_cur_at = now;
+    for (int pos = 0; pos < len; ) { int used = scene_apply(data + pos, len - pos, now); pos += used > 0 ? used : len; }
+    if (g_dirty) { g_dirty = false; kick(); }
+    if (g_lost) app_timer_register(1, resync, NULL);
+    return;
+  }
   m->next = NULL; m->len = len; m->pos = 0; memcpy(m->data, data, len);
   if (s_qtail) s_qtail->next = m; else s_q = m;
   s_qtail = m; s_qbytes += len;
@@ -150,8 +177,8 @@ static void inbox(DictionaryIterator *it, void *ctx) {
   static int n;
   if (++n % 20 == 1) {
     extern void scene_stats(int *, int *, int *, int *); extern int art_cache_bytes(void);
-    int o, t, a, d; scene_stats(&o, &t, &a, &d);
-    APP_LOG(APP_LOG_LEVEL_INFO, "msg %d free %d pics %d tiles %d anim %d dyn %d cache %d", n, (int)heap_bytes_free(), o, t, a, d, art_cache_bytes());
+    int o, t, a, d, af, as; scene_stats(&o, &t, &a, &d); art_stats(&af, &as);
+    APP_LOG(APP_LOG_LEVEL_INFO, "msg %d free %d pics %d tiles %d anim %d dyn %d cache %d (failed %d uncached %d)", n, (int)heap_bytes_free(), o, t, a, d, art_cache_bytes(), af, as);
   }
   Tuple *t = dict_find(it, KEY_DATA);
   if (t && t->type == TUPLE_BYTE_ARRAY) {
@@ -302,18 +329,18 @@ static void clicks(void *ctx) {
 
 static void hello(void *data) {
   // tell the phone how big a message may be; it resends the whole screen. Repeat until it answers.
-  if (s_connected) return;
+  if (s_connected && !s_resyncing) return;
   queue_clear();
-  s_ntq = 0; s_npd = 0; g_pan_x = g_pan_y = 0;
+  if (!s_resyncing) { s_ntq = 0; s_npd = 0; g_pan_x = g_pan_y = 0; }
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) == APP_MSG_OK) {
     uint32_t in = app_message_inbox_size_maximum();
     dict_write_int32(it, KEY_HELLO, in > 8000 ? 8000 : (int32_t)in);
     dict_write_int32(it, KEY_VERSION, PROTOCOL);
     dict_write_int32(it, KEY_SCREEN, (PBL_IF_ROUND_ELSE(1, 0) << 24) | (PBL_DISPLAY_WIDTH << 12) | PBL_DISPLAY_HEIGHT);   // round?, width, height
-    app_message_outbox_send();
+    if (app_message_outbox_send() == APP_MSG_OK) s_resyncing = false;
   }
-  app_timer_register(2000, hello, NULL);
+  app_timer_register(s_resyncing ? 100 : 2000, hello, NULL);   // (resyncing: the outbox was busy with a press)
 }
 
 static void init(void) {

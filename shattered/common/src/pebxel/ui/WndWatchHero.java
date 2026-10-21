@@ -41,7 +41,7 @@ public class WndWatchHero extends WatchWindow {
 	private void show(int t) {
 		if (parent == null && camera != null && page.parent == null) return;   // (closed already: a late tap)
 		tab = t; lastTab = t;
-		page.clear(); tabs.clear();
+		wipe(page); wipe(tabs);
 		Hero h = Dungeon.hero;
 		if (h == null) return;
 		if (t == 0) stats(h); else buffs(h);

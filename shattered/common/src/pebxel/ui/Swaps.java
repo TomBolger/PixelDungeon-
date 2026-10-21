@@ -13,6 +13,9 @@ public final class Swaps {
 	public static boolean nativeHero;
 
 	public static Window window(Window w) {
+		// already one of ours (the menu's Catalogue and Journal, another bag): it has its shade. (dim() gave it a
+		// second full-screen one: no darker on the watch's dither, just drawn twice every frame.)
+		if (w instanceof WatchWindow) return w;
 		try {
 			Window mine = null;
 			if (w instanceof WndUseItem) mine = new WndWatchItem(((WndUseItem) w).owner, ((WndUseItem) w).item);
