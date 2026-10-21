@@ -143,7 +143,7 @@ public final class Assist {
 	private static int[] mindObj = new int[0], mindWalk = new int[0];
 	// the last plan
 	private static List<Target> last = new ArrayList<>();
-	private static boolean searchLast, ambushing, fishRelaxed;   // (plan A is an ambush: no hands, no resumed walk)
+	private static boolean searchLast, ambushing, fishRelaxed; private static float waterChosen = -99;   // (plan A is an ambush: no hands, no resumed walk)
 
 	// per-plan scratch
 	private static Level L; private static Hero H; private static int W, LEN, hp;
@@ -177,7 +177,8 @@ public final class Assist {
 	static final boolean DEWREST = opt("DEWREST", false);
 	static final boolean FAIRHUNT = opt("FAIRHUNT", true);
 	static final boolean GOOREACH = opt("GOOREACH", true);
-	static final boolean SHOP = opt("SHOP", true);   // buy by the guide's order with the gold there is   // Goo's blast by its own reach test; no ooze washing with Goo close   // "hunting" only as drawn (emotes, steps), not the AI state   // hurt, nothing about: the waterskin (keeping 5 drops) before resting   // DM-100 and the Gnoll Trickster too: out of their line, round a corner   // the fire escape: water, else out of fire's reach
+	static final boolean SHOP = opt("SHOP", true);
+	static final boolean CLERIC = opt("CLERIC", true);   // the Cleric casts Guiding Light   // buy by the guide's order with the gold there is   // Goo's blast by its own reach test; no ooze washing with Goo close   // "hunting" only as drawn (emotes, steps), not the AI state   // hurt, nothing about: the waterskin (keeping 5 drops) before resting   // DM-100 and the Gnoll Trickster too: out of their line, round a corner   // the fire escape: water, else out of fire's reach
 	static final boolean MEAT = opt("MEAT", false);     // raw mystery meat (4 in 5 a bad effect, burning among them): eaten standing in water   // the Rogue's cloak before a fight   // nothing in sight: rest below this share of health   // the Mage's first 3 upgrades into the staff
 	static final int HEALBOSS = optInt("HEALBOSS", 55);    // a boss in sight: Healing below this share (Goo's pumped blow is triple)   // the Mage's staff zapped point blank too (magic: double accuracy, more damage than the staff's own blow)   // low and losing: up the stairs (only allies follow), rest there, come back   // tall grass walked for dew and seeds (off: only within 2 steps)     // Goo's ooze: into water to wash it off   // the Great Crab: ambushes are the only blows it doesn't block
 	static int optInt(String name, int def) { try { String v = System.getenv("AS_" + name); return v == null ? def : Integer.parseInt(v); } catch (Throwable e) { return def; } }
@@ -269,7 +270,9 @@ public final class Assist {
 				case USE: {
 					if (t.item == null || t.action == null) return false;
 					if (Wand.AC_ZAP.equals(t.action) || MagesStaff.AC_ZAP.equals(t.action)) zapped.put(t.item, Actor.now());
-					t.item.execute(h, t.action);
+					if (SPELL_GL.equals(t.action) && t.item instanceof com.shatteredpixel.shatteredpixeldungeon.items.artifacts.HolyTome)
+						com.shatteredpixel.shatteredpixeldungeon.actors.hero.spells.GuidingLight.INSTANCE.onCast((com.shatteredpixel.shatteredpixeldungeon.items.artifacts.HolyTome) t.item, h);   // (the tome's window, skipped: the same spell, cast)
+					else t.item.execute(h, t.action);
 					for (int i = 0; i < 4; i++) if (!followUp(t)) break;
 					return true;
 				}
@@ -287,6 +290,7 @@ public final class Assist {
 			}
 			if (t.cell < 0) return false;
 			noteTalk(t.cell);
+			if (anyDanger) clearPath(h);   // (the hero keeps its last walk to the same cell: one planned before a hazard was seen)
 			GameScene.handleCell(t.cell);
 			return true;
 		} catch (Throwable e) { lastError = e; return false; }
@@ -355,6 +359,10 @@ public final class Assist {
 					try { f.setAccessible(true); return (WndBag.ItemSelector) f.get(w); } catch (Exception e) { return null; }
 				}
 		return null;
+	}
+
+	private static void clearPath(Hero h) {
+		try { java.lang.reflect.Field f = Char.class.getDeclaredField("path"); f.setAccessible(true); f.set(h, null); } catch (Throwable e) { }
 	}
 
 	private static Object field(Object o, String name) {
@@ -583,7 +591,7 @@ public final class Assist {
 		if (mode() != 0) {
 			Target first = out.isEmpty() ? null : out.get(0);
 			if (itemsOn()) { Target hk = hands(first); if (hk != null) front(hk); }
-			boolean pinned = h0 > 0 && !(Item.AC_THROW.equals(out.get(0).action) || Wand.AC_ZAP.equals(out.get(0).action) || SpiritBow.AC_SHOOT.equals(out.get(0).action));
+			boolean pinned = h0 > 0 && !(Item.AC_THROW.equals(out.get(0).action) || Wand.AC_ZAP.equals(out.get(0).action) || SpiritBow.AC_SHOOT.equals(out.get(0).action) || SPELL_GL.equals(out.get(0).action));
 			if (!pinned) h0 = 0;
 			Target e = escape();
 			if (e != null) front(e);
@@ -1012,7 +1020,7 @@ public final class Assist {
 			if (st > 0 && L.map[st] == Terrain.LOCKED_EXIT) {   // the boss's key
 				for (Heap h : L.heaps.valueList()) if (h.seen && h.type == Heap.Type.HEAP && h.peek() instanceof WornKey && known[h.pos] && walk(h.pos) < INF) { kind[0] = PICKUP; why[0] = "the key"; return h.pos; }
 			}
-			if (fish) { fish = false; fishRelaxed = true; walls(false); continue; }   // only water left, piranhas about: into it all the same (to explore or leave, not for loot)
+			if (fish) { fish = false; fishRelaxed = true; waterChosen = Actor.now(); walls(false); continue; }   // only water left, piranhas about: into it all the same (to explore or leave, not for loot)
 			break;
 		}
 		searchLast = true;   // search for secret doors (plansB moves it to the best spot)
@@ -1240,7 +1248,7 @@ public final class Assist {
 		}
 		Target up = STAIRS ? upstairs() : null;
 		if (up != null) return up;
-		if (inDanger && (sentryZone[hp] || hazMem[hp] || Actor.now() - fishAt <= 5)) {   // on a sentry's floor, or by the water with a piranha just seen: off it, the shortest way
+		if (inDanger && (sentryZone[hp] || hazMem[hp] || (Actor.now() - fishAt <= 5 && !fishRelaxed && !(Actor.now() - waterChosen <= 10 && Actor.now() >= waterChosen)))) {   // (relaxed: the plan has chosen the water, the only way on)   // on a sentry's floor, or by the water with a piranha just seen: off it, the shortest way
 			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && !danger[c] && open[c] && seenChar(c) == null && !bad.containsKey(c)) { bk = dist[c]; best = c; }
 			if (best >= 0) return new Target(best, GO, sentryZone[hp] ? "escape: off the sentry's floor" : "escape: out of the water");
 		}
@@ -1457,11 +1465,23 @@ public final class Assist {
 		return c == WandOfMagicMissile.class || c == WandOfDisintegration.class || c == WandOfFrost.class || c == WandOfBlastWave.class || c == WandOfPrismaticLight.class;
 	}
 
+	public static final String SPELL_GL = "SPELL:GuidingLight";
+	/** The Cleric's Guiding Light (a sure magic hit; the target, lit, can't dodge the next blow), whenever the tome can cast it. */
+	private static Target guiding(Mob e) {
+		if (!CLERIC) return null;
+		com.shatteredpixel.shatteredpixeldungeon.items.artifacts.HolyTome tome = bag(com.shatteredpixel.shatteredpixeldungeon.items.artifacts.HolyTome.class);
+		if (tome == null || tome.cursed) return null;
+		try { if (!tome.canCast(H, com.shatteredpixel.shatteredpixeldungeon.actors.hero.spells.GuidingLight.INSTANCE)) return null; } catch (Throwable x) { return null; }
+		if (new Ballistica(hp, e.pos, Ballistica.MAGIC_BOLT).collisionPos != e.pos) return null;
+		return use(tome, SPELL_GL, e.pos, "guiding light");
+	}
+
 	/** From afar: what's in a quickslot first, the bow, charged wands, known harmful potions, missiles. */
 	private static Target ranged() {
 		Mob e = null; int ed = 99;
 		for (Mob m : mobs()) { if (!enemy(m) || !hunting(m) || m instanceof NPC) continue; int d = distance(m.pos, hp); if (d < ed && line(hp, m.pos)) { ed = d; e = m; } }
 		if (e == null) return null;
+		Target gl = guiding(e); if (gl != null) return gl;
 		if (ed < 2) {   // beside the hero: only the staff, and only an attack bolt
 			MagesStaff st = ADJZAP ? bag(MagesStaff.class) : null;
 			Object w = st == null ? null : field(st, "wand");
