@@ -74,6 +74,17 @@ public class MenuTest {
 		}
 		System.out.println(switches + " switches: " + tot[0] + " B in " + tot[1] + " msgs (biggest " + tot[2] + "), per switch " + Arrays.toString(per) + "; " + link.truth().size() + " pictures");
 		top(link);
+		// Repeated settings changes: the rest of the page should stay put, with no listener growth.
+		pebxel.ui.WndWatchMenu settings = (pebxel.ui.WndWatchMenu) Ui.topWindow();
+		java.lang.reflect.Method show = settings.getClass().getDeclaredMethod("show", int.class); show.setAccessible(true); show.invoke(settings, 2);
+		for (int f = 0; f < 10; f++) frame.run();
+		int lSettings = listeners(); reset.run();
+		for (int k = 0; k < 24; k++) {
+			for (Ui.Part p : Ui.parts(settings)) if (p.button && p.text.startsWith("Music:")) { Ui.press(p.g); break; }
+			for (int f = 0; f < 5; f++) frame.run();
+		}
+		System.out.println("24 music changes: " + tot[0] + " B in " + tot[1] + " msgs; listeners " + listeners() + " (before " + lSettings + ")");
+		if (listeners() != lSettings) throw new AssertionError("settings listeners grew");
 		System.out.println("window " + Ui.topWindow() + ", touch listeners " + listeners() + ", full-screen shades " + shades());
 		controls.button(Controls.BACK);
 		for (int f = 0; f < 30; f++) frame.run();

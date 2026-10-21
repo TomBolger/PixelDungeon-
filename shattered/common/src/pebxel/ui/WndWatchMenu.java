@@ -63,6 +63,7 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 	private void show(int p) {
 		if (parent == null && camera != null && page.parent == null) return;   // (closed already: a late tap)
 		pageNo = p; if (p >= 0) lastPage = p;
+		pageChanged();
 		wipe(page);
 		pageButtons.clear();
 		String title = p < 0 ? "Game Over" : p == 0 ? "Shattered PD" : p == 1 ? "Catalogue & Journal" : "Audio";
@@ -113,7 +114,7 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 				int[][] rs = tabRects(0, 0, tw, TAB_H, false);
 				for (int i = 0; i < TAB_RECTS; i++) { tabArt[k][i] = WatchHud.block(rs[i][4], 0, 0, 1, 1); tabs.add(tabArt[k][i]); }
 				tabIcons[k] = PdArt.image("menu_icons", k * 16, 0, 16, 16, 2); tabs.add(tabIcons[k]);
-				Button b = new Button() { @Override protected void onClick() { show(kk); focusIdx = 0; } };
+				Button b = new Button() { @Override protected void onClick() { if (pageNo != kk) show(kk); focusIdx = 0; } };
 				b.setRect(tabX(k), ch + 1, tw, TAB_H - 4); tabs.add(b);
 			}
 		}
@@ -135,33 +136,50 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 	 * The settings page (Pebble PD's: two headed rows of two tiles, a switched-off one with its icon crossed out):
 	 * audio (music on or off; sound loud, medium, quiet or off) and the assistant (how far it looks, whether it offers items).
 	 */
+	private final Group[] settingTiles = new Group[4];
 	private void settings() {
-		final int TH = 56, HH = 14, half = (W - GAP) / 2;
-		int y = HEAD;
+		heading("Assistant", HEAD + 56 + GAP);
+		for (int i = 0; i < 4; i++) {
+			settingTiles[i] = new Group(); page.add(settingTiles[i]);
+			pageButtons.add(null); setting(i);
+		}
+	}
+
+	/** A setting changes just its tile. Rebuilding the whole page sent unrelated labels/icons again and
+	 * destroyed every button while a finger was still lifting from one. */
+	private void setting(int slot) {
+		Group into = settingTiles[slot]; wipe(into);
+		final int TH = 56, half = (W - GAP) / 2;
+		int x = slot % 2 == 0 ? 0 : half + GAP + 1, y = slot < 2 ? HEAD : HEAD + TH + GAP + 14;
+		WatchButton b;
 		boolean music = pebxel.WatchSettings.music();
 		int snd = pebxel.WatchSettings.sound();
-		tile(0, y, half, TH, PdArt.image("menu_icons", 3 * 16, 0, 16, 16, 2), !music, "Music: " + (music ? "On" : "Off"),
-				() -> { pebxel.WatchSettings.music(!pebxel.WatchSettings.music()); show(2); }, true);
-		tile(half + GAP + 1, y, half, TH, PdArt.image("menu_icons", 4 * 16, 0, 16, 16, 2), snd == 3,
+		if (slot == 0) b = tile(into, x, y, half, TH, PdArt.image("menu_icons", 3 * 16, 0, 16, 16, 2), !music, "Music: " + (music ? "On" : "Off"),
+				() -> { pebxel.WatchSettings.music(!pebxel.WatchSettings.music()); setting(0); }, true);
+		else if (slot == 1) b = tile(into, x, y, half, TH, PdArt.image("menu_icons", 4 * 16, 0, 16, 16, 2), snd == 3,
 				"Sound: " + new String[]{"Loud", "Medium", "Quiet", "Off"}[snd],
-				() -> { pebxel.WatchSettings.sound((pebxel.WatchSettings.sound() + 1) % 4); show(2); }, true);   // Loud, Medium, Quiet, Off
-		y += TH + GAP;
-		heading("Assistant", y); y += HH;
-		int a = pebxel.WatchSettings.assist();
-		boolean items = pebxel.WatchSettings.itemAssist();
-		Image ret = PdArt.image("icons", 67, 0, 16, 16, 2);
-		// inside the reticle: the hero (near: around you) or the way down (far: anywhere on the floor)
-		if (a > 0) decorate = () -> {
-			Image in = a == 1 ? com.shatteredpixel.shatteredpixeldungeon.sprites.HeroSprite.avatar(Dungeon.hero) : PdArt.image("menu_icons", 6 * 16, 0, 16, 16, 1);
-			in.x = ret.x + (32 - in.width()) / 2; in.y = ret.y + (32 - in.height()) / 2; page.add(in);
-		};
-		tile(0, y, half, TH, ret, a == 0, "Assist: " + (a == 0 ? "Off" : a == 1 ? "Near" : "Far"),
-				() -> { pebxel.WatchSettings.assist((pebxel.WatchSettings.assist() + 1) % 3); show(2); }, true);
-		com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite bagIc = new com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite(
-				com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet.BACKPACK, null);
-		bagIc.scale.set(2);
-		tile(half + GAP + 1, y, half, TH, bagIc, !items || a == 0, "Item assist: " + (items ? "On" : "Off"),
-				() -> { pebxel.WatchSettings.itemAssist(!pebxel.WatchSettings.itemAssist()); show(2); }, a > 0);
+				() -> { pebxel.WatchSettings.sound((pebxel.WatchSettings.sound() + 1) % 4); setting(1); }, true);
+		else {
+			int a = pebxel.WatchSettings.assist();
+			boolean items = pebxel.WatchSettings.itemAssist();
+			if (slot == 2) {
+				Image ret = PdArt.image("icons", 67, 0, 16, 16, 2);
+				// Inside the reticle: the hero (near) or the way down (far).
+				if (a > 0) decorate = () -> {
+					Image in = a == 1 ? com.shatteredpixel.shatteredpixeldungeon.sprites.HeroSprite.avatar(Dungeon.hero) : PdArt.image("menu_icons", 6 * 16, 0, 16, 16, 1);
+					in.x = ret.x + (32 - in.width()) / 2; in.y = ret.y + (32 - in.height()) / 2; into.add(in);
+				};
+				b = tile(into, x, y, half, TH, ret, a == 0, "Assist: " + (a == 0 ? "Off" : a == 1 ? "Near" : "Far"),
+						() -> { pebxel.WatchSettings.assist((pebxel.WatchSettings.assist() + 1) % 3); setting(2); setting(3); }, true);
+			} else {
+				com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite bagIc = new com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite(
+						com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet.BACKPACK, null);
+				bagIc.scale.set(2);
+				b = tile(into, x, y, half, TH, bagIc, !items || a == 0, "Item assist: " + (items ? "On" : "Off"),
+						() -> { pebxel.WatchSettings.itemAssist(!pebxel.WatchSettings.itemAssist()); setting(3); }, a > 0);
+			}
+		}
+		pageButtons.set(slot, b);
 	}
 
 	private void heading(String s, int y) {
@@ -171,21 +189,22 @@ public class WndWatchMenu extends WatchWindow implements Navigable {
 
 	private Runnable decorate;
 
-	private void tile(int x, int y, int w, int h, Image icon, boolean off, String label, Runnable r, boolean enabled) {
+	private WatchButton tile(Group into, int x, int y, int w, int h, Image icon, boolean off, String label, Runnable r, boolean enabled) {
 		WatchButton b = new WatchButton(label) { @Override protected void onClick() { if (enabled) r.run(); } };
 		b.small = true;
 		b.setRect(x, y, w, h);
 		fit(b);
 		b.icon(icon);
-		b.label(label);
 		if (!enabled) b.labelColor = LIGHT;
-		page.add(b); pageButtons.add(b);
+		b.label(label);
+		into.add(b);
 		if (decorate != null) { decorate.run(); decorate = null; }
 		if (off) {
 			// switched off: Pebble PD crosses the picture out
 			Image xx = PdArt.image("menu_icons", 10 * 16, 0, 16, 16, 2);
-			xx.x = icon.x + (icon.width() - 32) / 2; xx.y = icon.y + (icon.height() - 32) / 2; page.add(xx);
+			xx.x = icon.x + (icon.width() - 32) / 2; xx.y = icon.y + (icon.height() - 32) / 2; into.add(xx);
 		}
+		return b;
 	}
 
 	/** Pebble PD's "Return to Game" picture: a big white arrow pointing right, outlined in black (34 x 26; with the

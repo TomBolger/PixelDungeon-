@@ -58,6 +58,7 @@ public class WndWatchRecords extends WatchWindow {
 	private void show(int t) {
 		if (parent == null && camera != null && page.parent == null) return;   // (closed already: a late tap)
 		tab = t;
+		pageChanged();
 		wipe(page); wipe(tabs);
 		page.add(WatchHud.block(0x555555, -1, -1, W + 2, 17));
 		if (journal) { journalPage(); return; }
@@ -118,6 +119,6 @@ public class WndWatchRecords extends WatchWindow {
 		final int k;
 		Tab(int k) { super(); this.k = k; }
 		public void focus(boolean on) { if (on && k != tab) show(k); }
-		@Override protected void onClick() { if (k == tab && !pebxel.Controls.fingerLast) hide(); else show(k); }
+		@Override protected void onClick() { if (k == tab) { if (!pebxel.Controls.fingerLast) hide(); } else show(k); }
 	}
 }

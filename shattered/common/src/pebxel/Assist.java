@@ -1478,12 +1478,14 @@ public final class Assist {
 			if (cur instanceof ClassArmor || cur instanceof MagesStaff) continue;
 			if (a > b && !declined(i.getClass(), EquipableItem.AC_EQUIP)) return use(i, EquipableItem.AC_EQUIP, -1, "better gear");
 		}
+		// (not while the floor is locked: LockedFloor stops regeneration, so resting there can wait forever; from the codex review)
 		boolean bossHere = bossSeen >= 0 && Actor.now() - bossSeen < 100;   // (a boss seen on this floor lately)
-		if (Dungeon.bossLevel() && bossHere && H.HP * 20 < H.HT * 19 && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "rest before the boss"); t.action = REST_ACT; t.obj = -1; return t; }
+		if (!L.locked && Dungeon.bossLevel() && bossHere && H.HP * 20 < H.HT * 19 && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "rest before the boss"); t.action = REST_ACT; t.obj = -1; return t; }
 		if (DEWREST && H.HP * 100 < H.HT * RESTPCT && ws != null && field(ws, "volume") instanceof Integer && (Integer) field(ws, "volume") > DEWKEEP && !declined(Waterskin.class, "DRINK")) return use(ws, "DRINK", -1, "hurt: dew, not food");   // (resting costs 10 turns of food a point)
-		if (H.HP * 100 < H.HT * RESTPCT && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "hurt: rest"); t.action = REST_ACT; t.obj = -1; return t; }
+		if (!L.locked && H.HP * 100 < H.HT * RESTPCT && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "hurt: rest"); t.action = REST_ACT; t.obj = -1; return t; }
 		return null;
 	}
+
 	private static boolean declinedAny(String a) { for (String s : declined) if (s.endsWith(":" + a)) return true; return false; }
 	private static int tier(Item i) { return i instanceof Armor ? ((Armor) i).tier : i instanceof MeleeWeapon ? ((MeleeWeapon) i).tier : 0; }
 
