@@ -31,7 +31,10 @@ public final class BotQuests {
 	/** A quest step to take now, or null. */
 	static Assist.Target pick() {
 		Hero h = Dungeon.hero; Level L = Dungeon.level;
-		if (h == null || L == null || !h.ready || !Coverage.flag(Wandmaker.class, "given") || !wandmakerHere()) return null;
+		if (h == null || L == null || !h.ready) return null;
+		Assist.Target b = blacksmith(h, L);
+		if (b != null) return b;
+		if (!Coverage.flag(Wandmaker.class, "given") || !wandmakerHere()) return null;
 		if (Wandmaker.Quest.wand1 == null) return null;   // (done)
 		if (Dungeon.depth != stepsDepth) { stepsDepth = Dungeon.depth; steps = 0; }
 		if (++steps > 400) return null;   // (a step that goes nowhere: let the rescue have it)
@@ -53,6 +56,50 @@ public final class BotQuests {
 		if (type == 1) return grave(h, L);
 		return null;
 	}
+
+	// ---- the Blacksmith: his mine (dig out the dark gold veins, then up the ladder: "I'm done"), then his favours ----
+	static int mineSteps, mineDepth = -1, smithTalks; static boolean mineDone;
+
+	static Assist.Target blacksmith(Hero h, Level L) {
+		if (L instanceof com.shatteredpixel.shatteredpixeldungeon.levels.MiningLevel) {
+			if (mineDepth != Dungeon.depth) { mineDepth = Dungeon.depth; mineSteps = 0; }
+			mineSteps++;
+			for (Mob m : L.mobs) if (m.alignment == com.shatteredpixel.shatteredpixeldungeon.actors.Char.Alignment.ENEMY && L.heroFOV[m.pos] && L.adjacent(m.pos, h.pos)) return null;   // (fight first)
+			com.shatteredpixel.shatteredpixeldungeon.items.quest.DarkGold g = h.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.quest.DarkGold.class);
+			int gold = g == null ? 0 : g.quantity();
+			if (gold < 40 && mineSteps < 1500) {
+				int[] d = WatchDriver.stepsFrom(h.pos);
+				int best = -1, bd = Integer.MAX_VALUE;
+				for (int c = 0; c < L.length(); c++) {
+					if (L.map[c] != Terrain.WALL_DECO || !(L.visited[c] || L.mapped[c] || L.heroFOV[c]) || !L.insideMap(c)) continue;
+					for (int k : com.watabou.utils.PathFinder.NEIGHBOURS8) { int n = c + k; if (n >= 0 && n < L.length() && d[n] < bd) { bd = d[n]; best = c; } }
+				}
+				if (best >= 0) { veinsDug++; return new Assist.Target(best, Assist.GO, "quest: dig the gold vein"); }
+				if (mineSteps < 600) return null;   // (none known: the Assistant explores)
+			}
+			com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(true);
+			if (tr == null) return null;
+			mineDone = true;
+			return tr.cell() == h.pos ? new Assist.Target(h.pos, Assist.PICKUP, "quest: out of the mine") : walk(h, L, tr.cell(), "quest: out of the mine");
+		}
+		// his ladder down to the mine, once he's asked
+		com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith smith = null;
+		for (Mob m : L.mobs) if (m instanceof com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith) smith = (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith) m;
+		if (smith != null && com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith.Quest.given() && !com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith.Quest.started() && !mineDone) {
+			for (com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr : L.transitions)
+				if (tr.type == com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition.Type.BRANCH_EXIT && (L.visited[tr.cell()] || L.mapped[tr.cell()] || L.heroFOV[tr.cell()]))
+					return tr.cell() == h.pos ? new Assist.Target(h.pos, Assist.PICKUP, "quest: down to the mine") : walk(h, L, tr.cell(), "quest: to the mine's ladder");
+		}
+		// back up top: the favours he owes
+		if (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith.Quest.completed() && com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith.Quest.rewardsAvailable() && smithTalks < 6) {
+			for (Mob m : L.mobs) if (m instanceof com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith && (L.visited[m.pos] || L.heroFOV[m.pos])) {
+				if (L.adjacent(m.pos, h.pos)) { smithTalks++; return new Assist.Target(m.pos, Assist.GO, "quest: the Blacksmith's favours"); }
+				return walk(h, L, m.pos, "quest: back to the Blacksmith");
+			}
+		}
+		return null;
+	}
+	static int veinsDug;
 
 	/** A walk there (the hero stuck for two tries: put there, the cheat, as the rescue does). */
 	static Assist.Target walk(Hero h, Level L, int c, String why) { return Rescue.walkOrPut(h, L, c, why); }

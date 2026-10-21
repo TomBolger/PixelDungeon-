@@ -26,7 +26,7 @@ public final class BotWindows {
 	static Window lastW; static int visits; static String lastKind = ""; static int sameKind;
 	static Random rnd = new Random(1);
 
-	static final String[] NEGATIVE = {"cancel", "no", "back", "close", "leave", "not now", "nevermind", "never mind", "return", "i'll decide later", "go to patreon"};
+	static final String[] NEGATIVE = {"cancel", "no", "back", "close", "leave", "not now", "nevermind", "never mind", "return", "i'll decide later", "go to patreon", "not yet"};
 
 	static boolean negative(String s) {
 		String l = s.toLowerCase(Locale.ROOT).trim();
@@ -83,8 +83,8 @@ public final class BotWindows {
 			if (pos.isEmpty()) return new Answer(null, null, "no choice: back");
 			return new Answer(pos.get(rnd.nextInt(pos.size())), null, "choose");
 		}
-		// the Blacksmith's mine: not yet (the bot can't dig for gold yet; MINES=1 lets it go down)
-		if (n.contains("CavesLevel") && !"1".equals(System.getenv("MINES"))) { Gizmo b = byText(bs, "not yet"); if (b != null) return new Answer(b, null, "not the mine"); }
+		// the Blacksmith's mine: MINES=0 keeps out of it
+		if (n.contains("CavesLevel") && "0".equals(System.getenv("MINES"))) { Gizmo b = byText(bs, "not yet"); if (b != null) return new Answer(b, null, "not the mine"); }
 		// questions (WndOptions and the like): the first positive answer; asked over and over: the next one
 		List<Gizmo> pos = positives(bs);
 		if (pos.isEmpty()) return new Answer(null, null, "only no: back");
