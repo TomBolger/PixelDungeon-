@@ -29,10 +29,10 @@ public final class Link {
 			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8;
-	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16;
+	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16, F_FOG = 32;   // F_FOG: the fog of war (the watch draws it as Pebble PD does)
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 8;
+	public static final int PROTOCOL = 9;
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -478,7 +478,8 @@ public final class Link {
 				boolean animated = a != null && !((MovieClip) g).paused && a.delay > 0 && a.frames.length > 1;
 				int tx = tex(im.texture);
 				s8(skin ? K_SKIN : K_IMG); s8(cam); s8(tx);
-				s8((im.flipHorizontal ? F_FLIPH : 0) | (im.flipVertical ? F_FLIPV : 0) | (animated ? F_ANIM : 0));
+				s8((im.flipHorizontal ? F_FLIPH : 0) | (im.flipVertical ? F_FLIPV : 0) | (animated ? F_ANIM : 0)
+					| (g instanceof com.shatteredpixel.shatteredpixeldungeon.tiles.FogOfWar ? F_FOG : 0));
 				origin(v); size(im.width, im.height);
 				if (animated) { s16(anim(a, tx, im.texture)); s16(0); s16(0); s16(0); }
 				else texRect(NoosaAccess.frame(im), im.texture);
@@ -704,7 +705,6 @@ public final class Link {
 		Pixmap p = t.bitmap;
 		if (p != null) {
 			byte[] px = Assets.pebble(p);
-			if (k != null && k.startsWith("FogOfWar")) lighten(px);
 			byte[] old = dynPixels.get(d);
 			if (!Arrays.equals(px, old)) {
 				dynPixels.put(d, px);
@@ -765,13 +765,6 @@ public final class Link {
 	 * Fog over remembered places: one alpha level lighter than on a phone. The watch dithers see-through
 	 * pixels, and Shattered's dimming at full strength hides remembered rooms in 64 colours.
 	 */
-	private static void lighten(byte[] px) {
-		for (int i = 0; i < px.length; i++) {
-			int a = (px[i] >> 6) & 3;
-			if (a == 2 || a == 1) px[i] = (byte) ((px[i] & 0x3F) | ((a - 1) << 6));
-		}
-	}
-
 	/** Run-time pictures go in pieces of this many pixels.
 	 *  C_DTEX: id, w, h, piece number, palette size n (0 = plain colour bytes), n colours, length, run-length data. */
 	static final int DTEX_PIECE = 1024;

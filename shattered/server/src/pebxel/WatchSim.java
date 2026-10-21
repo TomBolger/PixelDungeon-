@@ -285,6 +285,7 @@ public final class WatchSim {
 				BufferedImage t = tex(tex);
 				if (t == null) { flat = new float[]{1, 0, 1, 1}; quad(w, h, null); break; }
 				final int TX = tx, TY = ty, TW = tw, TH = th; final boolean fx = (flip & 1) != 0, fy = (flip & 2) != 0;
+				if ((flip & Link.F_FOG) != 0) { float[] q0 = toScreen(0, 0), q1 = toScreen(w, h); fog(t, tx, ty, tw, th, q0[0], q0[1], q1[0], q1[1]); break; }
 				if (o.kind == Link.K_SKIN) {
 					final float ox = d(o, Link.D_OX) / 8f, oy = d(o, Link.D_OY) / 8f;
 					quad(w, h, (u, v) -> t.getRGB(Math.floorMod((int) (u + ox), t.getWidth()), Math.floorMod((int) (v + oy), t.getHeight())));
@@ -393,6 +394,49 @@ public final class WatchSim {
 			int sxp = tx + (int) (u * tw), syp = ty + (int) (v * th);
 			if (sxp < 0 || syp < 0 || sxp >= t.getWidth() || syp >= t.getHeight()) continue;
 			plot(px, py, t.getRGB(sxp, syp));
+		}
+	}
+
+	// the fog of war as the watch draws it (draw.c draw_fog): remembered under a fine checker, never seen black, a soft
+	// dithered edge (rounded at corners, a third of a cell wide) where the seen meets the never seen
+	private static final int[] B16 = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+	private static int fogAt(BufferedImage t, int x, int y) {
+		if (x < 0 || y < 0 || x >= t.getWidth() || y >= t.getHeight()) return 16;
+		int a = (t.getRGB(x, y) >>> 24) / 85;
+		return a >= 3 ? 16 : a > 0 ? 8 : 0;
+	}
+	private void fog(BufferedImage t, int tx, int ty, int tw, int th, float L, float T, float R, float B) {
+		if (R <= L || B <= T || tw <= 0 || th <= 0) return;
+		for (int j = 0; j < th; j++) {
+			int y0 = Math.round(T + (B - T) * j / th), y1 = Math.round(T + (B - T) * (j + 1) / th);
+			if (y1 <= clipY0 || y0 >= clipY1 || y1 <= y0) continue;
+			for (int i = 0; i < tw; i++) {
+				int x0 = Math.round(L + (R - L) * i / tw), x1 = Math.round(L + (R - L) * (i + 1) / tw);
+				if (x1 <= clipX0 || x0 >= clipX1 || x1 <= x0) continue;
+				int cx = tx + i, cy = ty + j, own = fogAt(t, cx, cy);
+				int nw = x1 - x0, nh = y1 - y0, w = Math.max(2, 2 * Math.min(nw, nh) / 3), m = 0;
+				if (own < 16) {
+					int[][] nb = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}};
+					for (int k = 0; k < 8; k++) if (fogAt(t, cx + nb[k][0], cy + nb[k][1]) == 16) m |= 1 << k;
+					if (own == 0 && m == 0) continue;
+				}
+				for (int y = Math.max(y0, clipY0); y < Math.min(y1, clipY1); y++) {
+					int py = y - y0, fy = py < w ? py : nh - 1 - py;
+					for (int x = Math.max(x0, clipX0); x < Math.min(x1, clipX1); x++) {
+						int dd = w;
+						if (own < 16 && m != 0) {
+							int px = x - x0, fx = px < w ? px : nw - 1 - px;
+							if (fx < w || fy < w) {
+								boolean l = px < w, tp = py < w;
+								if (fy < w && (m & (tp ? 4 : 8)) != 0) dd = fy;
+								if (fx < w && (m & (l ? 1 : 2)) != 0 && fx < dd) dd = fx;
+								if (fx < w && fy < w && (m & (tp ? (l ? 16 : 32) : (l ? 64 : 128))) != 0) { int c = (int) Math.sqrt(fx * fx + fy * fy); if (c < dd) dd = c; }
+							}
+						}
+						if (own == 16 || B16[(y & 3) * 4 + (x & 3)] * w < own * w + 8 * (w - dd)) fb[y * W + x] = 0xFF000000;
+					}
+				}
+			}
 		}
 	}
 

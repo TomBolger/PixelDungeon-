@@ -61,6 +61,7 @@ public class Controls {
 		public int targetKind() {
 			int c = currentTarget();
 			if (c < 0 || Dungeon.level == null) return 0;
+			if (shot(targets.get(Math.min(target, targets.size() - 1)))) return 4;   // the bow at an enemy
 			Char ch = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c);
 			if (ch instanceof Mob && ((Mob) ch).alignment == Char.Alignment.ENEMY) return 1;
 			if (Dungeon.level.heaps.get(c) != null) return 2;
@@ -81,8 +82,23 @@ public class Controls {
 	/** The cell Select acts on (-1 none). */
 	private int currentTarget() {
 		if (Dungeon.hero == null || !Dungeon.hero.ready || targets.isEmpty()) return -1;
-		int c = targets.get(Math.min(target, targets.size() - 1));
+		int c = cellOf(targets.get(Math.min(target, targets.size() - 1)));
 		return c < 0 ? -1 : c;
+	}
+
+	// A target is a cell; SHOT marks the Huntress's spirit bow aimed at the enemy there (a shot rather than a melee attack)
+	static final int SHOT = 1 << 20;
+	static boolean shot(int t) { return t >= 0 && (t & SHOT) != 0; }
+	static int cellOf(int t) { return t < 0 ? t : t & (SHOT - 1); }
+	private static com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow bow() {
+		Hero h = Dungeon.hero; return h == null ? null : h.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow.class);
+	}
+	/** The bow, drawn and loosed at a cell (as its Shoot action, then a tap on the cell). */
+	private static void shoot(int cell) {
+		com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow b = bow();
+		if (b == null || Dungeon.hero == null || !Dungeon.hero.ready) return;
+		b.execute(Dungeon.hero, com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow.AC_SHOOT);
+		if (aiming()) GameScene.handleCell(cell);
 	}
 
 	private void hudPress(int k, boolean held) {
@@ -323,7 +339,7 @@ public class Controls {
 					return;
 				}
 				target = held ? (target + targets.size() - 1) % targets.size() : (target + 1) % targets.size();
-				if (!aiming) farView(targets.get(target));
+				if (!aiming) farView(cellOf(targets.get(target)));
 				return;
 			}
 			case SELECT:
@@ -336,6 +352,7 @@ public class Controls {
 				int cell = targets.get(Math.min(target, targets.size() - 1));
 				farView(-1);
 				if (cell == -2) { Dungeon.hero.search(true); }
+				else if (shot(cell)) shoot(cellOf(cell));
 				else GameScene.handleCell(cell);
 				targetsStale = true;
 				return;
@@ -428,7 +445,7 @@ public class Controls {
 		List<Integer> out = new ArrayList<>();
 		if (mode == 0) {
 			// off: the enemies in sight, nothing else
-			for (int c : ts) if (c >= 0 && com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c) instanceof Mob && ((Mob) com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c)).alignment == Char.Alignment.ENEMY) out.add(c);
+			for (int c : ts) if (c >= 0 && com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(cellOf(c)) instanceof Mob && ((Mob) com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(cellOf(c))).alignment == Char.Alignment.ENEMY) out.add(c);
 			return out;
 		}
 		if (mode == 2) return ts;
@@ -436,6 +453,7 @@ public class Controls {
 		int[] dist = walk(L, h);
 		for (int c : ts) {
 			int t = c;
+			if (shot(t)) { if (!out.contains(t)) out.add(t); continue; }   // (a shot: at an enemy in sight)
 			if (t >= 0 && !onScreen(t)) {
 				if (dist[t] <= 0) continue;
 				int guard = 0;
@@ -493,7 +511,16 @@ public class Controls {
 		List<Mob> ms = new ArrayList<>();
 		for (Mob m : L.mobs) if (L.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) ms.add(m);
 		ms.sort(Comparator.comparingInt(m -> L.distance(h, m.pos)));
-		for (Mob m : ms) out.add(m.pos);
+		// the Huntress's bow: a shot at each one an arrow would reach (first when it's further than a step, after the
+		// melee attack when it's beside the hero)
+		boolean bow = bow() != null;
+		for (Mob m : ms) {
+			boolean reach = bow && new com.shatteredpixel.shatteredpixeldungeon.mechanics.Ballistica(h, m.pos, com.shatteredpixel.shatteredpixeldungeon.mechanics.Ballistica.PROJECTILE).collisionPos == m.pos;
+			boolean near = L.adjacent(h, m.pos);
+			if (reach && !near) out.add(m.pos | SHOT);
+			out.add(m.pos);
+			if (reach && near) out.add(m.pos | SHOT);
+		}
 		// an item under you, then known items by walking distance
 		if (L.heaps.get(h) != null) out.add(h);
 		int[] dist = walk(L, h);
@@ -560,7 +587,7 @@ public class Controls {
 		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) { marker.hide(); return; }
 		if (onToolbar || !Dungeon.hero.ready) { marker.hide(); return; }   // (the toolbar's highlight is drawn by the HUD)
 		refreshTargets(aiming());
-		int cell = targets.isEmpty() ? -1 : targets.get(Math.min(target, targets.size() - 1));
+		int cell = targets.isEmpty() ? -1 : cellOf(targets.get(Math.min(target, targets.size() - 1)));
 		if (cell < 0) { marker.hide(); return; }
 		marker.at(cell);
 	}
@@ -586,7 +613,7 @@ public class Controls {
 		int n = Math.min(targets.size(), PLAN_TARGETS);
 		b.write(1); w16(b, mid); w16(b, hid < 0 ? 0xFFFF : hid); b.write(STEP_MS / 4); b.write(n); b.write(Math.min(target, n - 1));
 		for (int i = 0; i < n; i++) {
-			int cell = targets.get(i);
+			int cell = cellOf(targets.get(i));
 			if (cell < 0) { w16(b, 0x7FFF); w16(b, 0x7FFF); b.write(0); continue; }
 			float[] xy = Marker.place(cell);
 			w16(b, Math.round(xy[0] * 8)); w16(b, Math.round(xy[1] * 8));

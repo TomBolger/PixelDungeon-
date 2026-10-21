@@ -440,11 +440,13 @@ public class WatchHud extends Group {
 		if (next) tagButton(2, ctag(2)); else tagButtons[2].visible = tagButtons[2].active = false;
 		// what Select does: attack (red, the weapon), pick up (blue, the thing), go there (pale, the walk arrow)
 		boolean act = alive && cell >= 0 && kind > 0;
-		String actKey = !act ? "-" : kind == 1 ? "1/" + (weapon == null ? 0 : weapon.image()) : kind == 2 && there != null ? "2/" + there.peek().image() : "3";
+		Item bow = kind == 4 ? h.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow.class) : null;
+		String actKey = !act ? "-" : kind == 4 ? "4/" + (bow == null ? 0 : bow.image()) : kind == 1 ? "1/" + (weapon == null ? 0 : weapon.image()) : kind == 2 && there != null ? "2/" + there.peek().image() : "3";
 		if (tagChanged(1, actKey) && act) {
 			a = ctag(1);
-			if (kind == 1) {
+			if (kind == 1 || kind == 4) {   // (4: a shot: the bow)
 				tag(a, "tag_red");
+				if (kind == 4) weapon = bow;
 				if (weapon != null) { ItemSprite s = new ItemSprite(weapon); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s); }
 			} else if (kind == 2 && there != null) {
 				tag(a, "tag_blue");

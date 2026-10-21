@@ -326,6 +326,55 @@ static void draw_shape(Obj *o) {
   }
 }
 
+// ---- the fog of war, as Pebble PD draws it (its fx overlay, 0.98): a remembered place under a fine checker (darker, no
+// dither), the never seen black, and a soft dithered edge, rounded at corners, where what's seen meets the never seen,
+// only in a band a third of a cell wide. SPD's fog has two texels a cell (a wall's two halves can differ).
+static const uint8_t B16[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+static int isqrt(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
+static int fog_at(const DynTex *d, int x, int y) {                  // 0 in sight, 8 remembered, 16 never seen
+  if (x < 0 || y < 0 || x >= d->w || y >= d->h) return 16;
+  int a = dyn_px(d, y * d->w + x) >> 6;
+  return a == 3 ? 16 : a ? 8 : 0;
+}
+static void draw_fog(int tex, int tx, int ty, int tw, int th, int32_t L, int32_t T, int32_t R, int32_t B) {
+  const DynTex *d = scene_dyntex(tex);
+  if (!d || R <= L || B <= T || tw <= 0 || th <= 0) return;
+  for (int j = 0; j < th; j++) {
+    int y0 = (T + (int32_t)((int64_t)(B - T) * j / th) + 4) >> 3, y1 = (T + (int32_t)((int64_t)(B - T) * (j + 1) / th) + 4) >> 3;
+    if (y1 <= s_cy0 || y0 >= s_cy1 || y1 <= y0) continue;
+    for (int i = 0; i < tw; i++) {
+      int x0 = (L + (int32_t)((int64_t)(R - L) * i / tw) + 4) >> 3, x1 = (L + (int32_t)((int64_t)(R - L) * (i + 1) / tw) + 4) >> 3;
+      if (x1 <= s_cx0 || x0 >= s_cx1 || x1 <= x0) continue;
+      int cx = tx + i, cy = ty + j, own = fog_at(d, cx, cy);
+      int nw = x1 - x0, nh = y1 - y0, w = 2 * (nw < nh ? nw : nh) / 3; if (w < 2) w = 2;   // the band: a third of a cell (two texels)
+      int m = 0;
+      if (own < 16) {
+        m = (fog_at(d, cx - 1, cy) == 16) | (fog_at(d, cx + 1, cy) == 16) << 1 | (fog_at(d, cx, cy - 1) == 16) << 2 | (fog_at(d, cx, cy + 1) == 16) << 3
+          | (fog_at(d, cx - 1, cy - 1) == 16) << 4 | (fog_at(d, cx + 1, cy - 1) == 16) << 5 | (fog_at(d, cx - 1, cy + 1) == 16) << 6 | (fog_at(d, cx + 1, cy + 1) == 16) << 7;
+        if (!own && !m) continue;                                   // in sight, nothing dark beside it
+      }
+      for (int y = y0 < s_cy0 ? s_cy0 : y0; y < y1 && y < s_cy1; y++) {
+        int xa = x0 < s_cx0 ? s_cx0 : x0, xb = x1 > s_cx1 ? s_cx1 : x1; ROWCLIP(y, xa, xb);
+        uint8_t *row = ROWPTR(y);
+        int py = y - y0, fy = py < w ? py : nh - 1 - py;            // distance in from the nearer top / bottom side
+        for (int x = xa; x < xb; x++) {
+          int dd = w;
+          if (own < 16 && m) {
+            int px = x - x0, fx = px < w ? px : nw - 1 - px;
+            if (fx < w || fy < w) {
+              bool l = px < w, t = py < w;
+              if (fy < w && (m & (t ? 4 : 8))) dd = fy;
+              if (fx < w && (m & (l ? 1 : 2)) && fx < dd) dd = fx;
+              if (fx < w && fy < w && (m & (t ? (l ? 16 : 32) : (l ? 64 : 128)))) { int c = isqrt(fx * fx + fy * fy); if (c < dd) dd = c; }
+            }
+          }
+          if (own == 16 || B16[(y & 3) * 4 + (x & 3)] * w < own * w + 8 * (w - dd)) row[x] = GColorBlackARGB8;
+        }
+      }
+    }
+  }
+}
+
 static void draw_obj(Obj *o) {
   if (o->cam >= MAX_CAM || !g_cam[o->cam].used) return;
   s_cam = &g_cam[o->cam];
@@ -379,6 +428,7 @@ static void draw_obj(Obj *o) {
   int32_t l = X + o->ox - o->ox * sx / 256, t = Y + o->oy - o->oy * sy / 256;
   int32_t r = l + o->w * sx / 256, b = t + o->h * sy / 256;
   if (f.solid) { fill(scx(l), scy(t), scx(r), scy(b), f.solid); return; }
+  if (o->flags & F_FOG) { draw_fog(f.tex, f.tx, f.ty, f.tw, f.th, scx(l), scy(t), scx(r), scy(b)); return; }
   blit(f.tex, f.tx, f.ty, f.tw, f.th, scx(l), scy(t), scx(r), scy(b), f.fx, f.fy);
 }
 
