@@ -21,7 +21,7 @@ public final class Swaps {
 			if (w instanceof WndUseItem) mine = new WndWatchItem(((WndUseItem) w).owner, ((WndUseItem) w).item);
 			else if (w instanceof WndGame) mine = new WndWatchMenu();
 			else if (w instanceof com.shatteredpixel.shatteredpixeldungeon.windows.WndHero && !nativeHero) mine = new WndWatchHero();
-			else if (w instanceof WndBag) { WndBag.ItemSelector sel = (WndBag.ItemSelector) get(WndBag.class, w, "selector"); mine = new WndWatchBag(startBag((Bag) get(WndBag.class, null, "lastBag"), sel), sel); }
+			else if (w instanceof WndBag) { WndBag.ItemSelector sel = (WndBag.ItemSelector) get(WndBag.class, w, "selector"); mine = new WndWatchBag(startBag((Bag) get(WndBag.class, null, "lastBag"), sel), sel); ((WndBag) w).pebxelSwap = mine; }
 			if (mine == null) { dim(w); return w; }
 			w.destroy();   // (it had set up its camera and key listener)
 			return mine;

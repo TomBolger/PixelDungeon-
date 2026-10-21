@@ -816,6 +816,28 @@ index 2dcab6a..27a489b 100644
  			quickslotsToShow = 3;
  			startingSlot = swappedQuickslots ? 3 : 0;
  			btnSwap.visible = true;
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndBag.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndBag.java
+index f4803d6..aa001b2 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndBag.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndBag.java
+@@ -398,7 +398,17 @@ public class WndBag extends WndTabbed {
+ 		if (INSTANCE == this){
+ 			INSTANCE = null;
+ 		}
++		//pebxel: the watch's bag shown in this one's place goes with it (the shop's and the spells' windows keep the
++		// bag they opened and hide it when done)
++		if (pebxelSwap != null){
++			Window s = pebxelSwap;
++			pebxelSwap = null;
++			if (s.parent != null) s.hide();
++		}
+ 	}
++
++	/** Pebxel: the watch's own bag shown instead of this one (Swaps). */
++	public Window pebxelSwap;
+ 	
+ 	@Override
+ 	protected int tabHeight() {
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndEnergizeItem.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndEnergizeItem.java
 index f4f2830..5048fac 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndEnergizeItem.java
