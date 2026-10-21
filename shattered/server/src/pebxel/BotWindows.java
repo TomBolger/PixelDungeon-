@@ -71,7 +71,10 @@ public final class BotWindows {
 		WndBag.ItemSelector sel = w instanceof WndBag || w instanceof pebxel.ui.WndWatchBag ? selector(w) : null;
 		if (sel != null) {
 			String prompt = ""; try { prompt = String.valueOf(sel.textPrompt()); } catch (Throwable e) { }
-			if (prompt.toLowerCase(Locale.ROOT).contains("sell")) return new Answer(null, null, "not selling: back");   // (the shop asks again after each sale: it sold the whole pack)
+			if (prompt.toLowerCase(Locale.ROOT).contains("sell")) {   // (the shop asks again after each sale: a few spare weapons and armour, then Back)
+				Item it = sales < 3 ? spare() : null;
+				return it != null ? new Answer(null, it, "sell a spare") : new Answer(null, null, "done selling: back");
+			}
 			Item it = BotItems.answerSelector(sel);
 			return it != null ? new Answer(null, it, "select") : new Answer(null, null, "nothing to select: back");
 		}
@@ -82,6 +85,7 @@ public final class BotWindows {
 				|| kind.equals("WndWatchMenu") || kind.equals("WndGame") || kind.equals("WndSettings") || kind.equals("WndChallenges") || kind.equals("WndSupportPrompt"))
 			return new Answer(null, null, "read: back");
 		// buying in a shop: buy (the cheat has gold)
+		if (kind.equals("WndTradeItem") && byText(bs, "sell") != null && sales < 3) { sales++; return new Answer(byText(bs, "sell"), null, "sell"); }
 		if (kind.equals("WndTradeItem")) { Gizmo b = byText(bs, "buy"); return b != null ? new Answer(b, null, "buy") : new Answer(null, null, "can't buy: back"); }
 		// the hero's subclass and armour ability, quest rewards: one of the choices (each game its own), confirmed
 		if (kind.equals("WndChooseSubclass") || kind.equals("WndChooseAbility") || n.contains("WndSadGhost") || n.contains("WndWandmaker") || n.contains("WndImp") || n.contains("WndBlacksmith")) {
@@ -143,7 +147,18 @@ public final class BotWindows {
 	}
 
 	/** A turn went by with no window: windows after it are not "the same one again". */
-	static void turn() { lastKind = ""; sameKind = 0; sinceTurn = 0; }
+	static void turn() { lastKind = ""; sameKind = 0; sinceTurn = 0; sales = 0; }
+	/** Sales this visit to the shop (a turn ends it). */
+	static int sales;
+	/** A weapon or armour in the pack, not worn, that the shop takes (the bot keeps everything else for trying). */
+	static Item spare() {
+		com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero h = com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero;
+		if (h == null) return null;
+		for (Item i : h.belongings.backpack.items)
+			if ((i instanceof com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.MeleeWeapon || i instanceof com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor)
+					&& !i.isEquipped(h) && com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Shopkeeper.canSell(i)) return i;
+		return null;
+	}
 	static int sinceTurn;
 
 	static void newGame(long seed) { seen.clear(); logged.clear(); lastW = null; lastKind = ""; sameKind = 0; rnd = new Random(seed * 31 + 7); }

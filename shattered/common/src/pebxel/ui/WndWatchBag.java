@@ -41,6 +41,8 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 	private final List<List<Button>> rowCells = new ArrayList<>();
 	private boolean rowMode = true;
 	private int row, col;
+	/** Choosing: the first row with something to choose, where the frame starts (no Downs past the worn row). */
+	private int firstRow = -1;
 
 	/** Forget the rows; the areas only Up/Down uses (never in the window, so never destroyed with it) are destroyed
 	 *  here: their touch areas stayed listening otherwise, one more each time a bag opened. */
@@ -95,6 +97,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 		if (pebxel.Screen.round) place(0, 0); else { chrome.visible = false; place(10, 7); }
 		add(grid);
 		if (pebxel.Screen.round) buildRound(); else build();
+		if (firstRow > 0) row = firstRow;
 		// the one open bag, as Shattered's own WndBag is: a new one closes the last. Shattered keeps the bag it
 		// opened and hides it later (the shop's trade window, the energy one), but that was the WndBag swapped for
 		// this one, so this one stayed: one more under the next after every sale, 70 pictures each, and as many Backs
@@ -160,7 +163,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 			} else {
 				ItemSprite sp = new ItemSprite(bg); sp.x = x + (TAB_W - 16) / 2; sp.y = y + (bg == bag ? 5 : 7); grid.add(sp);
 			}
-			Button tb = new Button() { @Override protected void onClick() { if (bg != bag) { hide(); GameScene.show(new WndWatchBag(bg, selector)); } } };
+			Button tb = new Button() { @Override protected void onClick() { if (bg != bag) { hide(); show(new WndWatchBag(bg, selector)); } } };
 			tb.setRect(x, y, TAB_W, TAB_H - 3); grid.add(tb);
 			if (bags.size() > 1) addToRow(tb);
 		}
@@ -227,7 +230,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 			int pi = bg == b.backpack ? 0 : bg instanceof VelvetPouch ? 1 : bg instanceof ScrollHolder ? 2 : bg instanceof MagicalHolster ? 3 : -1;
 			if (pi >= 0) { Image ic = PdArt.image("icons", 17 + 10 * pi, 0, 10, 10, 2); ic.x = cx - 10; ic.y = 190; grid.add(ic); }
 			else { ItemSprite sp = new ItemSprite(bg); sp.x = cx - 8; sp.y = 192; grid.add(sp); }
-			Button tb = new Button() { @Override protected void onClick() { if (bg != bag) { hide(); GameScene.show(new WndWatchBag(bg, selector)); } } };
+			Button tb = new Button() { @Override protected void onClick() { if (bg != bag) { hide(); show(new WndWatchBag(bg, selector)); } } };
 			tb.setRect(cx - 17, 183, 34, 34); grid.add(tb); addToRow(tb);
 		}
 		// Exit: a red bubble at the bottom right
@@ -262,6 +265,11 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 		addToRow(bt);
 	}
 
+	/** Another bag in this one's place: on the alchemy screen too (GameScene.show shows nothing there). */
+	static void show(Window w) {
+		if (com.watabou.noosa.Game.scene() instanceof GameScene) GameScene.show(w); else com.watabou.noosa.Game.scene().addToFront(w);
+	}
+
 	/** Closing for good (Exit), not just back out to the rows. */
 	private void close() { rowMode = true; onBackPressedClose(); }
 	private void onBackPressedClose() { if (selector != null) selector.onSelect(null); hide(); }
@@ -270,7 +278,8 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 
 	private void cell(int x, int y, int CELL_W, int CELL_H, Object o) {
 		Item item = o instanceof Item ? (Item) o : null;
-		boolean usable = item != null && (selector == null || selector.itemSelectable(item));
+		// (with a choosing open, the bag shown isn't one of the choices: it's where they are)
+		boolean usable = item != null && (selector == null || (item != bag && selector.itemSelectable(item)));
 		// (an item that can't be chosen here sits on black: see-through sprites would dither into fuzz)
 		// (a known curse: the cell is dark red, Pebble PD's BulgarianRose, under the picture)
 		grid.add(WatchHud.block(item != null && !usable ? 0x000000 : item != null && item.cursed && item.cursedKnown ? 0x550000 : 0x555555, x, y, CELL_W, CELL_H));
@@ -306,6 +315,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 		};
 		bt.setRect(x, y, CELL_W, CELL_H);
 		if (!usable) bt.active = false;
+		else if (selector != null && firstRow < 0) firstRow = rowCells.size() - 1;
 		grid.add(bt);
 		if (!rowCells.isEmpty()) addToRow(bt);
 	}

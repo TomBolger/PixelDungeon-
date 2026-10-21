@@ -21,7 +21,7 @@ public final class Swaps {
 			if (w instanceof WndUseItem) mine = new WndWatchItem(((WndUseItem) w).owner, ((WndUseItem) w).item);
 			else if (w instanceof WndGame) mine = new WndWatchMenu();
 			else if (w instanceof com.shatteredpixel.shatteredpixeldungeon.windows.WndHero && !nativeHero) mine = new WndWatchHero();
-			else if (w instanceof WndBag) mine = new WndWatchBag((Bag) get(WndBag.class, null, "lastBag"), (WndBag.ItemSelector) get(WndBag.class, w, "selector"));
+			else if (w instanceof WndBag) { WndBag.ItemSelector sel = (WndBag.ItemSelector) get(WndBag.class, w, "selector"); mine = new WndWatchBag(startBag((Bag) get(WndBag.class, null, "lastBag"), sel), sel); }
 			if (mine == null) { dim(w); return w; }
 			w.destroy();   // (it had set up its camera and key listener)
 			return mine;
@@ -29,6 +29,22 @@ public final class Swaps {
 			e.printStackTrace();
 			return w;
 		}
+	}
+
+	/** The bag a choosing opens on: the one Shattered asked for, but when nothing in it (nor worn) can be chosen and
+	 *  something in another bag can, that bag (the alchemy pot's seeds are in the pouch: four presses saved). */
+	static Bag startBag(Bag asked, WndBag.ItemSelector sel) {
+		com.shatteredpixel.shatteredpixeldungeon.actors.hero.Belongings b = com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero.belongings;
+		Bag bag = asked == null ? b.backpack : asked;
+		if (sel == null || bag != b.backpack) return bag;
+		try {
+			for (com.shatteredpixel.shatteredpixeldungeon.items.Item i : new com.shatteredpixel.shatteredpixeldungeon.items.Item[]{b.weapon, b.armor, b.artifact, b.misc, b.ring, b.secondWep})
+				if (i != null && sel.itemSelectable(i)) return bag;
+			for (com.shatteredpixel.shatteredpixeldungeon.items.Item i : bag.items) if (!(i instanceof Bag) && sel.itemSelectable(i)) return bag;
+			for (com.shatteredpixel.shatteredpixeldungeon.items.Item i : bag.items)
+				if (i instanceof Bag) for (com.shatteredpixel.shatteredpixeldungeon.items.Item j : ((Bag) i).items) if (sel.itemSelectable(j)) return (Bag) i;
+		} catch (Exception e) { }
+		return bag;
 	}
 
 	/** Shattered's own windows get Pebble PD's shade over the game behind them (its border would run into the HUD's). */

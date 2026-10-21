@@ -46,6 +46,13 @@ public class Buttons {
 			String p = a[i];
 			int wait = 30;
 			if (p.matches("\\d+")) wait = Integer.parseInt(p);
+			else if (p.equals("@alchemy")) {   // (tests: only three seeds and some energy, then the alchemy screen, as at a pot)
+				Dungeon.hero.belongings.backpack.items.removeIf(it -> !(it instanceof com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag));
+				for (int k = 0; k < 3; k++) new com.shatteredpixel.shatteredpixeldungeon.plants.Sungrass.Seed().collect();
+				new com.shatteredpixel.shatteredpixeldungeon.plants.Firebloom.Seed().collect();
+				Dungeon.energy = Math.max(Dungeon.energy, 10);
+				Game.switchScene(com.shatteredpixel.shatteredpixeldungeon.scenes.AlchemyScene.class);
+			}
 			else if ((p.startsWith("t") || p.startsWith("m")) && p.contains(",")) {
 				// a tap at watch x,y (tl: a long one; m: aimed at the map's camera, as the watch sends it, stamped now)
 				boolean map = p.startsWith("m");
@@ -68,6 +75,13 @@ public class Buttons {
 					System.out.printf("hero t=%.3f pos=%d x=%.2f y=%.2f ready=%b%n", Game.timeTotal, Dungeon.hero.pos, Dungeon.hero.sprite.x, Dungeon.hero.sprite.y, Dungeon.hero.ready);
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
 				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) sim.apply(m);
+			}
+			if (System.getenv("FOCUS") != null) {   // (what Up/Down go through here, and which has the frame)
+				com.shatteredpixel.shatteredpixeldungeon.ui.Window tw = Ui.topWindow();
+				com.watabou.noosa.Group menu = tw != null ? tw : Game.scene();
+				StringBuilder sb = new StringBuilder(p + ": " + menu.getClass().getSimpleName() + " focus " + WatchDriver.get(controls, "focus") + " [");
+				for (Ui.Part pt : Controls.buttons(menu)) sb.append(pt.g.getClass().getSimpleName()).append(':').append(pt.text.replace('\n', ' ')).append(", ");
+				System.out.println(sb.append(']'));
 			}
 			if (System.getenv("NOSHOT") != null && i < a.length - 1) continue;   // (long scripts: only the last picture)
 			sim.render();
