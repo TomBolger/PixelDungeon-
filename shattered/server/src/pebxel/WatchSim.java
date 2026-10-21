@@ -119,7 +119,7 @@ public final class WatchSim {
 			if (!haveOff) { off = base + MARGIN + jit; offAt = now; }
 			haveOff = true;
 			offMove();
-			if (System.getenv("OFFS") != null) System.out.printf("recv at %.3f stamp %.3f want %.3f off %.3f len %d%n", now, stamp(msg, 0) / 1000f, want, off, msg.length);
+			if (System.getenv("OFFS") != null) System.out.printf("recv at %.3f stamp %.3f off %.3f len %d%n", now, stamp(msg, 0) / 1000f, off, msg.length);
 		}
 		q.add(msg); qPos.add(new int[]{0});
 		pump();

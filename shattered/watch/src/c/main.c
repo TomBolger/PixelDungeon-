@@ -122,6 +122,7 @@ static uint32_t s_off_at;    // when s_off last moved
 static bool s_have_off;
 static uint32_t s_cur_at;    // when the frame being played happened, in watch time
 static uint32_t s_cur_stamp; // ... and in phone time
+static uint32_t s_cur_due;   // ... and when it was due here (later than s_cur_at when it came very late)
 static AppTimer *s_ptimer;
 static bool s_flush;         // play everything waiting now, due or not
 #define MARGIN 40            // ms of slack for uneven radio
@@ -194,10 +195,11 @@ static void pump(void *data) {
       // the whole of a radio hiccup)
       s_cur_at = rush ? now : (int32_t)(now - due) > LATE_MAX ? now - LATE_MAX : due;
       s_cur_stamp = stamp_at(m->data + m->pos);
+      s_cur_due = due;
     }
     int used = scene_apply(m->data + m->pos, m->len - m->pos, s_cur_at);
     m->pos = used > 0 ? m->pos + used : m->len;
-    predict_heard(now);
+    predict_heard(s_cur_due, now);
     note_free();
     if (g_dirty) { g_dirty = false; kick(); }
     if (m->pos >= m->len) { s_q = m->next; if (!s_q) s_qtail = NULL; s_qbytes -= m->len; free(m); }

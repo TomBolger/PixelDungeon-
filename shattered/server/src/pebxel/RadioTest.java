@@ -263,6 +263,11 @@ public class RadioTest {
 			run(1.0);
 			waitReady(12);
 		}
+		staleTargets();
+	}
+	/** The targets as the game has them again (after setTarget). */
+	static void staleTargets() {
+		try { java.lang.reflect.Field f = Controls.class.getDeclaredField("targetsStale"); f.setAccessible(true); f.setBoolean(controls, true); } catch (Exception e) { throw new RuntimeException(e); }
 	}
 	/** Walks the phone cuts short: a monster comes into view a moment after setting off (the hero stops, as SPD does). */
 	static void wstop(int walks) {
@@ -297,6 +302,7 @@ public class RadioTest {
 			waitReady(12);
 			System.out.printf("    stopped after %d of the steps%n", Dungeon.level.distance(h, Dungeon.hero.pos));
 		}
+		staleTargets();
 		for (Mob m : Dungeon.level.mobs.toArray(new Mob[0])) { m.destroy(); if (m.sprite != null) m.sprite.killAndErase(); }
 	}
 	static Level levelFor() { return Dungeon.level; }

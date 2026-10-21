@@ -35,6 +35,7 @@ typedef struct {
   uint16_t follow;
   int16_t ofx, ofy, px, py;      // follow offset / pan point, x8
   uint8_t intensity, dead;       // x16, x255
+  int32_t cx, cy;                // the phone's last correction, still to be eased in (x256)
 } Cam;
 
 typedef struct {

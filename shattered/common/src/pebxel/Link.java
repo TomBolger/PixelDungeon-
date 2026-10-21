@@ -778,7 +778,10 @@ public final class Link {
 				float ty = mode == 1 ? (f.y + f.height() / 2 + c.centerOffset.y) : pan[1];
 				float dx = dead(tx - (k.sx / 8 + c.width / 2f), mode == 1 ? c.width * pan[3] / 2 : 0);
 				float dy = dead(ty - (k.sy / 8 + c.height / 2f), mode == 1 ? c.height * pan[3] / 2 : 0);
-				float s = Math.min(1f, dt * pan[2]);
+				// (frames the pacer merged come as one long dt: as that many of the game's own steps, not one big one,
+				// which landed on the target at once and needed a correction after every merged frame)
+				int n = Math.max(1, Math.round(dt / 0.05f));
+				float s = 1 - (float) Math.pow(1 - Math.min(1f, dt / n * pan[2]), n);
 				k.sx += dx * s * 8; k.sy += dy * s * 8;
 			}
 			float sx = c.scroll.x * 8, sy = c.scroll.y * 8;
