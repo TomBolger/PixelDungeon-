@@ -281,7 +281,7 @@ public final class WatchDriver {
 		// there), or a tap on the furthest cell of the way that's on the screen
 		int[] dg = stepsFrom(t.cell);
 		List<Integer> ts = targets(); int best = -1, bd = dg[h.pos];
-		for (int i = 0; i < ts.size(); i++) { int c = Controls.cellOf(ts.get(i)); if (c < 0 || c == h.pos) continue; if (dg[c] < bd) { bd = dg[c]; best = c; } }
+		for (int i = 0; i < ts.size(); i++) { int c = Controls.cellOf(ts.get(i)); if (c < 0 || c >= dg.length || c == h.pos) continue; if (dg[c] < bd) { bd = dg[c]; best = c; } }   // (the list may still be the last floor's)
 		if (best >= 0 && targetTo(best, false)) { notOffered(t); return true; }
 		int on = -1, od = Integer.MAX_VALUE;
 		for (int c = 0; c < dg.length; c++) if (dg[c] < od && dg[c] < dg[h.pos] && Controls.onScreen(c) && Dungeon.level.passable[c]) { od = dg[c]; on = c; }
