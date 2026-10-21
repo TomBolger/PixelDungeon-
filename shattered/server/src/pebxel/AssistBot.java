@@ -306,7 +306,7 @@ public class AssistBot {
 			// Before, 150 frames were played out each time, for a fight with a foe out of reach half a cheat game's frames)
 			long fa = fk[4];
 			for (int k = 0; k < 150 && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn && Ui.topWindow() == null && Dungeon.hero.isAlive()
-					&& !(k > 0 && Dungeon.hero.curAction == null && Actor.processing()); k++) { step(); fk[4]++; }
+					&& !(watch == null && k > 0 && Dungeon.hero.curAction == null && Actor.processing()); k++) { step(); fk[4]++; }   // (through the watch, a press takes frames to arrive)
 			if (FRAMESBY) { fkWhy.merge(t.why, fk[4] - fa, Long::sum); if (fk[4] - fa >= 150) fkWhy.merge("150: " + t.why, 1L, Long::sum); }
 			if (!ok) { actFails++; if (Assist.lastError != null) { System.out.println("  ACT ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; } Dungeon.hero.rest(false); }
 		}
