@@ -264,7 +264,7 @@ public final class WatchDriver {
 			case Assist.USE: return use(t);
 			case Assist.WAIT:
 				if (Assist.SEARCH_ACT.equals(t.action) || (t.action == null && t.cell == h.pos)) toolbar(pebxel.ui.WatchHud.TB_SEARCH, true);
-				else toolbar(pebxel.ui.WatchHud.TB_WAIT, Assist.REST_ACT.equals(t.action));
+				else { float n0 = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now(); toolbar(pebxel.ui.WatchHud.TB_WAIT, Assist.REST_ACT.equals(t.action)); waitCheck(n0); }
 				return true;
 			case Assist.ENEMY:
 				if (Assist.WAIT_ACT.equals(t.action)) { toolbar(pebxel.ui.WatchHud.TB_WAIT, false); return true; }
@@ -288,7 +288,40 @@ public final class WatchDriver {
 		fallback("reach a cell (" + t.why + ")");
 		return false;
 	}
-	int notOffered;
+	int notOffered, waitsLost;
+
+	/** Who hears the keys first (a window no longer shown but still listening takes them all). */
+	static String keyHolders() {
+		try {
+			java.lang.reflect.Field f = com.watabou.input.KeyEvent.class.getDeclaredField("keySignal"); f.setAccessible(true);
+			Object sig = f.get(null); java.lang.reflect.Field l = com.watabou.utils.Signal.class.getDeclaredField("listeners"); l.setAccessible(true);
+			StringBuilder sb = new StringBuilder();
+			int k = 0;
+			for (Object o : new ArrayList<>((List<?>) l.get(sig))) {
+				if (k++ >= 6) break;
+				sb.append(o.getClass().getName().replaceAll(".*\\.", ""));
+				if (o instanceof Gizmo) sb.append(((Gizmo) o).parent == null ? "(not shown)" : "(shown)");
+				sb.append(' ');
+			}
+			return sb.toString();
+		} catch (Throwable e) { return e.toString(); }
+	}
+
+	/** The toolbar's Wait pressed: a turn should go by (else say why not, the first few times). */
+	void waitCheck(float n0) {
+		Hero h = Dungeon.hero;
+		for (int i = 0; i < 20 && h.ready && com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now() == n0; i++) frames(1);
+		if (!h.ready || com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now() != n0) return;
+		waitsLost++;
+		Coverage.problem("toolbar Wait passed no time");
+		if (waitsLost <= 3) {
+			Object tb = getStatic(com.shatteredpixel.shatteredpixeldungeon.ui.Toolbar.class, "instance");
+			Object bw = tb == null ? null : get(tb, "btnWait");
+			System.out.println("  WAIT LOST: curAction " + h.curAction + " resting " + h.resting + " aiming " + Controls.aiming() + " window " + Ui.topWindow() + " onToolbar " + get(controls, "onToolbar")
+					+ " toolbar " + (tb == null ? "none" : "visible " + ((Gizmo) tb).visible + " active " + ((Gizmo) tb).active) + " btnWait " + (bw == null ? "none" : "active " + ((Gizmo) bw).active + " visible " + ((Gizmo) bw).visible)
+					+ " paralysed " + h.paralysed + " key listeners (first 6) " + keyHolders());
+		}
+	}
 
 	/** Steps from a cell over the known, walkable map (Integer.MAX_VALUE: no way). */
 	static int[] stepsFrom(int goal) {

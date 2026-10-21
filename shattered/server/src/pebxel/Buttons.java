@@ -15,6 +15,8 @@ import java.io.File;
  * SEED=n NEWGAME=class to start straight in a new game.
  */
 public class Buttons {
+	static int wantDepth;
+
 	public static void main(String[] a) throws Exception {
 		File dir = new File(a[0]); dir.mkdirs();
 		Game.version = "4.0.2"; Game.versionCode = 922;
@@ -40,12 +42,22 @@ public class Buttons {
 			InterlevelScene.mode = InterlevelScene.Mode.DESCEND;
 			Game.switchScene(InterlevelScene.class);
 		}
-		int shot = 0;
+		int shot = 0; wantDepth = 0;
 		app.graphics.soft.raster = false;
 		for (int i = 1; i < a.length; i++) {
 			String p = a[i];
 			int wait = 30;
 			if (p.matches("\\d+")) wait = Integer.parseInt(p);
+			else if (p.startsWith("@depth")) { wantDepth = Integer.parseInt(p.substring(6)); wait = 4000; }   // (tests: down to that depth, story pages and all)
+			else if (p.equals("@fire")) {   // (tests: particles: a fire beside the hero, and the hero alight)
+				int c = Dungeon.hero.pos + 1;
+				com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.add(com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob.seed(c, 30, com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Fire.class));
+				com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff.affect(Dungeon.hero, com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Burning.class).reignite(Dungeon.hero);
+			}
+			else if (p.equals("@down")) {   // (tests: straight down the stairs, as the hero's step onto them)
+				com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(false);
+				if (tr != null) StairsTest.jump(tr);
+			}
 			else if (p.equals("@alchemy")) {   // (tests: only three seeds and some energy, then the alchemy screen, as at a pot)
 				Dungeon.hero.belongings.backpack.items.removeIf(it -> !(it instanceof com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag));
 				for (int k = 0; k < 3; k++) new com.shatteredpixel.shatteredpixeldungeon.plants.Sungrass.Seed().collect();
@@ -69,6 +81,14 @@ public class Buttons {
 				controls.button(code);
 			}
 			for (int f = 0; f < wait; f++) {
+				if (wantDepth > 0) {
+					if (Game.scene() instanceof InterlevelScene) { if (f % 40 == 39) controls.button(Controls.SELECT); }
+					else if (Ui.topWindow() != null) { if (f % 20 == 19) controls.button(Controls.BACK); }
+					else if (Dungeon.hero != null && Dungeon.hero.ready && Dungeon.depth < wantDepth && f % 10 == 9) {
+						com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(false);
+						if (tr != null) StairsTest.jump(tr);
+					} else if (Dungeon.depth >= wantDepth && f > 60) { wantDepth = 0; }
+				}
 				touches.frame(link, controls, Game.elapsed);
 				app.frame(); controls.frame();
 				if (System.getenv("TRACE_HERO") != null && Dungeon.hero != null && Dungeon.hero.sprite != null)

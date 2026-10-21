@@ -528,10 +528,24 @@ public class Controls {
 		for (Heap hp : L.heaps.valueList()) if (hp.pos != h && dist[hp.pos] > 0 && (L.visited[hp.pos] || L.heroFOV[hp.pos])) items.add(hp.pos);
 		items.sort(Comparator.comparingInt(c -> dist[c]));
 		out.addAll(items);
-		// the nearest edge of the unexplored, then the way down
+		// the Blacksmith's mine: the dark gold veins known, nearest first (Select digs one: the pickaxe walks there and
+		// mines), a few; nothing offered them before, so on the buttons the quest couldn't be done
+		boolean mine = L instanceof com.shatteredpixel.shatteredpixeldungeon.levels.MiningLevel;
+		if (mine && Dungeon.hero.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.quest.Pickaxe.class) != null) {
+			List<int[]> veins = new ArrayList<>();
+			for (int c = 0; c < L.length(); c++) {
+				if (L.map[c] != com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.WALL_DECO || !(L.visited[c] || L.mapped[c] || L.heroFOV[c])) continue;
+				int best = 0;   // (reached from the nearest floor beside it)
+				for (int k : PathFinder.NEIGHBOURS8) { int n = c + k; if (n >= 0 && n < dist.length && dist[n] > 0 && (best == 0 || dist[n] < best)) best = dist[n]; }
+				if (best > 0) veins.add(new int[]{c, best});
+			}
+			veins.sort(Comparator.comparingInt(v -> v[1]));
+			for (int i = 0; i < Math.min(3, veins.size()); i++) out.add(veins.get(i)[0]);
+		}
+		// the nearest edge of the unexplored, then the way down (the mine: the ladder up, its only way out)
 		int edge = Explorer.nearestUnexplored(L, h, dist);
 		if (edge >= 0) out.add(edge);
-		int exit = L.exit();
+		int exit = mine ? L.entrance() : L.exit();
 		if (exit >= 0 && (L.visited[exit] || L.mapped[exit]) && !out.contains(exit)) out.add(exit);
 		// friends (shopkeepers, quest givers) to talk to
 		for (Mob m : L.mobs) if (L.heroFOV[m.pos] && m.alignment != Char.Alignment.ENEMY && !out.contains(m.pos)) out.add(m.pos);

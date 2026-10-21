@@ -38,6 +38,7 @@ public final class WatchSim {
 		int kind; byte[] st; int[] tiles; int prev = Link.NONE, next = Link.NONE;
 		float[] dyn = new float[Link.N], vel = new float[Link.N]; float at, until;
 		int frame; float timer; // animation
+		Emit em;   // K_EMIT: its particles' maker (as particles.c)
 	}
 
 	private final Cam[] cams = new Cam[16];   // (as many as the watch keeps: MAX_CAM)
@@ -170,7 +171,7 @@ public final class WatchSim {
 			switch (c) {
 				case Link.C_TIME: p += 4; break;
 				case Link.C_LATEST: p += 4; break;
-				case Link.C_RESET: objs.clear(); head = Link.NONE; dyn.clear(); anims.clear(); Arrays.fill(cams, null); break;
+				case Link.C_RESET: objs.clear(); head = Link.NONE; dyn.clear(); anims.clear(); Arrays.fill(cams, null); parts.clear(); Arrays.fill(recipes, null); fogTex = -1; break;
 				case Link.C_CAM: {
 					int id = u8(); Cam k = new Cam(); k.x = s16(); k.y = s16(); k.w = s16(); k.h = s16(); k.zoom = u16(); k.sx = s16(); k.sy = s16();
 					k.mode = u8() & 0x7F;
@@ -179,11 +180,11 @@ public final class WatchSim {
 					if (k.mode != 0) { k.intensity = u8() / 16f; k.dead = u8() / 255f; }
 					cams[id] = k; break;
 				}
-				case Link.C_NEW: { int id = u16(), after = u16(); if (objs.containsKey(id)) unlink(id); Obj o = new Obj(); o.st = readStatic(); o.kind = o.st[0]; objs.put(id, o); readDyn(o); link(id, after); break; }
-				case Link.C_SET: { int id = u16(); Obj o = objs.get(id); o.st = readStatic(); o.kind = o.st[0]; readDyn(o); break; }
+				case Link.C_NEW: { int id = u16(), after = u16(); if (objs.containsKey(id)) { unlink(id); particlesFree(id); } Obj o = new Obj(); o.st = readStatic(); o.kind = o.st[0]; readEmit(o); objs.put(id, o); readDyn(o); link(id, after); break; }
+				case Link.C_SET: { int id = u16(); Obj o = objs.get(id); o.st = readStatic(); o.kind = o.st[0]; readEmit(o); readDyn(o); break; }
 				case Link.C_MOVE: { int id = u16(); readDyn(objs.get(id)); break; }
 				case Link.C_ANIMTO: { int id = u16(); Obj o = objs.get(id); o.st = o.st.clone(); o.st[3] = (byte) u8(); o.st[12] = (byte) u8(); o.st[13] = (byte) u8(); readDyn(o); break; }
-				case Link.C_DEL: { int id = u16(); unlink(id); objs.remove(id); break; }
+				case Link.C_DEL: { int id = u16(); unlink(id); objs.remove(id); particlesFree(id); break; }
 				case Link.C_ORDER: { int id = u16(), after = u16(); unlink(id); link(id, after); break; }
 				case Link.C_TILES: {
 					int id = u16(), start = u16(), n = u8(); Obj o = objs.get(id);
@@ -244,7 +245,7 @@ public final class WatchSim {
 				}
 				case Link.C_INPUT: p++; break;
 				case Link.C_PREDICT: plans.add(readPlan()); break;
-				case Link.C_RECIPE: { u8(); int n = u8(); p += n; break; }
+				case Link.C_RECIPE: { int id = u8(), n = u8(); if (p + n > b.length) n = b.length - p; recipeSet(id, b, p, n); p += n; break; }
 				case Link.C_READY: p += 4; break;
 				case Link.C_SOUND: { int k = u8(), v = u8(); sounds.add(k + ":" + v); break; }
 				case Link.C_COMMIT: break;
@@ -260,14 +261,14 @@ public final class WatchSim {
 	private byte[] readStatic() {
 		int start = p, kind = b[p];
 		switch (kind) {
-			case Link.K_IMG: case Link.K_SKIN: p += 27; break;
+			case Link.K_IMG: case Link.K_SKIN: if ((b[p + 3] & Link.F_FOG) != 0) fogTex = b[p + 2] & 255; p += 27; break;
 			case Link.K_RECT: p += 21; break;
 			case Link.K_NINE: p += 31; break;
 			case Link.K_TILES: p += 16; break;
 			case Link.K_TEXT: p += 11 + (b[p + 10] & 255); break;
 			case Link.K_QUADS: p += 4 + (b[p + 3] & 255) * 16 + 7; break;
 			case Link.K_SHAPE: p += 15; break;
-			case Link.K_EMIT: {   // (particles the watch makes: not drawn here)
+			case Link.K_EMIT: {   // (particles the watch makes: readEmit, drawEmit)
 				boolean cells = (b[p + 3] & 4) != 0;
 				int cw = cells ? b[p + 18] & 255 : 0, ch = cells ? b[p + 19] & 255 : 0;
 				p += 15 + (cells ? 9 + (cw * ch + 7) / 8 : 0); break;
@@ -343,6 +344,7 @@ public final class WatchSim {
 		double ang = Math.toRadians(d(o, Link.D_ANG) / 64f); cs = (float) Math.cos(ang); sn = (float) Math.sin(ang);
 		orx = ory = 0;
 		switch (o.kind) {
+			case Link.K_EMIT: drawEmit(o); break;
 			case Link.K_SHAPE: shape(o, s); break;
 			case Link.K_IMG: case Link.K_SKIN: {
 				orx = s16(s, 4) / 8f; ory = s16(s, 6) / 8f;
@@ -401,6 +403,194 @@ public final class WatchSim {
 			}
 			case Link.K_TILES: tiles(c, o); break;
 			case Link.K_TEXT: text(sx(c, d(o, Link.D_X)), sy(c, d(o, Link.D_Y)), s); break;
+		}
+	}
+
+	// ---------------- particles the watch makes (particles.c, draw.c draw_emit), mirrored ----------------
+
+	static final int MAX_PART = 128, MAX_RECIPE = 64;
+	static final int R_FRAME = 1, R_FLICKER = 2, R_RANDOM = 4, R_FADE = 8, R_BOX = 16, R_PULL = 32;
+	static final int E_FILL = 1, E_ON = 2, E_CELLS = 4, E_SIGHT = 8;
+	private static final class Recipe { int flags, tex, tx, ty, tw, th, life0, life1, colA, colB, mul0, mul1, ax, ay, ox, oy, back; int[] s = new int[4], a = new int[4], v = new int[4]; }
+	private static final class Emit { int recipe, flags, quantity, starts, pre, follow, interval, count, w, h, cs, cl, ct, cw, ch; boolean fresh; long next; int[] bound = new int[4]; byte[] bits; }
+	private static final class Part { int owner, x, y, vx, vy, mul, mix; long born, life; }
+	private final Recipe[] recipes = new Recipe[MAX_RECIPE];
+	private final ArrayList<Part> parts = new ArrayList<>();
+	private int fogTex = -1;
+	private int seed = 0x2545F491;
+	private int rnd() { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return seed; }
+	private int rndIn(int a, int b) { return b <= a ? a : a + (int) (Integer.toUnsignedLong(rnd()) % (b - a + 1)); }
+	/** The watch's game clock, ms. */
+	private long nowMs() { return Math.round(now * 1000); }
+
+	private void recipeSet(int id, byte[] bb, int at, int len) {
+		if (id < 0 || id >= MAX_RECIPE || len < 1) return;
+		Recipe r = new Recipe();
+		int[] q = {at}; int end = at + len;
+		java.util.function.IntSupplier U8 = () -> q[0] < end ? bb[q[0]++] & 255 : 0;
+		java.util.function.IntSupplier U16 = () -> { q[0] += 2; return q[0] <= end ? (bb[q[0] - 2] & 255) | (bb[q[0] - 1] & 255) << 8 : 0; };
+		r.flags = U8.getAsInt();
+		if ((r.flags & R_FRAME) != 0) { r.tex = U8.getAsInt(); r.tx = U16.getAsInt(); r.ty = U16.getAsInt(); r.tw = U8.getAsInt(); r.th = U8.getAsInt(); }
+		r.life0 = U8.getAsInt() * 20; r.life1 = U8.getAsInt() * 20;
+		r.colA = U16.getAsInt(); r.colB = U16.getAsInt();
+		for (int i = 0; i < 4; i++) r.s[i] = U8.getAsInt();
+		r.mul0 = U8.getAsInt(); r.mul1 = U8.getAsInt();
+		for (int i = 0; i < 4; i++) r.a[i] = U8.getAsInt();
+		for (int i = 0; i < 4; i++) r.v[i] = (short) U16.getAsInt();
+		if ((r.flags & R_PULL) != 0) { r.ax = (short) U16.getAsInt(); r.ay = (short) U16.getAsInt(); }
+		r.ox = (byte) U8.getAsInt(); r.oy = (byte) U8.getAsInt(); r.back = (byte) U8.getAsInt();
+		if (r.life1 == 0) r.life1 = 20;
+		if (r.life0 > r.life1) r.life0 = r.life1;
+		recipes[id] = r;
+	}
+
+	/** An emitter's unchanging part (as scene.c read_emit): a new start of it, or another recipe, makes it afresh. */
+	private void readEmit(Obj o) {
+		if (o.kind != Link.K_EMIT) { o.em = null; return; }
+		byte[] st = o.st; int k = 2;
+		int rec = st[k] & 255, fl = st[k + 1] & 255, follow = (st[k + 2] & 255) | (st[k + 3] & 255) << 8, w = s16(st, k + 4), h = s16(st, k + 6),
+				iv = (st[k + 8] & 255) | (st[k + 9] & 255) << 8, qn = st[k + 10] & 255, sts = st[k + 11] & 255, pre = st[k + 12] & 255;
+		Emit e = o.em;
+		boolean fresh = e == null || e.starts != sts || e.recipe != rec;
+		if (e == null) e = o.em = new Emit();
+		e.recipe = rec; e.flags = fl; e.follow = follow; e.w = w; e.h = h; e.interval = iv; e.quantity = qn; e.starts = sts; e.pre = pre;
+		if ((fl & E_CELLS) != 0) {
+			e.cs = st[15] & 255; e.cl = st[16] & 255; e.ct = st[17] & 255; e.cw = st[18] & 255; e.ch = st[19] & 255;
+			for (int i = 0; i < 4; i++) e.bound[i] = st[20 + i];
+			e.bits = Arrays.copyOfRange(st, 24, 24 + (e.cw * e.ch + 7) / 8);
+		} else { e.cs = e.cl = e.ct = e.cw = e.ch = 0; e.bound = new int[]{0, 0, 64, 64}; e.bits = new byte[0]; }
+		if (fresh) e.fresh = true;
+	}
+
+	private void particlesFree(int owner) { parts.removeIf(q -> q.owner == owner); }
+
+	/** As scene.c scene_in_sight: the fog's texel for the cell is clear. */
+	private boolean inSight(int cx, int cy) {
+		int[] d = fogTex < 0 ? null : dyn.get(fogTex);
+		if (d == null) return true;
+		int x = cx * 2, y = cy * 2;
+		if (x < 0 || y < 0 || x >= d[0] || y >= d[1]) return false;
+		return (d[2 + y * d[0] + x] >> 6) == 0;
+	}
+
+	private void spawn(int owner, Recipe r, int x, int y, long at) {
+		if (parts.size() >= MAX_PART) return;   // (the watch's share is full)
+		Part q = new Part();
+		int vx, vy;
+		if ((r.flags & R_BOX) != 0) { vx = rndIn(r.v[0], r.v[1]); vy = rndIn(r.v[2], r.v[3]); }
+		else {
+			int a = (r.v[0] & 0xFFFF) + rndIn(0, r.v[1] & 0xFFFF), sp = rndIn(r.v[2] & 0xFFFF, r.v[3] & 0xFFFF);
+			double ang = (a & 0xFFFF) * Math.PI * 2 / 65536;
+			vx = (int) (sp * Math.cos(ang)); vy = (int) (sp * Math.sin(ang));
+		}
+		int life = rndIn(r.life0, r.life1);
+		q.owner = owner; q.vx = vx; q.vy = vy; q.born = at; q.life = life;
+		q.mul = rndIn(r.mul0, r.mul1); q.mix = rnd() & 255;
+		q.x = x + r.ox + vx * life / 1000 * r.back / 64;
+		q.y = y + r.oy + vy * life / 1000 * r.back / 64;
+		parts.add(q);
+	}
+
+	private void spawnAll(int id, Obj o, Emit e, Recipe r, long at) {
+		if ((e.flags & E_CELLS) != 0) {
+			int cs = e.cs * 8;
+			for (int j = 0; j < e.ch; j++) for (int i = 0; i < e.cw; i++) {
+				int k = j * e.cw + i;
+				if ((e.bits[k >> 3] & (1 << (k & 7))) == 0) continue;
+				if ((e.flags & E_SIGHT) != 0 && !inSight(e.cl + i, e.ct + j)) continue;
+				int fx = rndIn(e.bound[0], e.bound[2]), fy = rndIn(e.bound[1], e.bound[3]);
+				spawn(id, r, (e.cl + i) * cs + cs * fx / 64, (e.ct + j) * cs + cs * fy / 64, at);
+			}
+			return;
+		}
+		// its area, or its followed picture's
+		int x = Math.round(d(o, Link.D_X)), y = Math.round(d(o, Link.D_Y)), w = e.w, h = e.h;
+		if (e.follow != Link.NONE) {
+			Obj t = objs.get(e.follow);
+			if (t == null) return;
+			int tx = Math.round(d(t, Link.D_X)), ty = Math.round(d(t, Link.D_Y));
+			if ((e.flags & E_FILL) != 0) {
+				int tw = t.kind == Link.K_IMG || t.kind == Link.K_SKIN || t.kind == Link.K_NINE ? s16(t.st, t.kind == Link.K_NINE ? 8 : 8) : t.kind == Link.K_RECT ? s16(t.st, 6) : 0;
+				int th = t.kind == Link.K_IMG || t.kind == Link.K_SKIN || t.kind == Link.K_NINE ? s16(t.st, 10) : t.kind == Link.K_RECT ? s16(t.st, 8) : 0;
+				x = tx; y = ty; w = (int) (tw * d(t, Link.D_SX) / 256); h = (int) (th * d(t, Link.D_SY) / 256);
+			} else { x += tx; y += ty; }
+		}
+		spawn(id, r, x + rndIn(0, Math.max(w, 0)), y + rndIn(0, Math.max(h, 0)), at);
+	}
+
+	private void emitUpdate(int id, Obj o, long now) {
+		Emit e = o.em; Recipe r = e == null || e.recipe >= MAX_RECIPE ? null : recipes[e.recipe];
+		if (r == null) return;
+		int step = e.interval;
+		if (e.fresh) {
+			e.fresh = false;
+			if (e.quantity != 0) {
+				for (int i = 0; i < e.pre; i++) spawnAll(id, o, e, r, now);
+				e.count = e.pre; e.next = now + step;
+			} else if (step != 0) {
+				for (int t = step; t < r.life1 && t / step <= 8; t += step) spawnAll(id, o, e, r, now - t);
+				e.next = now + rndIn(0, step);
+			}
+		}
+		if ((e.flags & E_ON) == 0 || step == 0) return;
+		if (e.quantity != 0 && e.count >= e.quantity) return;
+		if (now - e.next > r.life1) e.next = now - r.life1;
+		int made = 0;
+		while (now - e.next >= 0 && made < 24) {
+			spawnAll(id, o, e, r, e.next);
+			e.next += step; e.count++; made++;
+			if (e.quantity != 0 && e.count >= e.quantity) break;
+		}
+	}
+
+	private static int curve(int[] c, int u) {
+		int k = c[1];
+		if (u <= k) return k != 0 ? c[0] + (c[2] - c[0]) * u / k : c[2];
+		return k < 255 ? c[2] + (c[3] - c[2]) * (u - k) / (255 - k) : c[2];
+	}
+	private static int[] colour(int v) { return new int[]{((v >> 4) & 3) * 85, ((v >> 2) & 3) * 85, (v & 3) * 85, ((v >> 10) & 3) * 85, ((v >> 8) & 3) * 85, ((v >> 6) & 3) * 85}; }
+
+	/** As draw.c draw_emit: the particles due made, then each drawn by its age (a square, or the recipe's frame). */
+	private void drawEmit(Obj o) {
+		int id = -1;
+		for (Map.Entry<Integer, Obj> en : objs.entrySet()) if (en.getValue() == o) { id = en.getKey(); break; }
+		long tn = nowMs();
+		emitUpdate(id, o, tn);
+		Emit e = o.em; Recipe r = e == null || e.recipe >= MAX_RECIPE ? null : recipes[e.recipe];
+		if (r == null) return;
+		int[] ca = colour(r.colA), cb = colour(r.colB);
+		for (int i = 0; i < parts.size(); i++) {
+			Part q = parts.get(i);
+			if (q.owner != id) continue;
+			long age = tn - q.born;
+			if (age >= q.life) { parts.set(i, parts.get(parts.size() - 1)); parts.remove(parts.size() - 1); i--; continue; }
+			if (age < 0) continue;   // (not born yet)
+			long t = age;
+			long x = q.x + q.vx * t / 1000 + r.ax * t / 1000 * t / 2000, y = q.y + q.vy * t / 1000 + r.ay * t / 1000 * t / 2000;
+			int u = (int) (t * 255 / q.life);
+			int sz = curve(r.s, u) * q.mul;
+			if ((r.flags & R_FLICKER) != 0) sz = rndIn(0, sz);
+			int size = (r.flags & R_FRAME) != 0 ? sz : sz / 64, al = curve(r.a, u);
+			if (al < 30 || size <= 0) continue;
+			int m = (r.flags & R_RANDOM) != 0 ? q.mix : (r.flags & R_FADE) != 0 ? u : 0;
+			byte[] c7 = new byte[7];
+			for (int k = 0; k < 6; k++) c7[k] = (byte) (ca[k] + (cb[k] - ca[k]) * m / 255);
+			if ((r.flags & R_FRAME) != 0) {
+				float hw = r.tw * 4f * size / 4096, hh = r.th * 4f * size / 4096;   // half its size, x8
+				if (hw < 1 || hh < 1) continue;
+				float L = sx(cam, x - hw), R = sx(cam, x + hw), T = sy(cam, y - hh), B = sy(cam, y + hh);
+				col = c7; ci = 0; alpha = al / 255f;
+				blit(r.tex, L, T, R - L, B - T, r.tx, r.ty, r.tw, r.th, false, false);
+			} else {
+				float hs = size / 2f;
+				float L = sx(cam, x - hs), R = sx(cam, x + hs), T = sy(cam, y - hs), B = sy(cam, y + hs);
+				int x0 = Math.round(L), x1 = Math.round(R), y0 = Math.round(T), y1 = Math.round(B);
+				if (x1 == x0 && R > L) x1 = x0 + 1;
+				if (y1 == y0 && B > T) y1 = y0 + 1;
+				float rr = Math.min(255, (c7[0] & 255) + (c7[3] & 255)) / 255f, gg = Math.min(255, (c7[1] & 255) + (c7[4] & 255)) / 255f, bl = Math.min(255, (c7[2] & 255) + (c7[5] & 255)) / 255f;
+				for (int py = Math.max(clipY0, y0); py < Math.min(clipY1, y1); py++)
+					for (int px = Math.max(clipX0, x0); px < Math.min(clipX1, x1); px++) put(px, py, rr, gg, bl, al / 255f);
+			}
 		}
 	}
 
@@ -711,6 +901,8 @@ public final class WatchSim {
 	public int dynCount() { return dyn.size(); }
 
 	public void dump() {
+		System.out.println("particles " + parts.size() + " recipes " + Arrays.stream(recipes).filter(Objects::nonNull).count());
+		for (Map.Entry<Integer, Obj> en : objs.entrySet()) { Emit e = en.getValue().em; if (e != null) System.out.println("emitter " + en.getKey() + " recipe " + e.recipe + (recipes[e.recipe] == null ? "(none)" : " flags " + recipes[e.recipe].flags + " life " + recipes[e.recipe].life0 + "-" + recipes[e.recipe].life1) + " eflags " + e.flags + " interval " + e.interval + " q " + e.quantity + " follow " + e.follow + " at " + en.getValue().dyn[0] / 8 + "," + en.getValue().dyn[1] / 8 + " cam " + en.getValue().st[1]); }
 		for (int id = head; id != Link.NONE; id = objs.get(id).next) {
 			Obj o = objs.get(id); byte[] s = o.st;
 			String t = "";

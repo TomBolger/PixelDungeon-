@@ -211,6 +211,10 @@ public class AssistBot {
 			end = "bot exception (" + ex.toString().replace(';', ',') + ")";
 			Coverage.problem("bot exception: " + ex);
 		}
+		if (Dungeon.level != null) { StringBuilder tr = new StringBuilder(); for (com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition x : Dungeon.level.transitions) tr.append(' ').append(x.type).append('@').append(x.cell()).append(x.destBranch != 0 ? "(branch " + x.destBranch + ")" : "");
+			System.out.println("level: " + Dungeon.level.getClass().getSimpleName() + " branch " + Dungeon.branch + " transitions" + tr + (Dungeon.hero != null ? " hero@" + Dungeon.hero.pos + " terrain " + Dungeon.level.map[Dungeon.hero.pos] + " heap " + Dungeon.level.heaps.get(Dungeon.hero.pos)
+					+ " plant " + Dungeon.level.plants.get(Dungeon.hero.pos) + " locked " + Dungeon.level.locked + " rooted " + Dungeon.hero.rooted + " enemies " + Dungeon.hero.visibleEnemies()
+					+ (watch != null ? " targets " + watch.targets() + " target " + watch.target() : "") : "")); }
 		if (Dungeon.hero != null) System.out.println("state: ready " + Dungeon.hero.ready + " action " + Dungeon.hero.curAction + " aiming " + Controls.aiming() + " window " + Ui.topWindow() + " scene " + Game.scene() + " resting " + Dungeon.hero.resting + " now " + Actor.now());
 		String cause = "";
 		if (end.equals("died")) synchronized (log) { cause = String.join(" / ", log); }
