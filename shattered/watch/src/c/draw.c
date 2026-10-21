@@ -260,7 +260,11 @@ static GContext *s_ctx;
 static GBitmap *s_bmp;
 
 static void fb_take(void) {
-  s_bmp = graphics_capture_frame_buffer(s_ctx); s_fb = gbitmap_get_data(s_bmp); s_stride = gbitmap_get_bytes_per_row(s_bmp);
+  if (s_bmp) return;
+  s_bmp = graphics_capture_frame_buffer(s_ctx);
+  s_fb = s_bmp ? gbitmap_get_data(s_bmp) : NULL;
+  if (!s_bmp) return;
+  s_stride = gbitmap_get_bytes_per_row(s_bmp);
 #ifdef PBL_ROUND
   if (s_bmp) for (int y = 0; y < s_H && y < PBL_DISPLAY_HEIGHT; y++) {
     GBitmapDataRowInfo r = gbitmap_get_data_row_info(s_bmp, y);
@@ -268,7 +272,7 @@ static void fb_take(void) {
   }
 #endif
 }
-static void fb_give(void) { graphics_release_frame_buffer(s_ctx, s_bmp); s_bmp = NULL; }
+static void fb_give(void) { if (s_bmp) graphics_release_frame_buffer(s_ctx, s_bmp); s_bmp = NULL; s_fb = NULL; }
 
 // the phone picks the font (server WatchFonts) and lays the text out with its exact letter widths
 static const char *FONTS[] = {FONT_KEY_GOTHIC_09, FONT_KEY_GOTHIC_14, FONT_KEY_GOTHIC_14_BOLD, FONT_KEY_GOTHIC_18, FONT_KEY_GOTHIC_18_BOLD, FONT_KEY_GOTHIC_24, FONT_KEY_GOTHIC_24_BOLD};
@@ -297,7 +301,8 @@ static void draw_text(Obj *o) {
     graphics_context_set_text_color(s_ctx, GColorFromRGB(r, g, b));
   }
   graphics_draw_text(s_ctx, buf, font, GRect(x, y - CAP_TOP[fi], s_W, 30), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  fb_take();
+  // Leave it released for the next line of text. A catalogue has dozens of adjacent lines; capturing and
+  // releasing the frame buffer for every line wasted work on each redraw. The next raster object takes it.
 }
 
 // ---- round-screen pieces (Pebble PD's disc and arc) ----
@@ -440,9 +445,11 @@ static void draw_obj(Obj *o) {
   if (o->cam == g_map_cam && (g_pan_x || g_pan_y)) { s_panned = *s_cam; s_panned.sx += g_pan_x; s_panned.sy += g_pan_y; s_cam = &s_panned; }
   s_cx0 = s_cam->x >> 3; s_cy0 = s_cam->y >> 3; s_cx1 = (s_cam->x + s_cam->w) >> 3; s_cy1 = (s_cam->y + s_cam->h) >> 3;
   if (s_cx0 < 0) s_cx0 = 0; if (s_cy0 < 0) s_cy0 = 0; if (s_cx1 > s_W) s_cx1 = s_W; if (s_cy1 > s_H) s_cy1 = s_H;
-  if (o->kind == K_EMIT) { draw_emit(o); return; }
   int alpha = obj_dyn(o, 2, s_now);
   if (o->kind == K_TEXT) { draw_text(o); return; }
+  fb_take();
+  if (!s_fb) return;
+  if (o->kind == K_EMIT) { draw_emit(o); return; }
   if (o->kind == K_SHAPE) { draw_shape(o); return; }
   if (alpha < 30 && !o->col[6]) return;
   colour_setup(o->col, alpha);

@@ -15,7 +15,7 @@ for a in "$@"; do
     *.job|*.cancel) cp "$HERE/$a" jobs/ 2>/dev/null || cp "$a" jobs/;;
   esac
 done
-ls -t bundles/*.tgz 2>/dev/null | tail -n +4 | xargs -r rm -f   # (the newest three bundles)
+ls -t bundles/*.tgz 2>/dev/null | tail -n +7 | xargs -r rm -f   # (the newest six bundles: several agents submit)
 ls -t jobs/* 2>/dev/null | tail -n +41 | xargs -r rm -f
 printf 'PebxelSim jobs for the runner on Monolith (sim/runner.sh). Replaced on every submit.\n' > README.md
 git checkout -q --orphan new 2>/dev/null || git checkout -q -B new
