@@ -362,7 +362,7 @@ index 1c02505..9254077 100644
  			
  			Actor.fixTime();
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
-index 346718f..e64d2b6 100644
+index 346718f..52bf3d2 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 @@ -32,6 +32,7 @@ import com.watabou.utils.Bundlable;
@@ -435,20 +435,20 @@ index 346718f..e64d2b6 100644
 +			o.notifyAll();
 +		}
 +	}
-+	//between frames (bots): the wake-ups the frame made; false when there were none
++	//between frames (bots): the first of the wake-ups the frame made; false when there were none. One at a time, the
++	// caller waiting for the thread to wait again in between: two given at once (a sprite's, then the thread's own)
++	// raced the woken thread, which some runs caught in time for a second round and some didn't
 +	public static boolean pebxelWakeLater() {
-+		Object[] l;
-+		synchronized (pebxelLater) { l = pebxelLater.toArray(); pebxelLater.clear(); }
-+		for (Object o : l) {
-+			if (o instanceof Thread && ((Thread) o).getState() == Thread.State.NEW) {
-+				pebxelOn = null; pebxelBusy = true;
-+				((Thread) o).start();
-+			} else synchronized (o) {
-+				pebxelWake(o);
-+				o.notifyAll();
-+			}
++		Object o;
++		synchronized (pebxelLater) { if (pebxelLater.isEmpty()) return false; o = pebxelLater.remove(0); }
++		if (o instanceof Thread && ((Thread) o).getState() == Thread.State.NEW) {
++			pebxelOn = null; pebxelBusy = true;
++			((Thread) o).start();
++		} else synchronized (o) {
++			pebxelWake(o);
++			o.notifyAll();
 +		}
-+		return l.length > 0;
++		return true;
 +	}
 +
  	public static int curActorPriority() {

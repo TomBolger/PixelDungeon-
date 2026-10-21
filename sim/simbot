@@ -8,7 +8,10 @@
 # times quicker, and each game plays as it would alone); BATCH=0 gives each game a JVM of its own as before. If a JVM
 # ends early (a crash, a hang, GAMESECS), the game it was on gets a RESULT line here and a new JVM goes on from the next.
 cd "$(dirname "$0")/assets" || exit 1
+# JIT=c1 (default for AssistBot): the quick compiler only. C2's compiling of the bot's big methods cost more CPU than
+# it saved, even over a whole cheat game (local: 1.7 against 2.4 ms of CPU a turn); JIT=c2 for the JVM's usual
 JAVA=(java -Xmx600m -XX:+UseSerialGC -XX:+UnlockExperimentalVMOptions -XX:hashCode=3 -Dpebxel.common=../common/ -cp "../game.jar:../lib/*")
+[ "${MAIN:-AssistBot}" = AssistBot ] && [ "${JIT:-c1}" = c1 ] && JAVA+=(-XX:TieredStopAtLevel=1)
 if [ "${MAIN:-AssistBot}" = AssistBot ] && [ "$WATCH" != 1 ] && [ "${BATCH:-1}" != 0 ]; then
   i=${START:-0}; log=.pebxel-simbot-$$.txt; export SAVETAG="${SAVETAG}-s$$"   # (its own save folders: others play beside it)
   while [ $i -lt $1 ]; do
