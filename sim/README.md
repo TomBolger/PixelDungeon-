@@ -13,5 +13,8 @@ then `make_job.sh JOB bundle.tgz GAMES CHUNK FIRST "run SETTING=v ..."` and `sub
 
 Settings the Shattered bot reads (job run lines): `SIMSEED=n` (repeatable games), `CHEAT=1` (the whole-game smoke test:
 the hero can't die, every quest, item kind, the alchemy pot and the win), `WATCH=1` (played with the watch's buttons
-through Controls, the Link and the WatchSim model), `MAXDEPTH`, `STARTDEPTH`, `MINES=0`, `ASCEND=0`. `cover.py report.txt...`
+through Controls, the Link and the WatchSim model), `MAXDEPTH`, `STARTDEPTH`, `MINES=0`, `ASCEND=0`. Speed (not with
+`WATCH=1`): `FAST=0` (the old 1/30 s frames and particles; default fast: 0.2 s frames, no particles, no GL), `BATCH=0` (a
+JVM per game; default all of a chunk's games in one JVM, each played as it would be alone), `JIT=c2` (default c1, the
+quick compiler: on Monolith 0.8 against 3.4 s a game). A chunk of 20-50 honest games per task amortises the JVM start best. `cover.py report.txt...`
 adds up the games' COVER lines: wins, quests, bosses, subclasses, item kinds used, windows, the watch path's problems.
