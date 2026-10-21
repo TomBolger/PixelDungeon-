@@ -268,7 +268,11 @@ public final class Assist {
 	public static void reset() { floor = null; mindFloor = null; last = new ArrayList<>(); }
 
 	/** Do it, as the game would on a tap / item use. Returns false when nothing could be done. Never throws. */
-	public static boolean act(Target t) {
+	public static boolean act(Target t) { return act(t, false); }
+
+	/** As act; player: the watch's Select, for a player: an item selector or a confirmation the use opens is left open
+	 *  for the player to answer (what to identify, upgrade... is theirs to choose: Thomas), only the aim is taken. */
+	public static boolean act(Target t, boolean player) {
 		try {
 			Hero h = Dungeon.hero;
 			if (t == null || h == null || !h.isAlive()) return false;
@@ -283,7 +287,7 @@ public final class Assist {
 					if (SPELL_GL.equals(t.action) && t.item instanceof com.shatteredpixel.shatteredpixeldungeon.items.artifacts.HolyTome)
 						com.shatteredpixel.shatteredpixeldungeon.actors.hero.spells.GuidingLight.INSTANCE.onCast((com.shatteredpixel.shatteredpixeldungeon.items.artifacts.HolyTome) t.item, h);   // (the tome's window, skipped: the same spell, cast)
 					else t.item.execute(h, t.action);
-					for (int i = 0; i < 4; i++) if (!followUp(t)) break;
+					for (int i = 0; i < 4; i++) if (!followUp(t, player)) break;
 					return true;
 				}
 				case WAIT:
@@ -322,14 +326,14 @@ public final class Assist {
 	}
 
 	/** After an item use: aim it, answer the item selector, confirm an upgrade. True if something was done. */
-	private static boolean followUp(Target t) {
+	private static boolean followUp(Target t, boolean player) {
 		if (Controls.aiming()) {
 			int c = t.cell >= 0 && t.cell != Dungeon.hero.pos ? t.cell : -1;
-			if (c < 0) { GameScene.cancelCellSelector(); return false; }
+			if (c < 0) { if (!player) GameScene.cancelCellSelector(); return false; }   // (the player's: Down offers the cells)
 			GameScene.handleCell(c); return true;
 		}
 		Window w = Ui.topWindow();
-		if (w == null) return false;
+		if (w == null || player) return false;
 		if (w.getClass().getSimpleName().equals("WndUpgrade")) {
 			Object b = field(w, "btnUpgrade");
 			if (b instanceof com.watabou.noosa.Gizmo) { Ui.press((com.watabou.noosa.Gizmo) b); return true; }

@@ -46,7 +46,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 
 	/** Forget the rows; the areas only Up/Down uses (never in the window, so never destroyed with it) are destroyed
 	 *  here: their touch areas stayed listening otherwise, one more each time a bag opened. */
-	private void dropRows() { for (Button a : rowAreas) if (a.parent == null) a.destroy(); rowAreas.clear(); rowCells.clear(); }
+	private void dropRows() { for (Button a : rowAreas) if (a.parent == null) a.destroy(); rowAreas.clear(); rowCells.clear(); cellItem.clear(); }
 
 	@Override public void destroy() { dropRows(); super.destroy(); }
 
@@ -72,6 +72,15 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 		List<Button> cs = rowCells.get(row);
 		return cs.isEmpty() ? rowAreas.get(row) : cs.get(Math.max(0, Math.min(cs.size() - 1, col)));
 	}
+
+	/** The frame on an item's cell (the Assistant's pick in a choosing it opened), if it is shown and can be chosen. */
+	public void focusOn(Item item) {
+		for (int r = 0; r < rowCells.size(); r++) {
+			List<Button> cs = rowCells.get(r);
+			for (int k = 0; k < cs.size(); k++) if (cellItem.get(cs.get(k)) == item && cs.get(k).active) { row = r; col = k; rowMode = false; return; }
+		}
+	}
+	private final java.util.IdentityHashMap<Button, Item> cellItem = new java.util.IdentityHashMap<>();
 
 	/** Into a row: on its first cell that can be chosen. */
 	private void enter(int r) {
@@ -314,6 +323,7 @@ public class WndWatchBag extends WatchWindow implements Navigable {
 			@Override protected boolean onLongClick() { choose(it); return true; }
 		};
 		bt.setRect(x, y, CELL_W, CELL_H);
+		cellItem.put(bt, item);
 		if (!usable) bt.active = false;
 		else if (selector != null && firstRow < 0) firstRow = rowCells.size() - 1;
 		grid.add(bt);

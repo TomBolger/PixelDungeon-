@@ -33,6 +33,7 @@ public class Buttons {
 		Touches touches = new Touches(); int seq = 0;
 		for (int i = 0; i < 5; i++) app.frame();
 		if (System.getenv("ASSIST") != null) WatchSettings.assist(Integer.parseInt(System.getenv("ASSIST")));
+		Controls.log = System.getenv("PLANLOG") != null;
 		if (System.getenv("NEWGAME") != null) {
 			SPDSettings.intro(false);
 			GamesInProgress.selectedClass = HeroClass.values()[Integer.parseInt(System.getenv("NEWGAME"))];
@@ -139,6 +140,8 @@ public class Buttons {
 				Object ts = WatchDriver.get(controls, "targets");
 				if (ts instanceof java.util.List) for (Object t : (java.util.List<?>) ts) { int c = Controls.cellOf((Integer) t); sb.append(' ').append(c).append(c >= 0 ? ":" + Dungeon.level.map[c] : ""); }
 				System.out.println(sb + " (hero " + Dungeon.hero.pos + ", " + Dungeon.level.getClass().getSimpleName() + ")");
+				Object pl = WatchDriver.get(controls, "plan");
+				if (pl instanceof java.util.List && !((java.util.List<?>) pl).isEmpty()) System.out.println("  plan (target " + WatchDriver.get(controls, "target") + "): " + pl);
 			}
 			if (System.getenv("FOCUS") != null) {   // (what Up/Down go through here, and which has the frame)
 				com.shatteredpixel.shatteredpixeldungeon.ui.Window tw = Ui.topWindow();

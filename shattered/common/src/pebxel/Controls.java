@@ -47,10 +47,13 @@ public class Controls {
 	private Group focusOwner;
 	private int focus;                 // in a menu, or on the toolbar
 	private boolean onToolbar;
+	/** The Assistant's list (Assist.plan): entry 0 is plan A, what Select does without a Down. */
+	private List<Assist.Target> plan = new ArrayList<>();
+	/** Each entry's cell for the marker (-1: an action on the toolbar, shown there instead). */
 	private List<Integer> targets = new ArrayList<>();
 	private int target;
 	private boolean targetsStale = true;
-	private int lastPos = -1, lastDepth = -1; private boolean lastAiming;
+	private int lastPos = -1, lastDepth = -1, lastSettings = -1; private boolean lastAiming; private float lastNow = -1;
 
 	// ---- Pebble PD's screen furniture (pebxel.ui.WatchHud) ----
 	private pebxel.ui.WatchHud hud;
@@ -59,14 +62,18 @@ public class Controls {
 		public void press(int k, boolean held) { hudPress(k, held); }
 		public int targetCell() { return currentTarget(); }
 		public int targetKind() {
-			int c = currentTarget();
-			if (c < 0 || Dungeon.level == null) return 0;
-			if (shot(targets.get(Math.min(target, targets.size() - 1)))) return 4;   // the bow at an enemy
+			if (Dungeon.hero == null || !Dungeon.hero.ready || targets.isEmpty() || Dungeon.level == null) return 0;
+			Assist.Target t = current();
+			if (t != null) return kindOf(t);
+			int c = currentTarget();   // (a bare cell: a test's list)
+			if (c < 0) return 0;
 			Char ch = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c);
 			if (ch instanceof Mob && ((Mob) ch).alignment == Char.Alignment.ENEMY) return 1;
 			if (Dungeon.level.heaps.get(c) != null) return 2;
 			return c == Dungeon.hero.pos ? 0 : 3;
 		}
+		public com.shatteredpixel.shatteredpixeldungeon.items.Item targetItem() { Assist.Target t = current(); return t == null || !Dungeon.hero.ready ? null : t.item; }
+		public int toolbarHint() { Assist.Target t = current(); return t == null || !Dungeon.hero.ready || onToolbar || touching ? -1 : buttonOf(t); }
 		public int targetCount() { return Dungeon.hero != null && Dungeon.hero.ready ? targets.size() : 0; }
 		public int mapZoomLevel() { Camera c = Camera.main; return c == null ? 1 : c.zoom < 1.5f ? 0 : c.zoom < 3f ? 1 : 2; }
 		public void tag(int which, boolean held) {
@@ -79,22 +86,66 @@ public class Controls {
 		}
 	};
 
-	/** The cell Select acts on (-1 none). */
+	/** The entry Select acts on (null: none, or a bare cell). */
+	private Assist.Target current() {
+		if (targets.isEmpty() || plan.size() != targets.size()) return null;
+		return plan.get(Math.min(target, plan.size() - 1));
+	}
+
+	/** The cell Select acts on (-1 none, or an action on the toolbar). */
 	private int currentTarget() {
 		if (Dungeon.hero == null || !Dungeon.hero.ready || targets.isEmpty()) return -1;
 		int c = cellOf(targets.get(Math.min(target, targets.size() - 1)));
 		return c < 0 ? -1 : c;
 	}
 
-	// A target is a cell; SHOT marks the Huntress's spirit bow aimed at the enemy there (a shot rather than a melee attack)
+	// (the Select tag's pictures, WatchHud.Hooks.targetKind)
+	public static final int K_ENEMY = 1, K_ITEM = 2, K_GO = 3, K_AIM = 4, K_USE = 5, K_WAIT = 6, K_SEARCH = 7, K_REST = 8, K_TALENT = 9;
+	static int kindOf(Assist.Target t) {
+		if (aiming()) return t.kind == Assist.ENEMY ? K_ENEMY : K_GO;   // (the aiming list: cells to aim at)
+		switch (t.kind) {
+			case Assist.ENEMY: return Assist.WAIT_ACT.equals(t.action) ? K_WAIT : K_ENEMY;
+			case Assist.PICKUP: return Dungeon.level.heaps.get(t.cell) != null ? K_ITEM : K_GO;
+			case Assist.GO: return t.cell == Dungeon.hero.pos ? K_SEARCH : K_GO;
+			case Assist.USE: return TALENTS.equals(t.action) ? K_TALENT : aimed(t) ? K_AIM : K_USE;
+			default: return Assist.REST_ACT.equals(t.action) ? K_REST : Assist.WAIT_ACT.equals(t.action) ? K_WAIT : K_SEARCH;
+		}
+	}
+
+	/** An item use aimed at a cell (a zap, a throw, a shot): the marker goes on that cell. */
+	static boolean aimed(Assist.Target t) { return t.kind == Assist.USE && t.item != null && t.cell >= 0 && Dungeon.hero != null && t.cell != Dungeon.hero.pos; }
+
+	/** Where the marker goes for an entry: its cell, or -1 for an action of the toolbar's (eat, drink, wait, search). */
+	static int markCell(Assist.Target t) {
+		switch (t.kind) {
+			case Assist.USE: return aimed(t) ? t.cell : -1;
+			case Assist.WAIT: return -1;
+			case Assist.GO: return Dungeon.hero != null && t.cell == Dungeon.hero.pos ? -1 : t.cell;
+			default: return t.cell;
+		}
+	}
+
+	/** The toolbar or status button an entry is the action of (its reticle shows it), or -1. As Pebble PD's hand_btn:
+	 *  an item in a quickslot is that slot's, anything else the backpack's. */
+	static int buttonOf(Assist.Target t) {
+		int k = kindOf(t);
+		if (k == K_WAIT || k == K_REST) return pebxel.ui.WatchHud.TB_WAIT;
+		if (k == K_SEARCH) return pebxel.ui.WatchHud.TB_SEARCH;
+		if (k == K_TALENT) return pebxel.ui.WatchHud.B_PORTRAIT;
+		if (t.kind != Assist.USE || t.item == null) return -1;
+		for (int q = 0; q < pebxel.ui.WatchHud.TB_Q.length; q++) if (Dungeon.quickslot.getItem(q) == t.item && Dungeon.quickslot.isNonePlaceholder(q)) return pebxel.ui.WatchHud.TB_Q[q];
+		return pebxel.ui.WatchHud.TB_BAG;
+	}
+
+	// A test's bare cells: SHOT marks the Huntress's spirit bow aimed at the enemy there (the list before Assist's)
 	static final int SHOT = 1 << 20;
 	static boolean shot(int t) { return t >= 0 && (t & SHOT) != 0; }
 	static int cellOf(int t) { return t < 0 ? t : t & (SHOT - 1); }
-	private static com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow bow() {
+	static com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow bow() {
 		Hero h = Dungeon.hero; return h == null ? null : h.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow.class);
 	}
 	/** The bow, drawn and loosed at a cell (as its Shoot action, then a tap on the cell). */
-	private static void shoot(int cell) {
+	static void shoot(int cell) {
 		com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow b = bow();
 		if (b == null || Dungeon.hero == null || !Dungeon.hero.ready) return;
 		b.execute(Dungeon.hero, com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow.AC_SHOOT);
@@ -126,7 +177,7 @@ public class Controls {
 			case pebxel.ui.WatchHud.B_MENU: GameScene.show(new WndGame()); break;
 			case pebxel.ui.WatchHud.B_PORTRAIT: GameScene.show(new com.shatteredpixel.shatteredpixeldungeon.windows.WndHero()); break;
 		}
-		targetsStale = true;
+		targetsStale = true; acted();
 	}
 
 	private static java.lang.reflect.Field qsInstance;
@@ -342,7 +393,8 @@ public class Controls {
 					return;
 				}
 				target = held ? (target + targets.size() - 1) % targets.size() : (target + 1) % targets.size();
-				if (!aiming) farView(cellOf(targets.get(target)));
+				if (!aiming) farView(cellOf(targets.get(target)), true);
+				keepEnemy();
 				return;
 			}
 			case SELECT:
@@ -352,12 +404,14 @@ public class Controls {
 					if (!aiming) key(SPDAction.WAIT_OR_PICKUP);
 					return;
 				}
-				int cell = targets.get(Math.min(target, targets.size() - 1));
-				farView(-1);
-				if (cell == -2) { Dungeon.hero.search(true); }
+				int i = Math.min(target, targets.size() - 1), cell = targets.get(i);
+				Assist.Target t = current();
+				farView(-1, false);
+				if (t != null) select(t, aiming);
+				else if (cell == -2) { Dungeon.hero.search(true); }   // (a test's bare cells)
 				else if (shot(cell)) shoot(cellOf(cell));
 				else GameScene.handleCell(cell);
-				targetsStale = true;
+				targetsStale = true; acted();
 				return;
 			case UP:
 				if (held) { GameScene.show(new WndGame()); return; }
@@ -420,16 +474,135 @@ public class Controls {
 		return out;
 	}
 
-	// ---- targets: what the player most likely wants next, first ----
+	// ---- targets: the Assistant's list (Assist.plan), what the player most likely wants next first ----
 
+	/** A test's own list in place of the Assistant's (bare cells, as before it: OldTargets). Never set on the phone. */
+	public static java.util.function.Function<Boolean, List<Integer>> legacy;
+
+	/** The list, made again once a turn: when game time has passed, the hero moved, a floor, aiming started or ended,
+	 *  the settings changed, or a press may have changed something (targetsStale). Assist.plan costs about half a
+	 *  millisecond; every frame would be 15 ms a second for nothing. */
 	private void refreshTargets(boolean aiming) {
 		// (aiming started or ended since: the other list. A zap or throw chosen in the item window kept the walking
 		// list, so Down offered items and the way on, not the enemies, until the hero moved)
-		if (!targetsStale && Dungeon.hero.pos == lastPos && Dungeon.depth == lastDepth && aiming == lastAiming) return;
-		targetsStale = false; lastPos = Dungeon.hero.pos; lastDepth = Dungeon.depth; lastAiming = aiming;
-		targets = aiming ? aimTargets() : reach(walkTargets());
-		target = 0;
-		farView(-1);   // (a new turn: the camera goes back to the hero)
+		float now = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now();
+		int settings = WatchSettings.assist() * 2 + (WatchSettings.itemAssist() ? 1 : 0);
+		if (waiting(now, aiming)) return;
+		if (!targetsStale && Dungeon.hero.pos == lastPos && Dungeon.depth == lastDepth && aiming == lastAiming && now == lastNow && settings == lastSettings) return;
+		String why = log ? (targetsStale ? "stale " : "") + (Dungeon.hero.pos != lastPos ? "pos " : "") + (now != lastNow ? "time " + lastNow + "->" + now + " " : "") + (aiming != lastAiming ? "aim " : "") : "";
+		targetsStale = false; lastPos = Dungeon.hero.pos; lastDepth = Dungeon.depth; lastAiming = aiming; lastNow = now; lastSettings = settings;
+		plans++;
+		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; farView(-1, false); return; }
+		plan = new ArrayList<>(Assist.plan(aiming, Controls::onScreenFromHero));
+		if (Assist.lastError != null) { System.out.println("pebxel: assist " + Assist.lastError); Assist.lastError = null; }
+		if (!aiming) { shots(plan); if (WatchSettings.assist() != 0) { veins(plan); talents(plan); } }   // (Off: the enemies only)
+		targets = new ArrayList<>();
+		for (Assist.Target t : plan) targets.add(aiming ? t.cell : markCell(t));
+		target = 0;   // (Pebble PD 0.40: after each step the first one, what a good player would do next)
+		if (WatchSettings.assist() == 0 && keptId >= 0)   // (Off: the enemy chosen stays chosen, as PD's last target)
+			for (int j = 0; j < plan.size(); j++) { Char c = plan.get(j).kind == Assist.ENEMY ? com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(plan.get(j).cell) : null; if (c != null && c.id() == keptId) { target = j; break; } }
+		keepEnemy();
+		// Far: the camera shows plan A wherever it is (Pebble PD 0.76: on whatever is chosen, cycled to or not); else back on the hero
+		farView(aiming || targets.isEmpty() ? -1 : targets.get(0), false);
+		if (log) System.out.println("pebxel: plan d" + Dungeon.depth + " t" + Math.round(now) + " hero " + Dungeon.hero.pos + (aiming ? " aiming" : "") + " (" + why.trim() + "): " + plan);
+	}
+	/** A press acted: no new list until the game has taken it (game time moved, the hero moved, a window or the aim
+	 *  came up) or a few frames went by with nothing (it came to nothing: then the Assistant hears so). Shattered's
+	 *  actor thread takes a tap's walk up a frame or two later; till then the hero still reads as ready, and a list
+	 *  made then was made on a turn already over (and counted the Assistant's waits twice, read its "mind" against
+	 *  itself...), while the actor thread moved the hero under it. */
+	private boolean pending; private int pendingFrames, pendingPos; private float pendingNow; private boolean pendingAim;
+	private void acted() {
+		if (Dungeon.hero == null) return;
+		pending = true; pendingFrames = 0; pendingPos = Dungeon.hero.pos; pendingNow = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now(); pendingAim = aiming();
+	}
+	private boolean waiting(float now, boolean aiming) {
+		if (!pending) return false;
+		Hero h = Dungeon.hero;
+		if (now != pendingNow || h.pos != pendingPos || aiming != pendingAim || !h.ready || Ui.topWindow() != null || pendingFrames > PENDING_FRAMES) pending = false;
+		return pending;
+	}
+	static final int PENDING_FRAMES = 10;
+	/** Lists made (tests: once a turn, never a frame). */
+	public static long plans;
+	/** Tests: print each list made. */
+	public static boolean log;
+	private int keptId = -1;
+	private void keepEnemy() {
+		Assist.Target t = current();
+		Char c = t != null && t.kind == Assist.ENEMY ? com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(t.cell) : null;
+		keptId = c == null ? -1 : c.id();
+	}
+
+	/** Select on an entry: the Assistant hears the choice (a different one than plan A: that way, and that objective,
+	 *  are followed from now on), then does it. A window it opens is left to the player: the backpack to choose what to
+	 *  identify (on the Assistant's pick, if it had one), the talents, the subclass, a shop's buy window. */
+	private void select(Assist.Target t, boolean aiming) {
+		Assist.Target a = plan.isEmpty() ? null : plan.get(0);
+		if (!aiming && a != null) {
+			if (a != t && TALENTS.equals(a.action)) talentsPassed = talentPoints();
+			Assist.chose(t, a);
+		}
+		if (TALENTS.equals(t.action)) { pebxel.ui.WndWatchHero.openTalents(); return; }
+		Assist.act(t, true);
+		if (t.on != null) pick = t.on;
+	}
+	private com.shatteredpixel.shatteredpixeldungeon.items.Item pick;   // the bag that opened: the frame on this
+
+	/** The Huntress's bow: a shot at each enemy in the list an arrow would reach (before the blow when it's further
+	 *  than a step, after it when beside the hero), unless the Assistant offers that shot already. */
+	private static void shots(List<Assist.Target> ts) {
+		com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow b = bow();
+		Hero h = Dungeon.hero;
+		if (b == null || h == null) return;
+		for (int i = 0; i < ts.size() && ts.size() < PLAN_TARGETS; i++) {
+			Assist.Target e = ts.get(i);
+			if (e.kind != Assist.ENEMY || e.action != null) continue;
+			boolean have = false;
+			for (Assist.Target o : ts) have |= o.kind == Assist.USE && o.item == b && o.cell == e.cell;
+			if (have || new com.shatteredpixel.shatteredpixeldungeon.mechanics.Ballistica(h.pos, e.cell, com.shatteredpixel.shatteredpixeldungeon.mechanics.Ballistica.PROJECTILE).collisionPos != e.cell) continue;
+			Assist.Target s = new Assist.Target(e.cell, Assist.USE, "shoot");
+			s.item = b; s.action = com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow.AC_SHOOT; s.obj = -1;
+			if (Dungeon.level.adjacent(h.pos, e.cell)) ts.add(i + 1, s); else ts.add(i, s);
+			i++;
+		}
+	}
+
+	/** The Blacksmith's mine: the dark gold veins known, nearest first, a few (Select: the pickaxe walks there and
+	 *  mines; the Assistant never offers a wall). */
+	private static void veins(List<Assist.Target> ts) {
+		Level L = Dungeon.level; Hero h = Dungeon.hero;
+		if (!(L instanceof com.shatteredpixel.shatteredpixeldungeon.levels.MiningLevel) || h.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.quest.Pickaxe.class) == null) return;
+		int[] dist = walk(L, h.pos);
+		List<int[]> vs = new ArrayList<>();
+		for (int c = 0; c < L.length(); c++) {
+			if (L.map[c] != com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.WALL_DECO || !(L.visited[c] || L.mapped[c] || L.heroFOV[c])) continue;
+			int best = 0;   // (reached from the nearest floor beside it)
+			for (int k : PathFinder.NEIGHBOURS8) { int n = c + k; if (n >= 0 && n < dist.length && dist[n] > 0 && (best == 0 || dist[n] < best)) best = dist[n]; }
+			if (best > 0) vs.add(new int[]{c, best});
+		}
+		vs.sort(Comparator.comparingInt(v -> v[1]));
+		boolean fight = false; for (Assist.Target t : ts) fight |= t.kind == Assist.ENEMY;
+		for (int i = 0; i < Math.min(3, vs.size()) && ts.size() < PLAN_TARGETS; i++) {
+			Assist.Target v = new Assist.Target(vs.get(i)[0], Assist.GO, "gold vein");
+			if (fight) ts.add(v); else ts.add(Math.min(i, ts.size()), v);   // (no fight: the mining is what the floor is for)
+		}
+	}
+
+	/** Talent points to spend, nothing in sight, item assist on: the talents first (one press, the choice the player's),
+	 *  until passed over for these points. */
+	static final String TALENTS = "TALENTS";
+	private int talentsPassed = -1;
+	private static int talentPoints() { Hero h = Dungeon.hero; int n = 0; for (int t = 1; t <= 4; t++) n += Math.max(0, h.talentPointsAvailable(t)); return n; }
+	private void talents(List<Assist.Target> ts) {
+		if (WatchSettings.assist() == 0 || !WatchSettings.itemAssist()) return;
+		int n = talentPoints();
+		if (n <= 0 || n == talentsPassed) { if (n <= 0) talentsPassed = -1; return; }
+		for (Assist.Target t : ts) if (t.kind == Assist.ENEMY || (t.kind == Assist.USE && t.item != null)) return;   // (a fight, or the hands have something: later)
+		for (Mob m : Dungeon.level.mobs) if (Dungeon.level.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) return;
+		Assist.Target t = new Assist.Target(Dungeon.hero.pos, Assist.USE, "talents"); t.action = TALENTS; t.obj = -1;
+		ts.add(0, t);
+		if (ts.size() > PLAN_TARGETS) ts.remove(ts.size() - 1);
 	}
 
 	// ---- the assistant's reach (Settings): Near keeps to the screen, Far looks anywhere, Off offers only enemies ----
@@ -440,48 +613,29 @@ public class Controls {
 		if (c == null || cell < 0) return true;
 		com.watabou.utils.PointF p = com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.tileCenterToWorld(cell);
 		float sx = (c.x + (p.x - c.scroll.x) * c.zoom) / 2f, sy = (c.y + (p.y - c.scroll.y) * c.zoom) / 2f;   // watch pixels
+		return inView(sx, sy);
+	}
+	private static boolean inView(float sx, float sy) {
 		if (Screen.round) { float dx = sx - Screen.w / 2f, dy = sy - Screen.h / 2f; return dx * dx + dy * dy <= 95 * 95; }
 		return sx >= 8 && sx <= Screen.w - 26 && sy >= 38 && sy <= Screen.h - 42;
 	}
-
-	private List<Integer> reach(List<Integer> ts) {
-		int mode = WatchSettings.assist();
-		Level L = Dungeon.level; int h = Dungeon.hero.pos;
-		List<Integer> out = new ArrayList<>();
-		if (mode == 0) {
-			// off: the enemies in sight, nothing else
-			for (int c : ts) if (c >= 0 && com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(cellOf(c)) instanceof Mob && ((Mob) com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(cellOf(c))).alignment == Char.Alignment.ENEMY) out.add(c);
-			return out;
-		}
-		if (mode == 2) return ts;
-		// near: a goal off the screen becomes the farthest step towards it that's on it
-		int[] dist = walk(L, h);
-		for (int c : ts) {
-			int t = c;
-			if (shot(t)) { if (!out.contains(t)) out.add(t); continue; }   // (a shot: at an enemy in sight)
-			if (t >= 0 && !onScreen(t)) {
-				if (dist[t] <= 0) continue;
-				int guard = 0;
-				while (t != h && !onScreen(t) && guard++ < 400) {
-					int next = -1;
-					for (int k : PathFinder.NEIGHBOURS8) { int n = t + k; if (n >= 0 && n < dist.length && dist[n] > 0 && dist[n] == dist[t] - 1) { next = n; break; } }
-					if (next < 0) break;
-					t = next;
-				}
-				if (t == h || !onScreen(t)) continue;
-			}
-			if (!out.contains(t)) out.add(t);
-		}
-		return out;
+	/** As onScreen, with the camera where it comes to rest: on the hero (the list is made as a walk ends, while the
+	 *  camera is still catching him up; Far's swoop may have it elsewhere). */
+	static boolean onScreenFromHero(int cell) {
+		Camera c = Camera.main;
+		if (c == null || cell < 0 || Dungeon.hero == null || Dungeon.level == null) return true;
+		int w = Dungeon.level.width(), h = Dungeon.hero.pos;
+		float t = DungeonTilemap.SIZE * c.zoom / 2f;   // a cell in watch pixels
+		return inView(Screen.w / 2f + (cell % w - h % w) * t, Screen.h / 2f + (cell / w - h / w) * t);
 	}
 
-	/** Far: a chosen goal off the screen brings the camera over to show it and the hero (zooming out a step if they
+	/** Far: a goal off the screen brings the camera over to show it and the hero (on a Down, zooming out a step if they
 	 *  won't both fit); -1, or a goal on the screen, gives the camera back to the hero (and the zoom it had). */
 	private int farZoomFrom = -1;
-	private void farView(int cell) {
+	private void farView(int cell, boolean zoomOut) {
 		Camera c = Camera.main;
 		if (c == null || Dungeon.hero == null || Dungeon.hero.sprite == null) return;
-		if (cell < 0 || WatchSettings.assist() != 2 || onScreen(cell)) {
+		if (cell < 0 || WatchSettings.assist() != 2 || onScreenFromHero(cell)) {
 			if (c.followTarget() != Dungeon.hero.sprite) c.panFollow(Dungeon.hero.sprite, 5f);
 			if (farZoomFrom > 0) { int z = Math.round(c.zoom); for (int i = z; i < farZoomFrom; i++) key(SPDAction.ZOOM_IN); farZoomFrom = -1; }
 			return;
@@ -489,75 +643,11 @@ public class Controls {
 		com.watabou.utils.PointF hp = Dungeon.hero.sprite.center(), tp = com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.tileCenterToWorld(cell);
 		// do they fit in the middle of the view at this zoom? (world units: two phone pixels a watch pixel)
 		float span = Math.max(Math.abs(hp.x - tp.x), Math.abs(hp.y - tp.y)) * c.zoom / 2f;
-		if (span > (Screen.round ? 150 : 130) && Math.round(c.zoom) > Math.round(PixelScene.minZoom)) {
+		if (zoomOut && span > (Screen.round ? 150 : 130) && Math.round(c.zoom) > Math.round(PixelScene.minZoom)) {
 			if (farZoomFrom < 0) farZoomFrom = Math.round(c.zoom);
 			key(SPDAction.ZOOM_OUT);
 		}
 		c.panTo(new com.watabou.utils.PointF((hp.x + tp.x) / 2, (hp.y + tp.y) / 2), 5f);
-	}
-
-	private static List<Integer> aimTargets() {
-		Level L = Dungeon.level; int h = Dungeon.hero.pos;
-		List<Integer> out = new ArrayList<>();
-		List<Mob> ms = new ArrayList<>();
-		for (Mob m : L.mobs) if (L.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) ms.add(m);
-		ms.sort(Comparator.comparingInt(m -> L.distance(h, m.pos)));
-		for (Mob m : ms) out.add(m.pos);
-		for (Mob m : L.mobs) if (L.heroFOV[m.pos] && m.alignment != Char.Alignment.ENEMY && !out.contains(m.pos)) out.add(m.pos);
-		for (Heap hp : L.heaps.valueList()) if (L.heroFOV[hp.pos] && !out.contains(hp.pos)) out.add(hp.pos);
-		if (!out.contains(h)) out.add(h);
-		return out;
-	}
-
-	private static List<Integer> walkTargets() {
-		Level L = Dungeon.level; int h = Dungeon.hero.pos;
-		List<Integer> out = new ArrayList<>();
-		// enemies in sight, nearest first
-		List<Mob> ms = new ArrayList<>();
-		for (Mob m : L.mobs) if (L.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) ms.add(m);
-		ms.sort(Comparator.comparingInt(m -> L.distance(h, m.pos)));
-		// the Huntress's bow: a shot at each one an arrow would reach (first when it's further than a step, after the
-		// melee attack when it's beside the hero)
-		boolean bow = bow() != null;
-		for (Mob m : ms) {
-			boolean reach = bow && new com.shatteredpixel.shatteredpixeldungeon.mechanics.Ballistica(h, m.pos, com.shatteredpixel.shatteredpixeldungeon.mechanics.Ballistica.PROJECTILE).collisionPos == m.pos;
-			boolean near = L.adjacent(h, m.pos);
-			if (reach && !near) out.add(m.pos | SHOT);
-			out.add(m.pos);
-			if (reach && near) out.add(m.pos | SHOT);
-		}
-		// an item under you, then known items by walking distance
-		if (L.heaps.get(h) != null) out.add(h);
-		int[] dist = walk(L, h);
-		List<Integer> items = new ArrayList<>();
-		for (Heap hp : L.heaps.valueList()) if (hp.pos != h && dist[hp.pos] > 0 && (L.visited[hp.pos] || L.heroFOV[hp.pos])) items.add(hp.pos);
-		items.sort(Comparator.comparingInt(c -> dist[c]));
-		out.addAll(items);
-		// the Blacksmith's mine: the dark gold veins known, nearest first (Select digs one: the pickaxe walks there and
-		// mines), a few; nothing offered them before, so on the buttons the quest couldn't be done
-		boolean mine = L instanceof com.shatteredpixel.shatteredpixeldungeon.levels.MiningLevel;
-		if (mine && Dungeon.hero.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.quest.Pickaxe.class) != null) {
-			List<int[]> veins = new ArrayList<>();
-			for (int c = 0; c < L.length(); c++) {
-				if (L.map[c] != com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.WALL_DECO || !(L.visited[c] || L.mapped[c] || L.heroFOV[c])) continue;
-				int best = 0;   // (reached from the nearest floor beside it)
-				for (int k : PathFinder.NEIGHBOURS8) { int n = c + k; if (n >= 0 && n < dist.length && dist[n] > 0 && (best == 0 || dist[n] < best)) best = dist[n]; }
-				if (best > 0) veins.add(new int[]{c, best});
-			}
-			veins.sort(Comparator.comparingInt(v -> v[1]));
-			for (int i = 0; i < Math.min(3, veins.size()); i++) out.add(veins.get(i)[0]);
-		}
-		// the nearest edge of the unexplored, then the way on: down (the mine: the ladder up, its only way out)
-		int edge = Explorer.nearestUnexplored(L, h, dist);
-		if (edge >= 0) out.add(edge);
-		// (with the Amulet the way is up, every floor to the surface: the stairs up instead)
-		boolean up = mine || Dungeon.hero.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.Amulet.class) != null;
-		int exit = up ? L.entrance() : L.exit();
-		if (exit >= 0 && (L.visited[exit] || L.mapped[exit]) && !out.contains(exit)) out.add(exit);
-		// friends (shopkeepers, quest givers) to talk to
-		for (Mob m : L.mobs) if (L.heroFOV[m.pos] && m.alignment != Char.Alignment.ENEMY && !out.contains(m.pos)) out.add(m.pos);
-		if (out.isEmpty()) out.add(-2);   // nothing known: search
-		return out;
 	}
 
 	/** Walking distance from the hero over known, walkable cells (0 = unreachable, the hero's cell = 1). */
@@ -579,9 +669,14 @@ public class Controls {
 	// ---- every frame: keep the frame where it belongs ----
 
 	public void frame() {
+		if (pending) pendingFrames++;
 		keepHud();
 		Window w = Ui.topWindow();
 		closeTag(w);
+		if (pick != null) {   // the backpack a use opened to choose in (what to identify...): the frame on the Assistant's pick
+			if (w instanceof pebxel.ui.WndWatchBag) { ((pebxel.ui.WndWatchBag) w).focusOn(pick); pick = null; }
+			else if (w == null && Dungeon.hero != null && Dungeon.hero.ready) pick = null;
+		}
 		Group menu = w != null ? w : !(Game.scene() instanceof GameScene) ? Game.scene() : null;
 		if (touching) { frame.hide(); if (menu != null) { marker.hide(); return; } }
 		else if (menu != null) {
@@ -608,8 +703,8 @@ public class Controls {
 		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) { marker.hide(); return; }
 		if (onToolbar || !Dungeon.hero.ready) { marker.hide(); return; }   // (the toolbar's highlight is drawn by the HUD)
 		refreshTargets(aiming());
-		int cell = targets.isEmpty() ? -1 : cellOf(targets.get(Math.min(target, targets.size() - 1)));
-		if (cell < 0) { marker.hide(); return; }
+		int cell = targets.isEmpty() || pending ? -1 : cellOf(targets.get(Math.min(target, targets.size() - 1)));
+		if (cell < 0) { marker.hide(); return; }   // (an action of the toolbar's: its button's reticle shows it, WatchHud)
 		marker.at(cell);
 	}
 
@@ -625,8 +720,9 @@ public class Controls {
 	 */
 	public byte[] plan(Link link) {
 		Hero h = Dungeon.hero;
+		// (the marker hidden: plan A is an action of the toolbar's; a Down to a cell still moves the marker there)
 		if (!(Game.scene() instanceof GameScene) || h == null || !h.isAlive() || !h.ready || Ui.topWindow() != null
-				|| onToolbar || touching || targets.isEmpty() || marker.img == null || !marker.img.visible) return new byte[]{0};
+				|| onToolbar || touching || targets.isEmpty() || marker.img == null || marker.img.parent == null) return new byte[]{0};
 		int mid = link.idOf(marker.img), hid = link.idOf(h.sprite);
 		if (mid < 0) return new byte[]{0};
 		boolean aiming = aiming();
@@ -638,7 +734,9 @@ public class Controls {
 			if (cell < 0) { w16(b, 0x7FFF); w16(b, 0x7FFF); b.write(0); continue; }
 			float[] xy = Marker.place(cell);
 			w16(b, Math.round(xy[0] * 8)); w16(b, Math.round(xy[1] * 8));
-			List<Integer> path = aiming || hid < 0 || i >= PLAN_WALKS ? null : walk(h, cell);
+			Assist.Target t = i < plan.size() && plan.size() == targets.size() ? plan.get(i) : null;
+			boolean walks = t == null || t.kind == Assist.GO || t.kind == Assist.PICKUP || (t.kind == Assist.ENEMY && t.action == null);   // (an item's use, a wait: no walk)
+			List<Integer> path = aiming || hid < 0 || i >= PLAN_WALKS || !walks ? null : walk(h, cell);
 			int k = path == null ? 0 : Math.min(PLAN_STEPS, path.size());
 			b.write(k);
 			int from = h.pos, w = Dungeon.level.width();

@@ -76,6 +76,7 @@ public class AssistBot {
 		app.create();
 		Lockstep.watchdog(() -> "class " + curCls + " seed " + curSeed);
 		if (WATCH) watch = new WatchDriver(app);
+		if (WATCH && "1".equals(System.getenv("OLDLIST"))) OldTargets.install();
 		for (int i = 0; i < 5; i++) step();
 		// (any thread dying of an exception ends the game with a report: the render thread dying once left the actor
 		// thread waiting for ever, and the game hung, using no CPU, until it was cancelled)
@@ -261,7 +262,10 @@ public class AssistBot {
 			if (pickHeap != null) { if (Dungeon.level.heaps.get(pickHeap.pos) != pickHeap || pickHeap.size() < pickSize) picked++; pickHeap = null; }
 			long n0 = System.nanoTime();
 			int hx = Dungeon.hero.pos % Dungeon.level.width(), hy = Dungeon.hero.pos / Dungeon.level.width(), W = Dungeon.level.width();
-			List<Assist.Target> plan = Assist.plan(false, c -> { int dx = c % W - hx, dy = c / W - hy; return dx >= -6 && dx <= 4 && dy >= -4 && dy <= 4; });
+			java.util.function.IntPredicate box = c -> { int dx = c % W - hx, dy = c / W - hy; return dx >= -6 && dx <= 4 && dy >= -4 && dy <= 4; };
+			// (through the watch with the Assistant's list: the watch made its own plan this turn; the bot's, the reference,
+			// is asked without leaving a trace in the Assistant's state: AssistSandbox)
+			List<Assist.Target> plan = watch != null && Controls.legacy == null ? AssistSandbox.run(() -> Assist.plan(false, box)) : Assist.plan(false, box);
 			long dn = System.nanoTime() - n0; planNs += dn; plans++; maxPlanNs = Math.max(maxPlanNs, dn);
 			if (Assist.lastError != null) { System.out.println("  ASSIST ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; }
 			decisions++;
@@ -304,7 +308,7 @@ public class AssistBot {
 			if (t.kind == Assist.USE && t.item != null) BotItems.pending(t.item, t.action);
 			Lockstep.doing = "acting on " + t + " at depth " + Dungeon.depth;
 			if (decisions == TEST_HANG) synchronized (AssistBot.class) { try { AssistBot.class.wait(); } catch (InterruptedException e) { } }   // (tests: the watchdog)
-			boolean ok = watch != null && Controls.aiming() == false && watch.act(t);
+			boolean ok = watch != null && Controls.aiming() == false && (SELECTONLY ? watch.selectOnly(t) : watch.act(t));
 			if (!ok && Ui.topWindow() == null && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn) ok = Assist.act(t);
 			// (the actor thread picks the action up on a later frame: until then hero.ready still reads true. Once it has
 			// and the action came to nothing, the hero is the actor waiting again with no action: no use waiting longer.
@@ -313,6 +317,7 @@ public class AssistBot {
 			for (int k = 0; k < 150 && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn && Ui.topWindow() == null && Dungeon.hero.isAlive()
 					&& !(watch == null && k > 0 && Dungeon.hero.curAction == null && Actor.processing()); k++) { step(); fk[4]++; }   // (through the watch, a press takes frames to arrive)
 			if (FRAMESBY) { fkWhy.merge(t.why, fk[4] - fa, Long::sum); if (fk[4] - fa >= 150) fkWhy.merge("150: " + t.why, 1L, Long::sum); }
+			if (SELECTONLY && watch != null) watch.stall = Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn && Ui.topWindow() == null ? watch.stall + 1 : 0;
 			if (!ok) { actFails++; if (Assist.lastError != null) { System.out.println("  ACT ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; } Dungeon.hero.rest(false); }
 		}
 		} catch (Throwable ex) {
@@ -333,6 +338,7 @@ public class AssistBot {
 		System.out.printf("plan time: avg %.2f ms, max %.1f ms over %d plans%n", planNs / 1e6 / Math.max(1, plans), maxPlanNs / 1e6, plans);
 		if (!end.equals("WIN") && !end.equals("died") && !v) { System.out.println("last decisions:"); for (String l : recent) System.out.println(l); }
 		if (watch != null) System.out.println("WATCH " + watch.summary());
+		if (watch != null) System.out.println("LIST " + (Controls.legacy != null ? "old" : "new") + (SELECTONLY ? " select-only" : " bot") + " mode " + WatchSettings.assist() + " " + watch.listSummary() + " plans " + Controls.plans);
 		Coverage.watch = watch == null ? "" : watch.summary();
 		Coverage.report(end);
 		System.out.println(BotStats.line());
@@ -347,6 +353,9 @@ public class AssistBot {
 	static final Map<String, Long> fkWhy = new HashMap<>(); static final boolean FRAMESBY = System.getenv("FRAMESBY") != null;
 	static final long[] fk = new long[5];   // (frames by what the bot waited for)
 
+	/** WATCH=1 PLAYER=select: the player only ever presses Select (plan A); OLDLIST=1: the watch's Down list as it was
+	 *  before the Assistant drove it (OldTargets), to compare presses on the same seeds. */
+	static final boolean SELECTONLY = "select".equals(System.getenv("PLAYER"));
 	static final int PERTURB = Integer.parseInt(System.getenv().getOrDefault("PERTURB", "0"));
 	static final boolean VRND = System.getenv("VRND") != null;
 	/** The random numbers' state (debugging repeatability: needs --add-opens java.base/java.util=ALL-UNNAMED and java.util.concurrent.atomic). */

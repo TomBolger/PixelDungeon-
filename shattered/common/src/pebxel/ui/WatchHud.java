@@ -60,9 +60,14 @@ public class WatchHud extends Group {
 	/** What the buttons do (Controls supplies these, so the watch buttons and taps agree). */
 	public interface Hooks {
 		void press(int button, boolean held);
-		/** The cell Select acts on, and what it is: 0 nothing, 1 enemy, 2 item, 3 go there. */
+		/** The cell Select acts on, and what it is: 0 nothing, 1 enemy, 2 item, 3 go there, 4 an item aimed at the cell
+		 *  (a zap, a throw, a shot), 5 an item's use (eat, drink, read...), 6 wait, 7 search, 8 rest, 9 the talents. */
 		int targetCell();
 		int targetKind();
+		/** The item Select uses (kinds 4 and 5), or null. */
+		Item targetItem();
+		/** The button whose action Select is (its reticle shows it, as Pebble PD's hands): toolbar 0-5, portrait 7; -1 none. */
+		int toolbarHint();
 		int targetCount();
 		int mapZoomLevel();
 		void tag(int which, boolean held);   // 0 zoom, 1 act, 2 next target, 3 loot, 4 resume
@@ -438,19 +443,35 @@ public class WatchHud extends Group {
 			Image t = PdArt.image("icons", 67, 0, 16, 16, 1); t.x = a[0] + 2 + (a[2] - 16) / 2; t.y = a[1] + (a[3] - 16) / 2; into.add(t);
 		}
 		if (next) tagButton(2, ctag(2)); else tagButtons[2].visible = tagButtons[2].active = false;
-		// what Select does: attack (red, the weapon), pick up (blue, the thing), go there (pale, the walk arrow)
-		boolean act = alive && cell >= 0 && kind > 0;
-		Item bow = kind == 4 ? h.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow.class) : null;
-		String actKey = !act ? "-" : kind == 4 ? "4/" + (bow == null ? 0 : bow.image()) : kind == 1 ? "1/" + (weapon == null ? 0 : weapon.image()) : kind == 2 && there != null ? "2/" + there.peek().image() : "3";
+		// what Select does: attack (red, the weapon), pick up (blue, the thing), go there (pale, the walk arrow); an item
+		// aimed at an enemy (red, the item), an item's use (pale, the item), wait or rest (pale, the clock), search (pale,
+		// the magnifier), the talents (pale, the talent icon)
+		boolean act = alive && kind > 0 && (cell >= 0 || kind >= 4);
+		Item use = kind == 4 || kind == 5 ? hooks.targetItem() : null;
+		if (kind == 4 || kind == 5) act &= use != null;
+		String actKey = !act ? "-" : kind == 4 || kind == 5 ? kind + "/" + use.image() : kind == 1 ? "1/" + (weapon == null ? 0 : weapon.image()) : kind == 2 && there != null ? "2/" + there.peek().image() : "" + kind;
 		if (tagChanged(1, actKey) && act) {
 			a = ctag(1);
-			if (kind == 1 || kind == 4) {   // (4: a shot: the bow)
+			if (kind == 1 || kind == 4) {
 				tag(a, "tag_red");
-				if (kind == 4) weapon = bow;
-				if (weapon != null) { ItemSprite s = new ItemSprite(weapon); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s); }
+				Item shown = kind == 4 ? use : weapon;
+				if (shown != null) { ItemSprite s = new ItemSprite(shown); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s); }
 			} else if (kind == 2 && there != null) {
 				tag(a, "tag_blue");
 				ItemSprite s = new ItemSprite(there); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
+			} else if (kind == 5) {
+				tag(a, "tag_white");
+				ItemSprite s = new ItemSprite(use); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
+			} else if (kind >= 6 && kind <= 8) {   // (the toolbar's own pictures: the clock for wait and rest, the magnifier)
+				tag(a, "tag_white");
+				int j = kind == 7 ? 1 : 0, w = TB_ICON[j][2], hh = TB_ICON[j][3];
+				Image ic = PdArt.image("toolbar", TB_ICON[j][0], TB_ICON[j][1], w, hh, kind == 7 ? 1.5f : 1.5f);
+				ic.x = a[0] + 2 + Math.round((a[2] - 1.5f * w) / 2); ic.y = a[1] + Math.round((a[3] - 1.5f * hh) / 2); into.add(ic);
+				if (kind == 8) { WatchText zz = new WatchText(WatchText.G14B, "z", YELLOW); zz.outline = true; place(zz, a[0] + a[2] - 8, a[1] - 2, 8, 0); into.add(zz); }
+			} else if (kind == 9) {
+				tag(a, "tag_white");
+				Image ic = com.shatteredpixel.shatteredpixeldungeon.ui.Icons.get(com.shatteredpixel.shatteredpixeldungeon.ui.Icons.TALENT);
+				ic.x = a[0] + 2 + Math.round((a[2] - ic.width()) / 2); ic.y = a[1] + Math.round((a[3] - ic.height()) / 2); into.add(ic);
 			} else {
 				tag(a, "tag_white");
 				Image arrow = PdArt.image("icons", 83, 0, 12, 11, 1); arrow.x = a[0] + 2 + (a[2] - 12) / 2; arrow.y = a[1] + (a[3] - 11) / 2; into.add(arrow);
@@ -549,11 +570,13 @@ public class WatchHud extends Group {
 	// ---- the Back button's highlight: Icons.TARGET's corners at 2x around the button ----
 	private int shownHl = -2;
 	private void refreshReticle() {
-		if (highlight == shownHl) return;
-		shownHl = highlight;
+		// the Back button's highlight, else the button Select's action belongs to (Pebble PD 0.48: the hands' reticle)
+		int hl = highlight >= 0 ? highlight : hooks.toolbarHint();
+		if (hl == shownHl) return;
+		shownHl = hl;
 		reticle.clear();
-		if (highlight < 0) return;
-		int[] r = buttonRect(highlight);
+		if (hl < 0) return;
+		int[] r = buttonRect(hl);
 		for (int i = 0; i < 4; i++) {
 			Image c = PdArt.image("icons", 67 + (i & 1) * 10, (i & 2) * 5, 6, 6, 2);
 			c.x = r[0] + (i & 1) * (r[2] - 12); c.y = r[1] + (i >> 1) * (r[3] - 12);
