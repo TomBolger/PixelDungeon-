@@ -168,7 +168,9 @@ public final class Assist {
 	static final boolean GRASS = opt("GRASS", true);
 	static final boolean STAIRS = opt("STAIRS", true);
 	static final boolean ADJZAP = opt("ADJZAP", true);
-	static final boolean STAFFUP = opt("STAFFUP", true);   // the Mage's first 3 upgrades into the staff
+	static final boolean STAFFUP = opt("STAFFUP", true);
+	static final int RESTPCT = optInt("RESTPCT", 50);
+	static final boolean CLOAK = opt("CLOAK", true);   // the Rogue's cloak before a fight   // nothing in sight: rest below this share of health   // the Mage's first 3 upgrades into the staff
 	static final int HEALBOSS = optInt("HEALBOSS", 55);    // a boss in sight: Healing below this share (Goo's pumped blow is triple)   // the Mage's staff zapped point blank too (magic: double accuracy, more damage than the staff's own blow)   // low and losing: up the stairs (only allies follow), rest there, come back   // tall grass walked for dew and seeds (off: only within 2 steps)     // Goo's ooze: into water to wash it off   // the Great Crab: ambushes are the only blows it doesn't block
 	static int optInt(String name, int def) { try { String v = System.getenv("AS_" + name); return v == null ? def : Integer.parseInt(v); } catch (Throwable e) { return def; } }
 	static final int HEALPCT = optInt("HEALPCT", 40);   // (a known Healing potion is drunk in a fight below this share of health)
@@ -678,7 +680,7 @@ public final class Assist {
 	}
 	private static boolean water(int c) { return L.water[c]; }
 	/** Water or beside it: a piranha bites from the water onto the shore. */
-	private static boolean wet(int c) { if (L.water[c]) return true; if (!SHORE) return false; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb(c, n) && L.water[n]) return true; } return false; }
+	private static boolean wet(int c) { if (L.water[c]) return true; if (!SHORE || Actor.now() - fishAt > 20) return false; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb(c, n) && L.water[n]) return true; } return false; }
 
 	/** Gas or fire on c, as the hero last saw it. */
 	private static boolean foul(int c) { return c >= 0 && c < LEN && hazMem != null && c < hazMem.length && hazMem[c]; }
@@ -1149,18 +1151,18 @@ public final class Assist {
 		if (foul(hp) || burning()) {   // out of the gas / fire: the nearest clean cell (alight: water, if near)
 			boolean w = burning();
 			for (int p = 0; p < 2 && best < 0; p++, w = false)
-				for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && (!w || dist[c] <= 4) && open[c] && !foul(c) && seenChar(c) == null && (!w || water(c))) { bk = dist[c]; best = c; }
+				for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && (!w || dist[c] <= 4) && open[c] && !foul(c) && seenChar(c) == null && (!w || water(c)) && !bad.containsKey(c)) { bk = dist[c]; best = c; }
 			if (best >= 0) { Target t = new Target(best, GO, "escape the gas / fire"); return t; }
 		}
 		boolean adjFoe = false; for (Mob m : mobs()) if (enemy(m) && adjacent(m.pos, hp)) adjFoe = true;
 		if (OOZE && oozed() && !water(hp)) {   // Goo's ooze eats away till washed off: into water (strategy-reference 2.6/9.12), mid-fight only if it's a step or two
-			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && dist[c] <= (adjFoe ? 2 : 12) && water(c) && pass[c] && seenChar(c) == null && !foul(c)) { bk = dist[c]; best = c; }
+			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && dist[c] <= (adjFoe ? 2 : 12) && water(c) && pass[c] && seenChar(c) == null && !foul(c) && !bad.containsKey(c)) { bk = dist[c]; best = c; }
 			if (best >= 0) return new Target(best, GO, "escape: wash off the ooze");
 		}
 		Target up = STAIRS ? upstairs() : null;
 		if (up != null) return up;
 		if (inDanger && (sentryZone[hp] || hazMem[hp] || Actor.now() - fishAt <= 5)) {   // on a sentry's floor, or by the water with a piranha just seen: off it, the shortest way
-			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && !danger[c] && open[c] && seenChar(c) == null) { bk = dist[c]; best = c; }
+			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && !danger[c] && open[c] && seenChar(c) == null && !bad.containsKey(c)) { bk = dist[c]; best = c; }
 			if (best >= 0) return new Target(best, GO, sentryZone[hp] ? "escape: off the sentry's floor" : "escape: out of the water");
 		}
 		return null;
@@ -1276,6 +1278,14 @@ public final class Assist {
 			for (Item i : H.belongings.backpack) if (i instanceof Potion && !known(i)) return use(i, Potion.AC_DRINK, -1, "dying: gamble");
 			if (scrollsOk) for (Item i : H.belongings.backpack) if (i instanceof Scroll && !known(i)) return use(i, Scroll.AC_READ, -1, "dying: gamble");
 		}
+		if (seen && CLOAK) {   // the Rogue: unseen, the next blow is a sure surprise one (attacking ends it: one charge, one blow)
+			com.shatteredpixel.shatteredpixeldungeon.items.artifacts.CloakOfShadows ck = bag(com.shatteredpixel.shatteredpixeldungeon.items.artifacts.CloakOfShadows.class);
+			Object ch = ck == null ? null : field(ck, "charge");
+			boolean on = H.buff(com.shatteredpixel.shatteredpixeldungeon.items.artifacts.CloakOfShadows.cloakStealth.class) != null || H.invisible > 0;
+			int hn = 0, close = INF; for (Mob m : mobs()) if (enemy(m) && hunting(m) && !(m instanceof NPC) && !(m instanceof Piranha)) { hn++; close = Math.min(close, walk(m.pos)); }
+			if (ck != null && !on && !ck.cursed && ch instanceof Integer && (Integer) ch > 0 && hn > 0 && close <= 4 && (ck.isEquipped(H) || H.hasTalent(com.shatteredpixel.shatteredpixeldungeon.actors.hero.Talent.LIGHT_CLOAK)) && !declined(ck.getClass(), "STEALTH"))
+				return use(ck, "STEALTH", -1, "cloak: a sure first blow");
+		}
 		if (seen) return ranged();
 		// nothing in view
 		for (Class<? extends Potion> c : Arrays.asList(PotionOfStrength.class, PotionOfExperience.class)) {
@@ -1335,7 +1345,7 @@ public final class Assist {
 		}
 		boolean bossHere = bossSeen >= 0 && Actor.now() - bossSeen < 100;   // (a boss seen on this floor lately)
 		if (Dungeon.bossLevel() && bossHere && H.HP * 20 < H.HT * 19 && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "rest before the boss"); t.action = REST_ACT; t.obj = -1; return t; }
-		if (H.HP * 2 < H.HT && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "hurt: rest"); t.action = REST_ACT; t.obj = -1; return t; }
+		if (H.HP * 100 < H.HT * RESTPCT && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "hurt: rest"); t.action = REST_ACT; t.obj = -1; return t; }
 		return null;
 	}
 	private static boolean declinedAny(String a) { for (String s : declined) if (s.endsWith(":" + a)) return true; return false; }
