@@ -15,7 +15,7 @@ enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 static Window *s_win;
 static Layer *s_layer;
 static AppTimer *s_timer;
-static uint32_t s_last, s_input_at, s_data_at;
+static uint32_t s_last, s_input_at, s_data_at, s_frame_end;
 static bool s_connected;
 static bool s_wait_reset;   // the copy was given up (resync): the phone's messages wait until its fresh start comes
 
@@ -52,6 +52,7 @@ static void update(Layer *l, GContext *ctx) {
   draw_scene(ctx, layer_get_bounds(l), now);
   note_free();
   uint32_t drawn = now_ms();
+  s_frame_end = drawn;
   sound_poll();
   static int frames; static uint32_t spent, spent_snd;
   spent += drawn - now; spent_snd += now_ms() - drawn;
@@ -66,8 +67,14 @@ static void update(Layer *l, GContext *ctx) {
 }
 
 // keep drawing while something moves or animates; stop (and save power) when the screen is still
+// A breather after every frame (as in Pebble PD): the system task that reads the touch screen (and refills the
+// speaker) runs below the app, only while the app waits. Frames slower than the timer followed each other at once and
+// starved it: touches came seconds late or not at all (a quick tap was over before it was read) while anything moved.
+#define MIN_IDLE (10 * GAME_SPEED_NUM / GAME_SPEED_DEN)   // (10 ms real)
 static void tick(void *data) {
   s_timer = NULL;
+  uint32_t since = now_ms() - s_frame_end;
+  if (since < MIN_IDLE) { s_timer = app_timer_register((MIN_IDLE - since) * GAME_SPEED_DEN / GAME_SPEED_NUM + 1, tick, NULL); return; }
   uint32_t now = now_ms(), dt = now - s_last; if (dt > 200) dt = 200;
   s_last = now;
   cams_follow(now, dt);
@@ -158,6 +165,7 @@ static void pump(void *data) {
     }
     int used = scene_apply(m->data + m->pos, m->len - m->pos, s_cur_at);
     m->pos = used > 0 ? m->pos + used : m->len;
+    predict_heard(now);
     note_free();
     if (g_dirty) { g_dirty = false; kick(); }
     if (m->pos >= m->len) { s_q = m->next; if (!s_q) s_qtail = NULL; s_qbytes -= m->len; free(m); }
@@ -230,36 +238,82 @@ static void inbox(DictionaryIterator *it, void *ctx) {
 // ---- to the phone: buttons and touches, one message at a time (a small queue; drags coalesce) ----
 enum { T_BUTTON = 0, T_TAP = 1, T_PAN, T_DOWN, T_MOVE, T_UP };
 typedef struct { uint8_t b[12]; } TMsg;
-static TMsg s_tq[8];
+#define TQ 8
+static TMsg s_tq[TQ];
 static int s_ntq;
-static bool s_sending;
+static bool s_sending;           // s_tq[0] is out, waiting for the phone to take it (it leaves the queue then)
+static uint32_t s_sent_at;
+static int s_tries;
+static AppTimer *s_tq_timer;
 static uint8_t s_seq;
 typedef struct { uint8_t seq; int16_t dx, dy; } PanDelta;   // map drags the phone hasn't applied yet
 static PanDelta s_pd[8];
 static int s_npd;
+#define SEND_LOST 20000          // (game ms, over 13 s real) the system answers every send by then; if not, it never will
 
-static void tq_send(void *data) {
-  if (s_sending || !s_ntq) return;
+static void tq_send(void);
+static void tq_timer(void *data) { s_tq_timer = NULL; tq_send(); }
+static void tq_later(int ms) { if (!s_tq_timer) s_tq_timer = app_timer_register(ms, tq_timer, NULL); }
+
+static void failed(DictionaryIterator *it, AppMessageResult r, void *ctx);
+#ifdef TEST_SENDFAIL
+static void test_refuse(void *data) { failed(NULL, APP_MSG_SEND_REJECTED, NULL); }
+#endif
+static void tq_send(void) {
+  if (s_sending && now_ms() - s_sent_at > SEND_LOST) { APP_LOG(APP_LOG_LEVEL_WARNING, "send never answered"); failed(NULL, APP_MSG_SEND_TIMEOUT, NULL); return; }
+  if (s_sending) { if (s_ntq > 1) tq_later(1000); return; }   // (more waiting: look again in a while, in case no answer comes)
+  if (!s_ntq) return;
+#ifdef TEST_SENDFAIL
+  // (tests: the emulator's phone side answers every message, so refusals and lost answers are made up here: every
+  // 3rd send is refused, every 7th never answered)
+  static int n; n++;
+  if (n % 3 == 0 || n % 7 == 0) {
+    s_sending = true; s_sent_at = now_ms();
+    APP_LOG(APP_LOG_LEVEL_INFO, "test: send %d %s", n, n % 3 == 0 ? "refused" : "lost");
+    if (n % 3 == 0) app_timer_register(80, test_refuse, NULL);
+    return;
+  }
+#endif
   DictionaryIterator *it;
-  if (app_message_outbox_begin(&it) != APP_MSG_OK) { app_timer_register(50, tq_send, NULL); return; }
+  if (app_message_outbox_begin(&it) != APP_MSG_OK) { tq_later(50); return; }
   if (s_tq[0].b[0] == T_BUTTON) dict_write_int32(it, KEY_BUTTON, s_tq[0].b[4]);   // the phone library reads signed numbers most easily
   else dict_write_data(it, KEY_TOUCH, s_tq[0].b, 12);
-  if (app_message_outbox_send() == APP_MSG_OK) { s_sending = true; s_ntq--; memmove(s_tq, s_tq + 1, s_ntq * sizeof(TMsg)); }
-  else app_timer_register(50, tq_send, NULL);
+  if (app_message_outbox_send() == APP_MSG_OK) { s_sending = true; s_sent_at = now_ms(); }
+  else tq_later(50);
 }
-static void sent(DictionaryIterator *it, void *ctx) { s_sending = false; tq_send(NULL); }
-static void failed(DictionaryIterator *it, AppMessageResult r, void *ctx) { s_sending = false; app_timer_register(100, tq_send, NULL); }
+static void tq_pop(void) { s_ntq--; memmove(s_tq, s_tq + 1, s_ntq * sizeof(TMsg)); s_tries = 0; }
+static void pan_preview(void);
+static void sent(DictionaryIterator *it, void *ctx) { if (s_sending && s_ntq) tq_pop(); s_sending = false; tq_send(); }
+static void failed(DictionaryIterator *it, AppMessageResult r, void *ctx) {
+  if (s_sending && s_ntq) {
+    // a touch the phone turned away (or never got) goes again: the phone knows a repeat by its number. Not a button
+    // (it may have been taken: not twice), nor anything that waited out the whole time-out (too late to act on)
+    uint8_t *b = s_tq[0].b;
+    bool again = b[0] != T_BUTTON && r != APP_MSG_SEND_TIMEOUT && now_ms() - s_sent_at < 3000 && ++s_tries < 4;
+    APP_LOG(APP_LOG_LEVEL_WARNING, "send failed (%d): %s", (int)r, again ? "again" : "let go");
+    if (!again) {
+      if (b[0] == T_PAN) {   // its drag will never be applied: take it off the map's preview
+        int k = 0; for (int i = 0; i < s_npd; i++) if (s_pd[i].seq != b[1]) s_pd[k++] = s_pd[i];
+        if (k != s_npd) { s_npd = k; pan_preview(); }
+      }
+      tq_pop();
+    }
+  }
+  s_sending = false; tq_later(100);
+}
 
 static int s_tcam = -1;
 static uint32_t s_tstamp;
 static void put16(uint8_t *p, int v) { p[0] = v; p[1] = v >> 8; }
 
 static void out_msg(int kind, int x, int y, bool lng) {
-  TMsg *last = s_ntq ? &s_tq[s_ntq - 1] : NULL;
+  TMsg *last = s_ntq > (s_sending ? 1 : 0) ? &s_tq[s_ntq - 1] : NULL;   // (the one out can't change any more)
   if (last && last->b[0] == kind && (kind == T_PAN || kind == T_MOVE)) {   // still waiting: fold into it
     if (kind == T_PAN) { x += (int16_t)(last->b[4] | last->b[5] << 8); y += (int16_t)(last->b[6] | last->b[7] << 8); }
+  } else if (s_ntq == TQ && last && last->b[0] == T_MOVE && kind == T_UP) {
+    // full (the radio is held up): the lift-off takes the place of the move waiting before it (it ends there anyway)
   } else {
-    if (s_ntq == 8) return;
+    if (s_ntq == TQ) { APP_LOG(APP_LOG_LEVEL_WARNING, "send queue full: %d dropped", kind); return; }
     last = &s_tq[s_ntq++]; memset(last->b, 0, 12); last->b[1] = ++s_seq;
   }
   uint8_t *b = last->b;
@@ -270,7 +324,7 @@ static void out_msg(int kind, int x, int y, bool lng) {
     if (s_npd && s_pd[s_npd - 1].seq == b[1]) { s_pd[s_npd - 1].dx = x; s_pd[s_npd - 1].dy = y; }
     else if (s_npd < 8) s_pd[s_npd++] = (PanDelta){ b[1], x, y };
   }
-  tq_send(NULL);
+  tq_send();
 }
 
 static void send_button(int code) { out_msg(T_BUTTON, code, 0, false); }
@@ -306,10 +360,20 @@ static void button_long(ClickRecognizerRef r, void *ctx) {
 // ---- touch (as in Pebble PD: under 40 px of movement is a tap, held 500 ms a long one; 24 px drags the map) ----
 #define TAP_SLOP 32
 #define PAN_START 24
-#define LONG_MS (500 * GAME_SPEED_NUM / GAME_SPEED_DEN)   // (half a second of real time)
+#define LONG_MS 500   // (real ms)
 static int16_t s_tx, s_ty, s_lx, s_ly, s_moved;
-static bool s_down, s_drag, s_map;
-static uint32_t s_tms;
+static bool s_down, s_drag, s_map, s_long;
+static AppTimer *s_ltimer;
+
+// A press is long when this timer comes before the lift-off. (Timing the lift-off against the touch-down instead
+// counted any wait for the watch to finish a slow frame: quick taps came out as long presses while it was busy.)
+static void long_held(void *data) {
+  s_ltimer = NULL; if (s_down && !s_drag) s_long = true;
+#ifdef TRACE_WALK
+  APP_LOG(APP_LOG_LEVEL_INFO, "TT %lu long", (unsigned long)now_ms());
+#endif
+}
+static void long_stop(void) { if (s_ltimer) { app_timer_cancel(s_ltimer); s_ltimer = NULL; } }
 
 static void touch_start(int x, int y, uint32_t now) {
   s_tstamp = s_cur_stamp + (now - s_cur_at);   // what was on screen, in the phone's time
@@ -319,11 +383,15 @@ static void touch_start(int x, int y, uint32_t now) {
 
 static void touch(const TouchEvent *e, void *ctx) {
   uint32_t now = now_ms();
+#ifdef TRACE_WALK
+  APP_LOG(APP_LOG_LEVEL_INFO, "TT %lu %d %d,%d nn %d", (unsigned long)now, (int)e->type, e->x, e->y, e->non_navigational);
+#endif
   s_input_at = now;
   predict_touch();
   switch (e->type) {
     case TouchEvent_Touchdown:
-      s_down = true; s_drag = false; s_tx = s_lx = e->x; s_ty = s_ly = e->y; s_moved = 0; s_tms = now;
+      s_down = true; s_drag = s_long = false; s_tx = s_lx = e->x; s_ty = s_ly = e->y; s_moved = 0;
+      long_stop(); s_ltimer = app_timer_register(LONG_MS, long_held, NULL);
       touch_start(e->x, e->y, now);
       break;
     case TouchEvent_PositionUpdate: {
@@ -342,14 +410,25 @@ static void touch(const TouchEvent *e, void *ctx) {
       break;
     }
     case TouchEvent_Liftoff:
+      long_stop();
       if (s_drag) { if (!s_map) out_msg(T_UP, e->x, e->y, false); }
       else if (!s_down) { touch_start(e->x, e->y, now); out_msg(T_TAP, e->x, e->y, false); }   // a quick tap can come as a lone liftoff
-      else out_msg(T_TAP, s_tx, s_ty, now - s_tms >= LONG_MS);
+      else out_msg(T_TAP, s_tx, s_ty, s_long);
       s_down = s_drag = false;
       break;
     default: break;
   }
   kick();
+}
+
+// back from something over the app (a notification, say): a finger that went down there never comes up here; start
+// touches afresh (subscribing again also wakes a touch sensor that stopped answering, if nothing else holds it)
+static void focused(bool in) {
+  if (!in) return;
+  s_down = s_drag = false; long_stop();
+  touch_service_unsubscribe();
+  touch_service_subscribe(touch, NULL);
+  APP_LOG(APP_LOG_LEVEL_INFO, "focus back: touch %s", touch_service_is_enabled() ? "on" : "switched off");
 }
 
 static void clicks(void *ctx) {
@@ -371,7 +450,7 @@ static void hello(void *data) {
   // tell the phone how big a message may be; it resends the whole screen. Repeat until it answers.
   if (s_connected && !s_resyncing) return;
   queue_clear();
-  if (!s_resyncing) { s_ntq = 0; s_npd = 0; g_pan_x = g_pan_y = 0; }
+  if (!s_resyncing) { s_ntq = 0; s_npd = 0; s_sending = false; s_tries = 0; g_pan_x = g_pan_y = 0; }
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) == APP_MSG_OK) {
     uint32_t in = app_message_inbox_size_maximum(); if (in > INBOX) in = INBOX;
@@ -402,7 +481,10 @@ static void init(void) {
   app_message_register_inbox_dropped(dropped);
   app_message_register_outbox_sent(sent);
   app_message_register_outbox_failed(failed);
-  if (touch_service_is_enabled()) touch_service_subscribe(touch, NULL);
+  // always: touch_service_is_enabled() is only whether touch is switched on right now (the watch's quick toggle);
+  // asking first left touch dead for the whole game when it was off at the start and switched on later
+  touch_service_subscribe(touch, NULL);
+  app_focus_service_subscribe_handlers((AppFocusHandlers){ .did_focus = focused });
   uint32_t in = app_message_inbox_size_maximum(); if (in > INBOX) in = INBOX;
   app_message_open(in, 64);
   // the game streams from the phone: the quick radio setting cuts each round trip (at some battery cost while open)

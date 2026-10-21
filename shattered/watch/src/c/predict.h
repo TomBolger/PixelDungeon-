@@ -14,4 +14,5 @@ bool predict_pos(const Obj *o, int i, uint32_t now, int32_t *v);   // a picture'
 bool predict_offset(uint16_t id, uint32_t now, int32_t *dx, int32_t *dy);   // how far ahead of the phone a picture is shown
 void predict_tick(uint32_t now);                       // hand back to the phone's frames once they agree
 bool predict_active(void);
+void predict_heard(uint32_t now);                     // a frame of the phone's was played
 void predict_reset(void);

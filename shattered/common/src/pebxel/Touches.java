@@ -21,6 +21,9 @@ public class Touches {
 	private int upX, upY;
 	private float dragDx, dragDy;
 	private int lastY = Integer.MIN_VALUE;
+	private byte[] last;            // the last message (the watch sends one again when it heard nothing back)
+	private boolean dragDown;       // an interface drag is pressed (its lift-off still to come)
+	private int dragX, dragY;
 
 	public synchronized void add(byte[] b) { if (b != null && b.length >= 12) in.add(b.clone()); }
 	private synchronized byte[] poll() { return in.poll(); }
@@ -35,6 +38,11 @@ public class Touches {
 			boolean lng = (b[3] & 1) != 0;
 			int x = (short) ((b[4] & 255) | (b[5] << 8)), y = (short) ((b[6] & 255) | (b[7] << 8));
 			int stamp = (b[8] & 255) | (b[9] & 255) << 8 | (b[10] & 255) << 16 | (b[11] & 255) << 24;
+			if (java.util.Arrays.equals(b, last)) { link.ack(seq); continue; }   // a repeat: done already
+			last = b;
+			// a new press while a drag's lift-off never came (lost on the way): let that one go first, without a click,
+			// or Shattered takes the new press for more of the old drag
+			if ((kind == 1 || kind == 3) && dragDown) { Game.inputHandler.touchCancelled(dragX, dragY, ID, 0); dragDown = false; }
 			controls.touched();
 			int px = x * 2 + 1, py = y * 2 + 1;
 			switch (kind) {
@@ -66,14 +74,15 @@ public class Touches {
 				case 4: { // moves on
 					Window w = Ui.topWindow();
 					if (w != null && Controls.tall(w)) { if (lastY != Integer.MIN_VALUE) Controls.scroll(w, py - lastY); lastY = py; break; }
-					if (!Float.isNaN(dragDx)) Game.inputHandler.touchDragged(Math.round(px + dragDx), Math.round(py + dragDy), ID);
+					if (!Float.isNaN(dragDx) && dragDown) { dragX = Math.round(px + dragDx); dragY = Math.round(py + dragDy); Game.inputHandler.touchDragged(dragX, dragY, ID); }
 					break;
 				}
 				case 5: { // and ends
 					Window w = Ui.topWindow();
 					lastY = Integer.MIN_VALUE;
 					if (w != null && Controls.tall(w)) break;
-					if (!Float.isNaN(dragDx)) Game.inputHandler.touchUp(Math.round(px + dragDx), Math.round(py + dragDy), ID, 0);
+					if (!Float.isNaN(dragDx) && dragDown) Game.inputHandler.touchUp(Math.round(px + dragDx), Math.round(py + dragDy), ID, 0);
+					dragDown = false;
 					break;
 				}
 			}
