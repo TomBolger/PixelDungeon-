@@ -174,7 +174,8 @@ public final class Assist {
 	static final boolean FIRE2 = opt("FIRE2", true);
 	static final boolean SHOOTERS = opt("SHOOTERS", true);
 	static final boolean DEWREST = opt("DEWREST", true);
-	static final boolean FAIRHUNT = opt("FAIRHUNT", true);   // "hunting" only as drawn (emotes, steps), not the AI state   // hurt, nothing about: the waterskin (keeping 5 drops) before resting   // DM-100 and the Gnoll Trickster too: out of their line, round a corner   // the fire escape: water, else out of fire's reach
+	static final boolean FAIRHUNT = opt("FAIRHUNT", true);
+	static final boolean GOOREACH = opt("GOOREACH", true);   // Goo's blast by its own reach test; no ooze washing with Goo close   // "hunting" only as drawn (emotes, steps), not the AI state   // hurt, nothing about: the waterskin (keeping 5 drops) before resting   // DM-100 and the Gnoll Trickster too: out of their line, round a corner   // the fire escape: water, else out of fire's reach
 	static final boolean MEAT = opt("MEAT", true);     // raw mystery meat (4 in 5 a bad effect, burning among them): eaten standing in water   // the Rogue's cloak before a fight   // nothing in sight: rest below this share of health   // the Mage's first 3 upgrades into the staff
 	static final int HEALBOSS = optInt("HEALBOSS", 55);    // a boss in sight: Healing below this share (Goo's pumped blow is triple)   // the Mage's staff zapped point blank too (magic: double accuracy, more damage than the staff's own blow)   // low and losing: up the stairs (only allies follow), rest there, come back   // tall grass walked for dew and seeds (off: only within 2 steps)     // Goo's ooze: into water to wash it off   // the Great Crab: ambushes are the only blows it doesn't block
 	static int optInt(String name, int def) { try { String v = System.getenv("AS_" + name); return v == null ? def : Integer.parseInt(v); } catch (Throwable e) { return def; } }
@@ -1209,7 +1210,8 @@ public final class Assist {
 			if (best >= 0) { Target t = new Target(best, GO, "escape the gas / fire"); return t; }
 		}
 		boolean adjFoe = false; for (Mob m : mobs()) if (enemy(m) && adjacent(m.pos, hp)) adjFoe = true;
-		if (OOZE && oozed() && !water(hp)) {   // Goo's ooze eats away till washed off: into water (strategy-reference 2.6/9.12), mid-fight only if it's a step or two
+		boolean gooNear = false; for (Mob m : mobs()) if (m instanceof Goo && enemy(m) && (pumped(m) || distance(m.pos, hp) <= 3)) gooNear = true;
+		if (OOZE && oozed() && !water(hp) && !(GOOREACH && gooNear)) {   // Goo's ooze eats away till washed off: into water (strategy-reference 2.6/9.12), mid-fight only if it's a step or two
 			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && dist[c] <= (adjFoe ? 2 : 12) && water(c) && pass[c] && seenChar(c) == null && !foul(c) && !bad.containsKey(c)) { bk = dist[c]; best = c; }
 			if (best >= 0) return new Target(best, GO, "escape: wash off the ooze");
 		}
@@ -1269,9 +1271,9 @@ public final class Assist {
 			if ((m instanceof Eye || m instanceof Scorpio || m instanceof Shaman || m instanceof Warlock || (SHOOTERS && (m instanceof DM100 || m instanceof GnollTrickster))) && hunting(m) && (sh == null || d < distance(sh.pos, hp))) sh = m;
 		}
 		if (goo != null) {   // Goo pumped up hits hard and reaches 2 cells: out of its reach and let it waste it
-			if (distance(goo.pos, hp) > 2 || !line(goo.pos, hp)) { Target t = new Target(hp, WAIT, "tactic: let Goo waste it"); t.action = WAIT_ACT; return t; }
+			if (!gooReach(goo.pos, hp)) { Target t = new Target(hp, WAIT, "tactic: let Goo waste it"); t.action = WAIT_ACT; return t; }
 			int best = -1, bk = 99;
-			for (int c = 0; c < LEN; c++) if (walk(c) <= 2 && walk(c) < bk && standOk(c) && (distance(goo.pos, c) > 2 || !line(goo.pos, c))) { bk = walk(c); best = c; }
+			for (int c = 0; c < LEN; c++) if (walk(c) <= 2 && walk(c) < bk && standOk(c) && !gooReach(goo.pos, c)) { bk = walk(c); best = c; }
 			return best >= 0 ? new Target(best, GO, "tactic: out of Goo's reach") : null;
 		}
 		if (sh != null && line(sh.pos, hp)) {   // a shooter: out of its line, round a corner; it comes to you
@@ -1285,6 +1287,14 @@ public final class Assist {
 	private static boolean crabUnseen = true; private static float crabSeen = -1, bossSeen = -1;
 	private static float crabVisSince = -1;   // (the crab in sight since when)
 	private static boolean sight(int a, int b) { try { Ballistica bl = new Ballistica(a, b, Ballistica.STOP_TARGET | Ballistica.STOP_SOLID); return bl.collisionPos != null && bl.collisionPos == b; } catch (Throwable e) { return true; } }
+	/** Goo's pumped blast reaches c: Goo.canAttack's own test (2 cells, a clear line both ways). */
+	private static boolean gooReach(int g, int c) {
+		if (!GOOREACH) return distance(g, c) <= 2 && line(g, c);
+		try {
+			int f = Ballistica.STOP_TARGET | Ballistica.STOP_SOLID | Ballistica.IGNORE_SOFT_SOLID;
+			return distance(g, c) <= 2 && new Ballistica(g, c, f).collisionPos == c && new Ballistica(c, g, f).collisionPos == g;
+		} catch (Throwable e) { return distance(g, c) <= 2; }
+	}
 	private static boolean pumped(Mob m) { Object v = field(m, "pumpedUp"); return v instanceof Integer && (Integer) v > 0; }
 	private static boolean standOk(int c) { return c == hp || (open[c] && seenChar(c) == null && walk(c) <= 6); }
 
