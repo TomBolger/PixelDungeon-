@@ -543,11 +543,18 @@ public class Controls {
 			if (a != t && TALENTS.equals(a.action)) talentsPassed = talentPoints();
 			Assist.chose(t, a);
 		}
-		if (TALENTS.equals(t.action)) { pebxel.ui.WndWatchHero.openTalents(); return; }
+		if (TALENTS.equals(t.action)) { talentsPassed = talentPoints(); talentFocus = Build.nextTalent(Dungeon.hero); talentTries = 0; pebxel.ui.WndWatchHero.openTalents(); return; }
 		Assist.act(t, true);
 		if (t.on != null) pick = t.on;
 	}
 	private com.shatteredpixel.shatteredpixeldungeon.items.Item pick;   // the bag that opened: the frame on this
+	private com.shatteredpixel.shatteredpixeldungeon.actors.hero.Talent talentFocus; private int talentTries;
+	private static java.lang.reflect.Field talentF;
+	private static Object talentOf(com.watabou.noosa.Gizmo g) {
+		if (!(g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.TalentButton)) return null;
+		try { if (talentF == null) { talentF = com.shatteredpixel.shatteredpixeldungeon.ui.TalentButton.class.getDeclaredField("talent"); talentF.setAccessible(true); } return talentF.get(g); }
+		catch (Exception e) { return null; }
+	}
 
 	/** One entry an objective: a walk towards one already offered is left out (plan A's "read my mind" and "your choice"
 	 *  could both stand for one: a Down spent for nothing). */
@@ -602,7 +609,7 @@ public class Controls {
 	}
 
 	/** Talent points to spend, nothing in sight, item assist on: the talents first (one press, the choice the player's),
-	 *  until passed over for these points. */
+	 *  until passed over or opened for these points (closed unspent: the player's call, not offered again till the next). */
 	static final String TALENTS = "TALENTS";
 	private int talentsPassed = -1;
 	private static int talentPoints() { Hero h = Dungeon.hero; int n = 0; for (int t = 1; t <= 4; t++) n += Math.max(0, h.talentPointsAvailable(t)); return n; }
@@ -692,6 +699,7 @@ public class Controls {
 		Group menu = w != null ? w : !(Game.scene() instanceof GameScene) ? Game.scene() : null;
 		if (touching) { frame.hide(); if (menu != null) { marker.hide(); return; } }
 		else if (menu != null) {
+			pending = false;   // (a window came up: the press has been taken; the list is made again once it goes)
 			onToolbar = false;
 			if (hud != null) hud.highlight = -1;
 			marker.hide();
@@ -701,6 +709,10 @@ public class Controls {
 				if (w != null && tall(w)) scroll(w, 100000);   // a new tall window starts at its top
 			}
 			if (bs.isEmpty()) { frame.hide(); if (w != null) keepInView(w, null); return; }
+			if (talentFocus != null) {   // the talents the Assistant opened: the frame on the guide's next talent (Build), the choice the player's
+				for (int i = 0; i < bs.size(); i++) if (talentOf(bs.get(i).g) == talentFocus) { focus = i; talentFocus = null; break; }
+				if (talentFocus != null && ++talentTries > 30) talentFocus = null;
+			}
 			Component c = (Component) bs.get(Math.max(0, Math.min(bs.size() - 1, focus))).g;
 			if (menu instanceof pebxel.ui.Navigable && ((pebxel.ui.Navigable) menu).focused() != null) c = ((pebxel.ui.Navigable) menu).focused();
 			// (a tall window opens at its top for reading, even when its first button is further down)

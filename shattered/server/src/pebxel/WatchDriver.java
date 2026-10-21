@@ -299,6 +299,7 @@ public final class WatchDriver {
 		decisions++; selects++; notePlanA();
 		if (j >= 0 && j < at.length) at[j]++;
 		if (j == 0) planA++; else if (j > 0) inList++; else if (t != null) { notInList++; missKinds.merge(t.kind + ":" + t.why.replaceAll("[^A-Za-z ]", "").trim().replace(' ', '_'), 1, Integer::sum); }
+		if (VW) System.out.println("    select-only: watch list " + plan() + " target " + target() + " stall " + stall + " top " + Ui.topWindow());
 		for (int i = 0; i < stall && targets().size() > 1; i++) press(Controls.DOWN);
 		press(Controls.SELECT);
 		return true;
