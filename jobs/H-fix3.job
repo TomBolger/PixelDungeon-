@@ -1,9 +1,0 @@
-# H-fix3
-bundle=Hfix3-1021102301.tgz
-bin=simbot
-games=120
-chunk=10
-first=0
-run A SIMSEED=1 AS_FIRE2=0 AS_MEAT=0 AS_SHOOTERS=0 AS_DEWREST=0
-run B SIMSEED=1
-run Cunfair SIMSEED=1 AS_FAIRHUNT=0

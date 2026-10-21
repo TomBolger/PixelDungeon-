@@ -1,7 +1,0 @@
-# W-watch3
-bundle=W-watch3-1021101402.tgz
-bin=simbot
-games=24
-chunk=1
-first=200
-run watch WATCH=1 CHEAT=1 SIMSEED=1 HANGSECS=180 GAMESECS=3000
