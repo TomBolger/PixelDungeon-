@@ -1,0 +1,9 @@
+# H-cl1
+bundle=Hcl1-1021112504.tgz
+bin=simbot
+games=120
+chunk=10
+first=0
+run Cl0 SIMSEED=1 CLS=5 AS_CLERIC=0
+run Cl1 SIMSEED=1 CLS=5
+run cur SIMSEED=1
