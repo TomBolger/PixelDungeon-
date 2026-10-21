@@ -47,7 +47,7 @@ public final class BotWindows {
 	static Answer decide0(Window w) {
 		String kind = w.getClass().getSimpleName().isEmpty() ? w.getClass().getSuperclass().getSimpleName() + "$" : w.getClass().getSimpleName();
 		if (w != lastW) {
-			lastW = w; visits = 0; lastBack = false; seen.merge(kind, 1, Integer::sum);
+			lastW = w; visits = 0; lastBack = false; seen.merge(kind, 1, Integer::sum); sinceTurn++;
 			if (w.getClass().getName().equals(lastKind)) sameKind++; else { lastKind = w.getClass().getName(); sameKind = 0; }
 		}
 		visits++;
@@ -55,8 +55,11 @@ public final class BotWindows {
 		List<String> labels = new ArrayList<>(); for (Ui.Part p : bs) labels.add(p.text);
 		if (logged.add(w.getClass().getName()) || AssistBot.v) {
 			StringBuilder tx = new StringBuilder(); for (Ui.Part p : Ui.parts(w)) if (!p.button) tx.append(p.text.replace('\n', ' ')).append(" | ");
-			System.out.println("  WINDOW " + kind + " (" + w.getClass().getName() + ") buttons " + labels + " text: " + (tx.length() > 240 ? tx.substring(0, 240) : tx));
+			System.out.println("  WINDOW " + kind + " (" + w.getClass().getName() + ") keys " + Coverage.keyListeners() + " buttons " + labels + " text: " + (tx.length() > 240 ? tx.substring(0, 240) : tx));
 		}
+		// windows opening one after another with no turn between (the shop's sell bag and its trade window, round
+		// and round): Back, and past that every window goes (AssistBot hides them)
+		if (sinceTurn > 20) return new Answer(null, null, "window after window with no turn: back");
 		if (visits > 1 && lastBack) {   // Back didn't close it (it wants an answer): a "no" if there is one, else the first button
 			for (Ui.Part p : bs) if (negative(p.text)) return answer(p.g, "back did nothing: no");
 			if (!bs.isEmpty()) return answer(bs.get(0).g, "back did nothing: first");
@@ -67,6 +70,8 @@ public final class BotWindows {
 		// and answering it directly broke them: the Blacksmith's reforge window threw, killing the game's thread)
 		WndBag.ItemSelector sel = w instanceof WndBag || w instanceof pebxel.ui.WndWatchBag ? selector(w) : null;
 		if (sel != null) {
+			String prompt = ""; try { prompt = String.valueOf(sel.textPrompt()); } catch (Throwable e) { }
+			if (prompt.toLowerCase(Locale.ROOT).contains("sell")) return new Answer(null, null, "not selling: back");   // (the shop asks again after each sale: it sold the whole pack)
 			Item it = BotItems.answerSelector(sel);
 			return it != null ? new Answer(null, it, "select") : new Answer(null, null, "nothing to select: back");
 		}
@@ -138,7 +143,8 @@ public final class BotWindows {
 	}
 
 	/** A turn went by with no window: windows after it are not "the same one again". */
-	static void turn() { lastKind = ""; sameKind = 0; }
+	static void turn() { lastKind = ""; sameKind = 0; sinceTurn = 0; }
+	static int sinceTurn;
 
 	static void newGame(long seed) { seen.clear(); logged.clear(); lastW = null; lastKind = ""; sameKind = 0; rnd = new Random(seed * 31 + 7); }
 

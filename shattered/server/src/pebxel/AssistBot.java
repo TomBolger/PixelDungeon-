@@ -130,7 +130,7 @@ public class AssistBot {
 				wndFrames++;
 				// answered on its 2nd frame (laid out by then), again every 30 frames it stays; for ever: gone
 				if (wndFrames % 30 == 2) { Lockstep.doing = "window " + w.getClass().getName(); BotWindows.Answer an = BotWindows.decide(w); if (v) System.out.println("    -> " + an); if (watch == null || !watch.answer(w, an)) { if (Ui.topWindow() == w) BotWindows.doDirect(w, an); } }
-				else if (wndFrames > 400) { System.out.println("  WINDOW STUCK " + w.getClass().getName() + ": hidden"); Coverage.problem("window stuck: " + w.getClass().getName()); w.hide(); }
+				else if (wndFrames > 400 || BotWindows.sinceTurn > 40) { if (BotWindows.sinceTurn > 40) { Coverage.problem("windows round and round: " + w.getClass().getName()); BotWindows.sinceTurn = 0; while (Ui.topWindow() != null) Ui.topWindow().hide(); continue; } System.out.println("  WINDOW STUCK " + w.getClass().getName() + ": hidden"); Coverage.problem("window stuck: " + w.getClass().getName()); w.hide(); }
 				continue;
 			}
 			lastWnd = null;
