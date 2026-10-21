@@ -21,7 +21,7 @@ static bool s_wplanoff, s_wdone; // since the press: the phone's plan went (its 
 // the target box, shown at a predicted place
 static bool s_box; static int32_t s_bx, s_by, s_rx, s_ry; static uint32_t s_bt; static uint8_t s_bpend;   // (s_rx/ry: the phone's last place; s_bpend: presses it hasn't answered)
 // the hero, walking a predicted path
-static bool s_walk; static uint16_t s_wid; static int32_t s_wx0, s_wy0; static uint32_t s_wt, s_wstill;
+static bool s_walk; static uint16_t s_wid; static int32_t s_wx0, s_wy0; static uint32_t s_wt;
 static uint8_t s_wn; static uint8_t s_wdir[PLAN_S]; static uint16_t s_wstep, s_wmarker = NONE; static bool s_wmoved;
 // sliding back
 static uint16_t s_eid = NONE; static int32_t s_edx, s_edy; static uint32_t s_et;
@@ -148,7 +148,7 @@ bool predict_button(int code, uint32_t now) {
   if (!t->k || !h) return false;
   s_wid = s_plan.hero; s_wmarker = s_plan.marker; s_box = false; s_wx0 = obj_dyn(h, 0, now); s_wy0 = obj_dyn(h, 1, now);
   s_wt = now; s_wn = t->k; memcpy(s_wdir, t->dir, s_wn); s_wstep = s_plan.step_ms ? s_plan.step_ms : 100;
-  s_wmoved = false; s_wstill = 0; s_walk = true; s_p0 = 0; s_t0 = now; s_plast = 0; s_wplanoff = s_wdone = false;
+  s_wmoved = false; s_walk = true; s_p0 = 0; s_t0 = now; s_plast = 0; s_wplanoff = s_wdone = false;
   APP_LOG(APP_LOG_LEVEL_INFO, "predict: walk %d steps", s_wn);
   // the map follows him closely while he walks, as the phone's camera will (HeroSprite.move: panFollow at 20 a
   // second). Left at its resting pace until the phone's frames said so, the view lagged behind the hero for the
@@ -243,10 +243,9 @@ void predict_tick(uint32_t now) {
       // the phone's own time, its frames as played: counted in the watch's, as it was, a late message played at once
       // looked like a long time still, and real stops were seen only 400 ms on, the hero shown walking on past)
       uint32_t end = h->at + h->until;
-      if (!s_wstill) s_wstill = now;
       if (s_heard - end < 0x80000000u && s_heard - end > STILL_MS) {
         s_walk = false; slide_back(s_wid, px, py, now); APP_LOG(APP_LOG_LEVEL_INFO, "predict: walk stopped short, back %d,%d", (int)((px - rx) / 8), (int)((py - ry) / 8)); return; }
-    } else s_wstill = 0;
+    }
     // never set off: the phone did something else with the press (a monster came into view at once, say). Seen when
     // its frames from well after the press come with him still. (Not merely when nothing comes: a message lost on the
     // radio holds everything up 3 s, and giving up then took him back to the start, to leap on again when the
