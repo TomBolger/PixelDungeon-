@@ -86,6 +86,7 @@ public class Buttons {
 				if (Character.isUpperCase(p.charAt(0))) code |= Controls.LONG;
 				controls.button(code);
 			}
+			long t0 = System.nanoTime();
 			for (int f = 0; f < wait; f++) {
 				if (wantDepth > 0) {
 					if (Game.scene() instanceof InterlevelScene) { if (f % 40 == 39) controls.button(Controls.SELECT); }
@@ -112,6 +113,7 @@ public class Buttons {
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
 				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) sim.apply(m);
 			}
+			if (System.getenv("TIMING") != null) System.out.printf("%s: %d frames in %.0f ms, link pictures %d, scene %s%n", p, wait, (System.nanoTime() - t0) / 1e6, sim.objCount(), Game.scene().getClass().getSimpleName());
 			if (System.getenv("FOCUS") != null && Ui.topWindow() == null && Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene && Dungeon.hero != null) {   // (the Down list: cell, terrain)
 				StringBuilder sb = new StringBuilder(p + ": Down list");
 				Object ts = WatchDriver.get(controls, "targets");
