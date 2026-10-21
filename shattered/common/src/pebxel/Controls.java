@@ -495,7 +495,7 @@ public class Controls {
 		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; farView(-1, false); return; }
 		plan = new ArrayList<>(Assist.plan(aiming, Controls::onScreenFromHero));
 		if (Assist.lastError != null) { System.out.println("pebxel: assist " + Assist.lastError); Assist.lastError = null; }
-		if (!aiming) { shots(plan); if (WatchSettings.assist() != 0) { veins(plan); talents(plan); } }   // (Off: the enemies only)
+		if (!aiming) { once(plan); shots(plan); if (WatchSettings.assist() != 0) { veins(plan); talents(plan); } }   // (Off: the enemies only)
 		targets = new ArrayList<>();
 		for (Assist.Target t : plan) targets.add(aiming ? t.cell : markCell(t));
 		target = 0;   // (Pebble PD 0.40: after each step the first one, what a good player would do next)
@@ -548,6 +548,18 @@ public class Controls {
 		if (t.on != null) pick = t.on;
 	}
 	private com.shatteredpixel.shatteredpixeldungeon.items.Item pick;   // the bag that opened: the frame on this
+
+	/** One entry an objective: a walk towards one already offered is left out (plan A's "read my mind" and "your choice"
+	 *  could both stand for one: a Down spent for nothing). */
+	private static void once(List<Assist.Target> ts) {
+		Set<Integer> objs = new HashSet<>();
+		for (Iterator<Assist.Target> it = ts.iterator(); it.hasNext(); ) {
+			Assist.Target t = it.next();
+			if (t.kind != Assist.GO && t.kind != Assist.PICKUP) continue;
+			int o = t.obj >= 0 ? t.obj : t.cell;
+			if (!objs.add(o) || !objs.add(-2 - t.cell)) it.remove();   // (the same objective, or the same cell)
+		}
+	}
 
 	/** The Huntress's bow: a shot at each enemy in the list an arrow would reach (before the blow when it's further
 	 *  than a step, after it when beside the hero), unless the Assistant offers that shot already. */

@@ -74,6 +74,22 @@ public class Gallery {
 			free(() -> { try { Game.switchScene(Class.forName(P + "scenes." + name.substring(6)).asSubclass(com.watabou.noosa.Scene.class)); } catch (Exception e) { e.printStackTrace(); } });
 			return;
 		}
+		// the Assistant's hands, for a look on the emulator (here, on the floor the game is on): assist:hungry (starving,
+		// food in the pack), assist:low (a quarter of health, a known Healing potion), assist:identify (a known Identify
+		// scroll, an unknown ring), assist:talent (a level up: a talent point)
+		if (name.startsWith("assist:")) {
+			String k = name.substring(7);
+			steps.add(() -> {
+				com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero h = Dungeon.hero;
+				try {
+					if (k.contains("hungry")) { h.buff(com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Hunger.class).affectHunger(-com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Hunger.STARVING - 5, true); new com.shatteredpixel.shatteredpixeldungeon.items.food.Food().collect(); }
+					if (k.contains("low")) { h.HP = Math.max(1, h.HT / 4); com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing p = new com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing(); p.identify(); p.collect(); }
+					if (k.contains("identify")) { com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfIdentify sc = new com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfIdentify(); sc.identify(); sc.collect(); new com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfHaste().collect(); }
+					if (k.contains("talent")) h.earnExp(h.maxExp() - h.exp, Gallery.class);
+				} catch (Exception e) { e.printStackTrace(); }
+			});
+			return;
+		}
 		if (name.equals("duelist")) { steps.add(() -> { try { dress(HeroClass.DUELIST, 1); } catch (Exception e) { e.printStackTrace(); } }); return; }
 		if (name.equals("die")) {
 			free(() -> { com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat k = new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat(); Dungeon.hero.HP = 1; Dungeon.fail(k); Dungeon.hero.die(k); });

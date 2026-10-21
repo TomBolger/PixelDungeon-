@@ -219,6 +219,7 @@ public final class Assist {
 			if (t == null || planA == null || t.same(planA) || Dungeon.hero == null) return;
 			Hero h = Dungeon.hero; Level l = Dungeon.level; int p = h.pos;
 			resumeCell = -1;
+			mindFloor = null;   // (the mind is read afresh from here: a reading from before the choice took the walk the player chose for one towards another objective)
 			// a hands suggestion passed over: not again this floor (pass_hands)
 			if (planA.kind == USE && planA.item != null) decline(planA.item.getClass(), planA.action);
 			if (planA.kind == WAIT && REST_ACT.equals(planA.action)) decline(null, REST_ACT);
