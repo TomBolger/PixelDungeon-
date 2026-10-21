@@ -1,8 +1,8 @@
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/Game.java b/SPD-classes/src/main/java/com/watabou/noosa/Game.java
-index 40183d8..bfe7ff9 100644
+index 40183d8..7cab0be 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/Game.java
 +++ b/SPD-classes/src/main/java/com/watabou/noosa/Game.java
-@@ -213,7 +213,14 @@ public class Game implements ApplicationListener {
+@@ -213,7 +213,17 @@ public class Game implements ApplicationListener {
  		switchScene(c, null);
  	}
  	
@@ -12,12 +12,15 @@ index 40183d8..bfe7ff9 100644
 +	/** Pebxel: how much faster than real time the game's animations run (the watch: quicker steps and blows). */
 +	public static float pebxelSpeed = 1f;
 +
++	/** Pebxel: run right after a scene is created (headless bots wait there for threads the scene started). */
++	public static Runnable pebxelCreated;
++
  	public static void switchScene(Class<? extends Scene> c, SceneChangeCallback callback) {
 +		if (pebxelScenes != null) c = pebxelScenes.apply(c);
  		instance.sceneClass = c;
  		instance.requestedReset = true;
  		instance.onChange = callback;
-@@ -232,7 +239,8 @@ public class Game implements ApplicationListener {
+@@ -232,7 +242,8 @@ public class Game implements ApplicationListener {
  		if (requestedReset) {
  			requestedReset = false;
  			
@@ -27,7 +30,15 @@ index 40183d8..bfe7ff9 100644
  			if (requestedScene != null){
  				switchScene();
  			}
-@@ -269,7 +277,7 @@ public class Game implements ApplicationListener {
+@@ -258,6 +269,7 @@ public class Game implements ApplicationListener {
+ 		scene = requestedScene;
+ 		if (onChange != null) onChange.beforeCreate();
+ 		scene.create();
++		if (pebxelCreated != null) pebxelCreated.run();
+ 		if (onChange != null) onChange.afterCreate();
+ 		onChange = null;
+ 		
+@@ -269,7 +281,7 @@ public class Game implements ApplicationListener {
  	protected void update() {
  		//game will not process more than 200ms of graphics time per frame
  		float frameDelta = Math.min(0.2f, Gdx.graphics.getDeltaTime());
@@ -138,6 +149,32 @@ index 863b15b..4ef5ba4 100644
  	//flipped is needed because Shattered's graphics are y-down, while GDX graphics are y-up.
  	//this is very confusing, I know.
  	public BitmapFont getFont(int size, String text, boolean flipped, boolean border) {
+diff --git a/SPD-classes/src/main/java/com/watabou/utils/Random.java b/SPD-classes/src/main/java/com/watabou/utils/Random.java
+index 38c1fe5..d34e977 100644
+--- a/SPD-classes/src/main/java/com/watabou/utils/Random.java
++++ b/SPD-classes/src/main/java/com/watabou/utils/Random.java
+@@ -39,13 +39,19 @@ public class Random {
+ 		resetGenerators();
+ 	}
+ 
++	//Pebxel: when set (headless bots), unseeded generators are seeded from it instead, for repeatable games
++	public static java.util.Random pebxelSource;
++	private static java.util.Random unseeded(){
++		return pebxelSource != null ? new java.util.Random(pebxelSource.nextLong()) : new java.util.Random();
++	}
++
+ 	public static synchronized void resetGenerators(){
+ 		generators = new ArrayDeque<>();
+-		generators.push(new java.util.Random());
++		generators.push(unseeded());
+ 	}
+ 
+ 	public static synchronized void pushGenerator(){
+-		generators.push( new java.util.Random() );
++		generators.push( unseeded() );
+ 	}
+ 
+ 	public static synchronized void pushGenerator( long seed ){
 diff --git a/android/build.gradle b/android/build.gradle
 index 02bf6f5..8ecee1f 100644
 --- a/android/build.gradle
@@ -258,6 +295,96 @@ index 1c02505..9254077 100644
  		if (hero != null && (hero.isAlive() || WndResurrect.instance != null)) {
  			
  			Actor.fixTime();
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
+index 346718f..303a03e 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
+@@ -32,6 +32,7 @@ import com.watabou.utils.Bundlable;
+ import com.watabou.utils.Bundle;
+ import com.watabou.utils.SparseArray;
+ 
++import java.util.ArrayList;
+ import java.util.HashSet;
+ 
+ public abstract class Actor implements Bundlable {
+@@ -241,6 +242,46 @@ public abstract class Actor implements Bundlable {
+ 		return current != null;
+ 	}
+ 
++	//Pebxel: headless bots run frames in lockstep with the actor thread (pebxelLockstep): it only runs between frames.
++	// Wake-ups made during a frame wait for its end (pebxelWakeLater), and the thread is busy from a wake-up until it
++	// waits again (both happen holding the monitor waited on, so a bot that sees busy == false knows it truly waits)
++	public static volatile boolean pebxelLockstep;
++	public static volatile boolean pebxelBusy;
++	private static volatile Object pebxelOn;
++	private static final ArrayList<Object> pebxelLater = new ArrayList<>();
++	public static void pebxelWait( Object o ) throws InterruptedException {
++		pebxelOn = o; pebxelBusy = false;
++		o.wait();
++	}
++	public static void pebxelWake( Object o ) {
++		if (pebxelOn == o) { pebxelOn = null; pebxelBusy = true; }
++	}
++	//in place of o.notifyAll(), holding o's monitor (a thread object not yet started is started)
++	public static void pebxelNotify( Object o ) {
++		if (pebxelLockstep) {
++			synchronized (pebxelLater) { if (!pebxelLater.contains(o)) pebxelLater.add(o); }
++		} else if (o instanceof Thread && ((Thread) o).getState() == Thread.State.NEW) {
++			((Thread) o).start();
++		} else {
++			o.notifyAll();
++		}
++	}
++	//between frames (bots): the wake-ups the frame made; false when there were none
++	public static boolean pebxelWakeLater() {
++		Object[] l;
++		synchronized (pebxelLater) { l = pebxelLater.toArray(); pebxelLater.clear(); }
++		for (Object o : l) {
++			if (o instanceof Thread && ((Thread) o).getState() == Thread.State.NEW) {
++				pebxelOn = null; pebxelBusy = true;
++				((Thread) o).start();
++			} else synchronized (o) {
++				pebxelWake(o);
++				o.notifyAll();
++			}
++		}
++		return l.length > 0;
++	}
++
+ 	public static int curActorPriority() {
+ 		return current != null ? current.actPriority : HERO_PRIO;
+ 	}
+@@ -283,7 +324,7 @@ public abstract class Actor implements Bundlable {
+ 					try {
+ 						synchronized (((Char)acting).sprite) {
+ 							if (((Char)acting).sprite.isMoving) {
+-								((Char) acting).sprite.wait();
++								pebxelWait(((Char) acting).sprite);
+ 							}
+ 						}
+ 					} catch (InterruptedException e) {
+@@ -321,7 +362,7 @@ public abstract class Actor implements Bundlable {
+ 					Thread.currentThread().notify();
+ 					
+ 					try {
+-						Thread.currentThread().wait();
++						pebxelWait(Thread.currentThread());
+ 					} catch (InterruptedException e) {
+ 						interrupted = true;
+ 					}
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/GravityChaosTracker.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/GravityChaosTracker.java
+index faf596d..5c9bc29 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/GravityChaosTracker.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/buffs/GravityChaosTracker.java
+@@ -77,7 +77,7 @@ public class GravityChaosTracker extends Buff {
+ 			try {
+ 				synchronized (ch.sprite) {
+ 					if (ch.sprite.isMoving) {
+-						ch.sprite.wait();
++						Actor.pebxelWait(ch.sprite);
+ 					}
+ 				}
+ 			} catch (InterruptedException e) {
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java
 index ff17e01..09eadfe 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java
@@ -286,7 +413,7 @@ index 1debaec..6c12a86 100644
  
  		//Resets char and item sprite positions with the new camera zoom
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
-index 179e9e8..a9d66a1 100644
+index 179e9e8..d7f1cb3 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/GameScene.java
 @@ -234,7 +234,7 @@ public class GameScene extends PixelScene {
@@ -298,6 +425,29 @@ index 179e9e8..a9d66a1 100644
  		Camera.main.edgeScroll.set(1);
  
  		switch (SPDSettings.cameraFollow()) {
+@@ -826,7 +826,7 @@ public class GameScene extends PixelScene {
+ 			return true;
+ 		}
+ 		synchronized (actorThread) {
+-			if (interrupt) actorThread.interrupt();
++			if (interrupt) { Actor.pebxelWake(actorThread); actorThread.interrupt(); }
+ 			try {
+ 				actorThread.wait(msToWait);
+ 			} catch (InterruptedException e) {
+@@ -910,11 +910,11 @@ public class GameScene extends PixelScene {
+ 				actorThread.setName("SHPD Actor Thread");
+ 				Thread.currentThread().setName("SHPD Render Thread");
+ 				Actor.keepActorThreadAlive = true;
+-				actorThread.start();
++				Actor.pebxelNotify(actorThread);   //Pebxel: starts it (in lockstep, after this frame)
+ 			} else if (notifyDelay <= 0f) {
+ 				notifyDelay += 1/60f;
+ 				synchronized (actorThread) {
+-					actorThread.notify();
++					Actor.pebxelNotify(actorThread);
+ 				}
+ 			}
+ 		}
 @@ -1152,10 +1152,13 @@ public class GameScene extends PixelScene {
  	
  	private void showBanner( Banner banner ) {
@@ -544,6 +694,57 @@ index 86c9dfb..f7b4602 100644
  		minZoom = 1;
  		maxZoom = defaultZoom * 2;
  
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/sprites/CharSprite.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/sprites/CharSprite.java
+index a1f73f2..feec05a 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/sprites/CharSprite.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/sprites/CharSprite.java
+@@ -21,6 +21,7 @@
+ 
+ package com.shatteredpixel.shatteredpixeldungeon.sprites;
+ 
++import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
+ import com.shatteredpixel.shatteredpixeldungeon.Assets;
+ import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+ import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
+@@ -833,7 +834,7 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
+ 				if (ch != null) ch.onMotionComplete();
+ 
+ 				GameScene.sortMobSprites();
+-				notifyAll();
++				Actor.pebxelNotify(this);
+ 			}
+ 
+ 		}
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/sprites/TenguSprite.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/sprites/TenguSprite.java
+index 64f3a6b..81d022c 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/sprites/TenguSprite.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/sprites/TenguSprite.java
+@@ -21,6 +21,7 @@
+ 
+ package com.shatteredpixel.shatteredpixeldungeon.sprites;
+ 
++import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
+ import com.shatteredpixel.shatteredpixeldungeon.Assets;
+ import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+ import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+@@ -60,7 +61,7 @@ public class TenguSprite extends MobSprite {
+ 		if (isMoving && anim != run){
+ 			synchronized (this){
+ 				isMoving = false;
+-				notifyAll();
++				Actor.pebxelNotify(this);
+ 			}
+ 		}
+ 		super.play(anim);
+@@ -118,7 +119,7 @@ public class TenguSprite extends MobSprite {
+ 				isMoving = false;
+ 				idle();
+ 
+-				notifyAll();
++				Actor.pebxelNotify(this);
+ 			}
+ 		} else {
+ 			super.onComplete( anim );
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/Button.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/Button.java
 index a3f6715..3293edd 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/Button.java

@@ -32,14 +32,15 @@ public class AssistBot {
 		int maxTurns = a.length > 2 ? Integer.parseInt(a[2]) : 3000;
 		int maxDepth = Integer.parseInt(System.getenv().getOrDefault("MAXDEPTH", "26"));
 		boolean v = System.getenv("V") != null;
-		String dir = ".pebxel-assistbot-" + cls.ordinal() + "-" + seed;
+		String dir = ".pebxel-assistbot-" + cls.ordinal() + "-" + seed + System.getenv().getOrDefault("SAVETAG", "");
 		Game.version = "4.0.2"; Game.versionCode = 922;
 		WatchGame game = new WatchGame();
 		app = new WatchApp(game, dir, false);
 		SPDSettings.set(app.getPreferences(SPDSettings.DEFAULT_PREFS_FILE));
 		FileUtils.setDefaultFileProperties(Files.FileType.External, dir + "/");
 		app.create();
-		for (int i = 0; i < 5; i++) app.frame();
+		Lockstep.seed(seed);
+		for (int i = 0; i < 5; i++) Lockstep.frame(app);
 		SPDSettings.intro(false);
 		WatchSettings.assist(Integer.parseInt(System.getenv().getOrDefault("MODE", "1")));
 		WatchSettings.itemAssist(!"0".equals(System.getenv("ITEMS")));
@@ -58,11 +59,18 @@ public class AssistBot {
 		String end = "turn limit";
 		long planNs = 0, plans = 0, maxPlanNs = 0;
 		Window lastWnd = null; int wndFrames = 0;
-		long t0 = System.currentTimeMillis(); readyAt = t0 + 60000;
+		long t0 = System.currentTimeMillis();
+		long readyF = 0, betweenF = 0; float readyNow = -1;   // (the hang check counts frames in which game time stood still: no wall clock)
 		for (long f = 0; f < 20_000_000; f++) {
-			app.frame();
-			if (Dungeon.hero == null || !Dungeon.hero.ready || Ui.topWindow() != null) sleep(1);   // (Game.elapsed is in whole ms: animations need time to pass)
-			if (Game.scene() instanceof InterlevelScene) { if (f % 3 == 0) HandoffTest.pressOn(); continue; }
+			Lockstep.frame(app);
+			if (Lockstep.stuck != null) { end = "runaway: " + Lockstep.stuck; break; }
+			if (Game.scene() instanceof InterlevelScene) {
+				if (Ui.topWindow() != null) { end = "error between floors: " + Ui.topWindow().getClass().getName(); break; }
+				if (++betweenF > HANG_FRAMES) { end = "stuck between floors"; break; }
+				if (f % 3 == 0) HandoffTest.pressOn();
+				continue;
+			}
+			betweenF = 0;
 			if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) continue;
 			if (!Dungeon.hero.isAlive()) { end = "died"; break; }
 			if (Dungeon.depth != depth) {
@@ -71,6 +79,8 @@ public class AssistBot {
 				GLog.update.remove(logL); GLog.update.add(logL);
 				System.out.printf("depth %d  turn %.0f  hp %d/%d  lvl %d  str %d  %.1fs%n", depth, Statistics.duration, Dungeon.hero.HP, Dungeon.hero.HT, Dungeon.hero.lvl, Dungeon.hero.STR(), (System.currentTimeMillis() - t0) / 1000.0);
 				if (depth > maxDepth) { end = "depth limit"; break; }
+				if (v) { StringBuilder sb = new StringBuilder("  level: heaps"); for (Heap h : Dungeon.level.heaps.valueList()) sb.append(' ').append(h.pos).append(':').append(h.peek().getClass().getSimpleName());
+					sb.append(" mobs"); for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) sb.append(' ').append(m.pos).append(':').append(m.getClass().getSimpleName()); System.out.println(sb); }
 			}
 			if (Statistics.duration > maxTurns) { end = "turn limit"; break; }
 			if (Statistics.duration - floorStart > 2500) { end = "floor timeout (2500 turns on depth " + depth + ")"; break; }
@@ -87,15 +97,16 @@ public class AssistBot {
 			}
 			lastWnd = null;
 			if (!Dungeon.hero.ready) {
-				if (System.currentTimeMillis() - readyAt > 15000) {
-					end = "hung (hero not ready for 15 s)";
+				if (Actor.now() != readyNow) { readyNow = Actor.now(); readyF = f; }
+				if (f - readyF > HANG_FRAMES) {
+					end = "hung (hero not ready, game time stood still for " + HANG_FRAMES + " frames)";
 					System.out.println("HUNG: action " + Dungeon.hero.curAction + " sprite " + Dungeon.hero.sprite + " anim " + (Dungeon.hero.sprite == null ? null : Dungeon.hero.sprite.parent));
 					for (Map.Entry<Thread, StackTraceElement[]> e : Thread.getAllStackTraces().entrySet()) { System.out.println(" thread " + e.getKey().getName()); for (int i = 0; i < Math.min(12, e.getValue().length); i++) System.out.println("    " + e.getValue()[i]); }
 					break;
 				}
 				continue;
 			}
-			readyAt = System.currentTimeMillis();
+			readyF = f; readyNow = Actor.now();
 			if (Controls.aiming()) {   // (left over: aim at plan A of the aiming list, else cancel)
 				List<Assist.Target> al = Assist.plan(true, null);
 				if (!al.isEmpty() && al.get(0).kind == Assist.ENEMY) Assist.act(al.get(0)); else GameScene.cancelCellSelector();
@@ -116,12 +127,13 @@ public class AssistBot {
 			if (sameRun >= 50) { end = "loop at " + t; break; }
 			lastPos = Dungeon.hero.pos; lastKey = key;
 			whys.merge(t.why, 1, Integer::sum);
+			if (v && System.getenv("VMOBS") != null) { StringBuilder sb = new StringBuilder("    mobs"); for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) sb.append(' ').append(m.pos).append(':').append(m.HP); sb.append(" f").append(Lockstep.frames); System.out.println(sb); }
 			if (v) System.out.printf("  t%.0f/%.0f pos %d hp %d/%d: %s%s%n", Statistics.duration, Actor.now(), Dungeon.hero.pos, Dungeon.hero.HP, Dungeon.hero.HT, t, plan.size() > 1 ? "   | B: " + plan.get(1) : "");
 			if (t.kind == Assist.PICKUP) { Heap hh = Dungeon.level.heaps.get(t.cell); if (hh != null && t.cell == Dungeon.hero.pos) { pickHeap = hh; pickSize = hh.size(); } }
 			float tn = Actor.now(); int pn = Dungeon.hero.pos;
 			boolean ok = Assist.act(t);
 			// (the actor thread picks the action up on a later frame: until then hero.ready still reads true)
-			for (int k = 0; k < 150 && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn && Ui.topWindow() == null && Dungeon.hero.isAlive(); k++) { app.frame(); sleep(1); }
+			for (int k = 0; k < 150 && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn && Ui.topWindow() == null && Dungeon.hero.isAlive(); k++) Lockstep.frame(app);
 			if (!ok) { actFails++; if (Assist.lastError != null) { System.out.println("  ACT ERROR " + Assist.lastError); Assist.lastError.printStackTrace(System.out); Assist.lastError = null; } Dungeon.hero.rest(false); }
 		}
 		if (Dungeon.hero != null) System.out.println("state: ready " + Dungeon.hero.ready + " action " + Dungeon.hero.curAction + " aiming " + Controls.aiming() + " window " + Ui.topWindow() + " scene " + Game.scene() + " resting " + Dungeon.hero.resting + " now " + Actor.now());
@@ -129,12 +141,11 @@ public class AssistBot {
 		if (end.equals("died")) synchronized (log) { cause = String.join(" / ", log); }
 		System.out.println("decisions by reason: " + whys);
 		System.out.printf("plan time: avg %.2f ms, max %.1f ms over %d plans%n", planNs / 1e6 / Math.max(1, plans), maxPlanNs / 1e6, plans);
-		System.out.printf("RESULT class %s seed %d: %s depth %d (max %d) turns %.0f lvl %d hp %d/%d picked %d stuck %d actfails %d windows %d decisions %d  %.1fs%s%n",
+		System.out.printf("RESULT class %s seed %d: %s depth %d (max %d) turns %.0f lvl %d hp %d/%d picked %d stuck %d actfails %d windows %d decisions %d frames %d  %.1fs%s%n",
 				cls, seed, end, Dungeon.depth, maxD, Statistics.duration, Dungeon.hero == null ? 0 : Dungeon.hero.lvl, Dungeon.hero == null ? 0 : Dungeon.hero.HP, Dungeon.hero == null ? 0 : Dungeon.hero.HT,
-				picked, stuckEvents, actFails, windows, decisions, (System.currentTimeMillis() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
+				picked, stuckEvents, actFails, windows, decisions, Lockstep.frames, (System.currentTimeMillis() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
 		System.exit(0);
 	}
 
-	static long readyAt;
-	static void sleep(int ms) { try { Thread.sleep(ms); } catch (InterruptedException e) { } }
+	static final int HANG_FRAMES = 3000;   // 100 s of game time with the hero waiting and the clock not moving
 }
