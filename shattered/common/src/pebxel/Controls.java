@@ -50,7 +50,7 @@ public class Controls {
 	private List<Integer> targets = new ArrayList<>();
 	private int target;
 	private boolean targetsStale = true;
-	private int lastPos = -1, lastDepth = -1;
+	private int lastPos = -1, lastDepth = -1; private boolean lastAiming;
 
 	// ---- Pebble PD's screen furniture (pebxel.ui.WatchHud) ----
 	private pebxel.ui.WatchHud hud;
@@ -422,8 +422,10 @@ public class Controls {
 	// ---- targets: what the player most likely wants next, first ----
 
 	private void refreshTargets(boolean aiming) {
-		if (!targetsStale && Dungeon.hero.pos == lastPos && Dungeon.depth == lastDepth) return;
-		targetsStale = false; lastPos = Dungeon.hero.pos; lastDepth = Dungeon.depth;
+		// (aiming started or ended since: the other list. A zap or throw chosen in the item window kept the walking
+		// list, so Down offered items and the way on, not the enemies, until the hero moved)
+		if (!targetsStale && Dungeon.hero.pos == lastPos && Dungeon.depth == lastDepth && aiming == lastAiming) return;
+		targetsStale = false; lastPos = Dungeon.hero.pos; lastDepth = Dungeon.depth; lastAiming = aiming;
 		targets = aiming ? aimTargets() : reach(walkTargets());
 		target = 0;
 		farView(-1);   // (a new turn: the camera goes back to the hero)

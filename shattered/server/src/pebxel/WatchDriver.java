@@ -289,6 +289,7 @@ public final class WatchDriver {
 		fallback("reach a cell (" + t.why + ")");
 		return false;
 	}
+	static final boolean VW = System.getenv("VW") != null;
 	int notOffered, waitsLost; String waitBefore = "";
 	/** What the Down list didn't offer (the reason's first words), counted: what a player without the touch screen would miss. */
 	final Map<String, Integer> notOfferedWhy = new TreeMap<>();
@@ -356,9 +357,11 @@ public final class WatchDriver {
 		// the bag may stay open under it (Pebble PD: Back leaves it); then aim if asked
 		Window after = Ui.topWindow();
 		if (after instanceof pebxel.ui.WndWatchBag && !Controls.aiming()) { Object sel = get(after, "selector"); if (sel == null) press(Controls.BACK); }
+		if (VW) System.out.println("    use " + t.action + ": after the action button top " + Ui.topWindow() + " aiming " + Controls.aiming() + " targets " + targets() + " ready " + h.ready + " now " + com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now());
 		if (Controls.aiming()) {
 			int c = t.cell >= 0 && t.cell != h.pos ? t.cell : -1;
-			if (c >= 0 && (targetTo(c, false) || tap(c))) return true;
+			if (c >= 0 && targetTo(c, false)) { if (VW) System.out.println("    aimed by the list: aiming " + Controls.aiming() + " ready " + h.ready + " now " + com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now() + " top " + Ui.topWindow()); return true; }
+			if (c >= 0 && tap(c)) { if (VW) System.out.println("    aimed by a tap: aiming " + Controls.aiming() + " ready " + h.ready + " now " + com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now()); return true; }
 			if (c < 0 && targetTo(h.pos, false)) return true;
 			press(Controls.BACK);
 		}

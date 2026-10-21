@@ -212,7 +212,7 @@ public class AssistBot {
 			end = "bot exception (" + ex.toString().replace(';', ',') + ")";
 			Coverage.problem("bot exception: " + ex);
 		}
-		if (Dungeon.level != null) { StringBuilder tr = new StringBuilder(); for (com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition x : Dungeon.level.transitions) tr.append(' ').append(x.type).append('@').append(x.cell()).append(x.destBranch != 0 ? "(branch " + x.destBranch + ")" : "");
+		if (Dungeon.level != null) { StringBuilder tr = new StringBuilder(); for (com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition x : Dungeon.level.transitions) tr.append(' ').append(x.type).append('@').append(x.cell()).append(":t").append(Dungeon.level.map[x.cell()]).append(Dungeon.level.passable[x.cell()] ? "" : "(not passable)").append(x.destBranch != 0 ? "(branch " + x.destBranch + ")" : "");
 			System.out.println("level: " + Dungeon.level.getClass().getSimpleName() + " branch " + Dungeon.branch + " transitions" + tr + (Dungeon.hero != null ? " hero@" + Dungeon.hero.pos + " terrain " + Dungeon.level.map[Dungeon.hero.pos] + " heap " + Dungeon.level.heaps.get(Dungeon.hero.pos)
 					+ " plant " + Dungeon.level.plants.get(Dungeon.hero.pos) + " locked " + Dungeon.level.locked + " rooted " + Dungeon.hero.rooted + " enemies " + Dungeon.hero.visibleEnemies()
 					+ (watch != null ? " targets " + watch.targets() + " target " + watch.target() + " keys " + WatchDriver.keyHolders() : "") + " buffs " + Dungeon.hero.buffs().toString().replaceAll("com\\.shatteredpixel\\.shatteredpixeldungeon\\.[a-z.]*\\.", "") : "")); }
