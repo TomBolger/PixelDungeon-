@@ -128,6 +128,9 @@ public final class Assist {
 	private static int lastPos = -1, from = -1;
 	private static boolean[] srchFrom, checked;    // searched from / cells searched
 	private static boolean fishSeen;               // a piranha seen on this floor: keep out of the water
+	private static boolean[] hazMem;               // gas / fire seen on the cell and not seen gone since (only what the hero saw)
+	private static final Set<Integer> sentries = new HashSet<>();   // sentries seen (they never move)
+	private static boolean[] sentryZone; private static int sentryKey = -1;
 	private static final Map<Integer, Integer> talked = new HashMap<>();
 	private static final Map<Integer, Float> bad = new HashMap<>();   // targets that did nothing when acted on (until when)
 	private static Set<Item> pack = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -145,7 +148,8 @@ public final class Assist {
 	// per-plan scratch
 	private static Level L; private static Hero H; private static int W, LEN, hp;
 	private static int[] dist, wlk, N8;
-	private static boolean[] known, open, pass;
+	private static boolean[] known, open, pass, danger;
+	private static boolean inDanger, anyDanger;
 	private static IntPredicate screen;
 	private static int head, od;
 	private static boolean fish, seenFoe, zero;
@@ -344,6 +348,7 @@ public final class Assist {
 		floor = l; goal = -1; passed.clear(); declined.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
 		vetoId = -1; vetoStand = -1; resumeCell = -1; stepBackWaited = false; waitId = -1; lastPos = -1; from = -1;
 		srchFrom = new boolean[l.length()]; checked = new boolean[l.length()]; fishSeen = false; talked.clear(); bad.clear();
+		hazMem = new boolean[l.length()]; sentries.clear(); sentryZone = new boolean[l.length()]; sentryKey = -1;
 		doorSpot = -1; floorT0 = Actor.now(); actCell = -1; actTime = -1; eatBand = 0;
 	}
 
@@ -352,27 +357,24 @@ public final class Assist {
 		ensureFloor(L);
 		screen = mode() == 2 ? null : onScreen;
 		N8 = new int[] { -W, 1, W, -1, -W - 1, -W + 1, W + 1, W - 1 };
-		if (dist == null || dist.length != LEN) { dist = new int[LEN]; wlk = new int[LEN]; known = new boolean[LEN]; open = new boolean[LEN]; pass = new boolean[LEN]; }
+		if (dist == null || dist.length != LEN) { dist = new int[LEN]; wlk = new int[LEN]; known = new boolean[LEN]; open = new boolean[LEN]; pass = new boolean[LEN]; danger = new boolean[LEN]; }
 		// the way the hero last went
 		if (lastPos >= 0 && lastPos != hp) from = lastPos;
 		lastPos = hp;
 		head = -1;
 		if (from >= 0 && from != hp) { int dx = x(hp) - x(from), dy = y(hp) - y(from); if (Math.abs(dx) <= 8 && Math.abs(dy) <= 8) head = pang(dx, dy); }
+		seenFoe = false; fish = fishSeen;
+		for (Mob m : mobs()) if (L.heroFOV[m.pos] && m.isAlive()) {
+			if (m instanceof Piranha) { fish = true; fishSeen = true; }
+			if (m instanceof com.shatteredpixel.shatteredpixeldungeon.levels.rooms.special.SentryRoom.Sentry) sentries.add(m.pos);
+		}
 		for (int c = 0; c < LEN; c++) {
 			known[c] = L.visited[c] || L.mapped[c];
-			open[c] = L.passable[c] && !L.avoid[c];
-			pass[c] = open[c] && (known[c] || L.heroFOV[c]);
+			if (L.heroFOV[c]) hazMem[c] = blobAt(c);
 		}
-		seenFoe = false; fish = fishSeen;
-		for (Mob m : mobs()) {
-			if (m instanceof NPC && known[m.pos]) pass[m.pos] = false;   // (the quest people stay put)
-			if (L.heroFOV[m.pos]) {
-				Char ch = m; if (ch.pos != hp) pass[ch.pos] = false;
-				if (m instanceof Piranha && m.isAlive()) { fish = true; fishSeen = true; }
-				if (m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) seenFoe = true;
-			}
-		}
-		bfs();
+		hazMem[hp] = blobAt(hp);   // (felt, even blind)
+		for (Mob m : mobs()) if (L.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) seenFoe = true;
+		walls(fish);
 		// the last act did nothing (no time passed, nowhere moved): that target is no use for a while
 		if (actTime >= 0 && actPos == hp && Actor.now() == actTime && actCell >= 0 && actKind != USE && actKind != WAIT) {
 			bad.put(actCell, Actor.now() + 30);
@@ -394,6 +396,32 @@ public final class Assist {
 	}
 
 	private static List<Mob> mobs() { return new ArrayList<>(L.mobs); }
+
+	/** The cells to keep off: gas and fire seen (hazMem), a seen sentry's beat (the special floor in its sight: it zaps
+	 *  whoever stands there), and with piranhas about the water. They are walls for the plan, except when the hero
+	 *  already stands in one (then the way out is through them). Then the walk (bfs). */
+	private static void hazards(boolean water) {
+		if (sentries.hashCode() != sentryKey) {
+			sentryKey = sentries.hashCode(); Arrays.fill(sentryZone, false);
+			for (int s : sentries) for (int c = 0; c < LEN; c++)
+				if (L.map[c] == Terrain.EMPTY_SP && distance(c, s) <= 12 && sight(s, c)) sentryZone[c] = true;
+		}
+		anyDanger = false;
+		for (int c = 0; c < LEN; c++) { danger[c] = hazMem[c] || sentryZone[c] || (water && water(c)); anyDanger |= danger[c] && known[c]; }
+		inDanger = danger[hp];
+		for (int c = 0; c < LEN; c++) {
+			boolean ok = L.passable[c] && !L.avoid[c];
+			open[c] = ok && !danger[c];
+			pass[c] = ok && (!danger[c] || inDanger) && (known[c] || L.heroFOV[c]);
+		}
+	}
+
+	/** The hazards, the characters in sight (in the way), the walk. */
+	private static void walls(boolean water) {
+		hazards(water);
+		for (Mob m : mobs()) if (L.heroFOV[m.pos] && m.pos != hp) pass[m.pos] = false;
+		bfs();
+	}
 
 	private static void bfs() {
 		Arrays.fill(dist, INF);
@@ -516,8 +544,36 @@ public final class Assist {
 			else if (!(vetoStand >= 0 && Actor.now() < vetoStandUntil)) { Target tc = tactics(); if (tc != null) front(tc); }
 			h0 = 0;
 		}
+		if (anyDanger && !inDanger) for (Target t : out) if (t.kind != USE && t.kind != WAIT && t.cell >= 0) t.cell = safeWay(t.cell);
 		mind();
 		return out;
+	}
+
+	/** The game walks its own shortest way (Hero.getCloser): one through a hazard is replaced by a cell on the safe way
+	 *  there, the farthest one the game's walk to which stays clear (the objective is kept). */
+	private static int safeWay(int c) {
+		if (c == hp || adjacent(c, hp) || gameSafe(c)) return c;
+		List<Integer> way = new ArrayList<>();
+		int cur = c;
+		if (dist[cur] >= INF) { int b = -1; for (int k = 0; k < 8; k++) { int n = cur + N8[k]; if (nb(cur, n) && dist[n] < INF && (b < 0 || dist[n] < dist[b])) b = n; } if (b < 0) return c; cur = b; }
+		for (int g = 0; g < LEN && cur != hp; g++) {
+			way.add(cur);
+			int b = cur; for (int k = 0; k < 8; k++) { int n = cur + N8[k]; if (nb(cur, n) && dist[n] < dist[b]) b = n; }
+			if (b == cur) break; cur = b;
+		}
+		if (way.isEmpty()) return c;
+		for (int i = 0, step = 1, tries = 0; i < way.size() && tries < 8; i += step, step++, tries++) { int w = way.get(i); if (w == c) continue; if (adjacent(w, hp) || gameSafe(w)) return w; }
+		return way.get(way.size() - 1);
+	}
+	private static boolean gameSafe(int c) {
+		try {
+			boolean[] p = new boolean[LEN];
+			for (int i = 0; i < LEN; i++) p[i] = L.passable[i] && (L.visited[i] || L.mapped[i]);
+			com.watabou.utils.PathFinder.Path path = Dungeon.findPath(H, c, p, H.fieldOfView, true);
+			if (path == null) return true;
+			for (int q : path) if (q != c && danger[q]) return false;
+			return true;
+		} catch (Throwable e) { return true; }
 	}
 
 	private static List<Target> aimList() {
@@ -564,7 +620,10 @@ public final class Assist {
 	}
 	private static boolean water(int c) { return L.water[c]; }
 
-	private static boolean foul(int c) {
+	/** Gas or fire on c, as the hero last saw it. */
+	private static boolean foul(int c) { return c >= 0 && c < LEN && hazMem != null && c < hazMem.length && hazMem[c]; }
+	/** (the game's own state: only for cells in sight) */
+	private static boolean blobAt(int c) {
 		for (Blob b : L.blobs.values()) {
 			if (b == null || b.volume <= 0 || b.cur == null || c >= b.cur.length || b.cur[c] <= 0) continue;
 			if (b instanceof ToxicGas || b instanceof CorrosiveGas || b instanceof ConfusionGas || b instanceof Fire || b instanceof ParalyticGas
@@ -660,7 +719,7 @@ public final class Assist {
 	private static boolean heapOk(Heap h) {
 		if (h == null || h.isEmpty()) return false;
 		int c = h.pos;
-		if (c < 0 || c >= LEN || risky(h) || h.type == Heap.Type.FOR_SALE || !known[c] || L.avoid[c] || passed.contains(c) || bad.containsKey(c)) return false;
+		if (c < 0 || c >= LEN || risky(h) || h.type == Heap.Type.FOR_SALE || !known[c] || L.avoid[c] || passed.contains(c) || bad.containsKey(c) || (danger[c] && c != hp)) return false;
 		if (h.type == Heap.Type.LOCKED_CHEST && Notes.keyCount(new GoldenKey(Dungeon.depth)) <= 0) return false;
 		if (h.type == Heap.Type.CRYSTAL_CHEST && Notes.keyCount(new CrystalKey(Dungeon.depth)) <= 0) return false;
 		if (h.type == Heap.Type.HEAP) {
@@ -819,7 +878,7 @@ public final class Assist {
 			if (st > 0 && L.map[st] == Terrain.LOCKED_EXIT) {   // the boss's key
 				for (Heap h : L.heaps.valueList()) for (Item i : h.items) if (i instanceof WornKey && known[h.pos] && walk(h.pos) < INF) { kind[0] = PICKUP; why[0] = "the key"; return h.pos; }
 			}
-			if (fish) { fish = false; continue; }   // only water left, piranhas about: into it all the same
+			if (fish) { fish = false; walls(false); continue; }   // only water left, piranhas about: into it all the same
 			break;
 		}
 		searchLast = true;   // search for secret doors (plansB moves it to the best spot)
@@ -978,6 +1037,10 @@ public final class Assist {
 			for (int p = 0; p < 2 && best < 0; p++, w = false)
 				for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && (!w || dist[c] <= 4) && open[c] && !foul(c) && Actor.findChar(c) == null && (!w || water(c))) { bk = dist[c]; best = c; }
 			if (best >= 0) { Target t = new Target(best, GO, "escape the gas / fire"); return t; }
+		}
+		if (inDanger) {   // on a sentry's floor, or in the water with piranhas about: off it, the shortest way
+			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && !danger[c] && open[c] && Actor.findChar(c) == null) { bk = dist[c]; best = c; }
+			if (best >= 0) return new Target(best, GO, sentryZone[hp] ? "escape: off the sentry's floor" : "escape: out of the water");
 		}
 		return null;
 	}
