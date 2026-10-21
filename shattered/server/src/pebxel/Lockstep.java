@@ -30,12 +30,26 @@ public final class Lockstep {
 	 * seconds of wall time. Frames take well under a millisecond, so this never decides anything in a game that runs,
 	 * however loaded the machine; it only turns a deadlock into a report (every thread's stack) and an exit.
 	 */
-	public static void watchdog(String who) {
+	public static void watchdog(String who) { watchdog(() -> who); }
+	/** When the game being played (for GAMESECS, default 1800) started: System.nanoTime. */
+	public static volatile long gameStart = System.nanoTime();
+	/** The same, for several games in one JVM: who is asked each time. Also ends a game that has taken more than
+	 *  GAMESECS (default 1800) seconds of wall time, as simbot's kill did when every game had a JVM of its own. */
+	public static void watchdog(java.util.function.Supplier<String> whom) {
 		int secs = Integer.parseInt(System.getenv().getOrDefault("HANGSECS", "120"));
+		long gameSecs = Long.parseLong(System.getenv().getOrDefault("GAMESECS", "1800"));
 		Thread t = new Thread(() -> {
 			long last = -1, since = System.nanoTime();
 			while (true) {
 				try { Thread.sleep(5000); } catch (InterruptedException e) { return; }
+				String who = whom.get();
+				if (System.nanoTime() - gameStart > gameSecs * 1_000_000_000L) {
+					int d = -1; try { d = com.shatteredpixel.shatteredpixeldungeon.Dungeon.depth; } catch (Throwable x) { }
+					System.out.println("COVER end=killed;class=" + who.split(" ")[1] + ";depth=" + d + ";problems=over " + gameSecs + " s doing " + doing.replace(';', ',').replace('=', ':') + ";");
+					System.out.println("RESULT " + who + ": killed after " + gameSecs + " s (doing " + doing + ") depth " + d + " frames " + frames);
+					System.out.flush();
+					Runtime.getRuntime().halt(3);
+				}
 				long f = frames;
 				if (f != last) { last = f; since = System.nanoTime(); continue; }
 				if (System.nanoTime() - since < secs * 1_000_000_000L) continue;
@@ -68,7 +82,7 @@ public final class Lockstep {
 		com.watabou.utils.Random.resetGenerators();
 	}
 
-	public static void frame(WatchApp app) { Actor.pebxelLockstep = true; Game.pebxelCreated = Lockstep::settle; app.frame(); frames++; settle(); }
+	public static void frame(WatchApp app) { Actor.pebxelLockstep = true; com.watabou.utils.Random.pebxelVisuals = true; Game.pebxelCreated = Lockstep::settle; app.frame(); frames++; settle(); }
 
 	/** Waits (without the wall clock) until the actor thread and any floor building are idle. */
 	public static void settle() {
@@ -88,10 +102,13 @@ public final class Lockstep {
 		waits++;
 		Thread at = actorThread();
 		long c0 = at == null ? 0 : cpu(at), n = 0;
+		// (the actor thread unparks us the moment it waits again: a short spin, then asleep, not polling. With 12 games on
+		// 12 cores the old spin and 20 us naps spent CPU the other games needed)
+		Actor.pebxelWaiter = Thread.currentThread();
 		while (Actor.pebxelBusy) {
 			n++;
-			if (n < 2000) Thread.onSpinWait(); else LockSupport.parkNanos(20_000);
-			if ((n & 4095) == 0) {
+			if (n < 200) Thread.onSpinWait(); else LockSupport.parkNanos(1_000_000);
+			if (n > 200 && (n & 63) == 0 || (n & 4095) == 0) {
 				if (at == null) at = actorThread();
 				if (at == null || !at.isAlive()) return;
 				if (cpu(at) - c0 > RUNAWAY_NS) { stuck = "actor thread ran " + RUNAWAY_NS / 1_000_000_000 + " s of CPU without waiting"; dump(at); return; }
