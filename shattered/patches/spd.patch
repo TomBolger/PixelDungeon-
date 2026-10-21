@@ -61,7 +61,7 @@ index c82cc00..eeaa939 100644
  		}
  	}
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java b/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
-index 447f3a6..ce85519 100644
+index 447f3a6..dc0707e 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
 +++ b/SPD-classes/src/main/java/com/watabou/noosa/audio/Music.java
 @@ -53,7 +53,11 @@ public enum Music {
@@ -84,6 +84,24 @@ index 447f3a6..ce85519 100644
  
  		if (tracks == null || tracks.length == 0 || tracks.length != chances.length){
  			stop();
+@@ -134,7 +139,7 @@ public enum Music {
+ 			for (int i = 0; i < trackList.length; i++) {
+ 				//create all the players we need pre-emptively, so they will be cached
+ 				createPlayer(trackList[i]);
+-				if (Random.Float() < trackChances[i]) {
++				if (Random.pebxelVisualFloat() < trackChances[i]) {   //Pebxel: not the game's numbers (a new game's music was the old one's)
+ 					trackQueue.add(trackList[i]);
+ 				}
+ 			}
+@@ -202,7 +207,7 @@ public enum Music {
+ 
+ 		if (trackQueue.isEmpty()) {
+ 			for (int i = 0; i < trackList.length; i++) {
+-				if (Random.Float() < trackChances[i]) {
++				if (Random.pebxelVisualFloat() < trackChances[i]) {   //Pebxel: not the game's numbers (a new game's music was the old one's)
+ 					trackQueue.add(trackList[i]);
+ 				}
+ 			}
 @@ -236,6 +241,7 @@ public enum Music {
  	}
  
@@ -109,11 +127,15 @@ index d83ff2e..e0ddaab 100644
  		float pan = rightVolume - leftVolume;
  		if (enabled && ids.containsKey( id )) {
 diff --git a/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java b/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
-index 4fd4e90..6db7bf7 100644
+index 4fd4e90..5f999df 100644
 --- a/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
 +++ b/SPD-classes/src/main/java/com/watabou/noosa/particles/Emitter.java
-@@ -92,7 +92,11 @@ public class Emitter extends Group {
- 		startDelayed( factory, interval, quantity, Random.Float(interval));
+@@ -89,10 +89,14 @@ public class Emitter extends Group {
+ 
+ 	public void start( Factory factory, float interval, int quantity ) {
+ 		//by default the delay is random, up to the interval
+-		startDelayed( factory, interval, quantity, Random.Float(interval));
++		startDelayed( factory, interval, quantity, Random.pebxelVisualFloat() * interval);   //Pebxel: not the game's numbers
  	}
  
 +	/** (Pebxel) how many times this emitter was started: the watch link tells a new burst from an old one by it */
@@ -180,10 +202,10 @@ index 863b15b..4ef5ba4 100644
  	//this is very confusing, I know.
  	public BitmapFont getFont(int size, String text, boolean flipped, boolean border) {
 diff --git a/SPD-classes/src/main/java/com/watabou/utils/Random.java b/SPD-classes/src/main/java/com/watabou/utils/Random.java
-index 38c1fe5..86e0420 100644
+index 38c1fe5..d31054b 100644
 --- a/SPD-classes/src/main/java/com/watabou/utils/Random.java
 +++ b/SPD-classes/src/main/java/com/watabou/utils/Random.java
-@@ -39,13 +39,28 @@ public class Random {
+@@ -39,13 +39,33 @@ public class Random {
  		resetGenerators();
  	}
  
@@ -200,6 +222,11 @@ index 38c1fe5..86e0420 100644
 +	public static synchronized void pebxelVisual( boolean on ){
 +		if (on) generators.push(pebxelVisualGen);
 +		else if (generators.peekFirst() == pebxelVisualGen && generators.size() > 1) generators.pop();
++	}
++
++	//Pebxel: a draw for the looks only (music, ripples, an emitter's first puff): from the particles' generator in lockstep
++	public static synchronized float pebxelVisualFloat(){
++		return pebxelVisuals ? pebxelVisualGen.nextFloat() : Float();
 +	}
 +
  	public static synchronized void resetGenerators(){
@@ -445,6 +472,19 @@ index faf596d..5c9bc29 100644
  					}
  				}
  			} catch (InterruptedException e) {
+diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/SewerLevel.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/SewerLevel.java
+index 270bfa5..e2a5c78 100644
+--- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/SewerLevel.java
++++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/levels/SewerLevel.java
+@@ -278,7 +278,7 @@ public class SewerLevel extends RegularLevel {
+ 					Ripple ripple = GameScene.ripple( pos + Dungeon.level.width() );
+ 					if (ripple != null) {
+ 						ripple.y -= DungeonTilemap.SIZE / 2;
+-						rippleDelay = Random.Float(0.4f, 0.6f);
++						rippleDelay = 0.4f + 0.2f * Random.pebxelVisualFloat();   //Pebxel: not the game's numbers (one each half second of animation)
+ 					}
+ 				}
+ 			}
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java
 index ff17e01..09eadfe 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/AlchemyScene.java

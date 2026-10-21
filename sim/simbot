@@ -1,15 +1,39 @@
 #!/bin/bash
-# The PebxelSim runner's program for Shattered PD: START=n ./simbot END plays games n..END-1, one Java run each.
+# The PebxelSim runner's program for Shattered PD: START=n ./simbot END plays games n..END-1.
 # Settings (job "run" lines): MAIN (default AssistBot), CLS (hero class 0-5; default game number mod 6),
 # SEEDBASE (seed = SEEDBASE + game number, default 1000), MAXTURNS (default 200000), and whatever MAIN reads itself
-# (MODE, ITEMS, MAXDEPTH, CHEAT, SIMSEED...). Output: what MAIN prints (one "RESULT" line per game).
+# (MODE, ITEMS, MAXDEPTH, CHEAT, SIMSEED, FAST...). Output: what MAIN prints (one "RESULT" line per game).
 # hashCode=3 numbers objects in order, so with SIMSEED set a game replays the same (see shattered/server/src/pebxel/Lockstep.java).
+# AssistBot without WATCH=1 plays all its games in one JVM (AssistBot --games: a warm JVM plays a short game several
+# times quicker, and each game plays as it would alone); BATCH=0 gives each game a JVM of its own as before. If a JVM
+# ends early (a crash, a hang, GAMESECS), the game it was on gets a RESULT line here and a new JVM goes on from the next.
 cd "$(dirname "$0")/assets" || exit 1
+JAVA=(java -Xmx600m -XX:+UseSerialGC -XX:+UnlockExperimentalVMOptions -XX:hashCode=3 -Dpebxel.common=../common/ -cp "../game.jar:../lib/*")
+if [ "${MAIN:-AssistBot}" = AssistBot ] && [ "$WATCH" != 1 ] && [ "${BATCH:-1}" != 0 ]; then
+  i=${START:-0}; log=.pebxel-simbot-$$.txt; export SAVETAG="${SAVETAG}-s$$"   # (its own save folders: others play beside it)
+  while [ $i -lt $1 ]; do
+    : > $log
+    # (the JVM ends any one game over GAMESECS itself; this is the backstop)
+    timeout -k 30 $(( ${GAMESECS:-1800} * ($1 - i) + 120 )) "${JAVA[@]}" pebxel.AssistBot --games $i $1 2>&1 | grep --line-buffered -v '^Picked up JAVA_TOOL\|^\[GAME\]' | tee -a $log
+    rc=${PIPESTATUS[0]}
+    last=$(grep -o '^== game [0-9]* class [0-9]* seed [0-9]*' $log | tail -1)
+    [ -z "$last" ] && { echo "RESULT class ${CLS:-$((i % 6))} seed $((${SEEDBASE:-1000} + i)): crashed before the game (java exit $rc)"; echo "== game $i ended at $(date +%s)"; i=$((i + 1)); continue; }
+    n=$(echo "$last" | awk '{print $3}'); c=$(echo "$last" | awk '{print $5}'); s=$(echo "$last" | awk '{print $7}')
+    if ! grep -q "^== game $n ended" $log; then
+      sed -n "/^== game $n class/,\$p" $log | grep -q '^RESULT' || { [ "$rc" = 124 ] || [ "$rc" = 137 ] && echo "RESULT class $c seed $s: killed by simbot after ${GAMESECS:-1800} s" && echo "COVER end=killed;class=$c;" || echo "RESULT class $c seed $s: crashed (java exit $rc)"; }
+      echo "== game $n ended at $(date +%s)"
+    fi
+    i=$((n + 1))
+    rm -rf .pebxel-assistbot-*"$SAVETAG" 2>/dev/null
+  done
+  rm -f $log
+  exit 0
+fi
 for ((i = ${START:-0}; i < $1; i++)); do
   c=${CLS:-$((i % 6))}; s=$((${SEEDBASE:-1000} + i))
   echo "== game $i class $c seed $s at $(date +%s)"
   # (a wall-clock kill as well, GAMESECS default 1800: the bot's own watchdog should end a stuck game long before)
-  timeout -k 30 "${GAMESECS:-1800}" java -Xmx600m -XX:+UseSerialGC -XX:+UnlockExperimentalVMOptions -XX:hashCode=3 -Dpebxel.common=../common/ -cp "../game.jar:../lib/*" "pebxel.${MAIN:-AssistBot}" "$c" "$s" "${MAXTURNS:-200000}" 2>&1 | grep -v '^Picked up JAVA_TOOL\|^\[GAME\]'
+  timeout -k 30 "${GAMESECS:-1800}" "${JAVA[@]}" "pebxel.${MAIN:-AssistBot}" "$c" "$s" "${MAXTURNS:-200000}" 2>&1 | grep -v '^Picked up JAVA_TOOL\|^\[GAME\]'
   rc=${PIPESTATUS[0]}
   [ "$rc" = 124 ] || [ "$rc" = 137 ] && echo "RESULT class $c seed $s: killed by simbot after ${GAMESECS:-1800} s" && echo "COVER end=killed;class=$c;"
   echo "== game $i ended at $(date +%s)"

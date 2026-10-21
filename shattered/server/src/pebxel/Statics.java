@@ -29,7 +29,12 @@ final class Statics {
 
 	/** Loads, initialises and records every class of ours. Call once, after the app is set up, before the first game. */
 	static void snapshot() throws Exception {
-		for (String n : names()) {
+		// Shattered's own classes too, all initialised now in one fixed order: a few draw a random number as they load
+		// (WindParticle's wind), and a class first used in the 3rd game of a JVM shifted that game's numbers alone
+		for (String n : names(com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon.class, "com/")) {
+			try { Class.forName(n, true, Statics.class.getClassLoader()); } catch (Throwable e) { }
+		}
+		for (String n : names(Statics.class, "pebxel/")) {
 			Class<?> c;
 			try { c = Class.forName(n, true, Statics.class.getClassLoader()); } catch (Throwable e) { continue; }
 			classes++;
@@ -83,22 +88,22 @@ final class Statics {
 		try (ObjectInputStream o = new ObjectInputStream(new ByteArrayInputStream(b))) { return o.readObject(); }
 	}
 
-	/** Our classes' names, from the folder or jar this class was loaded from. */
-	private static List<String> names() throws Exception {
-		URI where = Statics.class.getProtectionDomain().getCodeSource().getLocation().toURI();
+	/** The names of the classes under a folder (pebxel/, com/), from the folder or jar class c was loaded from. */
+	private static List<String> names(Class<?> c, String under) throws Exception {
+		URI where = c.getProtectionDomain().getCodeSource().getLocation().toURI();
 		List<String> out = new ArrayList<>();
 		Path p = Paths.get(where);
-		if (Files.isDirectory(p)) { try (Stream<Path> s = Files.walk(p.resolve("pebxel"))) { s.forEach(f -> add(out, p.relativize(f).toString())); } }
-		else try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(p.toFile())) { z.stream().forEach(e -> add(out, e.getName())); }
+		if (Files.isDirectory(p)) { if (Files.isDirectory(p.resolve(under))) try (Stream<Path> s = Files.walk(p.resolve(under))) { s.forEach(f -> add(out, p.relativize(f).toString(), under)); } }
+		else try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(p.toFile())) { z.stream().forEach(e -> add(out, e.getName(), under)); }
 		Collections.sort(out);
 		return out;
 	}
-	private static void add(List<String> out, String path) {
+	private static void add(List<String> out, String path, String under) {
 		path = path.replace('\\', '/');
-		if (!path.startsWith("pebxel/") || !path.endsWith(".class")) return;
+		if (!path.startsWith(under) || !path.endsWith(".class")) return;
 		String n = path.substring(0, path.length() - 6).replace('/', '.');
 		String top = n.substring(n.lastIndexOf('.') + 1); int d = top.indexOf('$'); if (d >= 0) top = top.substring(0, d);
-		if (n.startsWith("pebxel.android") || SKIP.contains(top)) return;
+		if (n.startsWith("pebxel.android") || under.equals("pebxel/") && SKIP.contains(top) || n.contains(".android.") || n.contains(".desktop.") || n.contains(".ios.")) return;
 		out.add(n);
 	}
 }
