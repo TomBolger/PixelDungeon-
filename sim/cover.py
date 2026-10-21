@@ -39,18 +39,40 @@ print("abilities:", dict(C(g.get("ability", "") for g in games).most_common()))
 seen = C(x for g in games for x in set(items(g, "seen")))
 used = C(x for g in games for x in set(items(g, "used")))
 tried = C(x.split(":")[0] for g in games for x in items(g, "tried"))
+worked = C(x.split(":")[0] for g in games for x in set(items(g, "worked")))
+alch = C(x for g in games for x in set(items(g, "alchemy")))
 cats = collections.defaultdict(set)
 for x in list(seen) + list(used): cats[x.split(".", 1)[0]].add(x.split(".", 1)[1])
 print("\nitem kinds (catalogue): used / seen in N games (bot tries)")
 for cat in sorted(cats):
     names = sorted(cats[cat])
-    nu = sum(1 for x in names if used[cat + "." + x])
+    nu = sum(1 for x in names if used[cat + "." + x] or worked.get(x, 0))
     print(f"  {cat}: {nu}/{len(names)} used")
     for x in names:
         k = cat + "." + x
-        t = tried.get(x, 0)
-        flag = "" if used[k] else ("  <- never used" if not t else "  <- tried, not counted")
-        print(f"      {x}: used {used[k]}, seen {seen[k]}, tried {t}{flag}")
+        t = tried.get(x, 0); w = worked.get(x, 0)
+        flag = "" if used[k] or w else ("  <- never used" if not t else "  <- tried, no effect")
+        print(f"      {x}: used {used[k]}, worked {w}, seen {seen[k]}, tried {t}{flag}")
+print("\nalchemy outputs made:", dict(alch.most_common()))
+ws = [g["watch"] for g in games if g.get("watch")]
+if ws:
+    print(f"\nwatch-path games: {len(ws)}")
+    tot = C(); fb = C(); unk = set(); peak = 0
+    for w in ws:
+        parts = w.split(":")
+        kv = dict(zip(parts[0::2], parts[1::2]))
+        for k in ("talents", "presses", "taps", "notoffered", "frames", "bytes", "linkerrors", "frameerrors"):
+            try: tot[k] += int(kv.get(k, 0))
+            except ValueError: pass
+        try: peak = max(peak, int(kv.get("watchpeak", 0)))
+        except ValueError: pass
+        m = re.search(r"unknown:\[([^\]]*)\]", w)
+        if m and m.group(1): unk.update(m.group(1).split(",:"))
+        m = re.search(r"fallbacks:\{(.*)\}", w)
+        if m:
+            for f in re.findall(r"([^,{}]+?)=(\d+)", m.group(1)): fb[f[0].replace(":", " ").strip()] += int(f[1])
+    print("  totals:", dict(tot)); print("  watch heap peak:", peak); print("  unknown picture kinds:", unk or "none")
+    print("  button fallbacks:", dict(fb.most_common(30)))
 print("\nwindows:", dict(C(w.split("=")[0] for g in games for w in items(g, "windows")).most_common()))
 print("scenes:", dict(C(s for g in games for s in set(items(g, "scenes"))).most_common()))
 probs = C(re.sub(r"depth \d+", "depth N", p) for g in games for p in set(items(g, "problems")))

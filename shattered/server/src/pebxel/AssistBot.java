@@ -154,11 +154,12 @@ public class AssistBot {
 			decisions++;
 			if (depthDecisions.merge(depth, 1, Integer::sum) > FLOOR_TURNS * 2) { end = "depth timeout (" + FLOOR_TURNS * 2 + " decisions on depth " + depth + " over all visits)"; break; }
 			if (++floorDecisions > FLOOR_TURNS) { end = "floor timeout (" + FLOOR_TURNS + " decisions on depth " + depth + ")"; break; }
+			// (cheat games, in this order: a quest step, an item kind to try now and then, the rescue from a stall, the pot)
 			Assist.Target t = Cheat.ON ? BotQuests.pick() : null;
 			Assist.Target rs = Cheat.ON ? Rescue.check() : null;   // (checked every decision: it counts the stall)
+			if (t == null && Cheat.ON) t = BotItems.pick();
 			if (t == null) t = rs;
 			if (t == null && Cheat.ON) t = BotAlchemy.pick();
-			if (t == null && Cheat.ON) t = BotItems.pick();
 			if (t == null && plan.isEmpty()) { Dungeon.hero.rest(false); continue; }
 			if (t == null) t = plan.get(0);
 			String key = t.kind + ":" + t.cell + ":" + t.action + ":" + (t.item == null ? "" : t.item.getClass().getSimpleName());
