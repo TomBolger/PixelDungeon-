@@ -126,7 +126,7 @@ def hero_walks(F, P, B, accs, tag):
         t1 = min(e for e in ends if e > t0)
         w = [(f[0], f[2], f[3], f[6], f[7], f[8]) for f in F if t0 - 50 <= f[0] < t1]
         pw = [(p[0], p[2], p[3]) for p in P if t0 - 50 <= p[0] < t1]
-        if len(w) < 3 or len(pw) < 3: continue
+        if len(w) < 3: continue   # (pw: the phone's hero, when the run has it: the emulator's watch logs don't)
         # from the first frame he moves to the last
         mv = [i for i in range(1, len(w)) if w[i][1:3] != w[i - 1][1:3]]
         if not mv: continue
@@ -134,9 +134,7 @@ def hero_walks(F, P, B, accs, tag):
         w3 = [(p[0], p[1], p[2]) for p in w]
         ox, oy = w3[0][1] % CELL, w3[0][2] % CELL
         cs = crossings(w3, ox, oy)
-        n_steps = cheb(pw[-1][1] - pw[0][1], pw[-1][2] - pw[0][2]) // CELL
-        pcs = crossings(pw, pw[0][1] % CELL, pw[0][2] % CELL)
-        n_steps = len(pcs)
+        n_steps = len(crossings(pw, pw[0][1] % CELL, pw[0][2] % CELL)) if len(pw) >= 3 else len(cs)
         if n_steps < 2: continue
         z = w[-1][5] / 256.0
         a = accs['cut' if tag == 'wstop' else 'long' if n_steps > 12 else 'short']
@@ -165,7 +163,7 @@ def hero_walks(F, P, B, accs, tag):
             pv = (vx, vy)
         # delay against the phone's hero over the same walk
         lag = []
-        prog, tt = [0.0], [pw[0][0]]
+        prog, tt = [0.0], [pw[0][0] if pw else 0]
         for (q0, x0, y0), (q1, x1, y1) in zip(pw, pw[1:]):
             prog.append(prog[-1] + cheb(x1 - x0, y1 - y0)); tt.append(q1)
         total, wp = prog[-1], 0.0

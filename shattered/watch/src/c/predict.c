@@ -17,6 +17,7 @@ enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };   // as main.c
                                  // four of its frames) show him still, short of the planned end: he stopped there
 
 static Plan s_plan;
+static bool s_wplanoff, s_wdone; // since the press: the phone's plan went (its hero set off), and came back (he is done)
 // the target box, shown at a predicted place
 static bool s_box; static int32_t s_bx, s_by, s_rx, s_ry; static uint32_t s_bt; static uint8_t s_bpend;   // (s_rx/ry: the phone's last place; s_bpend: presses it hasn't answered)
 // the hero, walking a predicted path
@@ -52,6 +53,9 @@ void predict_set(void) {
 #endif
   bool keep = s_box && s_was_on && p->on && p->marker == s_was_marker && p->n == s_was_n;
   if (keep) s_plan.cur = s_was_cur;   // our own presses aren't in it yet: keep counting from ours
+  // While the phone's hero walks there is no plan (he isn't ready); the next one says he is ready again: the walk is
+  // over, here (he arrived, or something stopped him), even if nothing else is sent after it
+  if (s_walk) { if (!p->on) s_wplanoff = true; else if (s_wplanoff) s_wdone = true; }
 }
 
 // The hero walks at the phone's own pace (a step each s_wstep) from the press on, whatever the radio does: over
@@ -144,7 +148,7 @@ bool predict_button(int code, uint32_t now) {
   if (!t->k || !h) return false;
   s_wid = s_plan.hero; s_wmarker = s_plan.marker; s_box = false; s_wx0 = obj_dyn(h, 0, now); s_wy0 = obj_dyn(h, 1, now);
   s_wt = now; s_wn = t->k; memcpy(s_wdir, t->dir, s_wn); s_wstep = s_plan.step_ms ? s_plan.step_ms : 100;
-  s_wmoved = false; s_wstill = 0; s_walk = true; s_p0 = 0; s_t0 = now; s_plast = 0;
+  s_wmoved = false; s_wstill = 0; s_walk = true; s_p0 = 0; s_t0 = now; s_plast = 0; s_wplanoff = s_wdone = false;
   APP_LOG(APP_LOG_LEVEL_INFO, "predict: walk %d steps", s_wn);
   // the map follows him closely while he walks, as the phone's camera will (HeroSprite.move: panFollow at 20 a
   // second). Left at its resting pace until the phone's frames said so, the view lagged behind the hero for the
@@ -220,6 +224,13 @@ void predict_tick(uint32_t now) {
       uint32_t l = now - s_wt; if (l > 1500) l = 1500;
       s_lat = (3 * s_lat + l) / 4;
     }
+    // the phone's hero is ready again (predict_set): he is where he stays. (Waiting for frames to show him still was
+    // slow, and when the phone then had nothing more to send, the hero stood a cell or two too far for seconds.)
+    if (s_wdone) {
+      s_walk = false; slide_back(s_wid, px, py, now);
+      APP_LOG(APP_LOG_LEVEL_INFO, "predict: walk over, %d ms after the press, back %d,%d", (int)(now - s_wt), (int)((px - rx) / 8), (int)((py - ry) / 8));
+      return;
+    }
     if (s_wmoved && raw_prog(rx, ry) < 0) { s_walk = false; slide_back(s_wid, px, py, now); APP_LOG(APP_LOG_LEVEL_INFO, "predict: walk went elsewhere"); return; }
     // (over a slow radio his frames come late, already past: he goes from place to place without ever moving; any
     // change of place counts as moving)
@@ -239,9 +250,9 @@ void predict_tick(uint32_t now) {
     // never set off: the phone did something else with the press (a monster came into view at once, say). Seen when
     // its frames from well after the press come with him still. (Not merely when nothing comes: a message lost on the
     // radio holds everything up 3 s, and giving up then took him back to the start, to leap on again when the
-    // phone's frames came.) At the latest after 4 WAIT_MS
+    // phone's frames came.) At the latest after 2 WAIT_MS
     bool idle = !s_wmoved && s_heard - s_wt < 0x80000000u && s_heard - s_wt > (uint32_t)s_plag + 600;
-    if ((!s_wmoved && now - s_wt > 4 * WAIT_MS) || idle || now - s_wt > (uint32_t)s_wn * s_wstep + 5000 + 3 * WAIT_MS) {
+    if ((!s_wmoved && now - s_wt > 2 * WAIT_MS) || idle || now - s_wt > (uint32_t)s_wn * s_wstep + 5000 + 3 * WAIT_MS) {
       s_walk = false; slide_back(s_wid, px, py, now); APP_LOG(APP_LOG_LEVEL_INFO, "predict: walk not confirmed (moved %d)", s_wmoved); }
   }
 }

@@ -25,7 +25,15 @@ AppTimer *app_timer_register(uint32_t ms, AppTimerCallback cb, void *data) {
 }
 void app_timer_cancel(AppTimer *t) { if (t) t->alive = false; }
 
-uint16_t time_ms(time_t *s, uint16_t *ms) { *s = vt / 1000000; *ms = (vt / 1000) % 1000; return *ms; }
+// SLIP=ms: the emulator's clock, whose seconds and milliseconds disagree for that long after each turn of a second,
+// every 7 s (readings a second back)
+static int SLIP;
+uint16_t time_ms(time_t *s, uint16_t *ms) {
+  uint64_t t = vt / 1000;
+  *s = t / 1000; *ms = t % 1000;
+  if (SLIP && (*s % 7) == 0 && *ms < SLIP) *s -= 1;
+  return *ms;
+}
 size_t heap_bytes_free(void) { return 50000; }
 
 struct Window { int x; }; struct Layer { LayerUpdateProc proc; bool dirty; };
@@ -158,6 +166,7 @@ int main(int argc, char **argv) {
   if (getenv("DRAW_MS")) DRAW_MS = atof(getenv("DRAW_MS"));
   if (getenv("APPLY_US")) APPLY_US_PER_BYTE = atof(getenv("APPLY_US"));
   LOG = getenv("LOG") != NULL;
+  if (getenv("SLIP")) SLIP = atoi(getenv("SLIP"));
   FILE *f = fopen(argv[1], "r");
   if (!f) { perror(argv[1]); return 1; }
   static char line[1 << 20];

@@ -336,6 +336,7 @@ public class RadioTest {
 				mobs.add(m);
 			}
 			if (mobs.isEmpty()) break;
+			staleTargets();   // (the enemies first, as when they come into view)
 			run(0.4);
 			button("attack", Controls.SELECT);
 			run(1.0);

@@ -21,24 +21,22 @@ static bool s_wait_reset;   // the copy was given up (resync): the phone's messa
 
 // The wall clock in ms only goes forward here: it can be set back (the phone syncing the time), which would otherwise
 // hold up the play-out queue until it caught up again.
-// Its seconds and milliseconds can also disagree for a moment at the turn of a second: a reading comes out a whole
-// second off (the emulator does it a few times a minute: +1000 one frame, back the next). Taken as it came, that pushed
-// the watch's time a second ahead for good: everything on screen jumped 1.5 s at once, and frames waiting played in a
-// rush. So a reading about a whole second away from the last waits: if the clock goes on from it for 100 ms, it was a real gap.
+// Its seconds and milliseconds can also disagree for a while at the turn of a second: readings come out a whole second
+// off, back or forward (the emulator: for up to a few hundred ms, a few times a minute). Waiting for such a reading to
+// go on for 100 ms and then taking it, as it was, stopped the clock for that while and then leapt it a second on: the
+// hero stood still for a second, then everything jumped 1.5 s (seen as gaps of 1.1 s in every walk on the emulator).
+// So such a reading is put right: about a second back with the milliseconds just past 0 (they turned, the seconds
+// not yet), or a second on with them still high (the seconds turned first), and the next reading is measured from the
+// reading put right. Other steps back (the time set) count as none, gaps (the app held up) as they came.
 static uint32_t now_ms(void) {
-  static uint32_t mono, raw_last, odd_raw; static bool started; static uint8_t odd;
+  static uint32_t mono, raw_last; static bool started;
   time_t s; uint16_t ms; time_ms(&s, &ms);
   uint32_t raw = (uint32_t)s * 1000 + ms;
-  int32_t d = (int32_t)(raw - raw_last), e = d > 0 ? d - 1000 : d + 1000;
-  if (started && e > -100 && e < 100) {
-    int32_t g = (int32_t)(raw - odd_raw);
-    if (!odd || g < 0 || g > 1000) { odd = 1; odd_raw = raw; goto out; }
-    if (g < 100) goto out;              // (it has to go on from there for a while: a slip lasts a few ms, and a busy
-  }                                     // loop can read the clock many times within one)
-  odd = 0;
+  int32_t d = (int32_t)(raw - raw_last);
+  if (started && d <= -200 && d > -1300 && ms < 400) { raw += 1000; d += 1000; }
+  else if (started && d >= 1000 && d < 1300 && ms >= 600) { raw -= 1000; d -= 1000; }
   if (started && d > 0 && d < 60000) mono += d;
   raw_last = raw; started = true;
-out:
   // the game's clock: its animations run GAME_SPEED times real time (Game.pebxelSpeed on the phone, which must match);
   // frame stamps, moves and touches are all in that time
   return (uint32_t)((uint64_t)mono * GAME_SPEED_NUM / GAME_SPEED_DEN);
