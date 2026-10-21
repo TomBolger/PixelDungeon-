@@ -15,7 +15,7 @@ import java.io.File;
  * SEED=n NEWGAME=class to start straight in a new game.
  */
 public class Buttons {
-	static int wantDepth; static boolean wantMine;
+	static int wantDepth; static boolean wantMine, flashProbe;
 
 	public static void main(String[] a) throws Exception {
 		File dir = new File(a[0]); dir.mkdirs();
@@ -49,6 +49,17 @@ public class Buttons {
 			int wait = 30;
 			if (p.matches("\\d+")) wait = Integer.parseInt(p);
 			else if (p.startsWith("@give:")) { ((com.shatteredpixel.shatteredpixeldungeon.items.Item) Class.forName("com.shatteredpixel.shatteredpixeldungeon.items." + p.substring(6)).getDeclaredConstructor().newInstance()).identify().collect(); }   // (tests: an item, e.g. @give:Amulet)
+			else if (p.startsWith("@read:")) {   // (tests: a scroll read at once, e.g. @read:ScrollOfMagicMapping)
+				com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll sc = (com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll) Class.forName("com.shatteredpixel.shatteredpixeldungeon.items.scrolls." + p.substring(6)).getDeclaredConstructor().newInstance();
+				sc.identify(); sc.collect();
+				sc.execute(Dungeon.hero, com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll.AC_READ);
+			}
+			else if (p.equals("@flash")) {   // (tests: every cell within 20 flashed, as a Stone of Clairvoyance or the Talisman of Foresight do)
+				int made = 0;
+				for (int c = 0; c < Dungeon.level.length(); c++) if (Dungeon.level.distance(c, Dungeon.hero.pos) <= 20 && com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.checkedCell(c, Dungeon.hero.pos) != null) made++;
+				System.out.println("flashes " + made);
+				flashProbe = true; wait = 1;
+			}
 			else if (p.equals("@mine")) { wantMine = true; wantDepth = 99; wait = 8000; }   // (tests: down to the Blacksmith, his quest taken, a pickaxe, into his mine)
 			else if (p.startsWith("@depth")) { wantDepth = Integer.parseInt(p.substring(6)); wait = 4000; }   // (tests: down to that depth, story pages and all)
 			else if (p.equals("@fire")) {   // (tests: particles: a fire beside the hero, and the hero alight)
@@ -113,7 +124,16 @@ public class Buttons {
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
 				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) sim.apply(m);
 			}
-			if (System.getenv("TIMING") != null) System.out.printf("%s: %d frames in %.0f ms, link pictures %d, scene %s%n", p, wait, (System.nanoTime() - t0) / 1e6, sim.objCount(), Game.scene().getClass().getSimpleName());
+			if (flashProbe) {
+				int n = 0, shown = 0, nocam = 0, ex = 0;
+				for (com.watabou.noosa.Gizmo g : Ui.parts(Game.scene()).stream().map(q -> q.g).toArray(com.watabou.noosa.Gizmo[]::new)) { }
+				java.util.ArrayDeque<com.watabou.noosa.Group> st = new java.util.ArrayDeque<>(); st.add(Game.scene());
+				while (!st.isEmpty()) { com.watabou.noosa.Group gr = st.poll(); for (com.watabou.noosa.Gizmo g : com.watabou.noosa.GroupAccess.members(gr)) { if (g == null) continue; if (g instanceof com.watabou.noosa.Group) st.add((com.watabou.noosa.Group) g);
+					if (g instanceof com.shatteredpixel.shatteredpixeldungeon.effects.CheckedCell) { n++; if (g.exists) ex++; if (((com.watabou.noosa.Visual) g).alpha() > 0.01f) shown++; if (g.camera() == null) nocam++; } } }
+				System.out.println("  flashes in the scene " + n + ", existing " + ex + ", showing " + shown + ", no camera " + nocam);
+			}
+			if (System.getenv("TIMING") != null) System.out.printf("%s: %d frames in %.0f ms, watch pictures %d, link pictures %d, depth %d, scene %s%n", p, wait, (System.nanoTime() - t0) / 1e6, sim.objCount(),
+					((java.util.Map<?, ?>) WatchDriver.get(link, "objs")).size(), Dungeon.depth, Game.scene().getClass().getSimpleName());
 			if (System.getenv("FOCUS") != null && Ui.topWindow() == null && Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene && Dungeon.hero != null) {   // (the Down list: cell, terrain)
 				StringBuilder sb = new StringBuilder(p + ": Down list");
 				Object ts = WatchDriver.get(controls, "targets");

@@ -571,6 +571,10 @@ public final class Link {
 				Particles.Desc d = particles.ripple((Visual) g);
 				if (d != null) { if (d.recipe != null) { emitDescs.put(g, d); order.add(g); } continue; }
 			}
+			// a searched or mapped cell's flash (CheckedCell): only those showing and on the map's screen. A Scroll of
+			// Magic Mapping makes one for every cell of the floor at once, waiting their turns see-through: sent as
+			// pictures they were 1,100 to 1,250 at a time, past the watch's 1024 ids and 130 KB of its heap
+			if (g instanceof com.shatteredpixel.shatteredpixeldungeon.effects.CheckedCell && !flashShown((Visual) g)) continue;
 			if (g instanceof Visual) order.add(g);
 			else if (g instanceof com.watabou.noosa.tweeners.Tweener) {
 				com.watabou.noosa.tweeners.Tweener t = (com.watabou.noosa.tweeners.Tweener) g;
@@ -585,6 +589,16 @@ public final class Link {
 				}
 			}
 		}
+	}
+
+	/** A cell's flash that's showing (not waiting its turn) and on the map camera's view. */
+	private static boolean flashShown(Visual v) {
+		if (v.alpha() <= 0.01f) return false;
+		Camera c = v.camera() != null ? v.camera() : Camera.main;
+		if (c == null) return true;
+		com.watabou.utils.PointF p = v.center();
+		float m = 16, l = c.scroll.x - m, t = c.scroll.y - m, r = c.scroll.x + c.width / c.zoom + m, b = c.scroll.y + c.height / c.zoom + m;
+		return p.x >= l && p.x <= r && p.y >= t && p.y <= b;
 	}
 
 	private static boolean inWindow(Gizmo g) {
