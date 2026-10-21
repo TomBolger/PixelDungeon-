@@ -177,7 +177,7 @@ public class Controls {
 			case pebxel.ui.WatchHud.B_MENU: GameScene.show(new WndGame()); break;
 			case pebxel.ui.WatchHud.B_PORTRAIT: GameScene.show(new com.shatteredpixel.shatteredpixeldungeon.windows.WndHero()); break;
 		}
-		targetsStale = true;
+		targetsStale = true; acted();
 	}
 
 	private static java.lang.reflect.Field qsInstance;
@@ -411,7 +411,7 @@ public class Controls {
 				else if (cell == -2) { Dungeon.hero.search(true); }   // (a test's bare cells)
 				else if (shot(cell)) shoot(cellOf(cell));
 				else GameScene.handleCell(cell);
-				targetsStale = true;
+				targetsStale = true; acted();
 				return;
 			case UP:
 				if (held) { GameScene.show(new WndGame()); return; }
@@ -487,7 +487,9 @@ public class Controls {
 		// list, so Down offered items and the way on, not the enemies, until the hero moved)
 		float now = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now();
 		int settings = WatchSettings.assist() * 2 + (WatchSettings.itemAssist() ? 1 : 0);
+		if (waiting(now, aiming)) return;
 		if (!targetsStale && Dungeon.hero.pos == lastPos && Dungeon.depth == lastDepth && aiming == lastAiming && now == lastNow && settings == lastSettings) return;
+		String why = log ? (targetsStale ? "stale " : "") + (Dungeon.hero.pos != lastPos ? "pos " : "") + (now != lastNow ? "time " + lastNow + "->" + now + " " : "") + (aiming != lastAiming ? "aim " : "") : "";
 		targetsStale = false; lastPos = Dungeon.hero.pos; lastDepth = Dungeon.depth; lastAiming = aiming; lastNow = now; lastSettings = settings;
 		plans++;
 		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; farView(-1, false); return; }
@@ -502,8 +504,25 @@ public class Controls {
 		keepEnemy();
 		// Far: the camera shows plan A wherever it is (Pebble PD 0.76: on whatever is chosen, cycled to or not); else back on the hero
 		farView(aiming || targets.isEmpty() ? -1 : targets.get(0), false);
-		if (log) System.out.println("pebxel: plan d" + Dungeon.depth + " t" + Math.round(now) + " hero " + Dungeon.hero.pos + (aiming ? " aiming" : "") + ": " + plan);
+		if (log) System.out.println("pebxel: plan d" + Dungeon.depth + " t" + Math.round(now) + " hero " + Dungeon.hero.pos + (aiming ? " aiming" : "") + " (" + why.trim() + "): " + plan);
 	}
+	/** A press acted: no new list until the game has taken it (game time moved, the hero moved, a window or the aim
+	 *  came up) or a few frames went by with nothing (it came to nothing: then the Assistant hears so). Shattered's
+	 *  actor thread takes a tap's walk up a frame or two later; till then the hero still reads as ready, and a list
+	 *  made then was made on a turn already over (and counted the Assistant's waits twice, read its "mind" against
+	 *  itself...), while the actor thread moved the hero under it. */
+	private boolean pending; private int pendingFrames, pendingPos; private float pendingNow; private boolean pendingAim;
+	private void acted() {
+		if (Dungeon.hero == null) return;
+		pending = true; pendingFrames = 0; pendingPos = Dungeon.hero.pos; pendingNow = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now(); pendingAim = aiming();
+	}
+	private boolean waiting(float now, boolean aiming) {
+		if (!pending) return false;
+		Hero h = Dungeon.hero;
+		if (now != pendingNow || h.pos != pendingPos || aiming != pendingAim || !h.ready || Ui.topWindow() != null || pendingFrames > PENDING_FRAMES) pending = false;
+		return pending;
+	}
+	static final int PENDING_FRAMES = 10;
 	/** Lists made (tests: once a turn, never a frame). */
 	public static long plans;
 	/** Tests: print each list made. */
@@ -650,6 +669,7 @@ public class Controls {
 	// ---- every frame: keep the frame where it belongs ----
 
 	public void frame() {
+		if (pending) pendingFrames++;
 		keepHud();
 		Window w = Ui.topWindow();
 		closeTag(w);
@@ -683,7 +703,7 @@ public class Controls {
 		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) { marker.hide(); return; }
 		if (onToolbar || !Dungeon.hero.ready) { marker.hide(); return; }   // (the toolbar's highlight is drawn by the HUD)
 		refreshTargets(aiming());
-		int cell = targets.isEmpty() ? -1 : cellOf(targets.get(Math.min(target, targets.size() - 1)));
+		int cell = targets.isEmpty() || pending ? -1 : cellOf(targets.get(Math.min(target, targets.size() - 1)));
 		if (cell < 0) { marker.hide(); return; }   // (an action of the toolbar's: its button's reticle shows it, WatchHud)
 		marker.at(cell);
 	}
