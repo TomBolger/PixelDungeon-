@@ -8,7 +8,10 @@ cd "$(dirname "$0")/assets" || exit 1
 for ((i = ${START:-0}; i < $1; i++)); do
   c=${CLS:-$((i % 6))}; s=$((${SEEDBASE:-1000} + i))
   echo "== game $i class $c seed $s at $(date +%s)"
-  java -Xmx600m -XX:+UseSerialGC -XX:+UnlockExperimentalVMOptions -XX:hashCode=3 -Dpebxel.common=../common/ -cp "../game.jar:../lib/*" "pebxel.${MAIN:-AssistBot}" "$c" "$s" "${MAXTURNS:-200000}" 2>&1 | grep -v '^Picked up JAVA_TOOL\|^\[GAME\]'
+  # (a wall-clock kill as well, GAMESECS default 1800: the bot's own watchdog should end a stuck game long before)
+  timeout -k 30 "${GAMESECS:-1800}" java -Xmx600m -XX:+UseSerialGC -XX:+UnlockExperimentalVMOptions -XX:hashCode=3 -Dpebxel.common=../common/ -cp "../game.jar:../lib/*" "pebxel.${MAIN:-AssistBot}" "$c" "$s" "${MAXTURNS:-200000}" 2>&1 | grep -v '^Picked up JAVA_TOOL\|^\[GAME\]'
+  rc=${PIPESTATUS[0]}
+  [ "$rc" = 124 ] || [ "$rc" = 137 ] && echo "RESULT class $c seed $s: killed by simbot after ${GAMESECS:-1800} s" && echo "COVER end=killed;class=$c;"
   echo "== game $i ended at $(date +%s)"
   rm -rf .pebxel-* 2>/dev/null
 done

@@ -19,7 +19,41 @@ import java.util.concurrent.locks.LockSupport;
 public final class Lockstep {
 	private Lockstep() { }
 
-	public static long frames, waits;
+	public static volatile long frames;
+	public static long waits;
+	/** What the bot was doing (for the watchdog's report), set as it goes. */
+	public static volatile String doing = "starting";
+
+	/**
+	 * The last resort (one game hung on Monolith for an hour with the actor thread blocked, not spinning, so the CPU
+	 * limits never fired): a watchdog that ends the game when no frame at all has finished for HANGSECS (default 120)
+	 * seconds of wall time. Frames take well under a millisecond, so this never decides anything in a game that runs,
+	 * however loaded the machine; it only turns a deadlock into a report (every thread's stack) and an exit.
+	 */
+	public static void watchdog(String who) {
+		int secs = Integer.parseInt(System.getenv().getOrDefault("HANGSECS", "120"));
+		Thread t = new Thread(() -> {
+			long last = -1, since = System.nanoTime();
+			while (true) {
+				try { Thread.sleep(5000); } catch (InterruptedException e) { return; }
+				long f = frames;
+				if (f != last) { last = f; since = System.nanoTime(); continue; }
+				if (System.nanoTime() - since < secs * 1_000_000_000L) continue;
+				System.out.println("HUNG: no frame finished in " + secs + " s (frame " + f + ", doing: " + doing + ")");
+				for (java.util.Map.Entry<Thread, StackTraceElement[]> e : Thread.getAllStackTraces().entrySet()) {
+					System.out.println(" thread " + e.getKey().getName() + " " + e.getKey().getState());
+					for (int i = 0; i < Math.min(25, e.getValue().length); i++) System.out.println("    " + e.getValue()[i]);
+				}
+				int d = -1; try { d = com.shatteredpixel.shatteredpixeldungeon.Dungeon.depth; } catch (Throwable x) { }
+				System.out.println("COVER end=hung;class=" + who.split(" ")[1] + ";depth=" + d + ";problems=watchdog: no frame in " + secs + " s doing " + doing.replace(';', ',').replace('=', ':') + ";");
+				System.out.println("RESULT " + who + ": hung (watchdog: no frame in " + secs + " s, doing " + doing + ") depth " + d + " frames " + f);
+				System.out.flush();
+				Runtime.getRuntime().halt(3);
+			}
+		}, "pebxel watchdog");
+		t.setDaemon(true);
+		t.start();
+	}
 	/** Set when a thread ran away (minutes of CPU without waiting): the bot should report it and stop. */
 	public static String stuck;
 	private static Field levelThread;

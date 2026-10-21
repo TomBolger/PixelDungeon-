@@ -55,6 +55,7 @@ public class AssistBot {
 		FileUtils.setDefaultFileProperties(Files.FileType.External, dir + "/");
 		app.create();
 		Lockstep.seed(seed);
+		Lockstep.watchdog("class " + cls + " seed " + seed);
 		if (WATCH) watch = new WatchDriver(app);
 		for (int i = 0; i < 5; i++) step();
 		SPDSettings.intro(false);
@@ -81,6 +82,7 @@ public class AssistBot {
 		long t0 = System.currentTimeMillis();
 		long readyF = 0, betweenF = 0, floorDecisions = 0, floorFrames = 0; float readyNow = -1;   // (the hang check counts frames in which game time stood still: no wall clock)
 		for (long f = 0; f < 20_000_000; f++) {
+			Lockstep.doing = "frame";
 			step();
 			if (f % 20000 == 0 && f > 0) { Window hw = Ui.topWindow(); System.out.printf("  .. frame %d depth %d %s%s decisions %d %.0fs%n", f, Dungeon.depth, Game.scene().getClass().getSimpleName(), hw == null ? "" : " window " + hw.getClass().getName(), decisions, (System.currentTimeMillis() - t0) / 1000.0); }
 			if (Lockstep.stuck != null) { end = "runaway: " + Lockstep.stuck; break; }
@@ -122,7 +124,7 @@ public class AssistBot {
 				if (w != lastWnd) { lastWnd = w; wndFrames = 0; windows++; }
 				wndFrames++;
 				// answered on its 2nd frame (laid out by then), again every 30 frames it stays; for ever: gone
-				if (wndFrames % 30 == 2) { BotWindows.Answer an = BotWindows.decide(w); if (v) System.out.println("    -> " + an); if (watch == null || !watch.answer(w, an)) { if (Ui.topWindow() == w) BotWindows.doDirect(w, an); } }
+				if (wndFrames % 30 == 2) { Lockstep.doing = "window " + w.getClass().getName(); BotWindows.Answer an = BotWindows.decide(w); if (v) System.out.println("    -> " + an); if (watch == null || !watch.answer(w, an)) { if (Ui.topWindow() == w) BotWindows.doDirect(w, an); } }
 				else if (wndFrames > 400) { System.out.println("  WINDOW STUCK " + w.getClass().getName() + ": hidden"); Coverage.problem("window stuck: " + w.getClass().getName()); w.hide(); }
 				continue;
 			}
@@ -191,6 +193,8 @@ public class AssistBot {
 			if (t.kind == Assist.PICKUP) { Heap hh = Dungeon.level.heaps.get(t.cell); if (hh != null && t.cell == Dungeon.hero.pos) { pickHeap = hh; pickSize = hh.size(); } }
 			float tn = Actor.now(); int pn = Dungeon.hero.pos;
 			if (t.kind == Assist.USE && t.item != null) BotItems.pending(t.item, t.action);
+			Lockstep.doing = "acting on " + t + " at depth " + Dungeon.depth;
+			if (decisions == TEST_HANG) synchronized (AssistBot.class) { try { AssistBot.class.wait(); } catch (InterruptedException e) { } }   // (tests: the watchdog)
 			boolean ok = watch != null && Controls.aiming() == false && watch.act(t);
 			if (!ok && Ui.topWindow() == null && Dungeon.hero.ready && Actor.now() == tn && Dungeon.hero.pos == pn) ok = Assist.act(t);
 			// (the actor thread picks the action up on a later frame: until then hero.ready still reads true)
@@ -228,6 +232,7 @@ public class AssistBot {
 	static final int FLOOR_FRAMES = WATCH ? 200_000 : Cheat.ON ? 60_000 : 150_000;
 	static final long WATCH_FRAMES = Long.parseLong(System.getenv().getOrDefault("MAXWATCHFRAMES", "900000"));
 	static final long GAME_FRAMES = Long.parseLong(System.getenv().getOrDefault("MAXFRAMES", "1200000"));
+	static final int TEST_HANG = Integer.parseInt(System.getenv().getOrDefault("TESTHANG", "-1"));
 	static final int START_DEPTH = Integer.parseInt(System.getenv().getOrDefault("STARTDEPTH", "0"));   // (about 3 game hours on a floor)
 	static final int HANG_FRAMES = 3000;   // 100 s of game time with the hero waiting and the clock not moving
 }
