@@ -1,0 +1,7 @@
+# F-base-hon1
+bundle=Fbase-1021104635.tgz
+bin=simbot
+games=60
+chunk=5
+first=0
+run hon SIMSEED=1

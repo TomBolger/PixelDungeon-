@@ -1,0 +1,7 @@
+# F-base-watch1
+bundle=Fbase-1021104635.tgz
+bin=simbot
+games=12
+chunk=1
+first=0
+run watch WATCH=1 CHEAT=1 SIMSEED=1 MAXWATCHFRAMES=30000 HANGSECS=180

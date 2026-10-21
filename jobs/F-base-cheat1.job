@@ -1,0 +1,7 @@
+# F-base-cheat1
+bundle=Fbase-1021104635.tgz
+bin=simbot
+games=24
+chunk=2
+first=0
+run cheat CHEAT=1 SIMSEED=1
