@@ -15,7 +15,7 @@ import java.io.File;
  * SEED=n NEWGAME=class to start straight in a new game.
  */
 public class Buttons {
-	static int wantDepth;
+	static int wantDepth; static boolean wantMine;
 
 	public static void main(String[] a) throws Exception {
 		File dir = new File(a[0]); dir.mkdirs();
@@ -48,6 +48,7 @@ public class Buttons {
 			String p = a[i];
 			int wait = 30;
 			if (p.matches("\\d+")) wait = Integer.parseInt(p);
+			else if (p.equals("@mine")) { wantMine = true; wantDepth = 99; wait = 8000; }   // (tests: down to the Blacksmith, his quest taken, a pickaxe, into his mine)
 			else if (p.startsWith("@depth")) { wantDepth = Integer.parseInt(p.substring(6)); wait = 4000; }   // (tests: down to that depth, story pages and all)
 			else if (p.equals("@fire")) {   // (tests: particles: a fire beside the hero, and the hero alight)
 				int c = Dungeon.hero.pos + 1;
@@ -86,6 +87,16 @@ public class Buttons {
 					else if (Ui.topWindow() != null) { if (f % 20 == 19) controls.button(Controls.BACK); }
 					else if (Dungeon.hero != null && Dungeon.hero.ready && Dungeon.depth < wantDepth && f % 10 == 9) {
 						com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition tr = StairsTest.stairs(false);
+						if (wantMine) {
+							if (Dungeon.level instanceof com.shatteredpixel.shatteredpixeldungeon.levels.MiningLevel) { wantMine = false; wantDepth = 0; continue; }
+							for (com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition x : Dungeon.level.transitions)
+								if (x.type == com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition.Type.BRANCH_EXIT) {
+									Class<?> q = com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith.Quest.class;
+									for (String fl : new String[]{"given", "started"}) { java.lang.reflect.Field fd = q.getDeclaredField(fl); fd.setAccessible(true); fd.setBoolean(null, true); }
+									new com.shatteredpixel.shatteredpixeldungeon.items.quest.Pickaxe().identify().collect();
+									tr = x;
+								}
+						}
 						if (tr != null) StairsTest.jump(tr);
 					} else if (Dungeon.depth >= wantDepth && f > 60) { wantDepth = 0; }
 				}
@@ -95,6 +106,12 @@ public class Buttons {
 					System.out.printf("hero t=%.3f pos=%d x=%.2f y=%.2f ready=%b%n", Game.timeTotal, Dungeon.hero.pos, Dungeon.hero.sprite.x, Dungeon.hero.sprite.y, Dungeon.hero.ready);
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
 				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) sim.apply(m);
+			}
+			if (System.getenv("FOCUS") != null && Ui.topWindow() == null && Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene && Dungeon.hero != null) {   // (the Down list: cell, terrain)
+				StringBuilder sb = new StringBuilder(p + ": Down list");
+				Object ts = WatchDriver.get(controls, "targets");
+				if (ts instanceof java.util.List) for (Object t : (java.util.List<?>) ts) { int c = Controls.cellOf((Integer) t); sb.append(' ').append(c).append(c >= 0 ? ":" + Dungeon.level.map[c] : ""); }
+				System.out.println(sb + " (hero " + Dungeon.hero.pos + ", " + Dungeon.level.getClass().getSimpleName() + ")");
 			}
 			if (System.getenv("FOCUS") != null) {   // (what Up/Down go through here, and which has the frame)
 				com.shatteredpixel.shatteredpixeldungeon.ui.Window tw = Ui.topWindow();
