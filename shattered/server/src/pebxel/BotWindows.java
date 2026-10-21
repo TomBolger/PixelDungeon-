@@ -88,10 +88,18 @@ public final class BotWindows {
 		if (kind.equals("WndTradeItem") && byText(bs, "sell") != null && sales < 3) { sales++; return new Answer(byText(bs, "sell"), null, "sell"); }
 		if (kind.equals("WndTradeItem")) { Gizmo b = byText(bs, "buy"); return b != null ? new Answer(b, null, "buy") : new Answer(null, null, "can't buy: back"); }
 		// the hero's subclass and armour ability, quest rewards: one of the choices (each game its own), confirmed
+		if (kind.equals("WndChooseSubclass") && !Cheat.ON && com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero != null) {   // (honest games: the build's subclass)
+			Gizmo b = byText(bs, Build.subclass(com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero.heroClass).shortDesc().toLowerCase(Locale.ROOT));
+			if (b != null) return new Answer(b, null, "the build's subclass");
+		}
 		if (kind.equals("WndChooseSubclass") || kind.equals("WndChooseAbility") || n.contains("WndSadGhost") || n.contains("WndWandmaker") || n.contains("WndImp") || n.contains("WndBlacksmith")) {
 			List<Gizmo> pos = positives(bs);
 			if (pos.isEmpty()) for (Ui.Part p : bs) if (!negative(p.text)) pos.add(p.g);   // (item pictures: no words on them)
 			if (pos.isEmpty()) return new Answer(null, null, "no choice: back");
+			if (!Cheat.ON && n.contains("WndSadGhost") && pos.size() == 2) {   // (honest games: the guide's pick, the armour unless the weapon is far better)
+				boolean wpn = ghostWeapon();
+				return new Answer(pos.get(wpn ? 0 : 1), null, wpn ? "the Ghost's weapon" : "the Ghost's armour");
+			}
 			return new Answer(pos.get(rnd.nextInt(pos.size())), null, "choose");
 		}
 		// the Blacksmith's mine: MINES=0 keeps out of it
@@ -100,6 +108,19 @@ public final class BotWindows {
 		List<Gizmo> pos = positives(bs);
 		if (pos.isEmpty()) return new Answer(null, null, "only no: back");
 		return new Answer(pos.get(Math.min(sameKind, pos.size() - 1)), null, "yes");
+	}
+
+	/** The Ghost's reward (both shown in its window): the weapon only if 2+ tiers above the one held and the armour no better than the one worn. */
+	static boolean ghostWeapon() {
+		try {
+			com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero h = com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero;
+			com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon w = com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost.Quest.weapon;
+			com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor a = com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost.Quest.armor;
+			int wt = w instanceof com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.MeleeWeapon ? ((com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.MeleeWeapon) w).tier : 0;
+			int ht = h.belongings.weapon() instanceof com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.MeleeWeapon ? ((com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.MeleeWeapon) h.belongings.weapon()).tier : 1;
+			int at = a == null ? 0 : a.tier, hat = h.belongings.armor() == null ? 0 : h.belongings.armor().tier;
+			return wt >= ht + 2 && at <= hat;
+		} catch (Throwable e) { return false; }
 	}
 
 	/** A screen other than the dungeon's (the Amulet's: Stay, to climb back to the surface with it; ASCEND=0: Exit, the win there). */

@@ -165,7 +165,7 @@ public class AssistBot {
 		WatchSettings.assist(Integer.parseInt(System.getenv().getOrDefault("MODE", "1")));
 		WatchSettings.itemAssist(!"0".equals(System.getenv("ITEMS")));
 		Assist.reset();
-		BotWindows.newGame(seed); BotItems.newGame(); Coverage.newGame(); BotAlchemy.newGame();
+		BotWindows.newGame(seed); BotItems.newGame(); Coverage.newGame(); BotAlchemy.newGame(); BotStats.newGame();
 		Random talentR = new Random(seed * 13 + 5);
 
 		GamesInProgress.selectedClass = cls; GamesInProgress.curSlot = 1;
@@ -208,7 +208,7 @@ public class AssistBot {
 				fk[1]++; continue;
 			}
 			if (Dungeon.hero == null) continue;
-			if (!Dungeon.hero.isAlive()) { end = "died"; break; }
+			if (!Dungeon.hero.isAlive() && Ui.topWindow() == null) { end = "died"; break; }   // (a window over a dead hero: an Ankh's, answered below)
 			if (Dungeon.depth != depth || Dungeon.branch != branch) {
 				if (depth > 0) System.out.printf("  floor %d done in %.0f turns, %d decisions%s%n", depth, Statistics.duration - floorStart, floorDecisions, watch == null ? "" : String.format(", %d watch frames, %d presses", watch.frames - floorWatchFrames, watch.presses - floorPresses));
 				if (watch != null) { floorWatchFrames = watch.frames; floorPresses = watch.presses; }
@@ -251,6 +251,7 @@ public class AssistBot {
 				if (tr != null) { Cheat.apply(); StairsTest.jump(tr); continue; }
 			}
 			if (Cheat.ON) { Cheat.apply(); if (watch == null || !watch.talents()) Cheat.spendTalents(talentR); if (Ui.topWindow() != null) continue; }
+			else Build.spendTalents(Dungeon.hero);   // (the guide's build: a player's own choice)
 			if (Controls.aiming()) {   // (left over: aim at plan A of the aiming list, else cancel)
 				List<Assist.Target> al = Assist.plan(true, null);
 				if (!al.isEmpty() && al.get(0).kind == Assist.ENEMY) { if (watch == null || !watch.act(al.get(0))) Assist.act(al.get(0)); }
@@ -287,9 +288,11 @@ public class AssistBot {
 				StringBuilder ms = new StringBuilder("  mobs at the loop:");
 				for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) ms.append(' ').append(m.getClass().getSimpleName()).append('@').append(m.pos).append(" hp").append(m.HP).append(m.isInvulnerable(Dungeon.hero.getClass()) ? " INV" : "").append(m.alignment == com.shatteredpixel.shatteredpixeldungeon.actors.Char.Alignment.ENEMY ? "" : " " + m.alignment).append(',');
 				System.out.println(ms + " hero@" + Dungeon.hero.pos);
+				if (ch != null) System.out.println("  loop target: in Actor.chars " + com.shatteredpixel.shatteredpixeldungeon.actors.Actor.chars().contains(ch) + ", hero.canAttack " + Dungeon.hero.canAttack(ch) + ", in heroFOV " + Dungeon.level.heroFOV[ch.pos] + ", hero fov " + (Dungeon.hero.fieldOfView != null && Dungeon.hero.fieldOfView[ch.pos]));
 				break;
 			}
 			lastPos = Dungeon.hero.pos; lastKey = key;
+			BotStats.decision(t);
 			whys.merge(t.why, 1, Integer::sum);
 			if (v && System.getenv("VMOBS") != null) { StringBuilder sb = new StringBuilder("    mobs"); for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) sb.append(' ').append(m.pos).append(':').append(m.HP); sb.append(" f").append(Lockstep.frames); System.out.println(sb); }
 			String line = "  t" + Math.round(Statistics.duration) + "/" + Math.round(Actor.now()) + " pos " + Dungeon.hero.pos + " hp " + Dungeon.hero.HP + "/" + Dungeon.hero.HT + ": " + t + (plan.size() > 1 ? "   | B: " + plan.get(1) : "");   // (not String.format: 4% of a game)
@@ -332,6 +335,7 @@ public class AssistBot {
 		if (watch != null) System.out.println("WATCH " + watch.summary());
 		Coverage.watch = watch == null ? "" : watch.summary();
 		Coverage.report(end);
+		System.out.println(BotStats.line());
 		System.out.printf("RESULT class %s seed %d: %s depth %d (max %d) turns %.0f lvl %d hp %d/%d picked %d stuck %d actfails %d windows %d decisions %d frames %d  %.1fs%s%n",
 				cls, seed, end, Dungeon.depth, maxD, Statistics.duration, Dungeon.hero == null ? 0 : Dungeon.hero.lvl, Dungeon.hero == null ? 0 : Dungeon.hero.HP, Dungeon.hero == null ? 0 : Dungeon.hero.HT,
 				picked, stuckEvents, actFails, windows, decisions, Lockstep.frames - frames0, (System.currentTimeMillis() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
