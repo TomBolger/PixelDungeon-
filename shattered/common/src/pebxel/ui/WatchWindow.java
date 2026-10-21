@@ -19,6 +19,10 @@ import pebxel.WatchFonts;
  * Content coordinates start at (0, 0) in the window's top-left corner inside the frame.
  */
 public class WatchWindow extends Window {
+	private Object touchPage = new Object();
+	/** A delayed touch belongs to this page, even when the window itself survives a tab change. */
+	public Object touchPage() { return touchPage; }
+	protected void pageChanged() { touchPage = new Object(); }
 	public static final int ICTERINE = 0xFFFF55, PASTEL = 0xFFFFAA, CHROME_YELLOW = 0xFFAA00, WHITE = 0xFFFFFF, LIGHT = 0xAAAAAA;
 	protected int cw, ch;
 	/** Room under the frame (tabs hang there). */

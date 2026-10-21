@@ -41,6 +41,7 @@ public class WndWatchHero extends WatchWindow {
 	private void show(int t) {
 		if (parent == null && camera != null && page.parent == null) return;   // (closed already: a late tap)
 		tab = t; lastTab = t;
+		pageChanged();
 		wipe(page); wipe(tabs);
 		Hero h = Dungeon.hero;
 		if (h == null) return;
@@ -69,7 +70,7 @@ public class WndWatchHero extends WatchWindow {
 		public void focus(boolean on) { if (on && k != tab && k != 1) show(k); }
 		@Override protected void onClick() {
 			if (k == 1) { talents(); return; }
-			if (k == tab && !pebxel.Controls.fingerLast) hide(); else show(k);
+			if (k == tab) { if (!pebxel.Controls.fingerLast) hide(); } else show(k);
 		}
 	}
 

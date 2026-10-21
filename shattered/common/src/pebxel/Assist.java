@@ -631,7 +631,8 @@ public final class Assist {
 		return best < 0 ? fb : best;
 	}
 
-	private static boolean foodItem(Item i) { return i instanceof Food && !(i instanceof Blandfruit); }
+	// MysteryMeat.eat(): four of five raw meals cause a harmful effect. Cooked meat has its own Food class.
+	private static boolean foodItem(Item i) { return i instanceof Food && !(i instanceof Blandfruit) && !(i instanceof MysteryMeat); }
 	private static boolean known(Item i) {
 		if (i instanceof Potion) return ((Potion) i).isKnown();
 		if (i instanceof Scroll) return ((Scroll) i).isKnown();
@@ -1084,8 +1085,8 @@ public final class Assist {
 		}
 		ScrollOfUpgrade up = bag(ScrollOfUpgrade.class);
 		if (scrollsOk && up != null && up.isKnown() && !declined(ScrollOfUpgrade.class, Scroll.AC_READ)) {
-			Armor a = H.belongings.armor(); Item wpn = H.belongings.weapon();
-			Item on = a != null && !(a.cursed && a.cursedKnown) ? a : wpn;
+			Armor a = H.belongings.armor();
+			Item on = upgradeTarget();
 			boolean behind = a == null || !a.levelKnown || a.level() * 3 < Dungeon.depth;
 			if (on != null && (!upgradeHeld || behind)) { Target t = use(up, Scroll.AC_READ, -1, "upgrade"); t.on = on; return t; }
 		}
@@ -1125,16 +1126,26 @@ public final class Assist {
 			Item cur = i instanceof Armor ? H.belongings.armor() : H.belongings.weapon();
 			if (cur != null && cur.cursed && cur.cursedKnown) continue;
 			if ((i.cursedKnown && i.cursed) || (i.levelKnown && i.level() < 0)) continue;
-			int str = i instanceof Armor ? ((Armor) i).STRReq() : ((MeleeWeapon) i).STRReq();
+			// As the inventory displays it: an unidentified upgrade must not reveal a lower STR requirement.
+			int lvl = i.levelKnown ? i.level() : 0;
+			int str = i instanceof Armor ? ((Armor) i).STRReq(lvl) : ((MeleeWeapon) i).STRReq(lvl);
 			if (str > H.STR()) continue;
 			int a = 2 * tier(i) + (i.levelKnown ? i.level() : -1), b = cur == null ? -1 : 2 * tier(cur) + (cur.levelKnown ? cur.level() : 0);
 			if (cur instanceof ClassArmor || cur instanceof MagesStaff) continue;
 			if (a > b && !declined(i.getClass(), EquipableItem.AC_EQUIP)) return use(i, EquipableItem.AC_EQUIP, -1, "better gear");
 		}
-		boolean bossHere = false; for (Mob m : mobs()) if (m.isAlive() && boss(m) && Char.hasProp(m, Char.Property.BOSS)) bossHere = true;
-		if (Dungeon.bossLevel() && bossHere && H.HP * 20 < H.HT * 19 && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "rest before the boss"); t.action = REST_ACT; t.obj = -1; return t; }
-		if (H.HP * 2 < H.HT && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "hurt: rest"); t.action = REST_ACT; t.obj = -1; return t; }
+		// Level.locked is visible boss-fight state. Never scout the hidden mob list to decide whether to rest;
+		// LockedFloor eventually stops regeneration, so resting mid-fight can wait forever.
+		if (!L.locked && Dungeon.bossLevel() && H.HP * 20 < H.HT * 19 && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "rest before the boss"); t.action = REST_ACT; t.obj = -1; return t; }
+		if (!L.locked && H.HP * 2 < H.HT && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "hurt: rest"); t.action = REST_ACT; t.obj = -1; return t; }
 		return null;
+	}
+
+	/** strategy-reference 2.1: the Mage's first three staff upgrades, then the existing armor-first policy. */
+	private static Item upgradeTarget() {
+		Item w = H.belongings.weapon(); Armor a = H.belongings.armor();
+		if (w instanceof MagesStaff && w.levelKnown && w.level() < 3) return w;
+		return a != null && !(a.cursed && a.cursedKnown) ? a : w;
 	}
 	private static boolean declinedAny(String a) { for (String s : declined) if (s.endsWith(":" + a)) return true; return false; }
 	private static int tier(Item i) { return i instanceof Armor ? ((Armor) i).tier : i instanceof MeleeWeapon ? ((MeleeWeapon) i).tier : 0; }

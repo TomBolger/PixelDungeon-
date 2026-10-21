@@ -1255,6 +1255,7 @@ public final class Link {
 
 	private static Object top() {
 		com.shatteredpixel.shatteredpixeldungeon.ui.Window w = Ui.topWindow();
+		if (w instanceof pebxel.ui.WatchWindow) return ((pebxel.ui.WatchWindow) w).touchPage();
 		return w != null ? w : Game.scene();
 	}
 
