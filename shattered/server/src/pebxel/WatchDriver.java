@@ -275,20 +275,23 @@ public final class WatchDriver {
 		}
 		if (t.cell < 0) return false;
 		if (targetTo(t.cell, false)) return true;
-		if (tap(t.cell)) { notOffered++; return true; }
+		if (tap(t.cell)) { notOffered(t); return true; }
 		// off the screen and not in the list: the list's target that's the fewest steps from it (the watch's own way
 		// there), or a tap on the furthest cell of the way that's on the screen
 		int[] dg = stepsFrom(t.cell);
 		List<Integer> ts = targets(); int best = -1, bd = dg[h.pos];
 		for (int i = 0; i < ts.size(); i++) { int c = Controls.cellOf(ts.get(i)); if (c < 0 || c == h.pos) continue; if (dg[c] < bd) { bd = dg[c]; best = c; } }
-		if (best >= 0 && targetTo(best, false)) { notOffered++; return true; }
+		if (best >= 0 && targetTo(best, false)) { notOffered(t); return true; }
 		int on = -1, od = Integer.MAX_VALUE;
 		for (int c = 0; c < dg.length; c++) if (dg[c] < od && dg[c] < dg[h.pos] && Controls.onScreen(c) && Dungeon.level.passable[c]) { od = dg[c]; on = c; }
-		if (on >= 0 && tap(on)) { notOffered++; return true; }
+		if (on >= 0 && tap(on)) { notOffered(t); return true; }
 		fallback("reach a cell (" + t.why + ")");
 		return false;
 	}
 	int notOffered, waitsLost;
+	/** What the Down list didn't offer (the reason's first words), counted: what a player without the touch screen would miss. */
+	final Map<String, Integer> notOfferedWhy = new TreeMap<>();
+	void notOffered(Assist.Target t) { notOffered++; notOfferedWhy.merge(t.why == null ? "?" : t.why.replaceAll("\\(.*", "").replaceAll("[^A-Za-z ]", "").trim().replace(' ', '_'), 1, Integer::sum); }
 
 	/** Who hears the keys first (a window no longer shown but still listening takes them all). */
 	static String keyHolders() {
@@ -400,6 +403,6 @@ public final class WatchDriver {
 
 	String summary() {
 		return (peakAt.isEmpty() ? "" : "peakat " + peakAt.replace(' ', '_').replace(':', '-').replace(',', '.').replace('=', '-') + " ") + String.format("talents %d presses %d taps %d notoffered %d frames %d bytes %d watchpeak %d linkerrors %d frameerrors %d unknown %s fallbacks %s",
-				talentsSpent, presses, taps, notOffered, frames, bytes, peak, linkErrors, frameErrors, link.unknown, fallbacks);
+				talentsSpent, presses, taps, notOffered, frames, bytes, peak, linkErrors, frameErrors, link.unknown, fallbacks) + " waitslost " + waitsLost + " notofferedwhy " + notOfferedWhy.entrySet().stream().map(e -> e.getKey() + "/" + e.getValue()).collect(java.util.stream.Collectors.joining(","));
 	}
 }

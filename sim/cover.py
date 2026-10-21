@@ -57,11 +57,11 @@ print("\nalchemy outputs made:", dict(alch.most_common()))
 ws = [g["watch"] for g in games if g.get("watch")]
 if ws:
     print(f"\nwatch-path games: {len(ws)}")
-    tot = C(); fb = C(); unk = set(); peak = 0
+    tot = C(); fb = C(); no = C(); unk = set(); peak = 0
     for w in ws:
         parts = w.split(":")
         kv = dict(zip(parts[0::2], parts[1::2]))
-        for k in ("talents", "presses", "taps", "notoffered", "frames", "bytes", "linkerrors", "frameerrors"):
+        for k in ("talents", "presses", "taps", "notoffered", "frames", "bytes", "linkerrors", "frameerrors", "waitslost"):
             try: tot[k] += int(kv.get(k, 0))
             except ValueError: pass
         try: peak = max(peak, int(kv.get("watchpeak", 0)))
@@ -71,8 +71,12 @@ if ws:
         m = re.search(r"fallbacks:\{(.*)\}", w)
         if m:
             for f in re.findall(r"([^,{}]+?)=(\d+)", m.group(1)): fb[f[0].replace(":", " ").strip()] += int(f[1])
+        m = re.search(r"notofferedwhy:([^:]*)", w)
+        if m:
+            for f in re.findall(r"([^,/]+)/(\d+)", m.group(1)): no[f[0]] += int(f[1])
     print("  totals:", dict(tot)); print("  watch heap peak:", peak); print("  unknown picture kinds:", unk or "none")
     print("  button fallbacks:", dict(fb.most_common(30)))
+    print("  not in the Down list (a tap instead), by reason:", dict(no.most_common(30)))
 print("\nwindows:", dict(C(w.split("=")[0] for g in games for w in items(g, "windows")).most_common()))
 print("scenes:", dict(C(s for g in games for s in set(items(g, "scenes"))).most_common()))
 probs = C(re.sub(r"depth \d+", "depth N", p) for g in games for p in set(items(g, "problems")))
