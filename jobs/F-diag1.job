@@ -1,0 +1,8 @@
+# F-diag1
+bundle=Fdiag-1021120204.tgz
+bin=simbot
+games=600
+chunk=50
+first=0
+run mon DIAG=1 DIAGSECS=200
+run big SIMSEED=1

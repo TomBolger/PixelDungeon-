@@ -1,8 +1,0 @@
-# S-cheat1
-bundle=S-cheat1-1021015506.tgz
-bin=simbot
-games=24
-chunk=1
-first=0
-run cheat CHEAT=1 SIMSEED=1
-run base SIMSEED=1 MAXDEPTH=6

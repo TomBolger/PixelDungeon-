@@ -1,0 +1,7 @@
+# F-diag0
+bundle=Fdiag-1021120204.tgz
+bin=simbot
+games=1
+chunk=1
+first=0
+run mon DIAG=1 DIAGSECS=120
