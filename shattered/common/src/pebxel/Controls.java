@@ -543,12 +543,12 @@ public class Controls {
 			if (a != t && TALENTS.equals(a.action)) talentsPassed = talentPoints();
 			Assist.chose(t, a);
 		}
-		if (TALENTS.equals(t.action)) { talentsPassed = talentPoints(); talentFocus = Build.nextTalent(Dungeon.hero); talentTries = 0; pebxel.ui.WndWatchHero.openTalents(); return; }
+		if (TALENTS.equals(t.action)) { talentsOpen = true; talentsPassed = talentPoints(); talentFocus = Build.nextTalent(Dungeon.hero); talentTries = 0; pebxel.ui.WndWatchHero.openTalents(); return; }
 		Assist.act(t, true);
 		if (t.on != null) pick = t.on;
 	}
 	private com.shatteredpixel.shatteredpixeldungeon.items.Item pick;   // the bag that opened: the frame on this
-	private com.shatteredpixel.shatteredpixeldungeon.actors.hero.Talent talentFocus; private int talentTries;
+	private com.shatteredpixel.shatteredpixeldungeon.actors.hero.Talent talentFocus; private int talentTries; private boolean talentsOpen;
 	private static java.lang.reflect.Field talentF;
 	private static Object talentOf(com.watabou.noosa.Gizmo g) {
 		if (!(g instanceof com.shatteredpixel.shatteredpixeldungeon.ui.TalentButton)) return null;
@@ -717,6 +717,10 @@ public class Controls {
 		keepHud();
 		Window w = Ui.topWindow();
 		closeTag(w);
+		if (talentsOpen) {   // the talents the Assistant opened, the last point spent: back to the game (two Backs saved)
+			if (w == null) talentsOpen = false;
+			else if (w instanceof com.shatteredpixel.shatteredpixeldungeon.windows.WndHero && talentPoints() == 0) { w.hide(); talentsOpen = false; w = Ui.topWindow(); }
+		}
 		if (pick != null) {   // the backpack a use opened to choose in (what to identify...): the frame on the Assistant's pick
 			if (w instanceof pebxel.ui.WndWatchBag) { ((pebxel.ui.WndWatchBag) w).focusOn(pick); pick = null; }
 			else if (w == null && Dungeon.hero != null && Dungeon.hero.ready) pick = null;

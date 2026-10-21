@@ -42,6 +42,7 @@ public class Buttons {
 			if (System.getenv("SEED") != null) Dungeon.seed = Long.parseLong(System.getenv("SEED"));
 			InterlevelScene.mode = InterlevelScene.Mode.DESCEND;
 			Game.switchScene(InterlevelScene.class);
+			if (System.getenv("GALLERY") != null) Gallery.stage(System.getenv("GALLERY"));
 		}
 		int shot = 0; wantDepth = 0;
 		app.graphics.soft.raster = false;
@@ -119,7 +120,7 @@ public class Buttons {
 					} else if (Dungeon.depth >= wantDepth && f > 60) { wantDepth = 0; }
 				}
 				touches.frame(link, controls, Game.elapsed);
-				app.frame(); controls.frame();
+				app.frame(); controls.frame(); Gallery.tick();
 				if (System.getenv("TRACE_HERO") != null && Dungeon.hero != null && Dungeon.hero.sprite != null)
 					System.out.printf("hero t=%.3f pos=%d x=%.2f y=%.2f ready=%b%n", Game.timeTotal, Dungeon.hero.pos, Dungeon.hero.sprite.x, Dungeon.hero.sprite.y, Dungeon.hero.ready);
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
