@@ -128,7 +128,7 @@ public final class Assist {
 	private static int lastPos = -1, from = -1;
 	private static boolean[] srchFrom, checked;    // searched from / cells searched
 	private static boolean fishSeen; private static float fishAt = -99;               // a piranha seen on this floor: keep out of the water
-	private static boolean[] hazMem;               // gas / fire seen on the cell and not seen gone since (only what the hero saw)
+	private static boolean[] hazMem, trapMem; private static Object fadingSeen;               // gas / fire seen on the cell and not seen gone since (only what the hero saw)
 	private static final Set<Integer> sentries = new HashSet<>();   // sentries seen (they never move)
 	private static boolean[] sentryZone; private static int sentryKey = -1;
 	private static final Map<Integer, Integer> talked = new HashMap<>();
@@ -168,7 +168,9 @@ public final class Assist {
 	static final int AMBWAIT = optInt("AMBWAIT", 4), AMBSEEN = optInt("AMBSEEN", 2);
 	static final int GRASSD = optInt("GRASSD", 8);   // tall grass walked to within this many steps (dew, seeds); 0 none
 	static final int DEWKEEP = optInt("DEWKEEP", 5);  // drops kept in the waterskin when dew stands in for a rest
-	static final boolean SHOOTDM = opt("SHOOTDM", false);   // DM-100 among the shooters to hide from (it zapped more as the hero backed off)
+	static final boolean SHOOTDM = opt("SHOOTDM", false);
+	static final boolean TRAPMEM = opt("TRAPMEM", true);   // Tengu's traps as shown
+	static final int NECRO = optInt("NECRO", 6);           // a necromancer within this walk: it first (its skeleton dies with it); 0 off   // DM-100 among the shooters to hide from (it zapped more as the hero backed off)
 	static final boolean CRABAMB = opt("CRABAMB", true);
 	static final boolean SHORE = opt("SHORE", true);   // with piranhas about, the shore too (they bite from the water)
 	static final boolean OOZE = opt("OOZE", true);
@@ -397,6 +399,7 @@ public final class Assist {
 		vetoId = -1; vetoStand = -1; resumeCell = -1; stepBackWaited = false; ambGoal = -1; ambId = -1; waitId = -1; lastPos = -1; from = -1;
 		srchFrom = new boolean[l.length()]; checked = new boolean[l.length()]; fishSeen = false; fishAt = -99; talked.clear(); bad.clear();
 		huntMem.clear(); mobLast.clear();
+		trapMem = new boolean[l.length()]; fadingSeen = null;
 		hazMem = new boolean[l.length()]; sentries.clear(); sentryZone = new boolean[l.length()]; sentryKey = -1; crabSeen = -1; bossSeen = -1;
 		doorSpot = -1; floorT0 = Actor.now(); actCell = -1; actTime = -1; eatBand = 0;
 	}
@@ -422,6 +425,7 @@ public final class Assist {
 			if (L.heroFOV[c]) hazMem[c] = blobAt(c);
 		}
 		hazMem[hp] = blobAt(hp);   // (felt, even blind)
+		tenguTraps();
 		watchMobs();
 		for (Mob m : mobs()) if (L.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) { seenFoe = true; if (Char.hasProp(m, Char.Property.BOSS) && m.isAlive()) bossSeen = Actor.now(); }
 		walls(fish);
@@ -463,6 +467,20 @@ public final class Assist {
 		return c >= 0 && c < LEN && L.heroFOV[c] && ch.invisible <= 0 ? ch : null;
 	}
 
+	/** Tengu's dart traps are hidden, but each jump shows them for a moment (PrisonBossLevel.FadingTraps draws a trap
+	 *  tile on each): the cells shown are remembered as traps till the next showing (strategy-reference 4.2; the dev:
+	 *  "watch for them and take the clear path"). */
+	private static void tenguTraps() {
+		if (L.customTiles == null) return;
+		for (Object t : L.customTiles) {
+			if (!(t instanceof com.shatteredpixel.shatteredpixeldungeon.levels.PrisonBossLevel.FadingTraps) || t == fadingSeen) continue;
+			Object a = field(t, "area"); if (!(a instanceof com.watabou.utils.Rect)) continue;
+			com.watabou.utils.Rect r = (com.watabou.utils.Rect) a;
+			fadingSeen = t;
+			for (int y = r.top; y < r.bottom; y++) for (int x = r.left; x < r.right; x++) { int c = x + y * W; if (c >= 0 && c < LEN) trapMem[c] = L.traps.get(c) != null; }
+		}
+	}
+
 	/** The cells to keep off: gas and fire seen (hazMem), a seen sentry's beat (the special floor in its sight: it zaps
 	 *  whoever stands there), and with piranhas about the water. They are walls for the plan, except when the hero
 	 *  already stands in one (then the way out is through them). Then the walk (bfs). */
@@ -473,7 +491,7 @@ public final class Assist {
 				if (L.map[c] == Terrain.EMPTY_SP && distance(c, s) <= 12 && sight(s, c)) sentryZone[c] = true;
 		}
 		anyDanger = false;
-		for (int c = 0; c < LEN; c++) { danger[c] = hazMem[c] || sentryZone[c] || (water && wet(c)); anyDanger |= danger[c] && known[c]; }
+		for (int c = 0; c < LEN; c++) { danger[c] = hazMem[c] || sentryZone[c] || (water && wet(c)) || (TRAPMEM && trapMem[c] && c != hp); anyDanger |= danger[c] && known[c]; }
 		inDanger = danger[hp];
 		for (int c = 0; c < LEN; c++) {
 			boolean ok = L.passable[c] && !L.avoid[c];
@@ -916,6 +934,7 @@ public final class Assist {
 			if (!adj && !hunting(m) && walk(m.pos) > distance(m.pos, hp) + 1) continue;
 			if (m.state == m.SLEEPING && !adj && !boss(m) && distance(m.pos, hp) > 2 && floorLeft()) continue;
 			int k = adj ? (boss(m) ? 0 : 1 + m.HP) : walk(m.pos) < INF ? 1000 + walk(m.pos) * 64 + m.HP : INF;
+			if (m instanceof Necromancer && NECRO > 0 && walk(m.pos) <= NECRO) k = adj ? 0 : 1;   // (it keeps raising a skeleton; the skeleton falls with it)
 			if (k < bk) { bk = k; best = m.pos; bm = m; }
 		}
 		// hidden for an ambush, the hunter out of sight now: wait for it a few turns (it was seen coming)
