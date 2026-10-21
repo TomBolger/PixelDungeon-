@@ -171,12 +171,14 @@ public final class Assist {
 	static final boolean STAFFUP = opt("STAFFUP", true);
 	static final int RESTPCT = optInt("RESTPCT", 50);
 	static final boolean CLOAK = opt("CLOAK", true);
-	static final boolean FIRE2 = opt("FIRE2", true);
-	static final boolean SHOOTERS = opt("SHOOTERS", true);
-	static final boolean DEWREST = opt("DEWREST", true);
+	// (H-fix3, 120 paired: these four together -0.11, 30/32, DM-100 deaths 11 -> 14: off)
+	static final boolean FIRE2 = opt("FIRE2", false);
+	static final boolean SHOOTERS = opt("SHOOTERS", false);
+	static final boolean DEWREST = opt("DEWREST", false);
 	static final boolean FAIRHUNT = opt("FAIRHUNT", true);
-	static final boolean GOOREACH = opt("GOOREACH", true);   // Goo's blast by its own reach test; no ooze washing with Goo close   // "hunting" only as drawn (emotes, steps), not the AI state   // hurt, nothing about: the waterskin (keeping 5 drops) before resting   // DM-100 and the Gnoll Trickster too: out of their line, round a corner   // the fire escape: water, else out of fire's reach
-	static final boolean MEAT = opt("MEAT", true);     // raw mystery meat (4 in 5 a bad effect, burning among them): eaten standing in water   // the Rogue's cloak before a fight   // nothing in sight: rest below this share of health   // the Mage's first 3 upgrades into the staff
+	static final boolean GOOREACH = opt("GOOREACH", true);
+	static final boolean SHOP = opt("SHOP", true);   // buy by the guide's order with the gold there is   // Goo's blast by its own reach test; no ooze washing with Goo close   // "hunting" only as drawn (emotes, steps), not the AI state   // hurt, nothing about: the waterskin (keeping 5 drops) before resting   // DM-100 and the Gnoll Trickster too: out of their line, round a corner   // the fire escape: water, else out of fire's reach
+	static final boolean MEAT = opt("MEAT", false);     // raw mystery meat (4 in 5 a bad effect, burning among them): eaten standing in water   // the Rogue's cloak before a fight   // nothing in sight: rest below this share of health   // the Mage's first 3 upgrades into the staff
 	static final int HEALBOSS = optInt("HEALBOSS", 55);    // a boss in sight: Healing below this share (Goo's pumped blow is triple)   // the Mage's staff zapped point blank too (magic: double accuracy, more damage than the staff's own blow)   // low and losing: up the stairs (only allies follow), rest there, come back   // tall grass walked for dew and seeds (off: only within 2 steps)     // Goo's ooze: into water to wash it off   // the Great Crab: ambushes are the only blows it doesn't block
 	static int optInt(String name, int def) { try { String v = System.getenv("AS_" + name); return v == null ? def : Integer.parseInt(v); } catch (Throwable e) { return def; } }
 	static final int HEALPCT = optInt("HEALPCT", 40);   // (a known Healing potion is drunk in a fight below this share of health)
@@ -887,7 +889,7 @@ public final class Assist {
 			if (!enemy(m)) continue;
 			boolean adj = adjacent(m.pos, hp);
 			if (!adj && vetoId == m.id() && Actor.now() < vetoUntil && !(hunting(m) && walk(m.pos) <= 4)) continue;
-			if (!adj && bad.containsKey(m.pos)) continue;   // (acted on, nothing happened: one it can't get at)
+			if (bad.containsKey(m.pos) && (!adj || Actor.now() < bad.get(m.pos) - 25)) continue;   // (acted on, nothing happened: one it can't get at, even beside it: round a wall's corner)
 			if (adj) stepBackWaited = false;
 			if ((m.state == m.PASSIVE && (!adj || m instanceof Statue)) || (m instanceof Piranha && !adj) || (Char.hasProp(m, Char.Property.IMMOVABLE) && !adj)) continue;
 			if (!adj && walk(m.pos) > 2 * distance(m.pos, hp) + 4) continue;
@@ -951,6 +953,15 @@ public final class Assist {
 				if (d >= INF) continue;
 				if (d < bk && (d == 0 || (direct(c) && (od < 0 || (d <= 4 && off(c, od) <= 6))) || (h.type == Heap.Type.HEAP && precious(h.peek())))) { bk = d; best = c; }
 			}
+			if (SHOP && best < 0) { int sb = -1, sk = INF;
+				for (Heap h : L.heaps.valueList()) {   // the shop, by the guide's order (2.7): what's wanted and affordable (the price is shown)
+					if (h.type != Heap.Type.FOR_SALE || !h.seen || h.pos == hp || passed.contains(h.pos) || bad.containsKey(h.pos) || seenChar(h.pos) != null) continue;
+					int d = walk(h.pos), pr = buyRank(h.peek());
+					if (pr <= 0 || d >= INF) continue;
+					int sc = d - pr * 8;
+					if (sc < sk) { sk = sc; sb = h.pos; }
+				}
+				if (sb >= 0) { why[0] = "buy"; return sb; } }
 			for (Mob m : mobs()) {   // a hidden mimic looks like a chest: opened like one (MimicSprite draws it so; knowing better would be cheating)
 				if (!disguised(m) || !L.heroFOV[m.pos] || passed.contains(m.pos) || bad.containsKey(m.pos) || H.HP * 3 < H.HT * 2 || danger[m.pos]) continue;
 				int d = walk(m.pos);
@@ -1043,6 +1054,18 @@ public final class Assist {
 	}
 	private static int ambGoal = -1, ambId = -1; private static float ambUntil;
 	static final int AMBR = opt("AMB3", true) ? 3 : 1;
+
+	/** How much a shop item is wanted (0: not, or can't pay): Ankh, Healing, food, a bag, Magic Mapping. */
+	private static int buyRank(Item i) {
+		int price; try { price = com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Shopkeeper.sellPrice(i); } catch (Throwable e) { return 0; }
+		if (price > Dungeon.gold || !roomFor(i)) return 0;
+		if (i instanceof Ankh && bag(Ankh.class) == null) return 6;
+		if (i instanceof PotionOfHealing && known(i)) return 5;
+		if (foodItem(i) && !(i instanceof MysteryMeat)) return 4;
+		if (i instanceof Bag && !(i instanceof com.shatteredpixel.shatteredpixeldungeon.items.bags.MagicalHolster)) { for (Bag b : H.belongings.getBags()) if (b.getClass() == i.getClass()) return 0; return 3; }
+		if (i instanceof ScrollOfMagicMapping && known(i)) return 2;
+		return 0;
+	}
 
 	private static boolean wellUseful(int c) {
 		Blob h = L.blobs.get(WaterOfHealth.class), a = L.blobs.get(WaterOfAwareness.class);

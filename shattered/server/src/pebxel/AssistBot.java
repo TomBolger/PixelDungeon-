@@ -109,7 +109,7 @@ public class AssistBot {
 				continue;
 			}
 			if (Dungeon.hero == null) continue;
-			if (!Dungeon.hero.isAlive()) { end = "died"; break; }
+			if (!Dungeon.hero.isAlive() && Ui.topWindow() == null) { end = "died"; break; }   // (a window over a dead hero: an Ankh's, answered below)
 			if (Dungeon.depth != depth || Dungeon.branch != branch) {
 				if (depth > 0) System.out.printf("  floor %d done in %.0f turns, %d decisions%s%n", depth, Statistics.duration - floorStart, floorDecisions, watch == null ? "" : String.format(", %d watch frames, %d presses", watch.frames - floorWatchFrames, watch.presses - floorPresses));
 				if (watch != null) { floorWatchFrames = watch.frames; floorPresses = watch.presses; }
