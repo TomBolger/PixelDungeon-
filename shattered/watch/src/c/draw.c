@@ -341,8 +341,8 @@ static void draw_shape(Obj *o) {
   }
 }
 
-// ---- the fog of war, as Pebble PD draws it (its fx overlay, 0.98): a remembered place under a fine checker (darker, no
-// dither), the never seen black, and a soft dithered edge, rounded at corners, where what's seen meets the never seen,
+// ---- the fog of war, as Pebble PD draws it (its fx overlay, 0.98): a remembered place in darker colours (no dither),
+// the never seen black, and a soft dithered edge, rounded at corners, where what's seen meets the never seen,
 // only in a band a third of a cell wide. SPD's fog has two texels a cell (a wall's two halves can differ).
 static const uint8_t B16[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
 static int isqrt(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
@@ -383,7 +383,11 @@ static void draw_fog(int tex, int tx, int ty, int tw, int th, int32_t L, int32_t
               if (fx < w && fy < w && (m & (t ? (l ? 16 : 32) : (l ? 64 : 128)))) { int c = isqrt(fx * fx + fy * fy); if (c < dd) dd = c; }
             }
           }
-          if (own == 16 || B16[(y & 3) * 4 + (x & 3)] * w < own * w + 8 * (w - dd)) row[x] = GColorBlackARGB8;
+          // in sight: half black at the edge of the dark, nothing at the band's inner side; remembered: all black at
+          // the edge, then plain darker colours (no dither: the owner's choice)
+          if (own == 16 || B16[(y & 3) * 4 + (x & 3)] * w < (own ? 16 : 8) * (w - dd)) row[x] = GColorBlackARGB8;
+          else if (own) { uint8_t c = row[x]; row[x] = c - ((c >> 1) & 0x15); }   // (a step down from the bright two; the dim
+                                                                                // one stays: a step more is black, and the floors went)
         }
       }
     }
