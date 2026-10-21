@@ -544,10 +544,12 @@ public class Controls {
 			veins.sort(Comparator.comparingInt(v -> v[1]));
 			for (int i = 0; i < Math.min(3, veins.size()); i++) out.add(veins.get(i)[0]);
 		}
-		// the nearest edge of the unexplored, then the way down (the mine: the ladder up, its only way out)
+		// the nearest edge of the unexplored, then the way on: down (the mine: the ladder up, its only way out)
 		int edge = Explorer.nearestUnexplored(L, h, dist);
 		if (edge >= 0) out.add(edge);
-		int exit = mine ? L.entrance() : L.exit();
+		// (with the Amulet the way is up, every floor to the surface: the stairs up instead)
+		boolean up = mine || Dungeon.hero.belongings.getItem(com.shatteredpixel.shatteredpixeldungeon.items.Amulet.class) != null;
+		int exit = up ? L.entrance() : L.exit();
 		if (exit >= 0 && (L.visited[exit] || L.mapped[exit]) && !out.contains(exit)) out.add(exit);
 		// friends (shopkeepers, quest givers) to talk to
 		for (Mob m : L.mobs) if (L.heroFOV[m.pos] && m.alignment != Char.Alignment.ENEMY && !out.contains(m.pos)) out.add(m.pos);

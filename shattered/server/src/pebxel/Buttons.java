@@ -48,6 +48,7 @@ public class Buttons {
 			String p = a[i];
 			int wait = 30;
 			if (p.matches("\\d+")) wait = Integer.parseInt(p);
+			else if (p.startsWith("@give:")) { ((com.shatteredpixel.shatteredpixeldungeon.items.Item) Class.forName("com.shatteredpixel.shatteredpixeldungeon.items." + p.substring(6)).getDeclaredConstructor().newInstance()).identify().collect(); }   // (tests: an item, e.g. @give:Amulet)
 			else if (p.equals("@mine")) { wantMine = true; wantDepth = 99; wait = 8000; }   // (tests: down to the Blacksmith, his quest taken, a pickaxe, into his mine)
 			else if (p.startsWith("@depth")) { wantDepth = Integer.parseInt(p.substring(6)); wait = 4000; }   // (tests: down to that depth, story pages and all)
 			else if (p.equals("@fire")) {   // (tests: particles: a fire beside the hero, and the hero alight)
