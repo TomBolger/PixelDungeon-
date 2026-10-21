@@ -429,10 +429,9 @@ public final class WatchSim {
 		}
 	}
 
-	// the fog of war as the watch draws it (draw.c draw_fog): remembered in darker colours, never seen black, a soft
+	// the fog of war as the watch draws it (draw.c draw_fog): remembered under a fine checker, never seen black, a soft
 	// dithered edge (rounded at corners, a third of a cell wide) where the seen meets the never seen
 	private static final int[] B16 = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
-	private static int dim(int v) { return v >= 170 ? v - 85 : v; }   // (draw.c: the bright two levels a step down)
 	private static int fogAt(BufferedImage t, int x, int y) {
 		if (x < 0 || y < 0 || x >= t.getWidth() || y >= t.getHeight()) return 16;
 		int a = (t.getRGB(x, y) >>> 24) / 85;
@@ -466,8 +465,7 @@ public final class WatchSim {
 								if (fx < w && fy < w && (m & (tp ? (l ? 16 : 32) : (l ? 64 : 128))) != 0) { int c = (int) Math.sqrt(fx * fx + fy * fy); if (c < dd) dd = c; }
 							}
 						}
-						if (own == 16 || B16[(y & 3) * 4 + (x & 3)] * w < (own != 0 ? 16 : 8) * (w - dd)) fb[y * W + x] = 0xFF000000;
-						else if (own != 0) { int c = fb[y * W + x]; fb[y * W + x] = 0xFF000000 | dim((c >> 16) & 255) << 16 | dim((c >> 8) & 255) << 8 | dim(c & 255); }
+						if (own == 16 || B16[(y & 3) * 4 + (x & 3)] * w < own * w + 8 * (w - dd)) fb[y * W + x] = 0xFF000000;
 					}
 				}
 			}
