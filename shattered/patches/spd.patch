@@ -296,7 +296,7 @@ index 1c02505..9254077 100644
  			
  			Actor.fixTime();
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
-index 346718f..303a03e 100644
+index 346718f..50259d8 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 @@ -32,6 +32,7 @@ import com.watabou.utils.Bundlable;
@@ -320,7 +320,7 @@ index 346718f..303a03e 100644
 +	private static final ArrayList<Object> pebxelLater = new ArrayList<>();
 +	public static void pebxelWait( Object o ) throws InterruptedException {
 +		pebxelOn = o; pebxelBusy = false;
-+		o.wait();
++		do o.wait(); while (pebxelLockstep && pebxelOn == o);   //(in lockstep, only a wake-up given between frames counts)
 +	}
 +	public static void pebxelWake( Object o ) {
 +		if (pebxelOn == o) { pebxelOn = null; pebxelBusy = true; }

@@ -714,6 +714,7 @@ public final class Assist {
 			if (!enemy(m)) continue;
 			boolean adj = adjacent(m.pos, hp);
 			if (!adj && vetoId == m.id() && Actor.now() < vetoUntil && !(hunting(m) && walk(m.pos) <= 4)) continue;
+			if (!adj && bad.containsKey(m.pos)) continue;   // (acted on, nothing happened: one it can't get at)
 			if (adj) stepBackWaited = false;
 			if ((m.state == m.PASSIVE && (!adj || m instanceof Statue)) || (m instanceof Piranha && !adj) || (Char.hasProp(m, Char.Property.IMMOVABLE) && !adj)) continue;
 			if (!adj && walk(m.pos) > 2 * distance(m.pos, hp) + 4) continue;
@@ -880,7 +881,7 @@ public final class Assist {
 		for (Mob m : mobs()) {
 			if (!m.isAlive() || !L.heroFOV[m.pos]) continue;
 			int d = distance(hp, m.pos);
-			if (m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) { ne++; if (onScreen(m.pos) && (d < 2 || !(m instanceof Piranha))) add(m.pos, ENEMY, 1 << 10 | d, m.pos, "enemy"); }
+			if (m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) { ne++; if (onScreen(m.pos) && (d < 2 || !(m instanceof Piranha)) && (d < 2 || !bad.containsKey(m.pos))) add(m.pos, ENEMY, 1 << 10 | d, m.pos, "enemy"); }
 			else if ((npcWanted(m) || m instanceof Shopkeeper) && walk(m.pos) < INF) put(m.pos, GO, 4 << 10 | walk(m.pos), "talk");
 		}
 		for (Heap h : L.heaps.valueList()) {
@@ -987,7 +988,7 @@ public final class Assist {
 		boolean crabWasUnseen = crabUnseen; crabUnseen = crab == null || !L.heroFOV[crab.pos];
 		if (crab != null) {   // the Ghost's crab blocks every blow from one it sees: out of its sight, then strike as it steps up blind
 			if (!L.heroFOV[crab.pos]) {
-				if (doorSpot == hp) { Target t = new Target(hp, WAIT, "tactic: wait for the crab"); t.action = WAIT_ACT; return t; }
+				if (doorSpot == hp && Actor.now() < doorUntil) { Target t = new Target(hp, WAIT, "tactic: wait for the crab"); t.action = WAIT_ACT; return t; }   // (not for ever: a crab that never comes)
 				return null;
 			}
 			if (adjacent(crab.pos, hp) && crabWasUnseen) return null;   // the ambush: hit it now
