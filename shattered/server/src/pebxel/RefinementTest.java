@@ -14,6 +14,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Game;
 import com.watabou.utils.FileUtils;
+import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfUpgrade;
 import java.lang.reflect.*;
 import java.util.*;
 
@@ -68,19 +69,19 @@ public final class RefinementTest {
         Assist.Target t = hands(); check(t == null || !Assist.REST_ACT.equals(t.action), "never rest in a locked fight");
         Dungeon.level.locked = false; h.HP = 100;
         h.buff(Hunger.class).affectHunger(-Hunger.STARVING);
-        h.belongings.backpack.items.add(new MysteryMeat());
-        t = hands(); check(t == null || !Food.AC_EAT.equals(t.action), "do not eat raw meat");
-        h.belongings.backpack.items.clear(); Item cooked = new ChargrilledMeat(); h.belongings.backpack.items.add(cooked);
-        check(hands().item == cooked, "eat cooked meat when starving");
+        Item raw = new MysteryMeat(), cooked = new ChargrilledMeat();
+        h.belongings.backpack.items.add(raw); h.belongings.backpack.items.add(cooked);
+        check(hands().item == cooked, "starving: other food before raw meat");
         h.buff(Hunger.class).satisfy(1000); h.belongings.backpack.items.clear();
         h.STR = 13; Armor hidden = new MailArmor(); hidden.upgrade(); hidden.levelKnown = false;
         h.belongings.backpack.items.add(hidden);
         t = hands(); check(t == null || t.item != hidden, "unknown upgrade must not reveal lower STR requirement");
         hidden.levelKnown = true; check(hands().item == hidden, "known fitting mail is offered");
-        Method upgrade = Assist.class.getDeclaredMethod("upgradeTarget"); upgrade.setAccessible(true);
-        h.belongings.weapon = new MagesStaff();
-        h.belongings.weapon.identify();
-        check(upgrade.invoke(null) == h.belongings.weapon, "Mage invests in the staff first");
+        h.belongings.backpack.items.clear();
+        h.belongings.weapon = new MagesStaff(); h.belongings.weapon.identify();
+        ScrollOfUpgrade up = new ScrollOfUpgrade(); up.identify(); h.belongings.backpack.items.add(up);
+        t = hands(); check(t != null && t.item == up && t.on == h.belongings.weapon, "Mage invests in the staff first");
+        h.belongings.backpack.items.clear();
 
         Link link = new Link(new Assets()); Controls controls = new Controls(); Touches touches = new Touches();
         pebxel.ui.WndWatchMenu menu = new pebxel.ui.WndWatchMenu(); GameScene.show(menu);
