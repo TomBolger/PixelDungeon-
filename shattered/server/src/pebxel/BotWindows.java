@@ -48,7 +48,7 @@ public final class BotWindows {
 		String kind = w.getClass().getSimpleName().isEmpty() ? w.getClass().getSuperclass().getSimpleName() + "$" : w.getClass().getSimpleName();
 		if (w != lastW) {
 			lastW = w; visits = 0; lastBack = false; seen.merge(kind, 1, Integer::sum);
-			if (kind.equals(lastKind)) sameKind++; else { lastKind = kind; sameKind = 0; }
+			if (w.getClass().getName().equals(lastKind)) sameKind++; else { lastKind = w.getClass().getName(); sameKind = 0; }
 		}
 		visits++;
 		List<Ui.Part> bs = Controls.buttons(w);
@@ -83,10 +83,24 @@ public final class BotWindows {
 			if (pos.isEmpty()) return new Answer(null, null, "no choice: back");
 			return new Answer(pos.get(rnd.nextInt(pos.size())), null, "choose");
 		}
+		// the Blacksmith's mine: not yet (the bot can't dig for gold yet; MINES=1 lets it go down)
+		if (n.contains("CavesLevel") && !"1".equals(System.getenv("MINES"))) { Gizmo b = byText(bs, "not yet"); if (b != null) return new Answer(b, null, "not the mine"); }
 		// questions (WndOptions and the like): the first positive answer; asked over and over: the next one
 		List<Gizmo> pos = positives(bs);
 		if (pos.isEmpty()) return new Answer(null, null, "only no: back");
 		return new Answer(pos.get(Math.min(sameKind, pos.size() - 1)), null, "yes");
+	}
+
+	/** A screen other than the dungeon's (the Amulet's: Stay, to climb back to the surface with it; ASCEND=0: Exit, the win there). */
+	public static Answer decideScene(com.watabou.noosa.Scene sc) {
+		List<Ui.Part> bs = Controls.buttons(sc);
+		String kind = sc.getClass().getSimpleName();
+		if (kind.equals("AmuletScene")) {
+			Gizmo b = byText(bs, "0".equals(System.getenv("ASCEND")) ? "call it a day" : "not done");
+			if (b != null) return new Answer(b, null, "the Amulet");
+		}
+		List<Gizmo> pos = positives(bs);
+		return pos.isEmpty() ? new Answer(null, null, "back") : new Answer(pos.get(0), null, "first");
 	}
 
 	static List<Gizmo> positives(List<Ui.Part> bs) {
@@ -119,6 +133,9 @@ public final class BotWindows {
 		if (a.g != null) { Ui.press(a.g); return; }
 		w.onBackPressed();
 	}
+
+	/** A turn went by with no window: windows after it are not "the same one again". */
+	static void turn() { lastKind = ""; sameKind = 0; }
 
 	static void newGame(long seed) { seen.clear(); logged.clear(); lastW = null; lastKind = ""; sameKind = 0; rnd = new Random(seed * 31 + 7); }
 

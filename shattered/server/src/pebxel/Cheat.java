@@ -24,7 +24,7 @@ public final class Cheat {
 		Hero h = Dungeon.hero;
 		if (!ON || h == null || !h.isAlive()) return;
 		if (h.HTBoost < 5000) { h.HTBoost = 5000; h.updateHT(true); }
-		if (h.HP < h.HT * 3 / 4) { h.HP = h.HT; healed++; }
+		if (h.HP < h.HT) { h.HP = h.HT; healed++; }   // (always full: resting to full on thousands of HP took for ever)
 		if (h.STR < 22) h.STR = 22;
 		int want = Math.min(30, Dungeon.depth + 4);
 		for (int k = 0; k < 30 && h.lvl < want; k++) { h.earnExp(h.maxExp() - h.exp, Cheat.class); levelsGiven++; }

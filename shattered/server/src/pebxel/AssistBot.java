@@ -25,6 +25,7 @@ import java.util.*;
 public class AssistBot {
 	static WatchApp app;
 	static boolean v;
+	static Object lastScene; static int sceneFrames;
 	static final ArrayDeque<String> log = new ArrayDeque<>(), recent = new ArrayDeque<>();
 
 	public static void main(String[] a) throws Exception {
@@ -63,7 +64,7 @@ public class AssistBot {
 		long planNs = 0, plans = 0, maxPlanNs = 0;
 		Window lastWnd = null; int wndFrames = 0;
 		long t0 = System.currentTimeMillis();
-		long readyF = 0, betweenF = 0, floorDecisions = 0; float readyNow = -1;   // (the hang check counts frames in which game time stood still: no wall clock)
+		long readyF = 0, betweenF = 0, floorDecisions = 0, floorFrames = 0; float readyNow = -1;   // (the hang check counts frames in which game time stood still: no wall clock)
 		for (long f = 0; f < 20_000_000; f++) {
 			Lockstep.frame(app);
 			if (Lockstep.stuck != null) { end = "runaway: " + Lockstep.stuck; break; }
@@ -75,11 +76,18 @@ public class AssistBot {
 			}
 			betweenF = 0;
 			if (Statistics.gameWon || Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.SurfaceScene) { end = "WIN"; break; }
-			if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) continue;
+			if (!(Game.scene() instanceof GameScene)) {   // another screen (the Amulet's): answered like a window
+				Coverage.scene(Game.scene());
+				if (Game.scene() != lastScene) { lastScene = Game.scene(); sceneFrames = 0; }
+				if (++sceneFrames % 30 == 2) { BotWindows.Answer an = BotWindows.decideScene(Game.scene()); System.out.println("  SCENE " + Game.scene().getClass().getSimpleName() + " -> " + an); if (an.g != null) Ui.press(an.g); else com.watabou.noosa.NoosaAccess.back(Game.scene()); }
+				if (sceneFrames > 3000) { end = "stuck on " + Game.scene().getClass().getSimpleName(); break; }
+				continue;
+			}
+			if (Dungeon.hero == null) continue;
 			if (!Dungeon.hero.isAlive()) { end = "died"; break; }
 			if (Dungeon.depth != depth) {
 				if (depth > 0) System.out.printf("  floor %d done in %.0f turns%n", depth, Statistics.duration - floorStart);
-				depth = Dungeon.depth; floorDecisions = 0; maxD = Math.max(maxD, depth); floorStart = Statistics.duration;
+				depth = Dungeon.depth; floorDecisions = 0; floorFrames = 0; maxD = Math.max(maxD, depth); floorStart = Statistics.duration;
 				GLog.update.remove(logL); GLog.update.add(logL);
 				System.out.printf("depth %d  turn %.0f  hp %d/%d  lvl %d  str %d  %.1fs%n", depth, Statistics.duration, Dungeon.hero.HP, Dungeon.hero.HT, Dungeon.hero.lvl, Dungeon.hero.STR(), (System.currentTimeMillis() - t0) / 1000.0);
 				if (depth > maxDepth) { end = "depth limit"; break; }
@@ -87,6 +95,7 @@ public class AssistBot {
 					sb.append(" mobs"); for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) sb.append(' ').append(m.pos).append(':').append(m.getClass().getSimpleName()); System.out.println(sb); }
 			}
 			if (Statistics.duration > maxTurns) { end = "turn limit"; break; }
+			if (++floorFrames > FLOOR_FRAMES) { end = "floor timeout (" + FLOOR_FRAMES + " frames on depth " + depth + ")"; break; }
 			if (Statistics.duration - floorStart > FLOOR_TURNS) { end = "floor timeout (" + FLOOR_TURNS + " turns on depth " + depth + ")"; break; }
 			Window w = Ui.topWindow();
 			if (w != null) {
@@ -109,7 +118,7 @@ public class AssistBot {
 				continue;
 			}
 			readyF = f; readyNow = Actor.now();
-			Coverage.look();
+			Coverage.look(); BotWindows.turn();
 			if (Cheat.ON) { Cheat.apply(); Cheat.spendTalents(talentR); }
 			if (Controls.aiming()) {   // (left over: aim at plan A of the aiming list, else cancel)
 				List<Assist.Target> al = Assist.plan(true, null);
@@ -131,11 +140,15 @@ public class AssistBot {
 			String key = t.kind + ":" + t.cell + ":" + t.action + ":" + (t.item == null ? "" : t.item.getClass().getSimpleName());
 			boolean still = Dungeon.hero.pos == lastPos && key.equals(lastKey) && t.kind != Assist.WAIT && !"wait".equals(t.action);
 			if (still) { stuckEvents++; sameRun++; } else sameRun = 0;
+			if (sameRun >= (t.kind == Assist.ENEMY ? 300 : 50) && Cheat.ON && !Rescue.on) { Coverage.problem("assistant loop on depth " + depth + ": " + t.why); Rescue.force(); sameRun = 0; }
 			if (sameRun >= (t.kind == Assist.ENEMY ? 300 : 50)) {
 				end = "loop at " + t;
 				com.shatteredpixel.shatteredpixeldungeon.actors.Char ch = t.cell >= 0 ? Actor.findChar(t.cell) : null;
 				if (ch instanceof com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob) { com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m = (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob) ch;
 					end += " (" + m.getClass().getSimpleName() + " hp " + m.HP + "/" + m.HT + " state " + (m.state == null ? null : m.state.getClass().getSimpleName()) + " alignment " + m.alignment + ")"; }
+				StringBuilder ms = new StringBuilder("  mobs at the loop:");
+				for (com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob m : Dungeon.level.mobs) ms.append(' ').append(m.getClass().getSimpleName()).append('@').append(m.pos).append(" hp").append(m.HP).append(m.isInvulnerable(Dungeon.hero.getClass()) ? " INV" : "").append(m.alignment == com.shatteredpixel.shatteredpixeldungeon.actors.Char.Alignment.ENEMY ? "" : " " + m.alignment).append(',');
+				System.out.println(ms + " hero@" + Dungeon.hero.pos);
 				break;
 			}
 			lastPos = Dungeon.hero.pos; lastKey = key;
@@ -176,5 +189,6 @@ public class AssistBot {
 		} catch (Throwable e) { return e.toString(); }
 	}
 	static final int FLOOR_TURNS = Cheat.ON ? 6000 : 2500;
+	static final int FLOOR_FRAMES = 300_000;   // (about 3 game hours on a floor)
 	static final int HANG_FRAMES = 3000;   // 100 s of game time with the hero waiting and the clock not moving
 }
