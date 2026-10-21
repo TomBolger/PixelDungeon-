@@ -1,7 +1,0 @@
-# H-base1
-bundle=Hmain-1021080416.tgz
-bin=simbot
-games=120
-chunk=10
-first=0
-run base SIMSEED=1
