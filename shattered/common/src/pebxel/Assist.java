@@ -143,7 +143,7 @@ public final class Assist {
 	private static int[] mindObj = new int[0], mindWalk = new int[0];
 	// the last plan
 	private static List<Target> last = new ArrayList<>();
-	private static boolean searchLast;
+	private static boolean searchLast, ambushing;   // (plan A is an ambush: no hands, no resumed walk)
 
 	// per-plan scratch
 	private static Level L; private static Hero H; private static int W, LEN, hp;
@@ -156,6 +156,12 @@ public final class Assist {
 	private static List<Target> out;
 	private static int h0;                         // entries pinned in front
 	private static final int INF = 0x7FFF;
+	static final boolean DBG = opt("ADBG", false);
+	/** A/B switches for the bot's batches (env AS_NAME=0/1; the watch has no environment, so it gets the default). */
+	static boolean opt(String name, boolean def) {
+		try { String v = System.getenv(name.startsWith("ADBG") ? name : "AS_" + name); return v == null ? def : !v.equals("0"); } catch (Throwable e) { return def; }
+	}
+	static final boolean AMBUSH = opt("AMBUSH", true);
 
 	// =============================================================================================================
 	// the API
@@ -242,6 +248,7 @@ public final class Assist {
 			switch (t.kind) {
 				case USE: {
 					if (t.item == null || t.action == null) return false;
+					if (Wand.AC_ZAP.equals(t.action) || MagesStaff.AC_ZAP.equals(t.action)) zapped.put(t.item, Actor.now());
 					t.item.execute(h, t.action);
 					for (int i = 0; i < 4; i++) if (!followUp(t)) break;
 					return true;
@@ -272,6 +279,7 @@ public final class Assist {
 			actPos = h.pos; actTime = Actor.now(); actCell = t.cell; actKind = t.kind; actItem = t.item;
 			if (t.kind == WAIT && (SEARCH_ACT.equals(t.action) || (t.action == null && t.cell == h.pos))) noteSearch();
 			if (t.kind != USE && t.kind != WAIT && t.cell >= 0) noteTalk(t.cell);
+			if (t.item != null && (Wand.AC_ZAP.equals(t.action) || MagesStaff.AC_ZAP.equals(t.action))) zapped.put(t.item, Actor.now());
 		} catch (Throwable e) { lastError = e; }
 	}
 
@@ -346,9 +354,9 @@ public final class Assist {
 	private static void ensureFloor(Level l) {
 		if (floor == l && srchFrom != null && srchFrom.length == l.length()) return;
 		floor = l; goal = -1; passed.clear(); declined.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
-		vetoId = -1; vetoStand = -1; resumeCell = -1; stepBackWaited = false; waitId = -1; lastPos = -1; from = -1;
+		vetoId = -1; vetoStand = -1; resumeCell = -1; stepBackWaited = false; ambGoal = -1; ambId = -1; waitId = -1; lastPos = -1; from = -1;
 		srchFrom = new boolean[l.length()]; checked = new boolean[l.length()]; fishSeen = false; talked.clear(); bad.clear();
-		hazMem = new boolean[l.length()]; sentries.clear(); sentryZone = new boolean[l.length()]; sentryKey = -1;
+		hazMem = new boolean[l.length()]; sentries.clear(); sentryZone = new boolean[l.length()]; sentryKey = -1; crabSeen = -1; bossSeen = -1;
 		doorSpot = -1; floorT0 = Actor.now(); actCell = -1; actTime = -1; eatBand = 0;
 	}
 
@@ -373,7 +381,7 @@ public final class Assist {
 			if (L.heroFOV[c]) hazMem[c] = blobAt(c);
 		}
 		hazMem[hp] = blobAt(hp);   // (felt, even blind)
-		for (Mob m : mobs()) if (L.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) seenFoe = true;
+		for (Mob m : mobs()) if (L.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) { seenFoe = true; if (Char.hasProp(m, Char.Property.BOSS) && m.isAlive()) bossSeen = Actor.now(); }
 		walls(fish);
 		// the last act did nothing (no time passed, nowhere moved): that target is no use for a while
 		if (actTime >= 0 && actPos == hp && Actor.now() == actTime && actCell >= 0 && actKind != USE && actKind != WAIT) {
@@ -396,6 +404,14 @@ public final class Assist {
 	}
 
 	private static List<Mob> mobs() { return new ArrayList<>(L.mobs); }
+	/** The heap on c, if the hero has seen it. */
+	private static Heap seenHeap(int c) { Heap h = L.heaps.get(c); return h != null && h.seen ? h : null; }
+	/** The character on c as the hero sees it (none out of sight or invisible: Thomas's rule). */
+	private static Char seenChar(int c) {
+		Char ch = Actor.findChar(c);
+		if (ch == null || ch == H) return ch;
+		return c >= 0 && c < LEN && L.heroFOV[c] && ch.invisible <= 0 ? ch : null;
+	}
 
 	/** The cells to keep off: gas and fire seen (hazMem), a seen sentry's beat (the special floor in its sight: it zaps
 	 *  whoever stands there), and with piranhas about the water. They are walls for the plan, except when the hero
@@ -502,7 +518,7 @@ public final class Assist {
 				for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb(c, n) && onScreen(n) && open[n] && n != ent && n != ex && dist[n] >= dist[c] && dist[n] < INF) { b = n; break; } }
 			if (b != c) { c = b; kind = GO; break; }
 			for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb(c, n) && dist[n] < dist[b]) b = n; }
-			if (b == c) return null;
+			if (b == c) { if (DBG) System.out.println("    put " + c0 + " stuck at " + c + " dist " + dist[c] + " screen " + onScreen(c)); return null; }
 			c = b; kind = GO;
 		}
 		if (c != c0) for (int t = 0; t < 4; t++) {     // two far objectives standing in at one cell: the second a step nearer
@@ -512,6 +528,7 @@ public final class Assist {
 			if (b == c || b == hp) break;
 			c = b;
 		}
+		if (DBG) System.out.println("    put " + c0 + " -> " + c + " bad " + bad.containsKey(c) + " map " + L.map[c] + " hp " + hp);
 		if (c != hp || kind == PICKUP || zero) return add(c, kind, key, obj, why);
 		return null;
 	}
@@ -526,12 +543,13 @@ public final class Assist {
 	private static List<Target> planList() {
 		out = new ArrayList<>(); h0 = 0;
 		int[] kind = new int[1]; String[] why = new String[1]; boolean[] waitF = new boolean[1];
-		searchLast = false;
+		searchLast = false; ambushing = false;
 		int c0 = first(kind, why, waitF);
+		if (DBG) System.out.println("    first: " + c0 + " kind " + kind[0] + " " + why[0] + " searchLast " + searchLast);
 		zero = true;
 		Target a = c0 >= 0 ? put(c0, kind[0], 0, why[0]) : null;
 		zero = false;
-		if (a != null && waitF[0]) a.action = WAIT_ACT;
+		if (a != null && (waitF[0] || kind[0] == WAIT)) a.action = WAIT_ACT;
 		if (a != null && kind[0] == GO && c0 == hp) { a.kind = WAIT; a.action = SEARCH_ACT; }
 		plansB();
 		if (mode() != 0) {
@@ -544,8 +562,10 @@ public final class Assist {
 			else if (!(vetoStand >= 0 && Actor.now() < vetoStandUntil)) { Target tc = tactics(); if (tc != null) front(tc); }
 			h0 = 0;
 		}
+		if (DBG) System.out.println("    before way/mind: " + out);
 		if (anyDanger && !inDanger) for (Target t : out) if (t.kind != USE && t.kind != WAIT && t.cell >= 0) t.cell = safeWay(t.cell);
 		mind();
+		if (DBG) System.out.println("    after: " + out);
 		return out;
 	}
 
@@ -678,9 +698,9 @@ public final class Assist {
 	private static int srchSpot(int x1, int x2) {
 		int best = -1, fb = -1; long bk = 0;
 		for (int c = 0; c < LEN; c++) {
-			if (dist[c] >= INF || !open[c] || L.map[c] == Terrain.ALCHEMY || c == L.entrance() || c == L.exit() || (fish && water(c)) || (c != hp && Actor.findChar(c) != null) || bad.containsKey(c)) continue;
+			if (dist[c] >= INF || !open[c] || L.map[c] == Terrain.ALCHEMY || c == L.entrance() || c == L.exit() || (fish && water(c)) || (c != hp && seenChar(c) != null) || bad.containsKey(c)) continue;
 			if ((x1 >= 0 && distance(c, x1) <= 2) || (x2 >= 0 && distance(c, x2) <= 2)) continue;
-			Heap hh = L.heaps.get(c); if (hh != null && hh.type == Heap.Type.FOR_SALE) continue;
+			Heap hh = seenHeap(c); if (hh != null && hh.type == Heap.Type.FOR_SALE) continue;
 			int walls = 0, g = 0;
 			for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb(c, n) && (L.map[n] == Terrain.WALL || L.map[n] == Terrain.SECRET_DOOR) && !searched(n)) { walls++; g += wallWorth(n); } }
 			if (walls == 0) continue;
@@ -717,7 +737,7 @@ public final class Assist {
 	}
 
 	private static boolean heapOk(Heap h) {
-		if (h == null || h.isEmpty()) return false;
+		if (h == null || h.isEmpty() || !h.seen) return false;
 		int c = h.pos;
 		if (c < 0 || c >= LEN || risky(h) || h.type == Heap.Type.FOR_SALE || !known[c] || L.avoid[c] || passed.contains(c) || bad.containsKey(c) || (danger[c] && c != hp)) return false;
 		if (h.type == Heap.Type.LOCKED_CHEST && Notes.keyCount(new GoldenKey(Dungeon.depth)) <= 0) return false;
@@ -749,7 +769,7 @@ public final class Assist {
 		if (!hungry() || hasFood()) return -1;
 		int best = -1, bd = 13;
 		for (Heap h : L.heaps.valueList()) { int c = h.pos;
-			if (h.type == Heap.Type.HEAP && foodItem(h.peek()) && heapOk(h) && walk(c) < bd && (c == hp || Actor.findChar(c) == null)) { bd = walk(c); best = c; } }
+			if (h.type == Heap.Type.HEAP && foodItem(h.peek()) && heapOk(h) && walk(c) < bd && (c == hp || seenChar(c) == null)) { bd = walk(c); best = c; } }
 		return best;
 	}
 
@@ -794,6 +814,8 @@ public final class Assist {
 			int k = adj ? (boss(m) ? 0 : 1 + m.HP) : walk(m.pos) < INF ? 1000 + walk(m.pos) * 64 + m.HP : INF;
 			if (k < bk) { bk = k; best = m.pos; bm = m; }
 		}
+		// hidden for an ambush, the hunter out of sight now: wait for it a few turns (it was seen coming)
+		if (best < 0 && AMBUSH && ambId >= 0 && ambGoal == hp && Actor.now() < ambUntil && !seenFoe) { kind[0] = WAIT; why[0] = "ambush: wait for it"; ambushing = true; return hp; }
 		int fd = foodNear();
 		if (fd >= 0 && bk >= 1000 && (best < 0 || walk(fd) <= 3) && ahead(fd)) { kind[0] = PICKUP; why[0] = "hungry: food"; return fd; }
 		if (best >= 0) {
@@ -804,11 +826,16 @@ public final class Assist {
 			if (bk >= 1000 && (w == 2 || (fast && w == 3)) && hunting(m) && !held(m) && !ranged(m) && !Char.hasProp(m, Char.Property.IMMOVABLE)) {
 				if (fast && w == 2) {   // waiting, it closes and strikes in one turn; a step back, it spends both moves closing
 					for (int k = 0; k < 8; k++) { int c = hp + N8[k];
-						if (!nb(hp, c) || !open[c] || Actor.findChar(c) != null || water(c) || distance(c, best) < 3) continue;
+						if (!nb(hp, c) || !open[c] || seenChar(c) != null || water(c) || distance(c, best) < 3) continue;
 						boolean near = false; for (Mob o : mobs()) if (o != m && enemy(o) && hunting(o) && distance(o.pos, c) <= 2) near = true;
 						if (!near) { kind[0] = GO; why[0] = "step back from a fast one"; return c; } }
 				} else waitF[0] = true;
-			} else if (bk >= 1000 && w <= 3 && from >= 0 && distance(from, best) <= 1 && !stepBackWaited) { waitF[0] = true; stepBackWaited = true; }
+			}
+			int amb = AMBUSH && bk >= 1000 && w <= 8 && hunting(m) && !held(m) && !ranged(m) && !fast && !Char.hasProp(m, Char.Property.IMMOVABLE) ? ambushSpot(m) : -1;
+			if (amb == hp && waitId == m.id() && waitCount > 2 * w + 2) amb = -1;   // (it isn't coming)
+			if (amb == hp) { waitF[0] = true; if (waitId == m.id()) waitCount++; else { waitId = m.id(); waitCount = 1; } why[0] = "ambush: wait unseen"; ambushing = true; return best; }
+			if (amb >= 0) { kind[0] = GO; why[0] = "ambush: a step out of its sight"; ambushing = true; return amb; }
+			if (!waitF[0] && bk >= 1000 && w <= 3 && from >= 0 && distance(from, best) <= 1 && !stepBackWaited) { waitF[0] = true; stepBackWaited = true; }
 			if (bk >= 1000 && hunting(m)) for (int k = 0; k < 8; k++) { int n = hp + N8[k]; if (nb(hp, n) && foul(n)) waitF[0] = true; }
 			if (waitF[0]) { if (waitId == m.id()) { if (++waitCount > 3) waitF[0] = false; } else { waitId = m.id(); waitCount = 1; } why[0] = "doorway: let it come"; }
 			else waitId = -1;
@@ -828,17 +855,17 @@ public final class Assist {
 			kind[0] = PICKUP; bk = INF; best = -1;
 			for (Heap h : L.heaps.valueList()) {
 				int c = h.pos;
-				if (!heapOk(h) || L.map[c] == Terrain.ALCHEMY || (c != hp && Actor.findChar(c) != null) || (fish && water(c))) continue;
+				if (!heapOk(h) || L.map[c] == Terrain.ALCHEMY || (c != hp && seenChar(c) != null) || (fish && water(c))) continue;
 				int d = c == hp ? 0 : walk(c);
 				if (d >= INF) continue;
-				if (d < bk && (d == 0 || (direct(c) && (od < 0 || (d <= 4 && off(c, od) <= 6))) || precious(h.peek()))) { bk = d; best = c; }
+				if (d < bk && (d == 0 || (direct(c) && (od < 0 || (d <= 4 && off(c, od) <= 6))) || (h.type == Heap.Type.HEAP && precious(h.peek())))) { bk = d; best = c; }
 			}
 			if (best >= 0) { why[0] = "pick up"; return best; }
 			kind[0] = GO;
 			if (ovrC >= 0 && ovrC < LEN) {   // the cell the player chose: plan A till met
 				int c = ovrC;
 				boolean useCell = !L.passable[c] || L.map[c] == Terrain.ALCHEMY;
-				boolean met = ovrObj && (ovrUnseen ? !unseenBy(c) : useCell && walk(c) <= 1) && L.heaps.get(c) == null && Actor.findChar(c) == null;
+				boolean met = ovrObj && (ovrUnseen ? !unseenBy(c) : useCell && walk(c) <= 1) && seenHeap(c) == null && seenChar(c) == null;
 				if (met || walk(c) >= INF) ovrC = WAY;
 				else { why[0] = "your choice"; return c; }
 			}
@@ -863,7 +890,7 @@ public final class Assist {
 				int g = goal; bk = INF;
 				for (int p = 0; p < 2 && best < 0; p++)
 					for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && !bad.containsKey(c) && unseenBy(c) && ahead(c) && (p > 0 || direct(c))) { bk = dist[c]; best = c; }
-				if (g >= 0 && g < LEN && dist[g] <= bk + 3 && dist[g] > 0 && !bad.containsKey(g) && unseenBy(g) && ahead(g) && direct(g)) best = g;
+				if (g >= 0 && g < LEN && dist[g] < INF && dist[g] <= bk + 3 && dist[g] > 0 && !bad.containsKey(g) && unseenBy(g) && ahead(g) && direct(g)) best = g;
 				if (best >= 0) { goal = best; why[0] = "explore"; return best; }
 			}
 			bk = INF;
@@ -876,7 +903,7 @@ public final class Assist {
 			if ((best = look(true)) >= 0) { why[0] = "grass"; return best; }
 			if (way) { if (st == hp) kind[0] = PICKUP; why[0] = amulet ? "up" : "stairs"; return st; }
 			if (st > 0 && L.map[st] == Terrain.LOCKED_EXIT) {   // the boss's key
-				for (Heap h : L.heaps.valueList()) for (Item i : h.items) if (i instanceof WornKey && known[h.pos] && walk(h.pos) < INF) { kind[0] = PICKUP; why[0] = "the key"; return h.pos; }
+				for (Heap h : L.heaps.valueList()) if (h.seen && h.type == Heap.Type.HEAP && h.peek() instanceof WornKey && known[h.pos] && walk(h.pos) < INF) { kind[0] = PICKUP; why[0] = "the key"; return h.pos; }
 			}
 			if (fish) { fish = false; walls(false); continue; }   // only water left, piranhas about: into it all the same
 			break;
@@ -885,6 +912,41 @@ public final class Assist {
 		kind[0] = GO; why[0] = "search";
 		return hp;
 	}
+
+	/** The ambush (strategy-reference 2.3/2.4): a mob sees at the start of its turn, then moves; one that steps up beside
+	 *  the hero from a cell with no sight of it is surprised, and the hero's next blow can't miss. Where to stand for that:
+	 *  here (hp) or a free step away, so that the mob's walk there (the known map only) comes up beside it from a cell
+	 *  out of its sight. -1: no such spot. */
+	private static int ambushSpot(Mob m) {
+		boolean[] p = new boolean[LEN];
+		for (int i = 0; i < LEN; i++) p[i] = L.passable[i] && (known[i] || L.heroFOV[i]);
+		int best = -1, bd = INF;
+		List<Integer> cand = new ArrayList<>(); cand.add(hp);
+		if (ambGoal >= 0 && ambGoal != hp && ambId == m.id() && Actor.now() < ambUntil) cand.add(0, ambGoal);
+		for (int c = 0; c < LEN; c++) if (c != hp && dist[c] <= AMBR && dist[c] < INF && !cand.contains(c)) cand.add(c);
+		for (int s : cand) {
+			int k = s == hp ? -1 : 0;
+			if (k >= 0 && (!open[s] || seenChar(s) != null || (fish && water(s)) || danger[s] || dist[s] >= INF)) continue;
+			boolean other = false;
+			for (Mob o : mobs()) if (o != m && enemy(o) && hunting(o) && distance(o.pos, s) <= 2) other = true;
+			if (other) continue;
+			p[s] = true;
+			com.watabou.utils.PathFinder.Path path;
+			try { path = com.watabou.utils.PathFinder.find(m.pos, s, p); } catch (Throwable e) { path = null; }
+			if (path == null || path.size() > 12) continue;
+			int q = m.pos;
+			for (int c : path) { if (distance(c, s) <= 1) break; q = c; }
+			if (distance(q, s) <= 1) continue;   // (beside it already)
+			if (sight(q, s)) continue;
+			if (k >= 0 && dist[s] >= path.size() - 1) continue;   // (it would be there first)
+			int d = k < 0 ? 0 : s == ambGoal ? 0 : dist[s];
+			if (d < bd) { bd = d; best = s; }
+		}
+		if (best >= 0 && best != hp) { if (ambGoal != best || ambId != m.id()) ambUntil = Actor.now() + 8; ambGoal = best; ambId = m.id(); }
+		return best;
+	}
+	private static int ambGoal = -1, ambId = -1; private static float ambUntil;
+	static final int AMBR = opt("AMB3", true) ? 3 : 1;
 
 	private static boolean wellUseful(int c) {
 		Blob h = L.blobs.get(WaterOfHealth.class), a = L.blobs.get(WaterOfAwareness.class);
@@ -900,7 +962,7 @@ public final class Assist {
 			int d = dist[c];
 			if (d >= INF || d == 0 || !ahead(c) || bad.containsKey(c)) continue;
 			boolean k = c == goal;
-			boolean g = gr && L.map[c] == Terrain.HIGH_GRASS && (all || k || (onScreen(c) && d <= 8)) && Actor.findChar(c) == null && L.heaps.get(c) == null;
+			boolean g = gr && L.map[c] == Terrain.HIGH_GRASS && (all || k || (onScreen(c) && d <= 8)) && seenChar(c) == null && seenHeap(c) == null;
 			if (!g && !((onScreen(c) || k) && unseenBy(c))) continue;
 			if (k) d = d > 3 ? d - 3 : 0;
 			else { if (od < 0 && head >= 0 && off(c, head) > 16) d += d / 4 + 2;
@@ -933,19 +995,19 @@ public final class Assist {
 			int nt = -1, ns = INF;
 			for (int c = 0; c < LEN; c++) {
 				int sd = dist[c]; if (sd < 1 || sd >= INF || off(c, wd) > CONE || bad.containsKey(c)) continue;
-				Heap hh = L.heaps.get(c); Char ch = Actor.findChar(c);
+				Heap hh = seenHeap(c); Char ch = seenChar(c);
 				int w = (hh != null && heapOk(hh)) || (ch instanceof NPC && L.heroFOV[c]) ? 3 : c == L.exit() || unseenBy(c) || (L.map[c] == Terrain.LOCKED_DOOR && Notes.keyCount(new IronKey(Dungeon.depth)) > 0) ? 4 : 0;
 				if (w > 0 && sd * w < ns) { ns = sd * w; nt = c; }
 			}
-			if (nt >= 0) { zero = true; Target t = put(nt, L.heaps.get(nt) != null ? PICKUP : GO, 0, "your way on"); zero = false; if (t != null) { out.remove(t); out.add(0, t); } ovrC = WAY; }
+			if (nt >= 0) { zero = true; Target t = put(nt, seenHeap(nt) != null ? PICKUP : GO, 0, "your way on"); zero = false; if (t != null) { out.remove(t); out.add(0, t); } ovrC = WAY; }
 			wayOn = -1;
 		}
 		// the interrupted walk, taken up again (30 turns), the fight first
 		HeroAction la = H.lastAction;
 		if (la instanceof HeroAction.Move && la.dst != hp && la.dst >= 0 && la.dst < LEN && resumeCell != la.dst) { resumeCell = la.dst; resumeUntil = Actor.now() + 30; }
 		if (resumeCell >= 0 && (resumeCell == hp || Actor.now() > resumeUntil || dist[resumeCell] >= INF)) resumeCell = -1;
-		if (resumeCell >= 0 && !hunt && !(out.size() > 0 && out.get(0).kind == ENEMY) && mode() != 0) {
-			zero = true; Target t = put(resumeCell, L.heaps.get(resumeCell) != null ? PICKUP : GO, 0, "resume"); zero = false;
+		if (resumeCell >= 0 && !hunt && !ambushing && !(out.size() > 0 && out.get(0).kind == ENEMY) && mode() != 0) {
+			zero = true; Target t = put(resumeCell, seenHeap(resumeCell) != null ? PICKUP : GO, 0, "resume"); zero = false;
 			if (t != null) { out.remove(t); out.add(0, t); }
 		}
 		int ne = 0;
@@ -990,7 +1052,7 @@ public final class Assist {
 			int best = -1, bs = 0;
 			for (int k = 0; k < 8; k++) {
 				int n = hp + N8[k], s = 99;
-				if (!nb(hp, n) || !open[n] || Actor.findChar(n) != null) continue;
+				if (!nb(hp, n) || !open[n] || seenChar(n) != null) continue;
 				for (Target t : out) if (t.kind == ENEMY) { int e = distance(n, t.cell); if (e < s) s = e; }
 				s = s * 2 + (L.map[n] == Terrain.DOOR || L.map[n] == Terrain.OPEN_DOOR ? 1 : 0);
 				if (s > bs) { bs = s; best = n; }
@@ -1035,11 +1097,11 @@ public final class Assist {
 		if (foul(hp) || burning()) {   // out of the gas / fire: the nearest clean cell (alight: water, if near)
 			boolean w = burning();
 			for (int p = 0; p < 2 && best < 0; p++, w = false)
-				for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && (!w || dist[c] <= 4) && open[c] && !foul(c) && Actor.findChar(c) == null && (!w || water(c))) { bk = dist[c]; best = c; }
+				for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && (!w || dist[c] <= 4) && open[c] && !foul(c) && seenChar(c) == null && (!w || water(c))) { bk = dist[c]; best = c; }
 			if (best >= 0) { Target t = new Target(best, GO, "escape the gas / fire"); return t; }
 		}
 		if (inDanger) {   // on a sentry's floor, or in the water with piranhas about: off it, the shortest way
-			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && !danger[c] && open[c] && Actor.findChar(c) == null) { bk = dist[c]; best = c; }
+			for (int c = 0; c < LEN; c++) if (dist[c] < bk && dist[c] > 0 && !danger[c] && open[c] && seenChar(c) == null) { bk = dist[c]; best = c; }
 			if (best >= 0) return new Target(best, GO, sentryZone[hp] ? "escape: off the sentry's floor" : "escape: out of the water");
 		}
 		return null;
@@ -1052,17 +1114,17 @@ public final class Assist {
 		for (int k = 0; k < 8; k++) os += nb(hp, hp + N8[k]) && open[hp + N8[k]] ? 1 : 0;
 		if (adj >= 2 && os > 2) {   // two or more beside you in the open: back into a narrow spot none touches
 			int bc = -1, bo = 9;
-			for (int k = 0; k < 8; k++) { int c = hp + N8[k]; if (!nb(hp, c) || !open[c] || Actor.findChar(c) != null || water(c)) continue;
+			for (int k = 0; k < 8; k++) { int c = hp + N8[k]; if (!nb(hp, c) || !open[c] || seenChar(c) != null || water(c)) continue;
 				boolean touch = false; for (Mob m : mobs()) if (enemy(m) && hunting(m) && adjacent(m.pos, c)) touch = true;
 				int o = 0; for (int j = 0; j < 8; j++) o += nb(c, c + N8[j]) && open[c + N8[j]] ? 1 : 0;
 				if (!touch && o <= 2 && o < bo) { bo = o; bc = c; } }
 			if (bc >= 0) return new Target(bc, GO, "tactic: narrow spot");
 		}
 		Mob sh = null, goo = null, crab = null;
-		for (Mob m : mobs()) if (m instanceof GreatCrab && m.isAlive() && hunting(m)) crab = m;
-		boolean crabWasUnseen = crabUnseen; crabUnseen = crab == null || !L.heroFOV[crab.pos];
-		if (crab != null) {   // the Ghost's crab blocks every blow from one it sees: out of its sight, then strike as it steps up blind
-			if (!L.heroFOV[crab.pos]) {
+		for (Mob m : mobs()) if (m instanceof GreatCrab && m.isAlive() && hunting(m) && L.heroFOV[m.pos]) { crab = m; crabSeen = Actor.now(); }
+		boolean crabWasUnseen = crabUnseen; crabUnseen = crab == null;
+		if (crab != null || (crabSeen >= 0 && Actor.now() - crabSeen < 20)) {   // the Ghost's crab blocks every blow from one it sees: out of its sight, then strike as it steps up blind
+			if (crab == null) {   // (out of sight now: it was coming)
 				if (doorSpot == hp && Actor.now() < doorUntil) { Target t = new Target(hp, WAIT, "tactic: wait for the crab"); t.action = WAIT_ACT; return t; }   // (not for ever: a crab that never comes)
 				return null;
 			}
@@ -1092,10 +1154,10 @@ public final class Assist {
 		if (doorSpot == hp && Actor.now() < doorUntil && sh != null) { Target t = new Target(hp, WAIT, "tactic: wait round the corner"); t.action = WAIT_ACT; return t; }
 		return null;
 	}
-	private static boolean crabUnseen = true;
+	private static boolean crabUnseen = true; private static float crabSeen = -1, bossSeen = -1;
 	private static boolean sight(int a, int b) { try { Ballistica bl = new Ballistica(a, b, Ballistica.STOP_TARGET | Ballistica.STOP_SOLID); return bl.collisionPos != null && bl.collisionPos == b; } catch (Throwable e) { return true; } }
 	private static boolean pumped(Mob m) { Object v = field(m, "pumpedUp"); return v instanceof Integer && (Integer) v > 0; }
-	private static boolean standOk(int c) { return c == hp || (open[c] && Actor.findChar(c) == null && walk(c) <= 6); }
+	private static boolean standOk(int c) { return c == hp || (open[c] && seenChar(c) == null && walk(c) <= 6); }
 
 	// =============================================================================================================
 	// the hands (tgt3): item and toolbar actions
@@ -1113,6 +1175,7 @@ public final class Assist {
 			int d = distance(m.pos, hp); if (d <= 3) near = true; if (d <= 1) adj = true;
 			hard += boss(m) ? 2 : hunting(m) ? 1 : 0; }
 		if (foul(hp) || burning()) return null;   // out of the gas / fire first
+		if (ambushing && H.HP * 3 > H.HT) return null;   // lying in wait: nothing that would give it away
 		boolean scrollsOk = !blind();
 		// eat once starving (never with one within 3); starving, the stairs next: down first
 		int st = bag(Amulet.class) != null ? L.entrance() : L.exit();
@@ -1144,6 +1207,8 @@ public final class Assist {
 		for (Class<? extends Potion> c : Arrays.asList(PotionOfStrength.class, PotionOfExperience.class)) {
 			Potion p = bag(c); if (p != null && p.isKnown() && !declined(c, Potion.AC_DRINK)) return use(p, Potion.AC_DRINK, -1, "drink");
 		}
+		TengusMask mask = bag(TengusMask.class);   // the subclass, at once
+		if (mask != null && H.subClass == com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass.NONE && !declined(TengusMask.class, "WEAR")) return use(mask, "WEAR", -1, "subclass");
 		ScrollOfUpgrade up = bag(ScrollOfUpgrade.class);
 		if (scrollsOk && up != null && up.isKnown() && !declined(ScrollOfUpgrade.class, Scroll.AC_READ)) {
 			Armor a = H.belongings.armor(); Item wpn = H.belongings.weapon();
@@ -1187,19 +1252,26 @@ public final class Assist {
 			Item cur = i instanceof Armor ? H.belongings.armor() : H.belongings.weapon();
 			if (cur != null && cur.cursed && cur.cursedKnown) continue;
 			if ((i.cursedKnown && i.cursed) || (i.levelKnown && i.level() < 0)) continue;
-			int str = i instanceof Armor ? ((Armor) i).STRReq() : ((MeleeWeapon) i).STRReq();
+			int str = i instanceof Armor ? ((Armor) i).STRReq(i.levelKnown ? i.level() : 0) : ((MeleeWeapon) i).STRReq(i.levelKnown ? i.level() : 0);   // (unknown level: the +0 figure, as shown)
 			if (str > H.STR()) continue;
 			int a = 2 * tier(i) + (i.levelKnown ? i.level() : -1), b = cur == null ? -1 : 2 * tier(cur) + (cur.levelKnown ? cur.level() : 0);
 			if (cur instanceof ClassArmor || cur instanceof MagesStaff) continue;
 			if (a > b && !declined(i.getClass(), EquipableItem.AC_EQUIP)) return use(i, EquipableItem.AC_EQUIP, -1, "better gear");
 		}
-		boolean bossHere = false; for (Mob m : mobs()) if (m.isAlive() && boss(m) && Char.hasProp(m, Char.Property.BOSS)) bossHere = true;
+		boolean bossHere = bossSeen >= 0 && Actor.now() - bossSeen < 100;   // (a boss seen on this floor lately)
 		if (Dungeon.bossLevel() && bossHere && H.HP * 20 < H.HT * 19 && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "rest before the boss"); t.action = REST_ACT; t.obj = -1; return t; }
 		if (H.HP * 2 < H.HT && !starving() && !declined(null, REST_ACT)) { Target t = new Target(hp, WAIT, "hurt: rest"); t.action = REST_ACT; t.obj = -1; return t; }
 		return null;
 	}
 	private static boolean declinedAny(String a) { for (String s : declined) if (s.endsWith(":" + a)) return true; return false; }
 	private static int tier(Item i) { return i instanceof Armor ? ((Armor) i).tier : i instanceof MeleeWeapon ? ((MeleeWeapon) i).tier : 0; }
+
+	/** Has the wand a charge? Its count is shown only once its level is known; till then a guess: not zapped in 30 turns. */
+	private static boolean charged(Wand w, Item holder) {
+		if (w.levelKnown && w.curChargeKnown) return w.curCharges > 0;
+		Float t = zapped.get(holder); return t == null || Actor.now() - t > 30 || Actor.now() < t;
+	}
+	private static final Map<Item, Float> zapped = new IdentityHashMap<>();
 
 	private static boolean attackWand(Class<?> c, int ed) {
 		if (c == null) return false;
@@ -1219,15 +1291,15 @@ public final class Assist {
 			Item it = Dungeon.quickslot.getItem(q);
 			if (it == null || !H.belongings.contains(it)) continue;
 			if (it instanceof MissileWeapon && !shooter && !declined(it.getClass(), Item.AC_THROW)) return use(it, Item.AC_THROW, e.pos, "throw");
-			if (it instanceof Wand && ((Wand) it).curCharges > 0 && attackWand(it.getClass(), ed)) return use(it, Wand.AC_ZAP, e.pos, "zap");
-			if (it instanceof MagesStaff) { Object w = field(it, "wand"); if (w instanceof Wand && ((Wand) w).curCharges > 0 && attackWand(w.getClass(), ed)) return use(it, MagesStaff.AC_ZAP, e.pos, "zap"); }
+			if (it instanceof Wand && charged((Wand) it, it) && attackWand(it.getClass(), ed)) return use(it, Wand.AC_ZAP, e.pos, "zap");
+			if (it instanceof MagesStaff) { Object w = field(it, "wand"); if (w instanceof Wand && charged((Wand) w, it) && attackWand(w.getClass(), ed)) return use(it, MagesStaff.AC_ZAP, e.pos, "zap"); }
 		}
 		SpiritBow bow = bag(SpiritBow.class);
 		if (bow != null && !shooter) return use(bow, SpiritBow.AC_SHOOT, e.pos, "shoot");
 		MagesStaff staff = bag(MagesStaff.class);
-		if (staff != null) { Object w = field(staff, "wand"); if (w instanceof Wand && ((Wand) w).curCharges > 0 && attackWand(w.getClass(), ed)) return use(staff, MagesStaff.AC_ZAP, e.pos, "zap"); }
+		if (staff != null) { Object w = field(staff, "wand"); if (w instanceof Wand && charged((Wand) w, staff) && attackWand(w.getClass(), ed)) return use(staff, MagesStaff.AC_ZAP, e.pos, "zap"); }
 		for (Item it : H.belongings.backpack) if (it instanceof Wand) { Wand w = (Wand) it;
-			if (w.curCharges > 0 && attackWand(w.getClass(), ed) && (w.curCharges >= w.maxCharges || H.HP * 2 < H.HT)) return use(w, Wand.AC_ZAP, e.pos, "zap"); }
+			if (charged(w, w) && attackWand(w.getClass(), ed) && ((w.levelKnown && w.curChargeKnown ? w.curCharges >= w.maxCharges : charged(w, w)) || H.HP * 2 < H.HT)) return use(w, Wand.AC_ZAP, e.pos, "zap"); }
 		for (Item it : H.belongings.backpack) {
 			if (!(it instanceof Potion) || !known(it)) continue;
 			if (((it instanceof PotionOfToxicGas || it instanceof PotionOfParalyticGas) && ed >= 4) || ((it instanceof PotionOfLiquidFlame || it instanceof PotionOfFrost) && ed >= 3 && !L.flamable[hp]))

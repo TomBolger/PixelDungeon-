@@ -63,7 +63,7 @@ def summary(gs, title):
     names = ["1-5 sewers", "6-10 prison", "11-15 caves", "16-20 city", "21-26 halls"]
     print("  ends by region:")
     for r in sorted(byreg): print(f"    {names[min(r,4)]:12s} " + ", ".join(f"{k} {v}" for k, v in byreg[r].most_common(10)))
-    lost = collections.Counter(); tl = th = tr = ts = 0; left = collections.Counter(); unsp = 0
+    lost = collections.Counter(); tl = th = tr = ts = 0; left = collections.Counter(); unsp = 0; at = su = 0
     for g in gs:
         st = g["stats"]
         if not st: continue
@@ -74,9 +74,10 @@ def summary(gs, title):
         for kv in st.get("left", "").split(","):
             if ":" in kv:
                 k, v = kv.split(":"); left[k] += int(v)
-        unsp += int(st.get("talentsUnspent", 0))
+        unsp += int(st.get("talentsUnspent", 0)); at += int(st.get("attacks", 0)); su += int(st.get("surprised", 0))
     tt = sum(g.get("turns", 0) for g in gs)
     print(f"  health lost {tl}, regained {th}; turns {tt}, resting {tr} ({100*tr/max(1,tt):.0f}%), starving {ts} ({100*ts/max(1,tt):.0f}%)")
+    print(f"  melee attacks {at}, surprise attacks {su} ({100*su/max(1,at):.0f}%)")
     print("  lost to: " + ", ".join(f"{k} {v}" for k, v in lost.most_common(14)))
     print("  left at the end (all games): " + ", ".join(f"{k} {v}" for k, v in sorted(left.items())) + f", talent points unspent {unsp}")
 

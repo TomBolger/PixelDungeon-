@@ -152,6 +152,7 @@ public class AssistBot {
 				if (tr != null) { Cheat.apply(); StairsTest.jump(tr); continue; }
 			}
 			if (Cheat.ON) { Cheat.apply(); if (watch == null || !watch.talents()) Cheat.spendTalents(talentR); if (Ui.topWindow() != null) continue; }
+			else Build.spendTalents(Dungeon.hero);   // (the guide's build: a player's own choice)
 			if (Controls.aiming()) {   // (left over: aim at plan A of the aiming list, else cancel)
 				List<Assist.Target> al = Assist.plan(true, null);
 				if (!al.isEmpty() && al.get(0).kind == Assist.ENEMY) { if (watch == null || !watch.act(al.get(0))) Assist.act(al.get(0)); }
