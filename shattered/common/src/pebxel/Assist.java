@@ -536,7 +536,7 @@ public final class Assist {
 	private static List<Target> fallback(boolean aiming) {
 		List<Target> r = new ArrayList<>();
 		Level l = Dungeon.level; int h = Dungeon.hero.pos;
-		for (Mob m : new ArrayList<>(l.mobs)) if (l.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && r.size() < CAP) r.add(new Target(m.pos, ENEMY, "fallback"));
+		for (Mob m : new ArrayList<>(l.mobs)) if (l.heroFOV[m.pos] && m.alignment == Char.Alignment.ENEMY && r.size() < CAP && (aiming || !Dungeon.hero.isCharmedBy(m))) r.add(new Target(m.pos, ENEMY, "fallback"));
 		if (aiming) return r;
 		int[] d = Controls.walk(l, h);
 		int e = Explorer.nearestUnexplored(l, h, d);
@@ -724,6 +724,7 @@ public final class Assist {
 		planAGrass = false;
 		for (Mob m : mobs()) {   // fight: a boss beside you, the weakest beside you, else the nearest
 			if (!enemy(m)) continue;
+			if (H.isCharmedBy(m)) continue;   // (charmed by it, by a cursed weapon's Friendly curse: the game won't let the hero hit it, and the tap passed no time, so the plan looped for ever)
 			boolean adj = adjacent(m.pos, hp);
 			if (!adj && vetoId == m.id() && Actor.now() < vetoUntil && !(hunting(m) && walk(m.pos) <= 4)) continue;
 			if (!adj && bad.containsKey(m.pos)) continue;   // (acted on, nothing happened: one it can't get at)
@@ -893,7 +894,7 @@ public final class Assist {
 		for (Mob m : mobs()) {
 			if (!m.isAlive() || !L.heroFOV[m.pos]) continue;
 			int d = distance(hp, m.pos);
-			if (m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) { ne++; if (onScreen(m.pos) && (d < 2 || !(m instanceof Piranha)) && (d < 2 || !bad.containsKey(m.pos))) add(m.pos, ENEMY, 1 << 10 | d, m.pos, "enemy"); }
+			if (m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) { ne++; if (onScreen(m.pos) && (d < 2 || !(m instanceof Piranha)) && (d < 2 || !bad.containsKey(m.pos)) && !H.isCharmedBy(m)) add(m.pos, ENEMY, 1 << 10 | d, m.pos, "enemy"); }
 			else if ((npcWanted(m) || m instanceof Shopkeeper) && walk(m.pos) < INF) put(m.pos, GO, 4 << 10 | walk(m.pos), "talk");
 		}
 		for (Heap h : L.heaps.valueList()) {
