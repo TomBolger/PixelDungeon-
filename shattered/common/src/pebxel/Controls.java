@@ -1006,12 +1006,14 @@ public class Controls {
 		if (c == null || Dungeon.hero == null || Dungeon.hero.sprite == null) { hud.edge(-999, 0, 0, 0, -1); hud.heroEdge(-999, 0); return false; }
 		PointF rest = restCentre(c);
 		float[] h = seen(Dungeon.hero.pos, rest, c.zoom);
+		int[] hAt = null;
 		if (inPlay(h[0], h[1], markHalf(c.zoom))) hud.heroEdge(-999, 0);
-		else { int[] at = pebxel.ui.WatchHud.pointerAt(h[0], h[1]); hud.heroEdge(at[0], at[1]); }
+		else { hAt = pebxel.ui.WatchHud.pointerAt(h[0], h[1]); hud.heroEdge(hAt[0], hAt[1]); }
 		if (cell < 0) { hud.edge(-999, 0, 0, 0, -1); return false; }
 		float[] s = seen(cell, rest, c.zoom);
 		if (inPlay(s[0], s[1], markHalf(c.zoom))) { hud.edge(-999, 0, 0, 0, -1); return false; }
 		int[] at = pebxel.ui.WatchHud.pointerAt(s[0], s[1]);
+		if (hAt != null) at = pebxel.ui.WatchHud.apart(hAt, at);   // (never on top of the hero's: slid along the edge beside it)
 		hud.edge(at[0], at[1], dir(s[0] - at[0]), dir(s[1] - at[1]), cell);
 		return true;
 	}

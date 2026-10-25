@@ -194,6 +194,20 @@ public final class RefinementTest {
         cam.shift(new com.watabou.utils.PointF(600, 0)); frames(app, 3);
         Object heroEdge = get(hud, "heroEdge", pebxel.ui.WatchHud.class);
         check(((com.watabou.noosa.Group) edge).visible && ((com.watabou.noosa.Group) heroEdge).visible, "dragged away: both pointers framed at the edge");
+        {   // never on top of each other (Thomas: "the off screen indicators shouldn't be able to overlap"), their taps where they're drawn
+            com.watabou.noosa.ui.Component tb = (com.watabou.noosa.ui.Component) get(hud, "targetBtn", pebxel.ui.WatchHud.class), hb = (com.watabou.noosa.ui.Component) get(hud, "heroBtn", pebxel.ui.WatchHud.class);
+            int g = pebxel.ui.WatchHud.pointerGap();
+            check(Math.abs(tb.left() - hb.left()) >= g || Math.abs(tb.top() - hb.top()) >= g, "dragged away: the pointers side by side (" + tb.left() + "," + tb.top() + " " + hb.left() + "," + hb.top() + ")");
+            int n = 0;
+            for (int hx = -200; hx <= 400; hx += 20) for (int hy = -200; hy <= 400; hy += 20) for (int k = 0; k < 40; k++) {
+                float tx = hx + (k % 8 - 4) * 7, ty = hy + (k / 8 - 2) * 9;
+                int[] ha = pebxel.ui.WatchHud.pointerAt(hx, hy), ta = pebxel.ui.WatchHud.apart(ha, pebxel.ui.WatchHud.pointerAt(tx, ty));
+                check(Math.abs(ta[0] - ha[0]) >= g || Math.abs(ta[1] - ha[1]) >= g, "pointers apart: hero " + ha[0] + "," + ha[1] + " target " + ta[0] + "," + ta[1]);
+                int[] back = pebxel.ui.WatchHud.pointerAt(ta[0], ta[1]);
+                check(back[0] == ta[0] && back[1] == ta[1], "a slid pointer stays on the screen's edge band: " + ta[0] + "," + ta[1]);
+                n++;
+            }
+        }
         Object hooks = get(oc, "hooks"); Method tag = hooks.getClass().getMethod("tag", int.class, boolean.class); tag.setAccessible(true);
         tag.invoke(hooks, 5, false); frames(app, 90);
         check(!((com.watabou.noosa.Group) edge).visible && !((com.watabou.noosa.Group) heroEdge).visible, "a tap on the target's pointer: the view on the target and the hero");
@@ -202,7 +216,7 @@ public final class RefinementTest {
         check(!((com.watabou.noosa.Group) heroEdge).visible && cam.zoom == 2, "a tap on the hero's pointer: back on him at the player's zoom (" + cam.zoom + " " + ((com.watabou.noosa.Group) heroEdge).visible + " " + cam.followTarget() + ")");
         Controls.legacy = null;
         WatchSettings.assist(2); oc = null;
-        System.out.println("obedience: passed over with Down, ignored, a new floor, chosen; camera: targets clear of the HUD, hero and target in view, Far's zoom out and back in, lock, pointers: ok");
+        System.out.println("obedience: passed over with Down, ignored, a new floor, chosen; camera: targets clear of the HUD, hero and target in view, Far's zoom out and back in, lock, pointers (never overlapping): ok");
     }
     // ---- Pebble PD's buttons: Back resets the list and walks the toolbar in the Assistant's order; Select with nothing
     // listed: the camera back, else what lies underfoot, else a search; any button stops a walk; a blow buzzes ----

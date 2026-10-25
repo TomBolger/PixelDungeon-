@@ -673,9 +673,42 @@ public class WatchHud extends Group {
 	/** Where a pointer's frame centres for something shown at (x, y), watch px: Pebble PD's hero_pointer (16 px in
 	 *  from the sides, under the status pane, lower beside the portrait, 16 px over the toolbar; Gabbro: 58 px in). */
 	public static int[] pointerAt(float x, float y) {
+		int[] b = bounds(x);
+		return new int[]{Math.round(Math.max(b[0], Math.min(b[1], x))), Math.round(Math.max(b[2], Math.min(b[3], y)))};
+	}
+	/** Where pointers' centres may go (x0, x1, y0, y1) at x. */
+	private static int[] bounds(float x) {
 		boolean r = pebxel.Screen.round;
-		int x0 = r ? 58 : 16, x1 = W - x0, y1 = (r ? 190 : TB_Y) - 16, y0 = r ? 58 : (x < SC(35) + 8 ? SC(33) : SC(10)) + 8;
-		return new int[]{Math.round(Math.max(x0, Math.min(x1, x))), Math.round(Math.max(y0, Math.min(y1, y)))};
+		int x0 = r ? 58 : 16;
+		return new int[]{x0, W - x0, r ? 58 : (x < SC(35) + 8 ? SC(33) : SC(10)) + 8, (r ? 190 : TB_Y) - 16};
+	}
+	/** How far apart two pointers' centres stay (their frames side by side; Gabbro: the bubbles, pushed out 4 px). */
+	public static int pointerGap() { return pebxel.Screen.round ? 42 : 30; }
+
+	/** The later pointer p slid along the edge it sits on, clear of the first (Thomas: "the off screen indicators
+	 *  shouldn't be able to overlap"): beside it on its own side if there's room, else on the other, else round the
+	 *  corner. */
+	public static int[] apart(int[] first, int[] p) {
+		int g = pointerGap();
+		if (Math.abs(p[0] - first[0]) >= g || Math.abs(p[1] - first[1]) >= g) return p;
+		int[] b = bounds(p[0]);
+		boolean side = p[0] <= b[0] || p[0] >= b[1], flat = p[1] <= b[2] || p[1] >= b[3];
+		java.util.List<int[]> tries = new java.util.ArrayList<>();
+		int sy = p[1] != first[1] ? Integer.signum(p[1] - first[1]) : p[1] < (b[2] + b[3]) / 2 ? 1 : -1;
+		int sx = p[0] != first[0] ? Integer.signum(p[0] - first[0]) : p[0] < W / 2 ? 1 : -1;
+		for (int pass = 0; pass < 2; pass++) {
+			boolean alongY = pass == 0 ? side || !flat : !(side || !flat);
+			for (int d : new int[]{1, -1}) {
+				if (alongY) tries.add(new int[]{p[0], first[1] + d * sy * g});
+				else { int x = first[0] + d * sx * g; int[] bx = bounds(x); tries.add(new int[]{x, p[1] <= b[2] ? bx[2] : p[1]}); }
+			}
+		}
+		for (int[] t : tries) {
+			int[] bt = bounds(t[0]);
+			if (t[0] < bt[0] || t[0] > bt[1] || t[1] < bt[2] || t[1] > bt[3]) continue;
+			if (Math.abs(t[0] - first[0]) >= g || Math.abs(t[1] - first[1]) >= g) return t;
+		}
+		return p;
 	}
 
 	/** The target's pointer: x, y its frame's centre (watch px), x < -900 none; dx, dy which way the target lies from
