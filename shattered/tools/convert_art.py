@@ -96,6 +96,9 @@ def potion_fix(src, out):
             for y in range(row * 16, row * 16 + 16):
                 for x in range(cell * 16, cell * 16 + 16):
                     if sp[x, y][3] >= 100 and sp[x, y][:3] in m: op[x, y] = m[sp[x, y][:3]] + (255,)
+    for y in range(32, 48):   # the golden chest (row 3, cell 5): as the golden mimic (GOLD_CHEST)
+        for x in range(80, 96):
+            if sp[x, y][3] >= 100 and sp[x, y][:3] in GOLD_CHEST: op[x, y] = GOLD_CHEST[sp[x, y][:3]] + (255,)
 
 CUT = {'interfaces': 128, 'sprites': 100, 'effects/spell_icons.png': 100, 'effects/text_icons.png': 100}
 
@@ -344,8 +347,49 @@ RECOLOR.update({
     'sprites/necromancer.png': {(53, 53, 53): _G, (81, 81, 81): _S, (104, 104, 104): _S, (119, 119, 119): _S,
                                 ((0, 0, 0), 128): _G, ((0, 0, 0), 127): _G},
 })
+# the golden chest and the golden mimic (which must look the same): its gold snapped to orange-peach and brown, so it
+# looked like the wooden chest; yellow and tan, the gold coins' colours
+GOLD_CHEST = {(221, 152, 0): (255, 255, 0), (167, 116, 0): (170, 170, 0), (189, 129, 0): (170, 170, 0)}
+RECOLOR.update({
+    'sprites/mimic.png': GOLD_CHEST,   # (only row 2, the golden mimic, has these colours)
+    # the fungal spinner's dark green body turned olive-brown: dark green under its light green legs
+    'sprites/fungal_spinner.png': {(74, 119, 6): (0, 85, 0), (59, 95, 5): (0, 85, 0), (59, 96, 5): (0, 85, 0)},
+    # the rot lasher, a green vine, came out tan: olive green and dark green
+    'sprites/rot_lasher.png': {**{c: (85, 170, 0) for c in ((136, 146, 76), (129, 137, 85), (152, 163, 85), (164, 176, 92))},
+                               **{c: (0, 85, 0) for c in ((106, 114, 61), (102, 108, 68), (97, 101, 75), (123, 128, 94), (117, 120, 102))}},
+    # God's larva, a pale grub, went grey: cream, tan and dark brown
+    'sprites/larva.png': {(204, 194, 163): _CREAM, (204, 193, 145): _CREAM, (179, 172, 152): _TAN, (194, 185, 159): _TAN,
+                          (179, 166, 113): _TAN, (126, 116, 91): _DKBR},
+    # the golden bee's grey wings were the floor's grey (it read as a black and peach blob): light grey wings
+    'sprites/bee.png': {(77, 71, 67): _S, (49, 44, 42): _G},
+    # the dwarf warlock's purple robe turned blue (the panel's (85,0,170) is a steel blue) and its grey-green cloak the
+    # city floor's grey: purple, dark purple, and green-grey
+    'sprites/warlock.png': {(102, 45, 145): (170, 0, 170), (89, 40, 128): (85, 0, 85), (82, 119, 92): (85, 170, 85)},
+    # the evil eye, purple, came out steel blue: mauve
+    'sprites/eye.png': {(113, 79, 147): (170, 85, 170), (107, 69, 154): (170, 85, 170)},
+    # the vault mirror's gold frame came out speckled pink and brown: cream, tan and dark brown
+    'sprites/vault_mirror.png': {(195, 168, 53): (255, 255, 85), (141, 115, 0): (170, 170, 0)},
+})
 for _g in ('gnoll', 'shaman', 'brute', 'gnoll_guard', 'gnoll_sapper', 'gnoll_geomancer'):
     RECOLOR.setdefault('sprites/%s.png' % _g, {}).update(GNOLL_FUR)
+# a gold, green or purple shown by brightness bands (as Pebble PD's gilt() did for its sword's hilt), for sheets
+# shaded in many steps of one hue
+def _lum(r, g, b): return 0.3 * r + 0.5 * g + 0.2 * b
+def _guardian(r, g, b, y):
+    """the prison's guardian, a bronze statue: its darker bronze snapped to maroon, a red-brown figure. Tan, brown and
+    dark brown by brightness"""
+    if b or r <= g: return None
+    return (170, 170, 0) if r >= 140 else _BR if r >= 105 else _DKBR if r >= 55 else None
+def _fists(r, g, b, y):
+    """Yog's fists: the rotting fist (row 3) is pale green (its greens became tan and grey: a beige fist), the dark
+    fist (row 6) dark purple (it had gone all black, with only its outline showing)"""
+    L = _lum(r, g, b)
+    if 34 <= y < 51 and g > r and g > b:
+        return _S if L >= 165 else (85, 170, 85) if L >= 108 else (0, 85, 0) if L >= 50 else None
+    if 85 <= y < 102 and r > g and b > g:
+        return (170, 85, 170) if L >= 58 else (85, 0, 85) if L >= 40 else None
+    return None
+RAMPS = {'sprites/guardian.png': _guardian, 'sprites/yog_fists.png': _fists}
 OUTLINE_ROWS = {'sprites/slime.png': {1: (85, 85, 85, 255)}}   # a frame row's edge colour, when not the sheet's
 
 def plant_edges(p, im):
@@ -361,7 +405,8 @@ def plant_edges(p, im):
 def recolor(p, im):
     """Pebble PD's fixes: matched pixels become that Pebble colour, solid (alpha 254: kept as is by the mapping)."""
     rc = RECOLOR.get(p)
-    if not rc and p != 'sprites/piranha.png': return im
+    if not rc and p not in RAMPS and p != 'sprites/piranha.png': return im
+    rc = rc or {}
     px = im.load()
     for y in range(im.height):
         for x in range(im.width):
@@ -371,6 +416,7 @@ def recolor(p, im):
                 if a < 128: px[x, y] = _G + (254,)
                 continue
             to = rc.get(((r, g, b), a), rc.get((r, g, b)) if a >= 100 else None)
+            if to is None and a >= 100 and p in RAMPS: to = RAMPS[p](r, g, b, y)
             if to is not None: px[x, y] = to + (254,)
     return im
 
