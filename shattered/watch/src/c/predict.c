@@ -23,8 +23,9 @@ static bool s_box; static int32_t s_bx, s_by, s_rx, s_ry; static uint32_t s_bt; 
 // the hero, walking a predicted path
 static bool s_walk; static uint16_t s_wid; static int32_t s_wx0, s_wy0; static uint32_t s_wt;
 static uint8_t s_wn; static uint8_t s_wdir[PLAN_S]; static uint16_t s_wstep, s_wmarker = NONE; static bool s_wmoved;
-// a press while he walks stops him (Controls.button, as Pebble PD): from then on he goes no further than the phone's frames
-// show him (they end where the phone stopped him), not ahead of them, nor on through a radio hold-up
+// a press while he walks stops him (Controls.button, as Pebble PD): from then on he goes at most a step past the phone's
+// frames (they end where the phone stopped him, and its word of where comes ahead of them: s_endp), never on through a
+// radio hold-up
 static bool s_wstop;
 // sliding back
 static uint16_t s_eid = NONE; static int32_t s_edx, s_edy; static uint32_t s_et;
@@ -128,7 +129,7 @@ static int32_t shown_prog(uint32_t now) {
   if (rp >= 0) {
     uint32_t behind = (uint32_t)s_plag > s_lat ? (uint32_t)s_plag : s_lat;
     // (until the phone's hero sets off, a step less: if the phone does something else, less to take back)
-    int32_t lead = s_wstop ? 0 : (s_wmoved ? LEAD : LEAD / 2) + (int32_t)(behind * 256 / s_wstep);
+    int32_t lead = s_wstop ? LEAD / 2 : (s_wmoved ? LEAD : LEAD / 2) + (int32_t)(behind * 256 / s_wstep);   // (stopped: a step at most, to stay smooth)
     // Held back where he is (never pulled back: the allowance shrinks as the delay does), the pace going on from
     // there without a jump later. Not while the radio is held up (a lost message stops everything for 3 s): he
     // walks on as planned, rather than standing 3 s and then leaping to wherever the phone's hero had got to.
@@ -148,8 +149,6 @@ static int32_t shown_prog(uint32_t now) {
   return p;
 }
 static void walk_at(uint32_t now, int32_t *x, int32_t *y) { prog_at(shown_prog(now), x, y); }
-// (still on his way, as shown: not once he stands at the end, waiting for the phone's word of it)
-bool predict_walk_shown(void) { return s_walk && s_plast < (s_endp >= 0 ? s_endp : s_wn * 256); }
 
 bool predict_button(int code, uint32_t now) {
   bool down = (code & 15) == B_DOWN, select = code == B_SELECT;

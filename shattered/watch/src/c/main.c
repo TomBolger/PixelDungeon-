@@ -404,9 +404,10 @@ static void out_msg(int kind, int x, int y, bool lng) {
   tq_send();
 }
 
-// Is the hero shown walking? (walked ahead here, predict.c, or a walk the phone worked out ahead still playing): a press
-// then stops him (Controls.button), even when the phone's hero has arrived already
-static bool walk_shown(void) { return predict_walk_shown() || (s_wk.on && (int32_t)(s_cur_stamp - s_wk.a0) >= 0 && (s_wk.a1 == NO_END || (int32_t)(s_wk.a1 - s_cur_stamp) > 0)); }   // (its last frame played: over)
+// Is the hero shown on a walk the phone has finished already? (one it worked out ahead, C_AHEAD: its end is known and its
+// last frames are still to play here). A press then stops him all the same (Controls.button), rather than being taken
+// as a new one once the phone waits for real time to catch up. (While the phone's hero is still walking, it stops him)
+static bool walk_shown(void) { return s_q && s_wk.on && s_wk.a1 != NO_END && (int32_t)(s_cur_stamp - s_wk.a0) >= 0 && (int32_t)(s_wk.a1 - s_cur_stamp) > 0; }   // (s_q: its frames wait to play)
 static void send_button(int code) { out_msg(T_BUTTON, code | (walk_shown() ? B_WALKING : 0), 0, false); }
 
 // the map follows the finger at once; the phone's own scroll takes over when it has applied the drag

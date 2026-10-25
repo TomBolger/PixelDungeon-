@@ -223,11 +223,51 @@ public final class RefinementTest {
         int p1 = h.pos; oc.button(Controls.UP);
         for (int f = 0; f < 120 && !h.ready; f++) frames(app, 1);
         check(h.ready && Dungeon.level.distance(h.pos, p1) <= 1 && h.pos != far, "Up stopped the walk where he was (" + p1 + " -> " + h.pos + ", going to " + far + ")");
+        // Assist off: the walk cut short can be resumed from its tag (Pebble PD's ResumeButton); Down's tag with one target
+        WatchSettings.assist(0); st.set(oc, true); frames(app, 5);
+        Object[] tagBs = (Object[]) get(hud, "tagButtons", pebxel.ui.WatchHud.class);
+        check(h.lastAction != null && ((com.watabou.noosa.Gizmo) tagBs[4]).visible, "Off, a walk cut short: the Resume tag shows");
+        Object hooks = get(oc, "hooks"); Method tag = hooks.getClass().getMethod("tag", int.class, boolean.class); tag.setAccessible(true);
+        int p2 = h.pos; tag.invoke(hooks, 4, false);
+        for (int f = 0; f < 300 && h.pos == p2; f++) frames(app, 1);
+        check(h.pos != p2, "the Resume tag walks on");
+        for (int f = 0; f < 600 && !h.ready; f++) frames(app, 1);
+        final int one = h.pos + 1; Controls.legacy = aim -> new ArrayList<>(Arrays.asList(one)); st.set(oc, true); frames(app, 5);
+        check(((com.watabou.noosa.Gizmo) tagBs[2]).visible, "one target: Down's tag shows (Pebble PD)");
+        Controls.legacy = null;
+        // (PICS=folder: pictures of the new HUD pieces, as the watch shows them)
+        String pics = System.getenv("PICS");
+        if (pics != null) {
+            h.lastAction = new com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroAction.Move(one); st.set(oc, true); frames(app, 5); pic(pics, "resume");
+            h.lastAction = null;
+            com.shatteredpixel.shatteredpixeldungeon.items.weapon.missiles.ThrowingStone stone = new com.shatteredpixel.shatteredpixeldungeon.items.weapon.missiles.ThrowingStone();
+            stone.quantity(3).collect(); Dungeon.quickslot.setSlot(0, stone);
+            com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat rat = new com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Rat();
+            Dungeon.level.updateFieldOfView(h, Dungeon.level.heroFOV);
+            int rc = -1; for (int c = 0; c < Dungeon.level.length(); c++) { int dd = Dungeon.level.distance(c, h.pos); if (dd >= 2 && dd <= 4 && Dungeon.level.passable[c] && Dungeon.level.heroFOV[c] && com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c) == null) { rc = c; break; } }
+            check(rc >= 0, "a cell in sight for the rat");
+            rat.pos = rc; rat.state = rat.SLEEPING; GameScene.add(rat); Dungeon.level.updateFieldOfView(h, Dungeon.level.heroFOV); frames(app, 5);
+            com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton.lastTarget = rat;
+            tag.invoke(hooks, 1, false);   // (nothing: just so the HUD settles)
+            Method press = hooks.getClass().getMethod("press", int.class, boolean.class); press.setAccessible(true);
+            for (int f = 0; f < 600 && !h.ready; f++) frames(app, 1);
+            stone.execute(h); com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton.useTargeting(0); frames(app, 5);   // (as the slot pressed)
+            check(Controls.aiming() && (Integer) hooks.getClass().getMethod("aimSlot").invoke(hooks) == 0, "aiming from the first quickslot at the rat: its crosshair (aiming " + Controls.aiming() + " slot " + com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton.targetingSlot + " target " + com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton.lastTarget + " rat at " + rc + " fov " + (rc >= 0 && Dungeon.level.heroFOV[rc]) + " in chars " + com.shatteredpixel.shatteredpixeldungeon.actors.Actor.chars().contains(rat) + ")");
+            pic(pics, "aim");
+            GameScene.cancelCellSelector(); frames(app, 3);
+            rat.die(null); frames(app, 3);
+        }
+        WatchSettings.assist(1); st.set(oc, true);
         // a blow: a short buzz and the light (C_EVENT); death: the long one
         Feedback.take(); h.HP -= 1; frames(app, 1);
         check((Feedback.take() & (Feedback.HURT | Feedback.LIGHT)) == (Feedback.HURT | Feedback.LIGHT), "hurt: a buzz and the light");
         WatchSettings.assist(2); oc = null;
         System.out.println("buttons: Back resets the list and walks the ranked toolbar; Select with nothing listed re-centres, picks up, searches; a press stops a walk; a blow buzzes: ok");
+    }
+    static void pic(String dir, String name) throws Exception {
+        Link l = new Link(new Assets()); WatchSim sim = new WatchSim(new java.io.File("."), new Assets());
+        l.frame(1f/30); for (byte[] m : l.take(1000000)) sim.apply(m);
+        sim.render(); new java.io.File(dir).mkdirs(); sim.save(new java.io.File(dir, name + "-" + Screen.w + ".png"), 2);
     }
     // ---- the Assistant's choice of places: near before far, keys, a held key's door, no stairs with the floor not done ----
     static int[] walks(com.shatteredpixel.shatteredpixeldungeon.levels.Level L, int from) {
