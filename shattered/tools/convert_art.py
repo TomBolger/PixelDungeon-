@@ -96,6 +96,9 @@ def potion_fix(src, out):
             for y in range(row * 16, row * 16 + 16):
                 for x in range(cell * 16, cell * 16 + 16):
                     if sp[x, y][3] >= 100 and sp[x, y][:3] in m: op[x, y] = m[sp[x, y][:3]] + (255,)
+    for y in range(32, 48):   # the golden chest (row 3, cell 5): as the golden mimic (GOLD_CHEST)
+        for x in range(80, 96):
+            if sp[x, y][3] >= 100 and sp[x, y][:3] in GOLD_CHEST: op[x, y] = GOLD_CHEST[sp[x, y][:3]] + (255,)
 
 CUT = {'interfaces': 128, 'sprites': 100, 'effects/spell_icons.png': 100, 'effects/text_icons.png': 100}
 
@@ -119,10 +122,11 @@ def frame_widths():
 NO_OUTLINE = {'sprites/items.png', 'sprites/item_icons.png', 'sprites/avatars.png', 'sprites/amulet.png', 'sprites/pet.png',
               'sprites/warrior.png', 'sprites/mage.png', 'sprites/rogue.png', 'sprites/huntress.png', 'sprites/duelist.png', 'sprites/cleric.png'}
 
-def outline(im, fw, col=(0, 0, 0, 255)):
+def outline(im, fw, col=(0, 0, 0, 255), rows=None, fh=16):
     """Pebble PD's monster outline (convert_lib.outlined): every see-through pixel touching (4 ways) a solid one in
-    the same frame column turns black. Goo, being black, gets grey."""
+    the same frame column turns black. Goo, being black, gets grey (rows: {frame row: colour} for one row's creature)."""
     src = im.copy().load(); px = im.load(); w, h = im.size
+    base = col
     for y in range(h):
         for x in range(w):
             if src[x, y][3]: continue
@@ -130,7 +134,7 @@ def outline(im, fw, col=(0, 0, 0, 255)):
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 nx, ny = x + dx, y + dy
                 if f0 <= nx < min(w, f0 + fw) and 0 <= ny < h and src[nx, ny][3]:
-                    px[x, y] = col; break
+                    px[x, y] = rows.get(y // fh, base) if rows else base; break
 
 FRAME_W = {}
 FRAME_H = {}   # creature sheets' frame heights: their colours are folded a row (one creature, or one armour tier) at a time
@@ -287,6 +291,17 @@ def warm_stone(p, src, out):
             r, g, b, a = sp[x, y]
             if a == 255 and op[x, y][:3] == (255, 170, 170) and r - b >= 15 and g - b >= 6: op[x, y] = (170, 170, 85, 255)
 
+def gold_ore(p, src, out):
+    """The caves' gold veins (Shattered's mining): their middle and dark golds snapped to orange-peach and red, so the
+    nuggets read salmon pink on the panel. By brightness, as the gold coins are shaded: yellow, tan, brown."""
+    if region(p) != 'caves': return
+    sp, op = src.load(), out.load()
+    for y in range(src.height):
+        for x in range(src.width):
+            r, g, b, a = sp[x, y]
+            if a == 255 and b <= 10 and r >= 120 and r > g and y // 16 in (3, 5, 6, 10, 12):   # (not the orange crystals)
+                op[x, y] = ((255, 255, 0) if g >= 160 else (170, 170, 0) if g >= 100 else (170, 85, 0)) + (255,)
+
 # The Duelist's brown skin is low in colour, so the interface-grey rule (and the plain snap) turned her face grey.
 # Picked by hand as Pebble PD picked its potion colours: light tones rose-brown, the middle brown, shadows maroon.
 SKIN = {(115, 78, 77): (170, 85, 85), (108, 69, 64): (170, 85, 85), (95, 58, 52): (170, 85, 0),
@@ -322,6 +337,74 @@ RECOLOR = {
     'sprites/thief.png': {(58, 6, 42): (85, 0, 85), (95, 10, 77): (85, 0, 85), (100, 42, 82): (85, 0, 85), (122, 40, 104): (170, 0, 170)},
 }
 
+# ---- Shattered's own creatures, reviewed one by one on the panel's colours (convert_art.PANEL) as Pebble PD did ----
+# Brown, tan and beige are low in colour, so the grey rule turned them grey; picked by hand instead. On the panel
+# khaki (170,170,85) shows as tan, (85,85,0) as dark brown, (170,85,0) as brown and pale yellow as cream.
+_TAN, _DKBR, _BR, _CREAM = (170, 170, 85), (85, 85, 0), (170, 85, 0), (255, 255, 170)
+# the gnolls' tan fur and pale belly (one palette for scouts, shamans, brutes, guards, sappers, geomancers): grey and
+# white before, so the sapper was a grey gnoll and the brute's chest a white patch
+GNOLL_FUR = {(221, 206, 184): _CREAM, (174, 157, 134): _TAN, (182, 158, 134): _TAN, (130, 116, 92): (170, 85, 85)}
+RECOLOR.update({
+    # the rat: its brown body turned 85-grey, the sewer floor's own colour (only its outline showed): brown, tan
+    # highlights, dark brown shade. The fetid rat (row 3) is dark green: it had gone all black, a shadow on the floor
+    'sprites/rat.png': {(145, 124, 98): _TAN, (115, 99, 79): _BR, (85, 72, 57): _DKBR,
+                        (54, 56, 41): (0, 85, 0), (73, 71, 54): (85, 170, 85)},
+    # the rat king's mauve-brown fur was floor grey too: light grey, rose-brown, dark maroon
+    'sprites/ratking.png': {(122, 104, 96): _S, (97, 83, 77): (170, 85, 85), (72, 61, 56): (85, 0, 0)},
+    # the caustic slime (row 2): a black blob as Goo is, its shine white (with a grey edge: see OUTLINE_ROWS)
+    'sprites/slime.png': {(128, 128, 128): _W},
+    # the necromancer's robe lost its folds and trim (all black); the spectral necromancer's 50% black body was solid
+    # black: grey, as the wraith's
+    'sprites/necromancer.png': {(53, 53, 53): _G, (81, 81, 81): _S, (104, 104, 104): _S, (119, 119, 119): _S,
+                                ((0, 0, 0), 128): _G, ((0, 0, 0), 127): _G},
+})
+# the golden chest and the golden mimic (which must look the same): its gold snapped to orange-peach and brown, so it
+# looked like the wooden chest; yellow and tan, the gold coins' colours
+GOLD_CHEST = {(221, 152, 0): (255, 255, 0), (167, 116, 0): (170, 170, 0), (189, 129, 0): (170, 170, 0)}
+RECOLOR.update({
+    'sprites/mimic.png': GOLD_CHEST,   # (only row 2, the golden mimic, has these colours)
+    # the fungal spinner's dark green body turned olive-brown: dark green under its light green legs
+    'sprites/fungal_spinner.png': {(74, 119, 6): (0, 85, 0), (59, 95, 5): (0, 85, 0), (59, 96, 5): (0, 85, 0)},
+    # the rot lasher, a green vine, came out tan: olive green and dark green
+    'sprites/rot_lasher.png': {**{c: (85, 170, 0) for c in ((136, 146, 76), (129, 137, 85), (152, 163, 85), (164, 176, 92))},
+                               **{c: (0, 85, 0) for c in ((106, 114, 61), (102, 108, 68), (97, 101, 75), (123, 128, 94), (117, 120, 102))}},
+    # God's larva, a pale grub, went grey: cream, tan and dark brown
+    'sprites/larva.png': {(204, 194, 163): _CREAM, (204, 193, 145): _CREAM, (179, 172, 152): _TAN, (194, 185, 159): _TAN,
+                          (179, 166, 113): _TAN, (126, 116, 91): _DKBR},
+    # the golden bee's grey wings were the floor's grey (it read as a black and peach blob): light grey wings
+    'sprites/bee.png': {(77, 71, 67): _S, (49, 44, 42): _G},
+    # the dwarf warlock's purple robe turned blue (the panel's (85,0,170) is a steel blue) and its grey-green cloak the
+    # city floor's grey: purple, dark purple, and green-grey
+    'sprites/warlock.png': {(102, 45, 145): (170, 0, 170), (89, 40, 128): (85, 0, 85), (82, 119, 92): (85, 170, 85)},
+    # the evil eye, purple, came out steel blue: mauve
+    'sprites/eye.png': {(113, 79, 147): (170, 85, 170), (107, 69, 154): (170, 85, 170)},
+    # the darker smoke puff (specks) was the floor's own grey, so it never showed: light grey
+    'effects/specks.png': {(119, 119, 102): _S},
+    # the vault mirror's gold frame came out speckled pink and brown: cream, tan and dark brown
+    'sprites/vault_mirror.png': {(195, 168, 53): (255, 255, 85), (141, 115, 0): (170, 170, 0)},
+})
+for _g in ('gnoll', 'shaman', 'brute', 'gnoll_guard', 'gnoll_sapper', 'gnoll_geomancer'):
+    RECOLOR.setdefault('sprites/%s.png' % _g, {}).update(GNOLL_FUR)
+# a gold, green or purple shown by brightness bands (as Pebble PD's gilt() did for its sword's hilt), for sheets
+# shaded in many steps of one hue
+def _lum(r, g, b): return 0.3 * r + 0.5 * g + 0.2 * b
+def _guardian(r, g, b, y):
+    """the prison's guardian, a bronze statue: its darker bronze snapped to maroon, a red-brown figure. Tan, brown and
+    dark brown by brightness"""
+    if b or r <= g: return None
+    return (170, 170, 0) if r >= 140 else _BR if r >= 105 else _DKBR if r >= 55 else None
+def _fists(r, g, b, y):
+    """Yog's fists: the rotting fist (row 3) is pale green (its greens became tan and grey: a beige fist), the dark
+    fist (row 6) dark purple (it had gone all black, with only its outline showing)"""
+    L = _lum(r, g, b)
+    if 34 <= y < 51 and g > r and g > b:
+        return _S if L >= 165 else (85, 170, 85) if L >= 108 else (0, 85, 0) if L >= 50 else None
+    if 85 <= y < 102 and r > g and b > g:
+        return (170, 85, 170) if L >= 58 else (85, 0, 85) if L >= 40 else None
+    return None
+RAMPS = {'sprites/guardian.png': _guardian, 'sprites/yog_fists.png': _fists}
+OUTLINE_ROWS = {'sprites/slime.png': {1: (85, 85, 85, 255)}}   # a frame row's edge colour, when not the sheet's
+
 def plant_edges(p, im):
     """Pebble PD's plants: their 40% black shadow (a dotted checker on the watch) is a solid black edge, so they stand
     off grass and floor without see-through dots (terrain_features.png, the plants' row)."""
@@ -335,7 +418,8 @@ def plant_edges(p, im):
 def recolor(p, im):
     """Pebble PD's fixes: matched pixels become that Pebble colour, solid (alpha 254: kept as is by the mapping)."""
     rc = RECOLOR.get(p)
-    if not rc and p != 'sprites/piranha.png': return im
+    if not rc and p not in RAMPS and p != 'sprites/piranha.png': return im
+    rc = rc or {}
     px = im.load()
     for y in range(im.height):
         for x in range(im.width):
@@ -345,6 +429,7 @@ def recolor(p, im):
                 if a < 128: px[x, y] = _G + (254,)
                 continue
             to = rc.get(((r, g, b), a), rc.get((r, g, b)) if a >= 100 else None)
+            if to is None and a >= 100 and p in RAMPS: to = RAMPS[p](r, g, b, y)
             if to is not None: px[x, y] = to + (254,)
     return im
 
@@ -406,7 +491,7 @@ if __name__ == '__main__':
             out.save(dst); continue
         pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else skin(p, im.copy())
         out = pebbleize(greys(pre, levels(p)) if not p.startswith(('environment/', 'splashes/')) else pre, levels(p), alpha_cut=1)
-        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out)
+        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out); gold_ore(p, im, out)
         a, o = im.load(), out.load()
         cut = CUT.get(p.split('/')[0], CUT.get(p))
         if p.startswith('environment/tiles_'): cut = 100   # Pebble PD's tiles: the water's foam edge solid, faint shadows gone (both were dotted checkers)
@@ -426,7 +511,7 @@ if __name__ == '__main__':
                         o[x, y] = o[x, y][:3] + ((0, 85, 170, 255)[q],)
         if p in FRAME_H:
             for y0 in range(0, out.height, FRAME_H[p]): fold16(out, (0, y0, out.width, min(out.height, y0 + FRAME_H[p])))
-        if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255))
+        if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255), OUTLINE_ROWS.get(p), FRAME_H.get(p, 16))
         if p == 'interfaces/chrome.png': simple_frames(out)
         if p in ('interfaces/buffs.png', 'interfaces/large_buffs.png'): spread_greys(im, out, 7 if 'large' not in p else 16)
         out.save(dst)
