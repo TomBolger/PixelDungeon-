@@ -33,6 +33,7 @@ static int32_t iabs(int32_t v) { return v < 0 ? -v : v; }
 
 void predict_reset(void) { s_plan.on = false; s_box = s_walk = false; s_eid = NONE; }
 bool predict_active(void) { return s_box || s_walk || s_eid != NONE; }
+bool predict_walking(uint32_t now, uint32_t *since) { if (!s_walk || now - s_wt > 3000) return false; *since = s_wt; return true; }
 void predict_touch(void) { s_plan.on = false; }
 
 #ifdef TRACE_WALK

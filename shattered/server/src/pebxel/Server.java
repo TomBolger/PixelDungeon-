@@ -29,6 +29,7 @@ public class Server {
 	static Controls controls;
 	static final Touches touches = new Touches();
 	static Pacer pacer;
+	static Ahead ahead;
 	static volatile boolean connected;
 	static DataOutputStream outStream;
 	static final ArrayDeque<Integer> buttons = new ArrayDeque<>();
@@ -48,6 +49,7 @@ public class Server {
 		controls = new Controls();
 		link.planner = controls::plan;
 		pacer = new Pacer(link, Server::transmit);
+		ahead = new Ahead(link, pacer);
 		pacer.hello(2016);
 		if (System.getenv("ASSIST") != null) WatchSettings.assist(Integer.parseInt(System.getenv("ASSIST")));   // (tests: the Assistant's reach, 0 off 1 near 2 far)
 		Controls.log = System.getenv("PLANLOG") != null;
@@ -71,6 +73,11 @@ public class Server {
 		// the game loop: real time, 30 frames a second; the link sends whenever the watch has taken the last message
 		long frameNs = 1_000_000_000L / 30, next = System.nanoTime();
 		while (!app.exited) {
+			long roundNs = System.nanoTime();
+			if (ahead.hold(Game.pebxelSpeed / 30)) {
+				// the game is ahead of real time (a walk worked out ahead, Ahead): it waits, presses too
+				pacer.frame(0, connected);
+			} else {
 			Integer b;
 			synchronized (buttons) { b = buttons.poll(); }
 			if (b != null) controls.button(b);
@@ -79,10 +86,13 @@ public class Server {
 			controls.frame();
 			Gallery.tick();
 			stairsTick();
+			ahead.beforeSync(roundNs);
 			pacer.frame(Game.elapsed, connected);
+			ahead.after(() -> { app.frame(); controls.frame(); }, connected, roundNs);
+			}
 			if (++frames % 150 == 0 && connected)
-				System.out.printf("link: %.0f bytes/s, %.1f messages/s, radio %.0f bytes/s, %d frames merged, %d sent again, %d whole screens%n",
-						(pacer.bytes - lastBytes) / 5.0, (pacer.msgs - lastMsgs) / 5.0, pacer.rate(), pacer.merged, pacer.retries, pacer.resets);
+				System.out.printf("link: %.0f bytes/s, %.1f messages/s, radio %.0f bytes/s, %d frames merged, %d sent again, %d whole screens; %d frames worked out ahead, %d waited%n",
+						(pacer.bytes - lastBytes) / 5.0, (pacer.msgs - lastMsgs) / 5.0, pacer.rate(), pacer.merged, pacer.retries, pacer.resets, ahead.extra, ahead.held);
 			if (frames % 150 == 0 && connected && System.getenv("STATS") != null && pacer.bytes - lastBytes > 500) {
 				// STATS=1: what took the bytes these 5 s
 				StringBuilder w = new StringBuilder("  most:");

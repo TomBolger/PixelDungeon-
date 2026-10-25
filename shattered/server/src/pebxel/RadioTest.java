@@ -111,17 +111,28 @@ public class RadioTest {
 	}
 
 	/** One frame of real time: the phone's loop (as WatchSession), the radio, the watch. */
+	static Ahead ahead;
 	static void frame() {
 		double next = t + FRAME;
 		radio(next);
 		t = next;
+		if (ahead.hold(Game.pebxelSpeed / 30)) {
+			// (the game ahead of real time, a walk worked out ahead: it waits, presses too)
+			pacer.frame(0, true);
+			sim.advance((float) (t * Game.pebxelSpeed - sim.now)); seen();
+			peak = Math.max(peak, pacer.waiting());
+			tracePhone();
+			return;
+		}
 		for (Runnable r : pendingActions) { try { r.run(); } catch (Throwable e) { e.printStackTrace(); } }
 		pendingActions.clear();
 		app.frame(); controls.frame();
 		// (FRAME_SLEEP=ms: real time between frames, as on the phone, where the game's actor thread runs between them)
 		if (FRAME_SLEEP > 0) try { Thread.sleep(FRAME_SLEEP); } catch (InterruptedException e) { }
 		gclock += Game.elapsed;
+		ahead.beforeSync(System.nanoTime());
 		pacer.frame(Game.elapsed, true);
+		ahead.after(() -> { app.frame(); controls.frame(); gclock += Game.elapsed; }, true, System.nanoTime());
 		sim.advance((float) (t * Game.pebxelSpeed - sim.now)); seen();
 		if (Game.scene() instanceof InterlevelScene) { try { Thread.sleep(2); } catch (InterruptedException e) { } HandoffTest.pressOn(); }
 		peak = Math.max(peak, pacer.waiting());
@@ -154,7 +165,9 @@ public class RadioTest {
 					if (com.watabou.utils.PathFinder.distance[c] >= 4 && com.watabou.utils.PathFinder.distance[c] <= 6 && Dungeon.level.map[c] == com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.EMPTY) { away = c; break; }
 			}
 			int to = i % 2 == 0 ? away : home;
-			press("walk", () -> { if (Ui.topWindow() != null) Ui.topWindow().hide(); if (Dungeon.hero.handle(to)) Dungeon.hero.next(); });
+			// (traced as a press of "5": the watch replay counts it as a walk, one it can't show ahead, as a tap)
+			trace("B %d %d", ms(t), 5);
+			press("walk", () -> { trace("Q %d %d", ms(t), Math.round(gclock * 1000)); if (Ui.topWindow() != null) Ui.topWindow().hide(); if (Dungeon.hero.handle(to)) Dungeon.hero.next(); });
 			run(1.6);
 		}
 	}
@@ -443,6 +456,7 @@ public class RadioTest {
 		sim = new WatchSim(new java.io.File("."), as);
 		if (System.getenv("TRACE") != null) traceOut = new java.io.PrintWriter(new java.io.FileWriter(System.getenv("TRACE")));
 		pacer = new Pacer(link, RadioTest::radioSend);
+		ahead = new Ahead(link, pacer);
 		pacer.clock = () -> Math.round(t * 1000);
 		pacer.hello(INBOX);
 		System.out.printf("radio: round trip %.0f ms (+-%.0f), %.0f bytes/s, %.1f%% nack, %.1f%% lost (%.0f s timeout); %s pacing%n",

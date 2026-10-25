@@ -362,7 +362,7 @@ index 1c02505..9254077 100644
  			
  			Actor.fixTime();
 diff --git a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
-index 346718f..52bf3d2 100644
+index 346718f..f5dab28 100644
 --- a/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 +++ b/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/Actor.java
 @@ -32,6 +32,7 @@ import com.watabou.utils.Bundlable;
@@ -404,7 +404,7 @@ index 346718f..52bf3d2 100644
  
  		ids.clear();
  	}
-@@ -241,6 +255,49 @@ public abstract class Actor implements Bundlable {
+@@ -241,6 +255,50 @@ public abstract class Actor implements Bundlable {
  		return current != null;
  	}
  
@@ -432,6 +432,7 @@ index 346718f..52bf3d2 100644
 +		} else if (o instanceof Thread && ((Thread) o).getState() == Thread.State.NEW) {
 +			((Thread) o).start();
 +		} else {
++			pebxelWake(o);   //(busy until it waits again: the watch's run-ahead waits for that, pebxel.Ahead)
 +			o.notifyAll();
 +		}
 +	}
@@ -454,7 +455,7 @@ index 346718f..52bf3d2 100644
  	public static int curActorPriority() {
  		return current != null ? current.actPriority : HERO_PRIO;
  	}
-@@ -283,7 +340,7 @@ public abstract class Actor implements Bundlable {
+@@ -283,7 +341,7 @@ public abstract class Actor implements Bundlable {
  					try {
  						synchronized (((Char)acting).sprite) {
  							if (((Char)acting).sprite.isMoving) {
@@ -463,7 +464,7 @@ index 346718f..52bf3d2 100644
  							}
  						}
  					} catch (InterruptedException e) {
-@@ -321,7 +378,7 @@ public abstract class Actor implements Bundlable {
+@@ -321,7 +379,7 @@ public abstract class Actor implements Bundlable {
  					Thread.currentThread().notify();
  					
  					try {

@@ -127,7 +127,7 @@ def scenario(F, A, out):
 
 def hero_walks(F, P, B, accs, tag):
     """Each walk: from a Select to the next press."""
-    sel = [b[0] for b in B if b[1] == 3]
+    sel = [b[0] for b in B if b[1] in (3, 5)]   # (5: a tap's walk, RadioTest walk)
     ends = [b[0] for b in B] + [1e18]
     for t0 in sel:
         t1 = min(e for e in ends if e > t0)

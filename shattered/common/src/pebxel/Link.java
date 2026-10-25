@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16, C_TILES2 = 17, C_ANIMTO = 18, C_RECIPE = 19, C_FOG = 20, C_READY = 21;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16, C_TILES2 = 17, C_ANIMTO = 18, C_RECIPE = 19, C_FOG = 20, C_READY = 21, C_AHEAD = 22;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8, K_EMIT = 9;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16, F_FOG = 32;   // F_FOG: the fog of war (the watch draws it as Pebble PD does)
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 11;   // 10: tile maps in runs (C_TILES2), animation changes (C_ANIMTO); 11: particles made on the watch (K_EMIT, C_RECIPE)
+	public static final int PROTOCOL = 12;   // 10: tile maps in runs (C_TILES2), animation changes (C_ANIMTO); 11: particles made on the watch (K_EMIT, C_RECIPE); 12: walks worked out ahead (C_AHEAD)
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -1320,37 +1320,65 @@ public final class Link {
 		// The rest just carry on (each marked newest, they arrived ever later than their time: on a slow radio the
 		// watch then held everything after a big change, a level, seconds late)
 		List<byte[]> out = new ArrayList<>();
-		int ms = pendNewest;
+		int ms = pendNewest - aheadMs;   // (the clock as it would be without running ahead: Ahead)
 		// C_READY x, y (s16, x8): the hero is ready again there (see sync), right after C_LATEST
-		int[] rd = ready; ready = null;
-		int head = rd != null && !Pacer.OLD ? 10 : 5;
-		for (byte[] pk : packets(all, max - head)) {
+		int[] rd = Pacer.OLD ? null : ready; ready = null;
+		// C_AHEAD from, to (u32 ms; to 0xFFFFFFFF: not over yet): these frames are a walk worked out ahead (Ahead), after that
+		boolean wk = walkFrom >= 0 && !Pacer.OLD;
+		int head = 5 + (rd != null ? 5 : 0) + (wk ? 9 : 0);
+		// (running ahead: the frames due soon in a message of their own, ahead of the rest. In one with the walk's
+		// next second they came that much later, past their time: the hero stood a moment, then hurried on)
+		int soon = -1;
+		if (aheadMs > 0 && !Pacer.OLD)
+			for (int mk : lastMarks) if (mk > 0 && mk + 5 <= all.length && all[mk] == C_TIME && stampAt(all, mk) > ms + SOON_MS) { soon = mk; break; }
+		for (byte[] pk : packets(all, max - head, soon)) {
 			if (!out.isEmpty() && !Pacer.OLD) { out.add(pk); continue; }
 			byte[] b = new byte[pk.length + (out.isEmpty() ? head : 5)];
 			b[0] = (byte) C_LATEST; b[1] = (byte) ms; b[2] = (byte) (ms >> 8); b[3] = (byte) (ms >> 16); b[4] = (byte) (ms >> 24);
 			int at = 5;
-			if (out.isEmpty() && head == 10) { b[5] = (byte) C_READY; b[6] = (byte) rd[0]; b[7] = (byte) (rd[0] >> 8); b[8] = (byte) rd[1]; b[9] = (byte) (rd[1] >> 8); at = 10; }
+			if (out.isEmpty() && rd != null) { b[5] = (byte) C_READY; b[6] = (byte) rd[0]; b[7] = (byte) (rd[0] >> 8); b[8] = (byte) rd[1]; b[9] = (byte) (rd[1] >> 8); at = 10; }
+			if (out.isEmpty() && wk) {
+				b[at] = (byte) C_AHEAD; put32(b, at + 1, walkFrom); put32(b, at + 5, walkTo < 0 ? -1 : walkTo); at += 9;
+			}
 			System.arraycopy(pk, 0, b, at, pk.length);
 			out.add(b);
 		}
+		if (wk && walkTo >= 0) walkFrom = walkTo = -1;   // (all its frames have gone)
 		return out;
 	}
 
 	/** Forget what was waiting (the watch starts over). */
-	public void dropPending() { pend.reset(); pendMarks.clear(); ready = null; }
+	public void dropPending() { pend.reset(); pendMarks.clear(); ready = null; walkFrom = walkTo = -1; }
+
+	// ---- walks worked out ahead (Ahead) ----
+	/** How far the game clock is ahead of real time (ms): C_LATEST gives the clock as it would be without that. */
+	public int aheadMs;
+	private int walkFrom = -1, walkTo = -1;
+	/** The hero set off on a walk the game carries on by itself: its frames from the last one noted are marked for the watch. */
+	public void walkStart() { walkFrom = nowMs(); walkTo = -1; }
+	/** ...and it is over, in the last frame noted. */
+	public void walkEnd() { if (walkFrom >= 0) walkTo = nowMs(); }
+
+	/** Frames due within this long (game ms) go first when running ahead (take). */
+	static final int SOON_MS = 150;
+	private static int stampAt(byte[] b, int at) { return (b[at + 1] & 255) | (b[at + 2] & 255) << 8 | (b[at + 3] & 255) << 16 | (b[at + 4] & 255) << 24; }
 
 	/** The last sync's bytes cut into messages of at most max bytes, each holding whole commands. */
-	public List<byte[]> packets(byte[] all, int max) {
+	public List<byte[]> packets(byte[] all, int max) { return packets(all, max, -1); }
+	/** ...and cut at `cut` too (a command's start; -1: no such cut). */
+	private List<byte[]> packets(byte[] all, int max, int cut) {
 		List<byte[]> res = new ArrayList<>();
 		int start = 0;
 		List<Integer> m = new ArrayList<>(lastMarks); m.add(all.length);
 		for (int i = 1; i < m.size(); i++) {
+			if (m.get(i - 1) == cut && cut > start) { res.add(Arrays.copyOfRange(all, start, cut)); start = cut; }
 			if (m.get(i) - start > max && m.get(i - 1) > start) { res.add(Arrays.copyOfRange(all, start, m.get(i - 1))); start = m.get(i - 1); }
 			if (m.get(i) - start > max) throw new IllegalStateException("command too big: " + (m.get(i) - start));
 		}
 		if (start < all.length) res.add(Arrays.copyOfRange(all, start, all.length));
 		return res;
 	}
+	private static void put32(byte[] b, int at, int v) { b[at] = (byte) v; b[at + 1] = (byte) (v >> 8); b[at + 2] = (byte) (v >> 16); b[at + 3] = (byte) (v >> 24); }
 	private void u16(int v) { out.write(v & 255); out.write((v >> 8) & 255); }
 	private void s16o(int v) { v = Math.max(-32768, Math.min(32767, v)); out.write(v & 255); out.write((v >> 8) & 255); }
 	private void s8(int v) { sb.write(v); }

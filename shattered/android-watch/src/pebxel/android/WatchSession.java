@@ -24,6 +24,8 @@ class WatchSession extends Thread {
 	private final ArrayDeque<Integer> buttons = new ArrayDeque<>();
 	/** The outbox to the watch, paced to the radio (one message at a time; see Pacer). */
 	private Pacer pacer;
+	/** Walks worked out ahead of real time (see Ahead). */
+	private Ahead ahead;
 	private WatchApp app;
 
 	WatchSession(WatchService s) { super("Watch game"); service = s; }
@@ -88,6 +90,7 @@ class WatchSession extends Thread {
 		Controls controls = new Controls();
 		link.planner = controls::plan;
 		pacer = new Pacer(link, bytes -> service.send(bytes, ok -> pacer.done(ok)));
+		ahead = new Ahead(link, pacer);
 
 		Shared.mark(Shared.WATCH_ON, true);
 		try { loop(c, game, link, controls); }
@@ -147,13 +150,18 @@ class WatchSession extends Thread {
 				opening = false;
 				Shared.takeOver(Shared.WATCH);
 			}
-			Integer b;
-			synchronized (buttons) { b = buttons.poll(); }
+			long roundNs = System.nanoTime();
+			// the game ahead of real time (a walk worked out ahead, Ahead): it waits this round, presses too
+			boolean hold = ahead.hold(Game.pebxelSpeed / 30);
+			Integer b = null;
+			if (!hold) synchronized (buttons) { b = buttons.poll(); }
 			try {
-				if (b != null) controls.button(b);
-				touches.frame(link, controls, Game.elapsed);
-				app.frame();
-				controls.frame();
+				if (!hold) {
+					if (b != null) controls.button(b);
+					touches.frame(link, controls, Game.elapsed);
+					app.frame();
+					controls.frame();
+				}
 			} catch (Throwable t) {
 				// one bad frame (a window that broke, say) shouldn't end the game: note it, close the top window and go on;
 				// only a run of them stops the session (and the watch's next start makes a new one)
@@ -174,7 +182,12 @@ class WatchSession extends Thread {
 			}
 			// note this frame's changes and send what the radio can take (never a backlog; a slow or failed
 			// message never holds the game up; nothing while the watch app is closed)
-			pacer.frame(Game.elapsed, !away);
+			if (!hold) ahead.beforeSync(roundNs);
+			pacer.frame(hold ? 0 : Game.elapsed, !away);
+			if (!hold) {
+				try { ahead.after(() -> { app.frame(); controls.frame(); }, !away, roundNs); }
+				catch (Throwable t) { android.util.Log.e("PebxelWatch", "frame ahead failed", t); Crashes.note(c, t); }
+			}
 			next += frameNs;
 			long sleep = next - System.nanoTime();
 			try {

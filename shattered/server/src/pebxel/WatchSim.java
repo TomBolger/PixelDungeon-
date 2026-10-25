@@ -114,6 +114,7 @@ public final class WatchSim {
 		} else if (msg.length >= 5 && msg[0] == Link.C_LATEST) {   // (as main.c enqueue: a steady delay)
 			float lat = now - stamp(msg, 0) / 1000f;
 			int t5 = msg.length >= 10 && msg[5] == Link.C_READY ? 10 : 5;
+			if (msg.length >= t5 + 9 && msg[t5] == Link.C_AHEAD) { ahead(stamp(msg, t5) / 1000f, stamp(msg, t5 + 4)); t5 += 9; }
 			float old = msg.length >= t5 + 5 && msg[t5] == Link.C_TIME ? now - stamp(msg, t5) / 1000f : lat;
 			if (!haveOff || lat < base) base = lat; else base += (lat - base) / 32;
 			float need = Math.max(0, Math.min(LATE_MAX, old - base));
@@ -125,6 +126,21 @@ public final class WatchSim {
 		}
 		q.add(msg); qPos.add(new int[]{0});
 		pump();
+	}
+
+	// a walk worked out ahead (C_AHEAD, see Ahead): its frames [a0, a1] play from when it arrived (main.c also from
+	// when the watch began it, predict.c: not modelled here), the one before it as it was
+	private float a0 = -1, a1, aOff, p0 = -1, p1, pOff;
+	private void ahead(float from, long to) {
+		float end = to == 0xFFFFFFFFL ? Float.MAX_VALUE : to / 1000f;
+		if (from != a0) { p0 = a0; p1 = a1; pOff = aOff; a0 = from; aOff = Math.min(off, now + MARGIN - from); }
+		a1 = end;
+	}
+	private float dueOf(float st) {
+		if (a0 >= 0 && st >= a0 && st <= a1) return st + aOff;
+		if (p0 >= 0 && st >= p0 && st <= p1) return st + pOff;
+		float d = st + off;
+		return a0 >= 0 && st < a0 ? Math.min(d, a0 + aOff) : d;
 	}
 
 	/** The newest phone frame (its stamp, ms) played so far. */
@@ -145,7 +161,7 @@ public final class WatchSim {
 		while (!q.isEmpty()) {
 			byte[] m = q.peek(); int[] pos = qPos.peek();
 			if (pos[0] < m.length && m[pos[0]] == Link.C_TIME) {
-				float due = stamp(m, pos[0]) / 1000f + off;
+				float due = dueOf(stamp(m, pos[0]) / 1000f);
 				if (due > now + 1e-4f) return;
 				curAt = OLD_OFF || now - due <= LATE_MAX ? due : now - LATE_MAX;
 				played = Math.max(played, stamp(m, pos[0]));
@@ -167,11 +183,12 @@ public final class WatchSim {
 			if (stopAtTime && b[p] == Link.C_TIME && p > from) return p;
 			int c = u8();
 			// (as the watch: a frame only half here isn't drawn; the last whole one stays on screen)
-			if (c == Link.C_COMMIT) partial = false; else if (c != Link.C_TIME && c != Link.C_LATEST) partial = true;
+			if (c == Link.C_COMMIT) partial = false; else if (c != Link.C_TIME && c != Link.C_LATEST && c != Link.C_READY && c != Link.C_AHEAD) partial = true;
 			switch (c) {
 				case Link.C_TIME: p += 4; break;
 				case Link.C_LATEST: p += 4; break;
-				case Link.C_RESET: objs.clear(); head = Link.NONE; dyn.clear(); anims.clear(); Arrays.fill(cams, null); parts.clear(); Arrays.fill(recipes, null); fogTex = -1; break;
+				case Link.C_AHEAD: p += 8; break;
+				case Link.C_RESET: a0 = p0 = -1; objs.clear(); head = Link.NONE; dyn.clear(); anims.clear(); Arrays.fill(cams, null); parts.clear(); Arrays.fill(recipes, null); fogTex = -1; break;
 				case Link.C_CAM: {
 					int id = u8(); Cam k = new Cam(); k.x = s16(); k.y = s16(); k.w = s16(); k.h = s16(); k.zoom = u16(); k.sx = s16(); k.sy = s16();
 					k.mode = u8() & 0x7F;

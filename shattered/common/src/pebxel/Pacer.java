@@ -113,6 +113,7 @@ public final class Pacer {
 			// the radio's pace, from messages big enough that their bytes, not the round trip, take most of the time
 			long took = clock.getAsLong() - sentAt;
 			if (fails == 0 && out.length >= 400 && took > 0) { float r = out.length * 1000f / took; rate = rate == 0 ? r : rate * 0.75f + r * 0.25f; }
+			if (fails == 0 && took > 0) msgMs = msgMs == 0 ? took : msgMs * 0.8f + took * 0.2f;
 			fails = 0; out = null; next(); return;
 		}
 		failed();
@@ -137,4 +138,7 @@ public final class Pacer {
 	/** See BUDGET. */
 	public synchronized int budget() { return rate == 0 ? BUDGET : Math.max(MIN_BUDGET, Math.min(BUDGET, Math.round(rate * TARGET / 1000))); }
 	public synchronized float rate() { return rate; }
+	/** Real ms a message has taken lately, sent to answered (0: not known yet). */
+	public synchronized float rtt() { return msgMs; }
+	private float msgMs;
 }

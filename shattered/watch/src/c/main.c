@@ -9,7 +9,7 @@
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
 #define GAME_SPEED_NUM 3   // 1.5 x real time: must match Game.pebxelSpeed (WatchGame.java)
 #define GAME_SPEED_DEN 2
-#define PROTOCOL 11  // must match Link.PROTOCOL on the phone
+#define PROTOCOL 12  // must match Link.PROTOCOL on the phone
 enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
 
 static Window *s_win;
@@ -140,14 +140,47 @@ static void off_move(uint32_t now) {
   s_off_at = now;
   if (d > SNAP || d < -SNAP) s_off = want;
   else s_off += d > step ? step : d < -step ? -step : d;
-  predict_lag(s_off - s_base);
 }
 
 static uint32_t stamp_at(const uint8_t *d) { return d[1] | d[2] << 8 | d[3] << 16 | (uint32_t)d[4] << 24; }
 
+// ---- walks the phone worked out ahead (C_AHEAD; Ahead.java on the phone) ----
+// Their frames come well before their time. When the watch walked the hero ahead at once (predict.c), they play from
+// that press, not a round trip and the play-out delay later, which kept everything the hero saw (the fog, monsters,
+// items) that far behind him; the first of them, a round trip late, catch up at once (at most CATCH).
+// The frames after the walk play at the usual delay again (the phone waited for real time to catch up meanwhile).
+#define CATCH 300            // game ms of a walk's start played at once, at most, when its frames came late
+#define NO_END 0xFFFFFFFFu
+typedef struct { bool on; uint32_t a0, a1; int32_t off; } Walk;   // phone stamps a0..a1 play at stamp + off
+static Walk s_wk, s_wkp;     // the newest walk, and the one before it
+static bool in_walk(const Walk *w, uint32_t st) { return w->on && (int32_t)(st - w->a0) >= 0 && (w->a1 == NO_END || (int32_t)(w->a1 - st) >= 0); }
+static uint32_t due_of(uint32_t st) {
+  if (in_walk(&s_wk, st)) return st + s_wk.off;
+  if (in_walk(&s_wkp, st)) return st + s_wkp.off;
+  uint32_t d = st + s_off;
+  // (from before the walk: played by its start at the latest)
+  if (s_wk.on && (int32_t)(st - s_wk.a0) < 0 && (int32_t)(d - (s_wk.a0 + s_wk.off)) > 0) d = s_wk.a0 + s_wk.off;
+  return d;
+}
+static void walk_heard(uint32_t a0, uint32_t a1, uint32_t now) {
+  if (!s_wk.on || a0 != s_wk.a0) {
+    s_wkp = s_wk;
+    uint32_t began;
+    // (a walk not shown ahead, a tap's: at the usual delay. Played from when its first frames came, the next ones,
+    // a radio round trip behind them, came late: the hero stood still a moment, then hurried on)
+    int32_t off = predict_walking(now, &began) ? (int32_t)(began - a0) : s_off;
+    int32_t lo = (int32_t)(now - a0) - CATCH;
+    if (off < lo) off = lo;
+    if (off > s_off) off = s_off;   // (never later than usual)
+    s_wk.on = true; s_wk.a0 = a0; s_wk.off = off;
+    APP_LOG(APP_LOG_LEVEL_INFO, "walk ahead: %d ms before the usual delay", (int)(s_off - off));
+  }
+  s_wk.a1 = a1;
+}
+
 static void queue_clear(void) {
   while (s_q) { Msg *m = s_q; s_q = m->next; free(m); }
-  s_qtail = NULL; s_qbytes = 0; s_have_off = false;
+  s_qtail = NULL; s_qbytes = 0; s_have_off = false; s_wk.on = s_wkp.on = false;
 }
 
 static void pump(void *data);
@@ -187,13 +220,14 @@ static void pump(void *data) {
   while (s_q) {
     Msg *m = s_q;
     if (m->pos < m->len && m->data[m->pos] == C_TIME && m->len - m->pos >= 5) {
-      uint32_t due = stamp_at(m->data + m->pos) + s_off;
+      uint32_t due = due_of(stamp_at(m->data + m->pos));
       if ((int32_t)(due - now) > 0 && !rush) { pump_at(due, now); return; }
       // (a frame that comes late plays as at most LATE_MAX late: its pictures' guessed moves don't run on for
       // the whole of a radio hiccup)
       s_cur_at = rush ? now : (int32_t)(now - due) > LATE_MAX ? now - LATE_MAX : due;
       s_cur_stamp = stamp_at(m->data + m->pos);
       s_cur_due = due;
+      predict_lag((int32_t)(due - s_cur_stamp) - s_base);   // (a walk ahead plays sooner than the usual delay)
     }
     int used = scene_apply(m->data + m->pos, m->len - m->pos, s_cur_at);
     m->pos = used > 0 ? m->pos + used : m->len;
@@ -207,6 +241,7 @@ static void pump(void *data) {
 }
 
 static void enqueue(const uint8_t *data, int len, uint32_t now) {
+  int walk_ahead = 0;
   if (len >= 5 && data[0] == C_LATEST) {
     // how late this message is: its newest frame (the stamp up front), and its oldest (the first frame's), which
     // waited longest on the phone for the radio
@@ -214,6 +249,7 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
     // (C_READY: the phone's hero is ready again, there: a walk shown ahead stops there now, not when it plays)
     int t5 = 5;
     if (len >= 10 && data[5] == C_READY) { predict_ready((int16_t)(data[6] | data[7] << 8), (int16_t)(data[8] | data[9] << 8)); t5 = 10; }
+    if (len >= t5 + 9 && data[t5] == C_AHEAD) { walk_ahead = t5; t5 += 9; }
     int32_t old = len >= t5 + 5 && data[t5] == C_TIME ? (int32_t)(now - stamp_at(data + t5)) : lat;
     // the quickest lately: down at once, up slowly (the phone's clock may fall behind, when it stalls)
     if (!s_have_off || lat < s_base) s_base = lat; else s_base += (lat - s_base) / 32;
@@ -224,6 +260,7 @@ static void enqueue(const uint8_t *data, int len, uint32_t now) {
     if (!s_have_off) { s_off = s_base + MARGIN + s_jit; s_off_at = now; }
     s_have_off = true;
     off_move(now);
+    if (walk_ahead) walk_heard(stamp_at(data + walk_ahead), stamp_at(data + walk_ahead + 4), now);
   }
   Msg *m = malloc(sizeof(Msg) + len);
   // short of memory: the pictures' cache gives some back (it can decode them again; a message can't be had again)
@@ -248,7 +285,8 @@ static void dropped(AppMessageResult r, void *ctx) { APP_LOG(APP_LOG_LEVEL_WARNI
 
 // the phone's whole screen from the start (Link.reset: its first message begins with C_RESET after the time stamps)
 static bool fresh_start(const uint8_t *d, int len) {
-  int k = len >= 10 && d[0] == C_LATEST && d[5] == C_READY ? 5 : 0;   // (look past a C_READY)
+  int k = len >= 10 && d[0] == C_LATEST && d[5] == C_READY ? 5 : 0;   // (look past a C_READY, a C_AHEAD)
+  if (len >= 14 + k && d[0] == C_LATEST && d[5 + k] == C_AHEAD) k += 9;
   return (len >= 1 && d[0] == C_RESET) || (len >= 11 + k && d[0] == C_LATEST && d[5 + k] == C_TIME && d[10 + k] == C_RESET);
 }
 

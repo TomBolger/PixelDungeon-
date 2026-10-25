@@ -18,4 +18,5 @@ bool predict_active(void);
 void predict_heard(uint32_t due, uint32_t now);       // a frame of the phone's was played (when it was due, and now)
 void predict_lag(int32_t ms);
 void predict_ready(int32_t x, int32_t y);              // the phone's hero is ready again, there (C_READY, on arrival)                          // how far behind the phone its frames play now (game ms)
+bool predict_walking(uint32_t now, uint32_t *since);   // walking the hero ahead of the phone, since the press (a recent one)
 void predict_reset(void);

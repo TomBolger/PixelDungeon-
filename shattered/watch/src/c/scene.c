@@ -404,11 +404,12 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
   while (p < end) {
     if (*p == C_TIME && p > data) break;   // the next frame's changes: they wait for their time
     int c = u8();
-    if (c != C_TIME && c != C_LATEST && c != C_COMMIT) g_partial = true;
+    if (c != C_TIME && c != C_LATEST && c != C_COMMIT && c != C_READY && c != C_AHEAD) g_partial = true;
     switch (c) {
       case C_TIME: p += 4; break;
       case C_LATEST: p += 4; break;
       case C_READY: p += 4; break;   // (read as the message arrived: main.c enqueue)
+      case C_AHEAD: p += 8; break;   // (likewise)
       case C_RESET: scene_reset(); break;
       case C_CAM: read_cam(now); break;
       case C_NEW: {
