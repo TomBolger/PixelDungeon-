@@ -424,6 +424,10 @@ public class WatchHud extends Group {
 		return new int[]{W - 22, k == 0 ? top : k == 1 ? H / 2 - 12 : bot - 24, 22, 24};
 	}
 
+	/** A heap's picture from its top item read once (ItemSprite(Heap) reads the top again, and the game thread may have emptied it). */
+	private static ItemSprite heapSprite(Heap h, Item top) {
+		return h.type == Heap.Type.HEAP || h.type == Heap.Type.FOR_SALE ? new ItemSprite(top) : new ItemSprite(h);
+	}
 	private static int[] tagRect(int which, boolean lootShown) {
 		if (round) return which == 1 || !lootShown ? new int[]{206 - 14, 212 - 14, 28, 28} : new int[]{180 - 14, 184 - 14, 28, 28};
 		int y = SC(33) + 2;
@@ -448,9 +452,10 @@ public class WatchHud extends Group {
 		boolean alive = h.isAlive();
 		int kind = hooks.targetKind(), cell = hooks.targetCell(), n = hooks.targetCount(), z = hooks.mapZoomLevel(); boolean lock = hooks.zoomLocked();
 		Heap under = Dungeon.level.heaps.get(h.pos);
-		boolean loot = alive && under != null && !under.isEmpty() && !(cell == h.pos && kind == 2);
+		Item underTop = under == null ? null : under.peek();   // (read once: the game thread can empty the heap between a check and a use)
+		boolean loot = alive && underTop != null && !(cell == h.pos && kind == 2);
 		Item weapon = h.belongings.weapon();
-		Heap there = cell >= 0 && kind == 2 ? Dungeon.level.heaps.get(cell) : null; if (there != null && there.isEmpty()) there = null;
+		Heap there = cell >= 0 && kind == 2 ? Dungeon.level.heaps.get(cell) : null; Item thereTop = there == null ? null : there.peek(); if (thereTop == null) there = null;
 		// zoom (Up): the glass (locked: Pebble PD 1.0's padlock) and a pip per level
 		int[] a = ctag(0);
 		if (tagChanged(0, alive + "/" + z + "/" + lock)) {
@@ -478,7 +483,7 @@ public class WatchHud extends Group {
 		boolean act = alive && kind > 0 && (cell >= 0 || kind >= 4);
 		Item use = kind == 4 || kind == 5 ? hooks.targetItem() : null;
 		if (kind == 4 || kind == 5) act &= use != null;
-		String actKey = !act ? "-" : kind == 4 || kind == 5 ? kind + "/" + use.image() : kind == 1 ? "1/" + (weapon == null ? 0 : weapon.image()) : kind == 2 && there != null ? "2/" + there.peek().image() : "" + kind;
+		String actKey = !act ? "-" : kind == 4 || kind == 5 ? kind + "/" + use.image() : kind == 1 ? "1/" + (weapon == null ? 0 : weapon.image()) : kind == 2 && there != null ? "2/" + thereTop.image() : "" + kind;
 		if (tagChanged(1, actKey) && act) {
 			a = ctag(1);
 			fly = kind == 4 || kind == 5 ? use : null;
@@ -517,9 +522,9 @@ public class WatchHud extends Group {
 		}
 		if (resume) tagButton(4, ra); else tagButtons[4].visible = tagButtons[4].active = false;
 		// what lies underfoot (left edge)
-		if (tagChanged(3, loot ? "" + under.peek().image() : "-") && loot) {
+		if (tagChanged(3, loot ? "" + underTop.image() : "-") && loot) {
 			a = tagRect(1, true); tag(a, "tag_blue");
-			ItemSprite s = new ItemSprite(under); s.scale.set(2); s.x = a[0] + Math.round((a[2] - s.width()) / 2) + 2; s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
+			ItemSprite s = heapSprite(under, underTop); s.scale.set(2); s.x = a[0] + Math.round((a[2] - s.width()) / 2) + 2; s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
 		}
 		if (loot) tagButton(3, tagRect(1, true)); else tagButtons[3].visible = tagButtons[3].active = false;
 	}
@@ -659,10 +664,11 @@ public class WatchHud extends Group {
 		com.shatteredpixel.shatteredpixeldungeon.actors.Char ch = cell >= 0 ? com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(cell) : null;
 		Heap heap = cell >= 0 && Dungeon.level != null ? Dungeon.level.heaps.get(cell) : null;
 		if (ch != null && ch != Dungeon.hero && ch.sprite != null && ch.sprite.visible) key = "c" + ch.id();
-		else if (heap != null && !heap.isEmpty()) key = "h" + heap.peek().image();
+		Item top = heap == null ? null : heap.peek();   // (read once: see underTop)
+		if (!(ch != null && ch != Dungeon.hero && ch.sprite != null && ch.sprite.visible) && top != null) key = "h" + top.image();
 		if (!key.equals(targetPtr.picKey)) {
 			if (key.startsWith("c")) pic = still(ch.sprite);
-			else if (key.startsWith("h")) pic = new ItemSprite(heap);
+			else if (key.startsWith("h")) pic = heapSprite(heap, top);
 			else pic = PdArt.image("icons", 67, 0, 16, 16, 1);
 		}
 		targetPtr.place(x, y, dx, dy, key, pic, true);

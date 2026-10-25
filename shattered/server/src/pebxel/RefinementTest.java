@@ -210,7 +210,8 @@ public final class RefinementTest {
         oc.button(Controls.SELECT); frames(app, 30);
         check(Dungeon.level.heaps.get(h.pos) == null && h.belongings.contains(it), "Select, nothing listed: what lies underfoot picked up");
         while (Ui.topWindow() != null) Ui.topWindow().hide();
-        t0 = now(); int p0 = h.pos; oc.button(Controls.SELECT); frames(app, 30);
+        t0 = now(); int p0 = h.pos; oc.button(Controls.SELECT);
+        for (int f = 0; f < 120 && now() <= t0; f += 10) frames(app, 10);   // (the game thread takes the turn when it gets to it)
         check(now() > t0 && h.pos == p0, "Select, nothing listed, nothing underfoot: a search");
         Controls.legacy = null; st.set(oc, true);
         // any button stops a walk (the step under way ends)
