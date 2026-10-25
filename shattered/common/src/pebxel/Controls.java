@@ -337,10 +337,10 @@ public class Controls {
 
 	// (a round screen's corners are gone: there, windows are read in the band across its middle)
 	// (the watch's own windows are laid out for the whole screen, round or not)
-	static int viewTop(Window w) { return Screen.round && !(w instanceof pebxel.ui.WatchWindow) ? 72 : 0; }
-	static int viewBottom(Window w) { return Screen.round && !(w instanceof pebxel.ui.WatchWindow) ? Game.height - 72 : Game.height; }
+	public static int viewTop(Window w) { return Screen.round && !(w instanceof pebxel.ui.WatchWindow) ? 72 : 0; }
+	public static int viewBottom(Window w) { return Screen.round && !(w instanceof pebxel.ui.WatchWindow) ? Game.height - 72 : Game.height; }
 
-	static boolean tall(Window w) {
+	public static boolean tall(Window w) {
 		if (w instanceof pebxel.ui.WatchWindow && ((pebxel.ui.WatchWindow) w).fixed) return false;
 		return w.camera != null && w.camera.screenHeight() > viewBottom(w) - viewTop(w) + 1;
 	}
@@ -1114,7 +1114,7 @@ public class Controls {
 			if (img == null || img.parent == null || !Frame.inScene(img)) {
 				img = pebxel.ui.PdArt.image("icons", 67, 0, 16, 16, 1);
 				Link.JUMPS.add(img);
-				GameScene.effect(img);
+				GameScene.effectOverFog(img);   // (over the fog of war: a target in a remembered place showed through its checker, faint)
 			}
 			float z = Camera.main == null ? 2 : Camera.main.zoom, s = z < 2 ? 2 / z : 1;
 			img.scale.set(s);
@@ -1169,7 +1169,7 @@ public class Controls {
 				if (bar[i] == null || bar[i].parent == null || !inScene(bar[i]) || colour[i] != color || bar[i].camera() != Camera.main) {
 					if (bar[i] != null) bar[i].killAndErase();
 					bar[i] = new ColorBlock(1, 1, color); colour[i] = color;
-					GameScene.effect(bar[i]);
+					GameScene.effectOverFog(bar[i]);   // (full brightness on a remembered cell too)
 				}
 				bar[i].visible = true;
 			}

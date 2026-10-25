@@ -32,5 +32,9 @@ public class WatchGame extends ShatteredPixelDungeon {
 	/** Run the drawing code every frame (with the do-nothing graphics chip): some pictures, like
 	 *  the fog of war, only bring themselves up to date while being drawn. The watch link needs this. */
 	public boolean drawAlways;
+	@Override protected void update() {
+		super.update();
+		pebxel.ui.Caps.keep();   // (a window taller than the screen: its frame's ends held at the screen's)
+	}
 	@Override protected void draw() { if (drawNext || drawAlways) { drawNext = false; super.draw(); } }
 }
