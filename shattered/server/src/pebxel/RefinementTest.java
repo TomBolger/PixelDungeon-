@@ -105,8 +105,30 @@ public final class RefinementTest {
         oc.button(Controls.SELECT); frames(app, 5);
         check(Ui.topWindow() != null, "Select on the upgrade opens its choice for the player");
         while (Ui.topWindow() != null) Ui.topWindow().hide();
-        h.belongings.backpack.items.remove(up); WatchSettings.assist(2); oc = null;
-        System.out.println("obedience: passed over with Down, ignored, a new floor, chosen: ok");
+        h.belongings.backpack.items.remove(up);
+        // the camera: every target Down shows lies whole in the play area (never under the HUD), Near and Far
+        for (int mode = 1; mode <= 2; mode++) {
+            WatchSettings.assist(mode); Assist.reset(); st.set(oc, true);
+            planA(app, -1, h.pos);
+            int n = list().size();
+            check(n > 1, "a list to cycle (" + mode + ")");
+            for (int i = 0; i <= n; i++) {
+                frames(app, 90);   // (the camera settles)
+                Method ct = Controls.class.getDeclaredMethod("currentTarget"); ct.setAccessible(true);
+                int c = (Integer) ct.invoke(oc);
+                if (c >= 0) check(Controls.onScreen(c), "target " + c + " shows whole, clear of the HUD (assist " + mode + ", entry " + i + ")");
+                oc.button(Controls.DOWN);
+            }
+        }
+        // the map dragged away from the target: the HUD points to it from the edge, the box on the map hidden
+        com.watabou.noosa.Camera.main.shift(new com.watabou.utils.PointF(400, 0)); frames(app, 3);
+        Object hud = get(oc, "hud"), edge = get(hud, "edge", pebxel.ui.WatchHud.class), mk = get(oc, "marker");
+        check(((com.watabou.noosa.Group) edge).visible, "a target off the view is pointed to from the edge");
+        check(!((com.watabou.noosa.Image) get(mk, "img", mk.getClass())).visible, "its box on the map is hidden meanwhile");
+        oc.button(Controls.DOWN); frames(app, 90);
+        check(!((com.watabou.noosa.Group) edge).visible, "a Down brings the view back to show the target");
+        WatchSettings.assist(2); oc = null;
+        System.out.println("obedience: passed over with Down, ignored, a new floor, chosen; camera: targets clear of the HUD, edge pointer: ok");
     }
     static Object get(Object o, String name, Class<?> c) throws Exception { Field f = c.getDeclaredField(name); f.setAccessible(true); return f.get(o); }
 
