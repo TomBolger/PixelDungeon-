@@ -122,19 +122,36 @@ def frame_widths():
 NO_OUTLINE = {'sprites/items.png', 'sprites/item_icons.png', 'sprites/avatars.png', 'sprites/amulet.png', 'sprites/pet.png',
               'sprites/warrior.png', 'sprites/mage.png', 'sprites/rogue.png', 'sprites/huntress.png', 'sprites/duelist.png', 'sprites/cleric.png'}
 
-def outline(im, fw, col=(0, 0, 0, 255), rows=None, fh=16):
+DARK = 20     # panel lightness (L*) under which a pixel reads as black: black, navy, maroon
+# frame rows that keep Pebble PD's whole ring: Thomas judged their outlines right as they were (the rat, the dwarf
+# warlock, the spectral necromancer, Yog's rotting fist)
+KEEP_RING = {'sprites/rat.png': {0}, 'sprites/warlock.png': {0}, 'sprites/necromancer.png': {1}, 'sprites/yog_fists.png': {2}}
+
+def outline(im, fw, col=(0, 0, 0, 255), rows=None, fh=16, keep=()):
     """Pebble PD's monster outline (convert_lib.outlined): every see-through pixel touching (4 ways) a solid one in
-    the same frame column turns black. Goo, being black, gets grey (rows: {frame row: colour} for one row's creature)."""
+    the same frame column turns black. Goo, being black, gets grey (rows: {frame row: colour} for one row's creature).
+    Shattered's creatures are drawn with their own dark edge. Where that edge came out black on the panel, a black
+    ring around it made the outline two pixels thick (the fetid rat, the brutes, the necromancer, the dark fist), so
+    the ring goes only beside lighter edge pixels: a black edge is the outline already, as in the source. (A grey
+    ring, a row named in rows, or a row in keep: the whole ring, as before.)"""
     src = im.copy().load(); px = im.load(); w, h = im.size
     base = col
+    dark = {}
+    def is_dark(c):
+        if c not in dark: dark[c] = panel_lab(c)[0] < DARK
+        return dark[c]
     for y in range(h):
         for x in range(w):
             if src[x, y][3]: continue
             f0 = x // fw * fw
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                nx, ny = x + dx, y + dy
-                if f0 <= nx < min(w, f0 + fw) and 0 <= ny < h and src[nx, ny][3]:
-                    px[x, y] = rows.get(y // fh, base) if rows else base; break
+            touch = [(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                     if f0 <= x + dx < min(w, f0 + fw) and 0 <= y + dy < h and src[x + dx, y + dy][3]]
+            if not touch: continue
+            r = y // fh
+            if (col[:3] == (0, 0, 0) and not any(ty // fh in keep or (rows and ty // fh in rows) for _, ty in touch)
+                    and all(is_dark(src[tx, ty][:3]) for tx, ty in touch)):
+                continue   # its own black edge is the outline
+            px[x, y] = rows.get(r, base) if rows else base
 
 FRAME_W = {}
 FRAME_H = {}   # creature sheets' frame heights: their colours are folded a row (one creature, or one armour tier) at a time
@@ -349,8 +366,9 @@ RECOLOR.update({
     # highlights, dark brown shade. The fetid rat (row 3) is dark green: it had gone all black, a shadow on the floor
     'sprites/rat.png': {(145, 124, 98): _TAN, (115, 99, 79): _BR, (85, 72, 57): _DKBR,
                         (54, 56, 41): (0, 85, 0), (73, 71, 54): (85, 170, 85)},
-    # the rat king's mauve-brown fur was floor grey too: light grey, rose-brown, dark maroon
-    'sprites/ratking.png': {(122, 104, 96): _S, (97, 83, 77): (170, 85, 85), (72, 61, 56): (85, 0, 0)},
+    # the rat king's mauve-brown fur was floor grey too: light grey, rose-brown, and a dark mauve shade (dark maroon,
+    # nearly black on the panel, made its outline look two pixels thick)
+    'sprites/ratking.png': {(122, 104, 96): _S, (97, 83, 77): (170, 85, 85), (72, 61, 56): (170, 0, 85)},
     # the caustic slime (row 2): a black blob as Goo is, its shine white (with a grey edge: see OUTLINE_ROWS)
     'sprites/slime.png': {(128, 128, 128): _W},
     # the necromancer's robe lost its folds and trim (all black); the spectral necromancer's 50% black body was solid
@@ -403,7 +421,9 @@ def _fists(r, g, b, y):
         return (170, 85, 170) if L >= 58 else (85, 0, 85) if L >= 40 else None
     return None
 RAMPS = {'sprites/guardian.png': _guardian, 'sprites/yog_fists.png': _fists}
-OUTLINE_ROWS = {'sprites/slime.png': {1: (85, 85, 85, 255)}}   # a frame row's edge colour, when not the sheet's
+# a frame row's edge colour, when not the sheet's; a row named here also keeps its whole ring (see outline()): the
+# tormented spirit's see-through maroon body has no edge of its own, the ring is what shows it on dark ground
+OUTLINE_ROWS = {'sprites/slime.png': {1: (85, 85, 85, 255)}, 'sprites/wraith.png': {1: (0, 0, 0, 255)}}
 
 def plant_edges(p, im):
     """Pebble PD's plants: their 40% black shadow (a dotted checker on the watch) is a solid black edge, so they stand
@@ -476,7 +496,9 @@ def pd_water(p, im):
 if __name__ == '__main__':
     FRAME_W.update(frame_widths())
     ps = paths()
+    only = [a for a in sys.argv[1:] if a != '-f']   # (names to convert just those pictures, e.g. tiles_halls)
     for p in ps:
+        if only and not any(o in p for o in only): continue
         dst = os.path.join(OUT, p.rsplit('.', 1)[0] + '.png')
         if '-f' not in sys.argv and os.path.exists(dst) and os.path.getmtime(dst) > os.path.getmtime(src(p)): continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -511,7 +533,7 @@ if __name__ == '__main__':
                         o[x, y] = o[x, y][:3] + ((0, 85, 170, 255)[q],)
         if p in FRAME_H:
             for y0 in range(0, out.height, FRAME_H[p]): fold16(out, (0, y0, out.width, min(out.height, y0 + FRAME_H[p])))
-        if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255), OUTLINE_ROWS.get(p), FRAME_H.get(p, 16))
+        if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255), OUTLINE_ROWS.get(p), FRAME_H.get(p, 16), KEEP_RING.get(p, ()))
         if p == 'interfaces/chrome.png': simple_frames(out)
         if p in ('interfaces/buffs.png', 'interfaces/large_buffs.png'): spread_greys(im, out, 7 if 'large' not in p else 16)
         out.save(dst)
