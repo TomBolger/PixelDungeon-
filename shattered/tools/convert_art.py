@@ -319,6 +319,26 @@ def gold_ore(p, src, out):
             if a == 255 and b <= 10 and r >= 120 and r > g and y // 16 in (3, 5, 6, 10, 12):   # (not the orange crystals)
                 op[x, y] = ((255, 255, 0) if g >= 160 else (170, 170, 0) if g >= 100 else (170, 85, 0)) + (255,)
 
+HALLS_STONE = [(40, None), (70, (85, 85, 0)), (110, (170, 85, 0)), (128, (170, 85, 85)), (165, (170, 170, 85))]
+
+def halls_stone(p, src, out):
+    """The Demon Halls' walls are a dark brown stone with lighter pillars and arch tops. Being low in colour, they
+    snapped to black and greys, and the face's smooth dark gradient crossed the black-to-grey line part way down, so a
+    grey blob stood in the middle of each arch. By brightness instead, one tone per band (HALLS_STONE: under each
+    brightness, that colour): the face one even tone, the pillars and arch recess a brown, the arch tops rose-brown
+    and tan. The walls' rows only (flat walls, raised walls, doors, internal walls, overhangs), not the floors."""
+    if not p.endswith('tiles_halls.png'): return
+    sp, op = src.load(), out.load()
+    for y in list(range(48, 64)) + list(range(80, src.height)):
+        for x in range(src.width):
+            r, g, b, a = sp[x, y]
+            if a != 255 or not (r >= g >= b and 6 <= r - b <= 50) or (r, g, b) in HALL_FLOOR: continue
+            L = 0.3 * r + 0.5 * g + 0.2 * b
+            for top, col in HALLS_STONE:
+                if L < top:
+                    if col: op[x, y] = col + (255,)
+                    break
+
 # The Duelist's brown skin is low in colour, so the interface-grey rule (and the plain snap) turned her face grey.
 # Picked by hand as Pebble PD picked its potion colours: light tones rose-brown, the middle brown, shadows maroon.
 SKIN = {(115, 78, 77): (170, 85, 85), (108, 69, 64): (170, 85, 85), (95, 58, 52): (170, 85, 0),
@@ -513,7 +533,7 @@ if __name__ == '__main__':
             out.save(dst); continue
         pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else skin(p, im.copy())
         out = pebbleize(greys(pre, levels(p)) if not p.startswith(('environment/', 'splashes/')) else pre, levels(p), alpha_cut=1)
-        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out); gold_ore(p, im, out)
+        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out); gold_ore(p, im, out); halls_stone(p, im, out)
         a, o = im.load(), out.load()
         cut = CUT.get(p.split('/')[0], CUT.get(p))
         if p.startswith('environment/tiles_'): cut = 100   # Pebble PD's tiles: the water's foam edge solid, faint shadows gone (both were dotted checkers)
