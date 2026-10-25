@@ -15,7 +15,7 @@ import java.io.File;
  * SEED=n NEWGAME=class to start straight in a new game.
  */
 public class Buttons {
-	static int wantDepth; static boolean wantMine, flashProbe;
+	static int wantDepth; static boolean wantMine, flashProbe; static long pressBytes;
 
 	public static void main(String[] a) throws Exception {
 		File dir = new File(a[0]); dir.mkdirs();
@@ -56,6 +56,8 @@ public class Buttons {
 				sc.identify(); sc.collect();
 				sc.execute(Dungeon.hero, com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll.AC_READ);
 			}
+			else if (p.startsWith("@pan:")) { String[] v = p.substring(5).split(","); com.watabou.noosa.Camera.main.shift(new com.watabou.utils.PointF(Float.parseFloat(v[0]), Float.parseFloat(v[1]))); wait = 2; }   // (tests: the map dragged)
+			else if (p.startsWith("@far:")) { int d = Integer.parseInt(p.substring(5)), h = Dungeon.hero.pos; Controls.legacy = aim -> new java.util.ArrayList<>(java.util.Arrays.asList(h + 1, h + d)); java.lang.reflect.Field st = Controls.class.getDeclaredField("targetsStale"); st.setAccessible(true); st.set(controls, true); }   // (tests: a near and a far target, the list made again)
 			else if (p.equals("@flash")) {   // (tests: every cell within 20 flashed, as a Stone of Clairvoyance or the Talisman of Foresight do)
 				int made = 0;
 				for (int c = 0; c < Dungeon.level.length(); c++) if (Dungeon.level.distance(c, Dungeon.hero.pos) <= 20 && com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.checkedCell(c, Dungeon.hero.pos) != null) made++;
@@ -124,8 +126,10 @@ public class Buttons {
 				if (System.getenv("TRACE_HERO") != null && Dungeon.hero != null && Dungeon.hero.sprite != null)
 					System.out.printf("hero t=%.3f pos=%d x=%.2f y=%.2f ready=%b%n", Game.timeTotal, Dungeon.hero.pos, Dungeon.hero.sprite.x, Dungeon.hero.sprite.y, Dungeon.hero.ready);
 				if (Game.scene() instanceof InterlevelScene) Thread.sleep(3); else Thread.sleep(1);
-				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) sim.apply(m);
+				sim.advance(Game.elapsed); link.frame(Game.elapsed); for (byte[] m : link.take(100000)) { sim.apply(m); pressBytes += m.length; }
 			}
+			if (System.getenv("BYTES") != null) System.out.println(p + ": " + pressBytes + " B, zoom " + (com.watabou.noosa.Camera.main == null ? 0 : com.watabou.noosa.Camera.main.zoom));
+			pressBytes = 0;
 			if (flashProbe) {
 				int n = 0, shown = 0, nocam = 0, ex = 0;
 				for (com.watabou.noosa.Gizmo g : Ui.parts(Game.scene()).stream().map(q -> q.g).toArray(com.watabou.noosa.Gizmo[]::new)) { }

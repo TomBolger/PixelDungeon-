@@ -443,3 +443,11 @@ I_T25	Sacrificial fire burns here. Every creature touched by this fire is marked
 I_T26	Shafts of light pierce the gloom of the underground garden.
 I_T27	A cloud of confusion gas is swirling here.
 I_T28	Everything is covered with a thick web here.
+N_GOO	spawn of Goo
+N_TENGU	memory of Tengu
+N_DM300	DM-350
+N_KING	undead King of Dwarves
+N_YOG	echo of Yog-Dzewa
+K_THE	Killed by the %s on level %%d
+K_AN	Killed by an %s on level %%d
+K_A	Killed by a %s on level %%d

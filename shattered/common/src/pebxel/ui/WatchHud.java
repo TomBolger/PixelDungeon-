@@ -70,7 +70,9 @@ public class WatchHud extends Group {
 		int toolbarHint();
 		int targetCount();
 		int mapZoomLevel();
-		void tag(int which, boolean held);   // 0 zoom, 1 act, 2 next target, 3 loot, 4 resume
+		/** Far's zoom locked on the hero (long Up): the zoom tag shows a padlock. */
+		boolean zoomLocked();
+		void tag(int which, boolean held);   // 0 zoom, 1 act, 2 next target, 3 loot, 4 resume, 5 the target's pointer, 6 the hero's
 	}
 
 	private Image avatar; private int avatarClass = -1, avatarTier = -1;
@@ -134,6 +136,7 @@ public class WatchHud extends Group {
 		add(tags);
 		add(log);
 		add(reticle);
+		add(heroEdge);
 		add(edge);
 
 		// what fingers and the Back button press
@@ -149,6 +152,7 @@ public class WatchHud extends Group {
 			b.visible = b.active = false;
 			tagButtons[k] = b; add(b);
 		}
+		targetBtn = pointerButton(5); heroBtn = pointerButton(6);   // (over the tags: the pointers take a tap first, Pebble PD 0.79)
 		refresh();
 	}
 
@@ -216,6 +220,7 @@ public class WatchHud extends Group {
 		add(tags);
 		add(log);
 		add(reticle);
+		add(heroEdge);
 		add(edge);
 		for (int i = 0; i < TB_N; i++) addButton(i, TBX[i] - TB_R, TBY[i] - TB_R, 2 * TB_R, 2 * TB_R);
 		addButton(B_MENU, 188, 29, 40, 40);
@@ -229,6 +234,7 @@ public class WatchHud extends Group {
 			b.visible = b.active = false;
 			tagButtons[k] = b; add(b);
 		}
+		targetBtn = pointerButton(5); heroBtn = pointerButton(6);   // (over the tags: the pointers take a tap first, Pebble PD 0.79)
 		refresh();
 	}
 	private int[] portraitBox;
@@ -423,17 +429,21 @@ public class WatchHud extends Group {
 
 	private void refreshTags(Hero h) {
 		boolean alive = h.isAlive();
-		int kind = hooks.targetKind(), cell = hooks.targetCell(), n = hooks.targetCount(), z = hooks.mapZoomLevel();
+		int kind = hooks.targetKind(), cell = hooks.targetCell(), n = hooks.targetCount(), z = hooks.mapZoomLevel(); boolean lock = hooks.zoomLocked();
 		Heap under = Dungeon.level.heaps.get(h.pos);
 		boolean loot = alive && under != null && !(cell == h.pos && kind == 2);
 		Item weapon = h.belongings.weapon();
 		Heap there = cell >= 0 && kind == 2 ? Dungeon.level.heaps.get(cell) : null;
-		// zoom (Up): the glass and a pip per level
+		// zoom (Up): the glass (locked: Pebble PD 1.0's padlock) and a pip per level
 		int[] a = ctag(0);
-		if (tagChanged(0, alive + "/" + z)) {
+		if (tagChanged(0, alive + "/" + z + "/" + lock)) {
 			if (alive) {
 				tag(a, "tag_red");
-				Image glass = PdArt.image("tag_red", 16, 1, 12, 12, 1); glass.x = a[0] + 3; glass.y = a[1] + 6; into.add(glass);
+				int lx = a[0] + 3, ly = a[1] + 6;
+				if (lock) {
+					into.add(block(LIGHT, lx + 3, ly, 6, 2)); into.add(block(LIGHT, lx + 2, ly + 1, 2, 5)); into.add(block(LIGHT, lx + 8, ly + 1, 2, 5));
+					into.add(block(YELLOW, lx + 1, ly + 5, 10, 7)); into.add(block(0x000000, lx + 5, ly + 7, 2, 3));
+				} else { Image glass = PdArt.image("tag_red", 16, 1, 12, 12, 1); glass.x = lx; glass.y = ly; into.add(glass); }
 				for (int i = 0; i <= z; i++) into.add(block(YELLOW, a[0] + 17, a[1] + 17 - i * 5, 3, 3));
 			}
 		}
@@ -586,23 +596,102 @@ public class WatchHud extends Group {
 		}
 	}
 
-	// ---- a target the view can't show: its mark at the play area's edge nearest it, a pip on the side it lies ----
-	private final Group edge = new Group();
-	private Image edgeMark; private ColorBlock edgePip; private int edgeKey = Integer.MIN_VALUE;
-	/** x, y: the mark's centre (watch px), x < -900 none; dx, dy: which way the target lies (-1, 0, 1). The pictures
-	 *  are made once and only moved (radio time). */
-	public void edge(int x, int y, int dx, int dy) {
-		int k = x < -900 ? -1 : (x << 16) ^ (y << 4) ^ ((dx + 1) << 2) ^ (dy + 1);
-		if (k == edgeKey) return;
-		edgeKey = k;
-		if (edgeMark == null) {
-			edgeMark = PdArt.image("icons", 67, 0, 16, 16, 1); edge.add(edgeMark);
-			edgePip = block(YELLOW, 0, 0, 4, 4); edge.add(edgePip);
+	// ---- off the view: Pebble PD's hero_pointer, a framed picture at the edge nearest it: the hero's portrait, or the
+	// target's picture with a yellow pip on the frame's side it lies. A tap on one brings the view to it. ----
+	private final Group edge = new Group(), heroEdge = new Group();   // the target's, the hero's
+	private final Pointer targetPtr = new Pointer(edge), heroPtr = new Pointer(heroEdge);
+	private HudButton targetBtn, heroBtn;
+
+	/** Where a pointer's frame centres for something shown at (x, y), watch px: Pebble PD's hero_pointer (16 px in
+	 *  from the sides, under the status pane, lower beside the portrait, 16 px over the toolbar; Gabbro: 58 px in). */
+	public static int[] pointerAt(float x, float y) {
+		boolean r = pebxel.Screen.round;
+		int x0 = r ? 58 : 16, x1 = W - x0, y1 = (r ? 190 : TB_Y) - 16, y0 = r ? 58 : (x < SC(35) + 8 ? SC(33) : SC(10)) + 8;
+		return new int[]{Math.round(Math.max(x0, Math.min(x1, x))), Math.round(Math.max(y0, Math.min(y1, y)))};
+	}
+
+	/** The target's pointer: x, y its frame's centre (watch px), x < -900 none; dx, dy which way the target lies from
+	 *  it (-1, 0, 1); cell: the target (its picture: the creature there, the thing lying there, else the target mark). */
+	public void edge(int x, int y, int dx, int dy, int cell) {
+		if (x < -900) { targetPtr.hide(); hideBtn(targetBtn); return; }
+		Visual pic = null; String key = "t";
+		com.shatteredpixel.shatteredpixeldungeon.actors.Char ch = cell >= 0 ? com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(cell) : null;
+		Heap heap = cell >= 0 && Dungeon.level != null ? Dungeon.level.heaps.get(cell) : null;
+		if (ch != null && ch != Dungeon.hero && ch.sprite != null && ch.sprite.visible) key = "c" + ch.id();
+		else if (heap != null && !heap.isEmpty()) key = "h" + heap.peek().image();
+		if (!key.equals(targetPtr.picKey)) {
+			if (key.startsWith("c")) pic = still(ch.sprite);
+			else if (key.startsWith("h")) pic = new ItemSprite(heap);
+			else pic = PdArt.image("icons", 67, 0, 16, 16, 1);
 		}
-		edge.visible = x > -900;
-		if (!edge.visible) return;
-		edgeMark.x = x - 8; edgeMark.y = y - 8;
-		edgePip.x = x - 2 + dx * 11; edgePip.y = y - 2 + dy * 11;
+		targetPtr.place(x, y, dx, dy, key, pic, true);
+		showBtn(targetBtn, x, y);
+	}
+	/** The hero's pointer (x < -900: none). */
+	public void heroEdge(int x, int y) {
+		Hero h = Dungeon.hero;
+		if (x < -900 || h == null || h.sprite == null) { heroPtr.hide(); hideBtn(heroBtn); return; }
+		String key = h.heroClass.ordinal() + "/" + h.tier() + "/" + h.sprite.flipHorizontal;
+		Image pic = null;
+		if (!key.equals(heroPtr.picKey)) { pic = HeroSprite.avatar(h); pic.flipHorizontal = h.sprite.flipHorizontal; }
+		heroPtr.place(x, y, 0, 0, key, pic, false);
+		showBtn(heroBtn, x, y);
+	}
+	/** A creature's picture standing still: its idle animation's first frame. */
+	private static Image still(CharSprite s) {
+		Image i = new Image(s);
+		try { Field f = CharSprite.class.getDeclaredField("idle"); f.setAccessible(true);
+			com.watabou.noosa.MovieClip.Animation a = (com.watabou.noosa.MovieClip.Animation) f.get(s);
+			if (a != null && a.frames.length > 0) i.frame(a.frames[0]);
+		} catch (Exception e) { }
+		i.flipHorizontal = s.flipHorizontal;
+		return i;
+	}
+	// (a finger's width round the frame, as Pebble PD 0.79)
+	private static void showBtn(HudButton b, int x, int y) { if (b == null) return; b.setRect(x - 20, y - 20, 40, 40); b.visible = b.active = true; }
+	private static void hideBtn(HudButton b) { if (b != null) b.visible = b.active = false; }
+	private HudButton pointerButton(int which) {
+		HudButton b = new HudButton() { @Override protected void onClick() { WatchHud.this.hooks.tag(which, false); } };
+		b.visible = b.active = false; add(b);
+		return b;
+	}
+
+	/** A pointer: the window frame, 28 px (Gabbro: a grey bubble pushed out towards the rim), its picture centred in it,
+	 *  a pip. Made once and only moved as the view moves (radio time); a new picture only when what it shows changes. */
+	private static final class Pointer {
+		final Group g; NinePatch nine; Shape[] discs; ColorBlock pip; Visual pic; String picKey = ""; int key = Integer.MIN_VALUE;
+		Pointer(Group g) { this.g = g; g.visible = false; }
+		void hide() { g.visible = false; key = Integer.MIN_VALUE; }
+		void place(int x, int y, int dx, int dy, String pk, Visual newPic, boolean withPip) {
+			g.visible = true;
+			if (nine == null && discs == null) {
+				if (pebxel.Screen.round) {
+					discs = new Shape[]{Shape.disc(0, 0, 19, 0x000000), Shape.disc(0, 0, 18, 0xAAAAAA), Shape.disc(0, 0, 16, 0x555555)};
+					for (Shape d : discs) g.add(d);
+				} else { nine = new NinePatch(PdArt.tex("chrome"), 22, 0, 18, 18, 5); nine.size(28, 28); g.add(nine); }
+				if (withPip) { pip = block(YELLOW, 0, 0, 4, 4); g.add(pip); }
+			}
+			boolean changed = newPic != null && !pk.equals(picKey);
+			if (changed) {
+				if (pic != null) pic.killAndErase();
+				pic = newPic; picKey = pk;
+				float w = pic.width(), h = pic.height(), s = Math.min(1f, 18f / Math.max(1f, Math.max(w, h)));
+				pic.scale.set(s);
+				if (pip != null) com.watabou.noosa.GroupAccess.addAfter(g, pic, discs != null ? discs[2] : nine); else g.add(pic);
+			}
+			int k = (x << 16) ^ (y << 4) ^ ((dx + 1) << 2) ^ (dy + 1);
+			if (k == key && !changed) return;
+			key = k;
+			int bx = x - 14, by = y - 14;
+			if (discs != null) {   // (Pebble PD's bubble: the discs 4 px further out than the box, the box 2 px)
+				float ex = x - 130, ey = y - 130, d = Math.max(1f, (float) Math.sqrt(ex * ex + ey * ey));
+				for (Shape s : discs) { s.x = Math.round(x + ex * 4 / d); s.y = Math.round(y + ey * 4 / d); }
+				bx += Math.round(ex * 2 / d); by += Math.round(ey * 2 / d);
+			} else { nine.x = bx; nine.y = by; }
+			float pw = pic.width() * pic.scale.x, ph = pic.height() * pic.scale.y;
+			pic.x = bx + Math.round((28 - pw) / 2); pic.y = by + Math.round((28 - ph) / 2);
+			if (pip != null) { pip.visible = dx != 0 || dy != 0; pip.x = bx + 12 + dx * 12; pip.y = by + 12 + dy * 12; }
+		}
 	}
 
 	public void pressHighlighted(boolean held) { if (highlight >= 0) hooks.press(highlight, held); }

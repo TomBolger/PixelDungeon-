@@ -102,7 +102,7 @@ public final class Assist {
 
 	static int heroPos() { return Dungeon.hero == null ? -1 : Dungeon.hero.pos; }
 
-	public static int mode() { try { return WatchSettings.assist(); } catch (Throwable e) { return 1; } }
+	public static int mode() { try { int a = WatchSettings.assist(); return a == 2 && Controls.zlock ? 1 : a; } catch (Throwable e) { return 1; } }   // (Far locked on the hero, long Up: rests as Near)
 	public static boolean itemsOn() { try { return WatchSettings.itemAssist(); } catch (Throwable e) { return true; } }
 
 	/** The last error caught (debugging). */

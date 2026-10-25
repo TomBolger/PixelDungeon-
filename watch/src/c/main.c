@@ -7,6 +7,7 @@
 #include "sheets.auto.h"
 #include "ovl.h"
 #include "ui_int.h"
+#include "game_int.h"                           // (1.01: g_mh, the mobs overlay draws the pointers)
 static void ui_win(int what, GContext *ctx);
 static void ui_win_free(void);
 static void ui_input(int ev, int x, int y);
@@ -900,17 +901,23 @@ static void open_info(int16_t cell) {
 }
 static bool in_rect(GRect r, int x, int y) { return x >= r.origin.x && x < r.origin.x + r.size.w && y >= r.origin.y && y < r.origin.y + r.size.h; }
 // When the camera is panned away and the hero is off screen, PD-style portrait at the edge
-// pointing towards the hero; tapping it recenters.
-static bool hero_pointer(GRect *out) {
-  if (!cam_free() || s_scene != SC_GAME) return false;
+// pointing towards the hero; tapping it recenters. 1.01 (owner): the Assistant's target off the view the same way, its
+// picture framed, a pip on the side it lies; tapping it brings the camera to it.
+static int8_t s_pdx, s_pdy;                       // the pip: which way the thing lies from its frame
+static bool edge_box(GRect *out, int wx, int wy, int m) {   // wx, wy: where (world units); m: how far past the frames' range it shows unframed
   int T = tile_px();
-  int hx = s_w / 2 + (s_vis_hero.x - cam_x()) * T / TS + T / 2, hy = map_center_y() + (s_vis_hero.y - cam_y()) * T / TS + T / 2;
+  int hx = s_w / 2 + (wx - cam_x()) * T / TS + T / 2, hy = map_center_y() + (wy - cam_y()) * T / TS + T / 2;
   int x0 = PBL_IF_ROUND_ELSE(58, 16), x1 = s_w - x0, y1 = toolbar_y() - 16;
   int y0 = PBL_IF_ROUND_ELSE(58, (hx < status_x() + SC(35) + 8 ? status_bottom() : status_y() + SC(10)) + 8);   // only the portrait hangs low
-  if (hx >= x0 - 8 && hx <= x1 + 8 && hy >= y0 - 8 && hy <= y1 + 8) return false;
+  if (hx >= x0 - m && hx <= x1 + m && hy >= y0 - m && hy <= y1 + m) return false;
   int px = hx < x0 ? x0 : hx > x1 ? x1 : hx, py = hy < y0 ? y0 : hy > y1 ? y1 : hy;
+  s_pdx = (hx > px + 14) - (hx < px - 14); s_pdy = (hy > py + 14) - (hy < py - 14);
   *out = GRect(px - 14, py - 14, 28, 28);
   return true;
+}
+static bool hero_pointer(GRect *out) { return cam_free() && s_scene == SC_GAME && edge_box(out, s_vis_hero.x, s_vis_hero.y, 8); }
+static bool tg_pointer(GRect *out) {               // (as its mark on the map: not while a button is highlighted; 16: a target half under the toolbar is still in view)
+  return s_scene == SC_GAME && s_hl < 0 && s_tg >= 0 && s_tgk <= TK_VEIN && s_tg != G.hero.pos && edge_box(out, (s_tg & 31) * TS, (s_tg >> 5) * TS, 16);
 }
 static int16_t screen_to_cell(int x, int y) {
   int T = tile_px();
@@ -977,7 +984,8 @@ static void on_tap(int x, int y) {
   void game_debug_map(void);                         // test kit (0.26: was long press Down): a tap on the depth counter
   if (y < 20 && x >= 110 && x < 165) { game_debug_map(); if (game_level_pending()) act(ACT_LEVEL); else redraw(); return; }
 #endif
-  GRect hp; if (hero_pointer(&hp) && in_rect(GRect(hp.origin.x - 6, hp.origin.y - 6, hp.size.w + 12, hp.size.h + 12), x, y)) { cam_center(); redraw(); return; }   // 0.79 (owner): the portrait at the edge first, a finger's width round it
+  GRect hp;                                          // 0.79 (owner): the portrait at the edge first, a finger's width round it (1.01: then the target's: the camera to it)
+  for (int k = 0; k < 2; k++) if ((k ? tg_pointer(&hp) : hero_pointer(&hp)) && in_rect(GRect(hp.origin.x - 6, hp.origin.y - 6, 40, 40), x, y)) { if (k) cam_to(s_tg); else cam_center(); redraw(); return; }
   GRect mb = menu_button_rect();
   if (in_rect(GRect(mb.origin.x - 8, mb.origin.y - 4, mb.size.w + 12, mb.size.h + 12), x, y)) { s_walking = false; mreg_spare(); s_scene = SC_MENU; s_sel = 0; redraw(); return; }   // (0.79: room for its pictures, as long Up)
   if (in_rect(PBL_IF_ROUND_ELSE(hl_rect(7), GRect(status_x(), status_y(), SC(35), SC(35))), x, y)) { s_walking = false; s_scene = SC_SHEET; s_sheet_tab = 0; redraw(); return; }   // portrait: character sheet
@@ -1497,13 +1505,12 @@ static void draw_hud_art(void) {
 #endif
 after_toolbar:;
   GRect hpr;
-  if (hero_pointer(&hpr)) {                        // off-screen hero: framed portrait at the edge
+  for (int k = 0; k < 2; k++) if (k ? tg_pointer(&hpr) : hero_pointer(&hpr)) {   // off-screen hero: framed portrait at the edge (1.01: the target too; the mobs overlay draws them)
 #ifdef PBL_ROUND
     hpr = bubble(hpr, ARGB(GColorDarkGray), ARGB(GColorLightGray));
-#else
-    blit_nine(&s_chrome, 22, 0, 18, 18, 5, hpr.origin.x, hpr.origin.y, hpr.size.w, hpr.size.h);
 #endif
-    g_blit_flip = G.hero.facing_left; blit(&s_hero, 0, 0, HERO_ART.fw, HERO_ART.fh, hpr.origin.x + 8, hpr.origin.y + 7, 1); g_blit_flip = false;
+    int m = combat_target(), h = heap_at(s_tg);
+    g_mh.edge(hpr.origin.x, hpr.origin.y, !k ? -1 : m >= 0 ? m : s_tgk == TK_ITEM && h >= 0 ? 256 + heap_sprite(h) : -2, s_pdx + 4 + 3 * s_pdy);
   }
   if (s_scene == SC_TARGET && s_aim_q >= 0 && s_aim_mob >= 0) {   // QuickSlot crossB over the aiming slot
 #ifdef PBL_ROUND

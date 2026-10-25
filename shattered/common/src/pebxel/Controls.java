@@ -77,9 +77,12 @@ public class Controls {
 		public int toolbarHint() { Assist.Target t = current(); return t == null || !Dungeon.hero.ready || onToolbar || touching ? -1 : buttonOf(t); }
 		public int targetCount() { return Dungeon.hero != null && Dungeon.hero.ready ? targets.size() : 0; }
 		public int mapZoomLevel() { Camera c = Camera.main; return c == null ? 1 : c.zoom < 1.5f ? 0 : c.zoom < 3f ? 1 : 2; }
+		public boolean zoomLocked() { return zlock && WatchSettings.assist() == 2; }
 		public void tag(int which, boolean held) {
 			switch (which) {
 				case 0: zoom(); break;
+				case 5: { int c = currentTarget(); if (c >= 0) { zman = false; view(c, TURN); } break; }   // the target's pointer: the view to it (Far: with the hero)
+				case 6: view(-1, TURN); break;   // the hero's: back on him, at the player's zoom (Pebble PD's cam_center)
 				case 1: dungeonButton(SELECT, false); break;
 				case 2: dungeonButton(DOWN, held); break;
 				case 3: key(SPDAction.WAIT_OR_PICKUP); break;
@@ -397,7 +400,8 @@ public class Controls {
 				target = held ? (target + targets.size() - 1) % targets.size() : (target + 1) % targets.size();
 				// (the entry cycled past: passed over, unless it is chosen after all: select, obeyed)
 				if (!aiming && was < plan.size() && plan.size() == targets.size() && !skipped.contains(plan.get(was))) skipped.add(plan.get(was));
-				view(cellOf(targets.get(target)), true);
+				zman = false;   // (Pebble PD 0.99: another target: Far picks the zoom again)
+				view(cellOf(targets.get(target)), PRESS);
 				keepEnemy();
 				return;
 			}
@@ -410,7 +414,7 @@ public class Controls {
 				}
 				int i = Math.min(target, targets.size() - 1), cell = targets.get(i);
 				Assist.Target t = current();
-				view(-1, false);
+				view(-1, ACT);
 				if (t != null) select(t, aiming);
 				else if (cell == -2) { Dungeon.hero.search(true); }   // (a test's bare cells)
 				else if (shot(cell)) shoot(cellOf(cell));
@@ -418,6 +422,7 @@ public class Controls {
 				targetsStale = true; acted();
 				return;
 			case UP:
+				if (held && WatchSettings.assist() == 2) { lock(); return; }   // (Pebble PD 1.0: Far: the zoom locked; the menu: Back's buttons, or a tap)
 				if (held) { GameScene.show(new WndGame()); return; }
 				zoom();
 				return;
@@ -452,17 +457,6 @@ public class Controls {
 		KeyEvent.addKeyEvent(new KeyEvent(k, false));
 	}
 
-	/** Zoom steps as Pebble PD: 16 px tiles, 32, 8, and back to 16. */
-	private void zoom() {
-		Camera c = Camera.main;
-		if (c == null) return;
-		farZoomFrom = -1;   // (the player's zoom now: Far's step out isn't given back over it)
-		int z = Math.round(c.zoom), to = z < 2 ? 2 : z < 4 ? 4 : 1;
-		to = Math.max(Math.round(PixelScene.minZoom), Math.min(Math.round(PixelScene.maxZoom), to));
-		for (int i = z; i < to; i++) key(SPDAction.ZOOM_IN);
-		for (int i = z; i > to; i--) key(SPDAction.ZOOM_OUT);
-	}
-
 
 	/** The toolbar and status buttons, left to right, then the top bar. */
 	private List<Ui.Part> toolbar() {
@@ -491,14 +485,17 @@ public class Controls {
 		// (aiming started or ended since: the other list. A zap or throw chosen in the item window kept the walking
 		// list, so Down offered items and the way on, not the enemies, until the hero moved)
 		float now = com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now();
-		int settings = WatchSettings.assist() * 2 + (WatchSettings.itemAssist() ? 1 : 0);
+		// (Near, Off, locked: the list is what shows at the player's zoom, made again when it changes; Far: a zoom keeps it)
+		int settings = WatchSettings.assist() * 2 + (WatchSettings.itemAssist() ? 1 : 0) + (far() ? 0 : 8 * (userZoom() + 1) + (zlock ? 32 : 0));
 		if (waiting(now, aiming)) return;
 		if (!targetsStale && Dungeon.hero.pos == lastPos && Dungeon.depth == lastDepth && aiming == lastAiming && now == lastNow && settings == lastSettings) return;
 		String why = log ? (targetsStale ? "stale " : "") + (Dungeon.hero.pos != lastPos ? "pos " : "") + (now != lastNow ? "time " + lastNow + "->" + now + " " : "") + (aiming != lastAiming ? "aim " : "") : "";
 		obeyed(Dungeon.hero.pos != lastPos || now != lastNow, Dungeon.depth == lastDepth);
 		targetsStale = false; lastPos = Dungeon.hero.pos; lastDepth = Dungeon.depth; lastAiming = aiming; lastNow = now; lastSettings = settings;
 		plans++;
-		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; view(-1, false); return; }
+		zman = false;   // (Pebble PD 0.99: a turn: Far picks the zoom again)
+		if (!far()) zoomTo(userZoom());   // (the Near list is what shows at the player's zoom)
+		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; view(targets.isEmpty() ? -1 : cellOf(targets.get(0)), TURN); return; }
 		plan = new ArrayList<>(Assist.plan(aiming, Controls::onScreenFromHero));
 		if (Assist.lastError != null) { System.out.println("pebxel: assist " + Assist.lastError); Assist.lastError = null; }
 		if (!aiming) { once(plan); steady(plan); shots(plan); if (WatchSettings.assist() != 0) { veins(plan); talents(plan); } }   // (Off: the enemies only)
@@ -510,7 +507,7 @@ public class Controls {
 		keepEnemy();
 		if (!aiming && !plan.isEmpty() && plan.size() == targets.size()) { offered = plan.get(0); offeredPos = Dungeon.hero.pos; }
 		// the camera shows the target on show whole, clear of the HUD (Far: wherever it is, Pebble PD 0.76); else it stays on the hero
-		view(targets.isEmpty() ? -1 : cellOf(targets.get(target)), false);
+		view(targets.isEmpty() ? -1 : cellOf(targets.get(target)), TURN);
 		if (log) System.out.println("pebxel: plan d" + Dungeon.depth + " t" + Math.round(now) + " hero " + Dungeon.hero.pos + (aiming ? " aiming" : "") + " (" + why.trim() + "): " + plan);
 	}
 	// ---- obeying the player (Pebble PD's pass_hands): what he passes over isn't pressed on him again ----
@@ -713,28 +710,30 @@ public class Controls {
 		Camera c = Camera.main;
 		if (c == null || cell < 0 || Dungeon.hero == null || Dungeon.level == null) return true;
 		int w = Dungeon.level.width(), h = Dungeon.hero.pos;
-		float t = DungeonTilemap.SIZE * c.zoom / 2f;   // a cell in watch pixels
-		return inPlay(Screen.w / 2f + (cell % w - h % w) * t, Screen.h / 2f + (cell / w - h / w) * t, markHalf());
+		float z = restZoom > 0 ? restZoom : c.zoom, t = DungeonTilemap.SIZE * z / 2f;   // a cell in watch pixels (at the zoom on its way)
+		return inPlay(Screen.w / 2f + (cell % w - h % w) * t, Screen.h / 2f + (cell / w - h / w) * t, markHalf(z));
 	}
 
-	/** The camera's centre on the hero (world units), as SPD's follow puts it. */
-	private static PointF heroCentre(Camera c) {
-		PointF p = Dungeon.hero.sprite.center();
-		return new PointF(p.x + c.centerOffset.x, p.y + c.centerOffset.y);
+	/** The camera's centre on the hero (world units) at zoom z, as SPD's follow puts it (its offset scales with the zoom). */
+	private static PointF heroCentre(Camera c, float z) {
+		PointF p = Dungeon.hero.sprite.center(); float k = c.zoom / z;
+		return new PointF(p.x + c.centerOffset.x * k, p.y + c.centerOffset.y * k);
 	}
 	/** Where the camera's centre comes to rest (world units): on what it follows, at the point it pans to, else where
-	 *  it is (the map dragged by a finger; a zoom: SPD's zoom stops the camera where it is). */
+	 *  it is (the map dragged by a finger). */
 	private static PointF restCentre(Camera c) {
 		float[] pan = com.watabou.noosa.NoosaAccess.pan(c); com.watabou.noosa.Visual f = com.watabou.noosa.NoosaAccess.followTarget(c);
 		if (pan[2] > 0 && f != null && f.visible) return new PointF(f.x + f.width() / 2 + c.centerOffset.x, f.y + f.height() / 2 + c.centerOffset.y);
 		if (pan[2] > 0 && f == null) return new PointF(pan[0], pan[1]);
 		return new PointF(c.scroll.x + c.width / 2f, c.scroll.y + c.height / 2f);
 	}
-	/** Where the cell's box shows (watch px) with the camera's centre at q. */
-	private static float[] seen(int cell, PointF q, Camera c) {
-		PointF p = DungeonTilemap.tileCenterToWorld(cell); float k = c.zoom / 2f;
+	/** Where the cell's box shows (watch px) with the camera's centre at q, at zoom z. */
+	private static float[] seen(int cell, PointF q, float z) {
+		PointF p = DungeonTilemap.tileCenterToWorld(cell); float k = z / 2f;
 		return new float[]{Screen.w / 2f + (p.x - q.x) * k, Screen.h / 2f + (p.y - q.y) * k};
 	}
+	private static boolean inPlay(int cell, PointF q, float z) { float[] s = seen(cell, q, z); return inPlay(s[0], s[1], markHalf(z)); }
+	static float markHalf(float z) { return Math.max(8, 4 * z); }
 	/** The nearest place (watch px) where a box shows whole in the play area. */
 	private static float[] clampPlay(float sx, float sy, float half) {
 		if (Screen.round) {
@@ -745,59 +744,166 @@ public class Controls {
 		float y = Math.max((x - half < PORTRAIT ? PORTRAIT : PLAY_T) + half, Math.min(Screen.h - PLAY_B - half, sy));
 		return new float[]{x, y};
 	}
-	/** The least move of the camera's centre from q that shows the cell's box whole; null: none needed. */
-	private static PointF shiftFor(int cell, PointF q, Camera c) {
-		float[] s = seen(cell, q, c); float half = markHalf();
+	/** The least move of the camera's centre from q that shows the cell's box whole (zoom z); null: none needed. */
+	private static PointF shiftFor(int cell, PointF q, float z) {
+		float[] s = seen(cell, q, z); float half = markHalf(z);
 		if (inPlay(s[0], s[1], half)) return null;
-		float[] in = clampPlay(s[0], s[1], half); float k = c.zoom / 2f;
+		float[] in = clampPlay(s[0], s[1], half); float k = z / 2f;
 		return new PointF(q.x + (s[0] - in[0]) / k, q.y + (s[1] - in[1]) / k);
 	}
+	private static PointF shiftFor(int cell, PointF q, Camera c) { return shiftFor(cell, q, c.zoom); }
+	/** At zoom z, where the camera's centre shows both the hero's box and the cell's whole in the play area: the hero's
+	 *  own view (hc itself) when it shows the cell; else moved as little as shows it; else the two centred in the play
+	 *  area (Pebble PD 0.93: centred between them). null: they don't both fit at this zoom. */
+	private static PointF fit(int cell, float z, Camera c) {
+		int h = Dungeon.hero.pos;
+		PointF hc = heroCentre(c, z), q = shiftFor(cell, hc, z);
+		if (q == null) return hc;
+		if (inPlay(h, q, z)) return q;
+		float[] a = seen(cell, hc, z), b = seen(h, hc, z); float k = z / 2f;
+		float cx = Screen.round ? Screen.w / 2f : (Screen.w - PLAY_R) / 2f, cy = Screen.round ? Screen.h / 2f : (PLAY_T + Screen.h - PLAY_B) / 2f;
+		q = new PointF(hc.x + ((a[0] + b[0]) / 2 - cx) / k, hc.y + ((a[1] + b[1]) / 2 - cy) / k);
+		for (int i = 0; i < 3; i++) {   // (then nudged for the corner under the portrait)
+			if (inPlay(cell, q, z) && inPlay(h, q, z)) return q;
+			PointF n = shiftFor(i == 1 ? h : cell, q, z); if (n != null) q = n;
+		}
+		return inPlay(cell, q, z) && inPlay(h, q, z) ? q : null;
+	}
 
-	/** The camera for the target on show (-1: none, or an action taken). A target that shows whole from the hero's own
-	 *  view, or none, leaves the camera following the hero (and gives back the zoom Far took); else the view moves as
-	 *  little as will show the target's box whole in the play area, clear of the HUD (it used to swing to halfway
-	 *  between the hero and the target, centred on the whole screen: the target could land under the toolbar or the
-	 *  tags). press: a Down; in Far a step out first when the hero would leave the view. */
-	private int farZoomFrom = -1, viewCell = -1; private float seenZoom = -1;
-	private void view(int cell, boolean press) {
+	// ---- the camera and its zoom, as Pebble PD's (main.c cam_to, zoom_cycle, zoom_go, g_zlock) ----
+	/** The zoom steps, as camera zooms: 8 px tiles on the watch, 16, 32. */
+	static final int[] ZOOMS = {1, 2, 4};
+	static int zi(float z) { return z < 1.5f ? 0 : z < 3f ? 1 : 2; }
+	static final int TURN = 0, PRESS = 1, ACT = 2, UPZ = 3;   // why the view is worked out: the list made again, a Down, Select, Up
+	private int userZoom = -1;     // the player's zoom (Up), 0..2: Far zooms out from it only as far as it takes, and back
+	private int zdir = 1;          // Up's way: far, middle, close, middle, far... (Pebble PD 0.99)
+	private boolean zman;          // Up zoomed this turn: Far keeps to that zoom (the target in the middle when both don't fit)
+	static boolean zlock;          // long Up in Far: the camera locked on the hero at the player's zoom; Far rests, as Near (Pebble PD 1.0)
+	private int zto = -1; private float zwait; private PointF zq; private boolean zqSet;   // the middle zoom's moment: the zoom and view on the way
+	private int viewCell = -1; private float seenZoom = -1;
+	/** The zoom the camera is at or on its way to (the Near list is made for it). */
+	static float restZoom = -1;
+	static boolean far() { return WatchSettings.assist() == 2 && !zlock; }
+	private int userZoom() {
+		if (userZoom < 0) userZoom = WatchSettings.zoom();   // (kept across sessions)
+		int lo = zi(PixelScene.minZoom), hi = zi(PixelScene.maxZoom);
+		return Math.max(lo, Math.min(hi, userZoom));
+	}
+
+	/** Up: the next zoom, far, middle, close, middle... from the one shown (Pebble PD 0.99); unlocks. Far: that zoom on the
+	 *  target this turn. */
+	private void zoom() {
+		Camera c = Camera.main;
+		if (c == null) return;
+		int z = zto >= 0 ? zto : zi(c.zoom);
+		zlock = false; zman = true;
+		if (z == 0) zdir = 1; else if (z == 2) zdir = -1;
+		userZoom = Math.max(zi(PixelScene.minZoom), Math.min(zi(PixelScene.maxZoom), z + zdir)); WatchSettings.zoom(userZoom);
+		view(viewCell, UPZ);
+	}
+	/** Long Up in Far: the zoom locked on the hero at the zoom shown, the targets those on screen; again: Far again. */
+	private void lock() {
+		Camera c = Camera.main;
+		if (c == null) return;
+		zlock = !zlock;
+		if (zlock) { userZoom = zto >= 0 ? zto : zi(c.zoom); WatchSettings.zoom(userZoom); }
+		targetsStale = true; zman = false;
+		view(-1, TURN);
+	}
+
+	/** The camera for the target on show (-1: none). Far (Pebble PD's cam_to): the closest zoom, from the player's own
+	 *  out, at which the hero's box and the target's both show whole in the play area, the view moved as little as that
+	 *  takes (none fits: the farthest, on the target); back in when the target is near again. Not on every Down: a Down
+	 *  only zooms out (the list made again next turn picks the zoom afresh), and Select leaves the zoom as it is (the
+	 *  next list picks it), so a walk doesn't zoom in only to zoom out again (radio time). Up: the player's zoom this
+	 *  turn. Near, Off, locked: the player's zoom on the hero, moved as little as shows the target clear of the HUD. */
+	private void view(int cell, int how) {
 		Camera c = Camera.main;
 		if (c == null || Dungeon.hero == null || Dungeon.hero.sprite == null || !(Game.scene() instanceof GameScene)) return;
 		viewCell = cell;
-		PointF hc = heroCentre(c), q = cell < 0 ? null : shiftFor(cell, hc, c);
-		if (q == null) {
-			if (c.followTarget() != Dungeon.hero.sprite || com.watabou.noosa.NoosaAccess.pan(c)[2] <= 0) c.panFollow(Dungeon.hero.sprite, 5f);
-			if (cell < 0 && farZoomFrom > 0) { int z = Math.round(c.zoom); for (int i = z; i < farZoomFrom; i++) key(SPDAction.ZOOM_IN); farZoomFrom = -1; }
-			return;
+		int uz = userZoom(), cz = zi(c.zoom), z = uz; PointF q = null;
+		if (zto >= 0) cz = zto;
+		if (!far()) { if (cell >= 0) q = shiftFor(cell, heroCentre(c, ZOOMS[z]), ZOOMS[z]); }
+		else if (how == ACT) z = cz;
+		else if (cell >= 0) {
+			int top = zman ? uz : how == PRESS ? Math.min(uz, cz) : uz, lo = zman ? uz : zi(PixelScene.minZoom);
+			for (z = top; z >= lo; z--) { q = fit(cell, ZOOMS[z], c); if (q != null) break; }
+			if (q == null) {   // (none fits: the target in the middle of the play area, farthest out)
+				z = lo; PointF hc = heroCentre(c, ZOOMS[z]); float[] s = seen(cell, hc, ZOOMS[z]); float k = ZOOMS[z] / 2f;
+				float cx = Screen.round ? Screen.w / 2f : (Screen.w - PLAY_R) / 2f, cy = Screen.round ? Screen.h / 2f : (PLAY_T + Screen.h - PLAY_B) / 2f;
+				q = new PointF(hc.x + (s[0] - cx) / k, hc.y + (s[1] - cy) / k);
+			}
 		}
-		float[] hs = seen(Dungeon.hero.pos, q, c);
-		if (press && !inPlay(hs[0], hs[1], markHalf()) && WatchSettings.assist() == 2 && Math.round(c.zoom) > Math.round(PixelScene.minZoom)) {
-			if (farZoomFrom < 0) farZoomFrom = Math.round(c.zoom);
-			key(SPDAction.ZOOM_OUT);   // (the view is worked out again once the zoom has changed: zoomed)
-			return;
-		}
-		c.panTo(new PointF(q.x - c.centerOffset.x, q.y - c.centerOffset.y), 5f);
+		if (q != null && q.x == heroCentre(c, ZOOMS[z]).x && q.y == heroCentre(c, ZOOMS[z]).y) q = null;
+		zq = q; zqSet = true;
+		if (zoomTo(z)) return;   // (the middle zoom first: the view once the zoom is there)
+		look(c, q);
 	}
-	/** Every frame: SPD's zoom (Up, or Far's step out) stops the camera where it is, following nothing, so the view
-	 *  stayed off the hero until he next moved (and the watch's map stood still under the walk it showed ahead): once
-	 *  the zoom has changed, the view is worked out again. */
+	/** Follow the hero (q null), or pan to show q at the screen's centre. */
+	private void look(Camera c, PointF q) {
+		if (q == null) { if (c.followTarget() != Dungeon.hero.sprite || com.watabou.noosa.NoosaAccess.pan(c)[2] <= 0) c.panFollow(Dungeon.hero.sprite, 5f); }
+		else c.panTo(new PointF(q.x - c.centerOffset.x, q.y - c.centerOffset.y), 5f);
+	}
+	/** Pebble PD's zoom_go: to zoom step i; from closest to farthest or back, the middle one for a moment first (true:
+	 *  the zoom is on its way). */
+	private boolean zoomTo(int i) {
+		Camera c = Camera.main;
+		int now = zi(c.zoom);
+		if (zto >= 0) { if (zto == i) return true; zto = -1; }
+		if (Math.abs(i - now) == 2) { zto = i; zwait = 0; setZoom(1); return true; }
+		setZoom(i);
+		return false;
+	}
+	/** Set the map's zoom at once, as Shattered's zoom keys do (CellSelector.zoom: the zoom kept, the sprites set). */
+	private void setZoom(int i) {
+		Camera c = Camera.main; float v = Math.max(PixelScene.minZoom, Math.min(PixelScene.maxZoom, ZOOMS[i]));
+		restZoom = zto >= 0 ? ZOOMS[zto] : v;
+		if (c.zoom == v) return;
+		try {
+			aiming();   // (looks up the cell selector's field)
+			Object sel = selF.get(null);
+			if (zoomM == null) { zoomM = com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector.class.getDeclaredMethod("zoom", float.class); zoomM.setAccessible(true); }
+			zoomM.invoke(sel, v);
+		} catch (Exception e) {
+			int z = Math.round(c.zoom), to = Math.round(v);
+			for (int k = z; k < to; k++) key(SPDAction.ZOOM_IN);
+			for (int k = z; k > to; k--) key(SPDAction.ZOOM_OUT);
+		}
+		seenZoom = c.zoom;
+	}
+	private static java.lang.reflect.Method zoomM;
+	/** Every frame: the middle zoom's moment over (150 ms), the zoom on to where it was going and the view with it; a
+	 *  zoom not the Assistant's (a pinch, Shattered's keys) is the player's. */
 	private void zoomed() {
 		Camera c = Camera.main; if (c == null) return;
+		if (zto >= 0) {
+			zwait += Game.elapsed / Math.max(0.01f, Game.pebxelSpeed);
+			if (zwait >= 0.15f || Ui.topWindow() != null) { int z = zto; zto = -1; setZoom(z); if (zqSet && Dungeon.hero != null && Dungeon.hero.sprite != null) look(c, zq); }
+			return;
+		}
 		if (c.zoom == seenZoom) return;
-		boolean first = seenZoom < 0; seenZoom = c.zoom;
-		if (!first && Ui.topWindow() == null) view(viewCell, false);
+		boolean first = seenZoom < 0; seenZoom = c.zoom; restZoom = c.zoom;
+		if (!first) { userZoom = zi(c.zoom); WatchSettings.zoom(userZoom); if (Ui.topWindow() == null) view(viewCell, TURN); }
 	}
-	/** The target outside the play area where the camera comes to rest (the map dragged by a finger, say): the HUD
-	 *  shows it at the edge nearest it, a pip on the side it lies (true: the box on the map is hidden). -1: none. */
+	/** The target outside the play area where the camera comes to rest (the map dragged by a finger, the zoom locked):
+	 *  the HUD frames its picture at the edge nearest it (true: the box on the map is hidden); and the hero's portrait,
+	 *  framed the same way, when he is out of the view. -1: no target. */
 	private boolean edge(int cell) {
 		if (hud == null) return false;
 		Camera c = Camera.main;
-		if (cell < 0 || c == null || Dungeon.hero == null) { hud.edge(-999, 0, 0, 0); return false; }
-		float[] s = seen(cell, restCentre(c), c);
-		if (inPlay(s[0], s[1], markHalf())) { hud.edge(-999, 0, 0, 0); return false; }
-		float[] in = clampPlay(s[0], s[1], 8);
-		hud.edge(Math.round(in[0]), Math.round(in[1]), (int) Math.signum(Math.round(s[0] - in[0])), (int) Math.signum(Math.round(s[1] - in[1])));
+		if (c == null || Dungeon.hero == null || Dungeon.hero.sprite == null) { hud.edge(-999, 0, 0, 0, -1); hud.heroEdge(-999, 0); return false; }
+		PointF rest = restCentre(c);
+		float[] h = seen(Dungeon.hero.pos, rest, c.zoom);
+		if (inPlay(h[0], h[1], markHalf(c.zoom))) hud.heroEdge(-999, 0);
+		else { int[] at = pebxel.ui.WatchHud.pointerAt(h[0], h[1]); hud.heroEdge(at[0], at[1]); }
+		if (cell < 0) { hud.edge(-999, 0, 0, 0, -1); return false; }
+		float[] s = seen(cell, rest, c.zoom);
+		if (inPlay(s[0], s[1], markHalf(c.zoom))) { hud.edge(-999, 0, 0, 0, -1); return false; }
+		int[] at = pebxel.ui.WatchHud.pointerAt(s[0], s[1]);
+		hud.edge(at[0], at[1], dir(s[0] - at[0]), dir(s[1] - at[1]), cell);
 		return true;
 	}
+	private static int dir(float d) { return d > 14 ? 1 : d < -14 ? -1 : 0; }   // (beyond the frame's side)
 
 	/** Walking distance from the hero over known, walkable cells (0 = unreachable, the hero's cell = 1). */
 	static int[] walk(Level L, int from) {

@@ -29,11 +29,11 @@ const MobDef *MOB_DEFS;                         // tools/mobs.py -> resources/da
 static const char *const VERBS[] = MOB_VERBS;
 const char *mob_name(int type) {
   if (G.depth != G.max_depth) switch (type) {          // Goo / Tengu / DM300 / King / Yog: name = depth == deepestFloor ? ...
-    case MT_GOO: return "spawn of Goo";
-    case MT_TENGU: return "memory of Tengu";
-    case MT_DM300: return "DM-350";
-    case MT_KING: return "undead King of Dwarves";
-    case MT_YOG: return "echo of Yog-Dzewa";
+    case MT_GOO: return txt(TX_N_GOO);                 // (1.01: these in text.bin: the app's size limit)
+    case MT_TENGU: return txt(TX_N_TENGU);
+    case MT_DM300: return txt(TX_N_DM300);
+    case MT_KING: return txt(TX_N_KING);
+    case MT_YOG: return txt(TX_N_YOG);
   }
   return txt(MOB_DEFS[type].name);
 }
@@ -1049,7 +1049,7 @@ bool attack(int att, int def, Item *thrown) {
     if (def < 0) {
     const char *nm = mob_name(am->type);                 // ResultDescriptions.BOSS / MOB with Utils.indefinite
     bool boss = (MOB_DEFS[am->type].flags & MD_BOSS) || am->type == MT_ROTTING_FIST || am->type == MT_BURNING_FIST;
-    char cause[64]; snprintf(cause, sizeof cause, boss ? "Killed by the %s on level %%d" : VOWEL(nm[0]) ? "Killed by an %s on level %%d" : "Killed by a %s on level %%d", nm);
+    char cause[64]; snprintf(cause, sizeof cause, txt(boss ? TX_K_THE : VOWEL(nm[0]) ? TX_K_AN : TX_K_A), nm);
     if (am->type == MT_WARLOCK || am->type == MT_EYE || am->type == MT_BURNING_FIST) dmg = elem_resist(-1, dmg);   // RingOfElements.FULL
     hero_damage(dmg, cause);
     interrupt();                                         // Char.attack: Dungeon.hero.interrupt()
