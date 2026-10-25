@@ -907,20 +907,26 @@ static bool in_rect(GRect r, int x, int y) { return x >= r.origin.x && x < r.ori
 // pointing towards the hero; tapping it recenters. 1.01 (owner): the Assistant's target off the view the same way, its
 // picture framed, a pip on the side it lies; tapping it brings the camera to it.
 static int8_t s_pdx, s_pdy;                       // the pip: which way the thing lies from its frame
-static bool edge_box(GRect *out, int wx, int wy, int m) {   // wx, wy: where (world units); m: how far past the frames' range it shows unframed
+#define PGAP PBL_IF_ROUND_ELSE(42, 30)
+static bool edge_box(GRect *out, int wx, int wy, int m, GRect *av) {   // wx, wy: where (world units); m: how far past the frames' range it shows unframed
   int T = tile_px();
   int hx = s_w / 2 + (wx - cam_x()) * T / TS + T / 2, hy = map_center_y() + (wy - cam_y()) * T / TS + T / 2;
   int x0 = PBL_IF_ROUND_ELSE(58, 16), x1 = s_w - x0, y1 = toolbar_y() - 16;
   int y0 = PBL_IF_ROUND_ELSE(58, (hx < status_x() + SC(35) + 8 ? status_bottom() : status_y() + SC(10)) + 8);   // only the portrait hangs low
   if (hx >= x0 - m && hx <= x1 + m && hy >= y0 - m && hy <= y1 + m) return false;
   int px = hx < x0 ? x0 : hx > x1 ? x1 : hx, py = hy < y0 ? y0 : hy > y1 ? y1 : hy;
+  if (av && abs(px - av->origin.x - 14) < PGAP && abs(py - av->origin.y - 14) < PGAP) {   // 1.03 (owner): never over the hero's frame:
+    int ax = av->origin.x + 14, ay = av->origin.y + 14;                                 // slid along its edge beside it, on the middle's side
+    if (px == x0 || px == x1) py = ay + (ay < PBL_IF_ROUND_ELSE(130, 114) ? PGAP : -PGAP); else px = ax + (ax < PBL_IF_ROUND_ELSE(130, 100) ? PGAP : -PGAP);
+  }
   s_pdx = (hx > px + 14) - (hx < px - 14); s_pdy = (hy > py + 14) - (hy < py - 14);
   *out = GRect(px - 14, py - 14, 28, 28);
   return true;
 }
-static bool hero_pointer(GRect *out) { return cam_free() && s_scene == SC_GAME && edge_box(out, s_vis_hero.x, s_vis_hero.y, 8); }
+static bool hero_pointer(GRect *out) { return cam_free() && s_scene == SC_GAME && edge_box(out, s_vis_hero.x, s_vis_hero.y, 8, NULL); }
 static bool tg_pointer(GRect *out) {               // (as its mark on the map: not while a button is highlighted; 16: a target half under the toolbar is still in view)
-  return s_scene == SC_GAME && s_hl < 0 && s_tg >= 0 && s_tgk <= TK_VEIN && s_tg != G.hero.pos && edge_box(out, (s_tg & 31) * TS, (s_tg >> 5) * TS, 16);
+  GRect h; GRect *av = hero_pointer(&h) ? &h : NULL;   // (1.03: clear of the hero's; drawn and tapped where it's slid to)
+  return s_scene == SC_GAME && s_hl < 0 && s_tg >= 0 && s_tgk <= TK_VEIN && s_tg != G.hero.pos && edge_box(out, (s_tg & 31) * TS, (s_tg >> 5) * TS, 16, av);
 }
 static int16_t screen_to_cell(int x, int y) {
   int T = tile_px();
