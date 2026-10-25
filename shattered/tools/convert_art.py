@@ -119,10 +119,11 @@ def frame_widths():
 NO_OUTLINE = {'sprites/items.png', 'sprites/item_icons.png', 'sprites/avatars.png', 'sprites/amulet.png', 'sprites/pet.png',
               'sprites/warrior.png', 'sprites/mage.png', 'sprites/rogue.png', 'sprites/huntress.png', 'sprites/duelist.png', 'sprites/cleric.png'}
 
-def outline(im, fw, col=(0, 0, 0, 255)):
+def outline(im, fw, col=(0, 0, 0, 255), rows=None, fh=16):
     """Pebble PD's monster outline (convert_lib.outlined): every see-through pixel touching (4 ways) a solid one in
-    the same frame column turns black. Goo, being black, gets grey."""
+    the same frame column turns black. Goo, being black, gets grey (rows: {frame row: colour} for one row's creature)."""
     src = im.copy().load(); px = im.load(); w, h = im.size
+    base = col
     for y in range(h):
         for x in range(w):
             if src[x, y][3]: continue
@@ -130,7 +131,7 @@ def outline(im, fw, col=(0, 0, 0, 255)):
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 nx, ny = x + dx, y + dy
                 if f0 <= nx < min(w, f0 + fw) and 0 <= ny < h and src[nx, ny][3]:
-                    px[x, y] = col; break
+                    px[x, y] = rows.get(y // fh, base) if rows else base; break
 
 FRAME_W = {}
 FRAME_H = {}   # creature sheets' frame heights: their colours are folded a row (one creature, or one armour tier) at a time
@@ -322,6 +323,31 @@ RECOLOR = {
     'sprites/thief.png': {(58, 6, 42): (85, 0, 85), (95, 10, 77): (85, 0, 85), (100, 42, 82): (85, 0, 85), (122, 40, 104): (170, 0, 170)},
 }
 
+# ---- Shattered's own creatures, reviewed one by one on the panel's colours (convert_art.PANEL) as Pebble PD did ----
+# Brown, tan and beige are low in colour, so the grey rule turned them grey; picked by hand instead. On the panel
+# khaki (170,170,85) shows as tan, (85,85,0) as dark brown, (170,85,0) as brown and pale yellow as cream.
+_TAN, _DKBR, _BR, _CREAM = (170, 170, 85), (85, 85, 0), (170, 85, 0), (255, 255, 170)
+# the gnolls' tan fur and pale belly (one palette for scouts, shamans, brutes, guards, sappers, geomancers): grey and
+# white before, so the sapper was a grey gnoll and the brute's chest a white patch
+GNOLL_FUR = {(221, 206, 184): _CREAM, (174, 157, 134): _TAN, (182, 158, 134): _TAN, (130, 116, 92): (170, 85, 85)}
+RECOLOR.update({
+    # the rat: its brown body turned 85-grey, the sewer floor's own colour (only its outline showed): brown, tan
+    # highlights, dark brown shade. The fetid rat (row 3) is dark green: it had gone all black, a shadow on the floor
+    'sprites/rat.png': {(145, 124, 98): _TAN, (115, 99, 79): _BR, (85, 72, 57): _DKBR,
+                        (54, 56, 41): (0, 85, 0), (73, 71, 54): (85, 170, 85)},
+    # the rat king's mauve-brown fur was floor grey too: light grey, rose-brown, dark maroon
+    'sprites/ratking.png': {(122, 104, 96): _S, (97, 83, 77): (170, 85, 85), (72, 61, 56): (85, 0, 0)},
+    # the caustic slime (row 2): a black blob as Goo is, its shine white (with a grey edge: see OUTLINE_ROWS)
+    'sprites/slime.png': {(128, 128, 128): _W},
+    # the necromancer's robe lost its folds and trim (all black); the spectral necromancer's 50% black body was solid
+    # black: grey, as the wraith's
+    'sprites/necromancer.png': {(53, 53, 53): _G, (81, 81, 81): _S, (104, 104, 104): _S, (119, 119, 119): _S,
+                                ((0, 0, 0), 128): _G, ((0, 0, 0), 127): _G},
+})
+for _g in ('gnoll', 'shaman', 'brute', 'gnoll_guard', 'gnoll_sapper', 'gnoll_geomancer'):
+    RECOLOR.setdefault('sprites/%s.png' % _g, {}).update(GNOLL_FUR)
+OUTLINE_ROWS = {'sprites/slime.png': {1: (85, 85, 85, 255)}}   # a frame row's edge colour, when not the sheet's
+
 def plant_edges(p, im):
     """Pebble PD's plants: their 40% black shadow (a dotted checker on the watch) is a solid black edge, so they stand
     off grass and floor without see-through dots (terrain_features.png, the plants' row)."""
@@ -426,7 +452,7 @@ if __name__ == '__main__':
                         o[x, y] = o[x, y][:3] + ((0, 85, 170, 255)[q],)
         if p in FRAME_H:
             for y0 in range(0, out.height, FRAME_H[p]): fold16(out, (0, y0, out.width, min(out.height, y0 + FRAME_H[p])))
-        if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255))
+        if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255), OUTLINE_ROWS.get(p), FRAME_H.get(p, 16))
         if p == 'interfaces/chrome.png': simple_frames(out)
         if p in ('interfaces/buffs.png', 'interfaces/large_buffs.png'): spread_greys(im, out, 7 if 'large' not in p else 16)
         out.save(dst)
