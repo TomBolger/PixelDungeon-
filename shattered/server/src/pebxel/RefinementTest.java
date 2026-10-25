@@ -127,8 +127,56 @@ public final class RefinementTest {
         check(!((com.watabou.noosa.Image) get(mk, "img", mk.getClass())).visible, "its box on the map is hidden meanwhile");
         oc.button(Controls.DOWN); frames(app, 90);
         check(!((com.watabou.noosa.Group) edge).visible, "a Down brings the view back to show the target");
+        // the hero too: after each Down the hero and the target both show whole in the play area (Near and Far)
+        for (int mode = 1; mode <= 2; mode++) {
+            WatchSettings.assist(mode); Assist.reset(); st.set(oc, true);
+            planA(app, -1, h.pos);
+            for (int i = 0; i < list().size(); i++) {
+                oc.button(Controls.DOWN); frames(app, 90);
+                Method ct = Controls.class.getDeclaredMethod("currentTarget"); ct.setAccessible(true);
+                int c = (Integer) ct.invoke(oc);
+                if (c >= 0) check(Controls.onScreen(c) && Controls.onScreen(h.pos), "after Down the hero and target " + c + " both show whole (assist " + mode + ", entry " + i + ")");
+            }
+        }
+        // Far (Pebble PD's cam_to): a far target zooms out as far as it takes to show both; a Down to a near one doesn't
+        // zoom (no churn); the list made again with a near target first zooms back in to the player's zoom
+        com.watabou.noosa.Camera cam = com.watabou.noosa.Camera.main;
+        Field uz = Controls.class.getDeclaredField("userZoom"); uz.setAccessible(true); uz.set(oc, 1);   // (16 px tiles)
+        int W = Dungeon.level.width(), hp = h.pos, far = -1, near = -1;
+        for (int d = 14; d >= 12 && far < 0; d--) for (int sgn : new int[]{1, -1}) { int x = hp % W + sgn * d; if (far < 0 && x > 0 && x < W - 1) far = hp + sgn * d; }
+        for (int n : new int[]{1, -1, W, -W}) if (near < 0 && n + hp >= 0 && n + hp < Dungeon.level.length()) near = hp + n;
+        check(far >= 0 && near >= 0, "cells for the zoom check");
+        final int fFar = far, fNear = near;
+        Controls.legacy = aim -> new ArrayList<>(Arrays.asList(fNear, fFar));
+        WatchSettings.assist(2); st.set(oc, true); frames(app, 90);
+        check(cam.zoom == 2, "Far, a near target: the player's zoom (" + cam.zoom + ")");
+        oc.button(Controls.DOWN); frames(app, 90);
+        check(cam.zoom < 2 && Controls.onScreen(far) && Controls.onScreen(hp), "Far, a far target: zoomed out (" + cam.zoom + "), the hero and the target both whole");
+        oc.button(Controls.DOWN); frames(app, 90);
+        check(cam.zoom < 2 && Controls.onScreen(near) && Controls.onScreen(hp), "a Down to a near target doesn't zoom back and forth (" + cam.zoom + ")");
+        st.set(oc, true); frames(app, 90);
+        check(cam.zoom == 2 && Controls.onScreen(near) && Controls.onScreen(hp), "the list made again, a near target: zoomed back in (" + cam.zoom + ")");
+        // Up keeps the player's zoom this turn (the target in the middle); long Up locks the zoom on the hero
+        oc.button(Controls.DOWN); frames(app, 90); float zf = cam.zoom;
+        oc.button(Controls.UP | Controls.LONG); frames(app, 30);
+        check(Controls.zlock && cam.zoom == zf, "long Up in Far: the zoom locked where it is (" + cam.zoom + ")");
+        oc.button(Controls.UP | Controls.LONG); frames(app, 30);
+        check(!Controls.zlock, "long Up again: unlocked");
+        check((Integer) uz.get(oc) == 0, "the zoom locked became the player's (Pebble PD 1.0)"); uz.set(oc, 1);
+        // the pointers: the map dragged away, the target's and the hero's framed at the edge; a tap on the target's
+        // brings the view to it, on the hero's back to him
+        cam.shift(new com.watabou.utils.PointF(600, 0)); frames(app, 3);
+        Object heroEdge = get(hud, "heroEdge", pebxel.ui.WatchHud.class);
+        check(((com.watabou.noosa.Group) edge).visible && ((com.watabou.noosa.Group) heroEdge).visible, "dragged away: both pointers framed at the edge");
+        Object hooks = get(oc, "hooks"); Method tag = hooks.getClass().getMethod("tag", int.class, boolean.class); tag.setAccessible(true);
+        tag.invoke(hooks, 5, false); frames(app, 90);
+        check(!((com.watabou.noosa.Group) edge).visible && !((com.watabou.noosa.Group) heroEdge).visible, "a tap on the target's pointer: the view on the target and the hero");
+        cam.shift(new com.watabou.utils.PointF(600, 0)); frames(app, 3);
+        tag.invoke(hooks, 6, false); frames(app, 90);
+        check(!((com.watabou.noosa.Group) heroEdge).visible && cam.zoom == 2, "a tap on the hero's pointer: back on him at the player's zoom (" + cam.zoom + " " + ((com.watabou.noosa.Group) heroEdge).visible + " " + cam.followTarget() + ")");
+        Controls.legacy = null;
         WatchSettings.assist(2); oc = null;
-        System.out.println("obedience: passed over with Down, ignored, a new floor, chosen; camera: targets clear of the HUD, edge pointer: ok");
+        System.out.println("obedience: passed over with Down, ignored, a new floor, chosen; camera: targets clear of the HUD, hero and target in view, Far's zoom out and back in, lock, pointers: ok");
     }
     static Object get(Object o, String name, Class<?> c) throws Exception { Field f = c.getDeclaredField(name); f.setAccessible(true); return f.get(o); }
 

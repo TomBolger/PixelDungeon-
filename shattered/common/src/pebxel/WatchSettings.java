@@ -14,6 +14,10 @@ public final class WatchSettings {
 	public static boolean itemAssist() { return GameSettings.getBoolean("pebxel_item_assist", true); }
 	public static void itemAssist(boolean v) { GameSettings.put("pebxel_item_assist", v); }
 
+	/** The player's map zoom (Up): 0 far (8 px tiles), 1 middle (16), 2 close (32); kept across sessions (Pebble PD's KEY_ZOOM). */
+	public static int zoom() { return GameSettings.getInt("pebxel_zoom", 1, 0, 2); }
+	public static void zoom(int v) { if (v != zoom()) GameSettings.put("pebxel_zoom", v); }
+
 	/** Music (Pixel Dungeon's two tunes) on the watch's speaker. */
 	public static boolean music() { return GameSettings.getBoolean("pebxel_music", true); }
 	public static void music(boolean v) { GameSettings.put("pebxel_music", v); Sounds.settingsChanged(); }
