@@ -16,5 +16,8 @@ the hero can't die, every quest, item kind, the alchemy pot and the win), `WATCH
 through Controls, the Link and the WatchSim model), `MAXDEPTH`, `STARTDEPTH`, `MINES=0`, `ASCEND=0`. Speed (not with
 `WATCH=1`): `FAST=0` (the old 1/30 s frames and particles; default fast: 0.2 s frames, no particles, no GL), `BATCH=0` (a
 JVM per game; default all of a chunk's games in one JVM, each played as it would be alone), `JIT=c2` (default c1, the
-quick compiler: on Monolith 0.8 against 3.4 s a game). A chunk of 20-50 honest games per task amortises the JVM start best. `cover.py report.txt...`
+quick compiler: on Monolith 0.8 against 3.4 s a game). A chunk of 20-50 honest games per task amortises the JVM start best. Timing: Monolith's WSL wall clock jumps ~75 s ahead for a
+moment about once a minute, so use the `TIMING` lines (monotonic ms and CPU per game) or the `== game` lines (simbot and
+the JVM print boot time + /proc/uptime), not `date`. `DIAG=1` turns a run's first task into a once-a-second machine
+monitor (`MON` lines: clock against uptime, CPU split, memory, process states, the busiest processes). `cover.py report.txt...`
 adds up the games' COVER lines: wins, quests, bosses, subclasses, item kinds used, windows, the watch path's problems.

@@ -1,10 +1,14 @@
 #!/bin/bash
-# PebxelSim job runner (Claude), v3. Start once in WSL:  bash /mnt/c/Users/<you>/Documents/PebxelSim/runner.sh
+# PebxelSim job runner (Claude), v4. Start once in WSL:  bash /mnt/c/Users/<you>/Documents/PebxelSim/runner.sh
 # v2: Java bundles (a JRE is fetched once into ~/pebxelsim/jre), a report pushed to GitHub when a job ends (branch
 # sim-reports of the project repo, with a deploy key made here: deploy-key.pub), and runner-next.sh replaces this
 # script between jobs (so Claude can update the runner without anyone restarting it).
 # v3: jobs and bundles also come from GitHub (branch sim-jobs of the public project repo, read without any key), so
 # Claude can start runs without the desktop app; the sim-jobs branch may also carry runner-next.sh.
+# v4: every job's processes run in a session of their own (setsid), so PAUSE, a cancel and the end of a job reach the
+# game JVMs too (before, only the simbot shells were stopped or killed: the JVMs of cancelled jobs ran on for hours at
+# full CPU, five of them found eating 5 of the 12 cores); and before and after each job any process still running
+# from a bundle folder is killed (strays.log says what).
 # It only does one thing: unpacks bot bundles from bundles\ and runs them on job files dropped in jobs\.
 # Job files are plain settings, never shell commands. Stop it with Ctrl+C, or create a file named STOP.
 # Pause: a file named PAUSE in this folder freezes every running game (PAUSE-sim.cmd makes it, RESUME-sim.cmd removes it).
@@ -64,6 +68,15 @@ pull_jobs() {
   echo "$head" > "$WORK/jobs-head"
 }
 
+strays() {   # kill whatever still runs from a bundle folder (no job runs between jobs, so nothing there should)
+  local n=0 p c
+  for p in /proc/[0-9]*; do
+    c=$(readlink "$p/cwd" 2>/dev/null) || continue
+    case "$c" in "$WORK/b/"*) local a; a=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null | cut -c1-120); kill -9 "${p#/proc/}" 2>/dev/null && n=$((n + 1)) && echo "$(date -Is) $1: killed ${p#/proc/} $a" >> "$ROOT/strays.log";; esac
+  done
+  echo $n
+}
+
 okname() { [[ "$1" =~ ^[A-Za-z0-9_.-]+$ ]]; }
 oktok() { [[ "$1" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._,:/-]*$ ]] && [[ "$1" != LD_* && "$1" != PATH=* && "$1" != HOME=* && "$1" != *..* && "${1#*=}" != /* ]]; }
 
@@ -96,26 +109,30 @@ run_job() {   # $1 = job file
   local total; total=$(wc -l < "$tasks"); echo "start $(date -Is) tasks $total cores $CORES" >> "$log"
   export BD="$bd" BIN="$bin" OUT="$out" JRE="$JRE"
   [ -f "$bd/needs-java" ] && get_java
-  xargs -P "$CORES" -L 1 bash -c 'read -ra E < "$OUT/$0/settings"; cd "$BD" && env -i PATH=$JRE/bin:/usr/bin:/bin "${E[@]}" START=$1 nice -n 10 timeout 86400 "./$BIN" $2 > "$OUT/$0/p$(printf %06d $1).tmp" 2>/dev/null; mv "$OUT/$0/p$(printf %06d $1).tmp" "$OUT/$0/p$(printf %06d $1).txt"' < "$tasks" &
-  local xp=$! paused=0
+  local strayN; strayN=$(strays "before $job"); echo "strays killed before the job: $strayN" > "$res/runner.txt"
+  setsid xargs -P "$CORES" -L 1 bash -c 'read -ra E < "$OUT/$0/settings"; cd "$BD" && env -i PATH=$JRE/bin:/usr/bin:/bin "${E[@]}" START=$1 nice -n 10 timeout 86400 "./$BIN" $2 > "$OUT/$0/p$(printf %06d $1).tmp" 2>/dev/null; mv "$OUT/$0/p$(printf %06d $1).tmp" "$OUT/$0/p$(printf %06d $1).txt"' < "$tasks" &
+  local xp=$! paused=0 sid
+  sleep 1; sid=$(ps -o sid= -p $xp 2>/dev/null | tr -d ' '); [ -n "$sid" ] || sid=$xp
   while kill -0 $xp 2>/dev/null; do
     local doneN; doneN=$(find "$out" -name 'p*.txt' | wc -l)
     status "job $job: $doneN of $total chunks done"; printf '%s of %s\n' "$doneN" "$total" > "$res/progress.txt"
     for r in "$out"/*/; do [ -f "$r/settings" ] && cat "$r"/p*.txt > "$res/$(basename "$r").txt" 2>/dev/null; done
     if [ -f "$ROOT/PAUSE" ]; then
-      [ "$paused" = 1 ] || { pkill -STOP -P $xp; pkill -STOP -f "^./$bin"; pkill -STOP -f "timeout 86400 ./$bin"; paused=1; echo "paused $(date -Is)" >> "$log"; }
+      [ "$paused" = 1 ] || { pkill -STOP -s "$sid"; paused=1; echo "paused $(date -Is)" >> "$log"; }
       status "PAUSED job $job: $doneN of $total chunks done (delete PAUSE or run RESUME-sim.cmd to carry on)"
-    elif [ "$paused" = 1 ]; then pkill -CONT -f "^./$bin"; pkill -CONT -f "timeout 86400 ./$bin"; pkill -CONT -P $xp; paused=0; echo "resumed $(date -Is)" >> "$log"; fi
-    if [ -f "$ROOT/STOP" ] || [ -f "$ROOT/jobs/$job.cancel" ]; then pkill -CONT -f "^./$bin"; pkill -P $xp; kill $xp; pkill -f "^./$bin" ; echo "cancelled" >> "$log"; rm -f "$ROOT/jobs/$job.cancel"; fi
+    elif [ "$paused" = 1 ]; then pkill -CONT -s "$sid"; paused=0; echo "resumed $(date -Is)" >> "$log"; fi
+    if [ -f "$ROOT/STOP" ] || [ -f "$ROOT/jobs/$job.cancel" ]; then pkill -KILL -s "$sid"; echo "cancelled" >> "$log"; rm -f "$ROOT/jobs/$job.cancel"; fi
     pull_jobs
     sleep 15
   done
+  pkill -KILL -s "$sid" 2>/dev/null; echo "strays killed after the job: $(strays "after $job")" >> "$res/runner.txt"
   for r in "$out"/*/; do [ -f "$r/settings" ] && cat "$r"/p*.txt > "$res/$(basename "$r").txt" 2>/dev/null; done
   echo "end $(date -Is)" >> "$log"; printf 'done\n' > "$res/progress.txt"; mv "$jf" "$ROOT/done/"
   report "$job"
 }
 
 setup_key; get_java
+echo "strays killed at start: $(strays start)"
 echo "PebxelSim runner: $CORES cores. Watching $ROOT/jobs. Leave this window open (minimise it is fine). Ctrl+C to stop."
 while [ ! -f "$ROOT/STOP" ]; do
   status idle
