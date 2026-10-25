@@ -291,6 +291,17 @@ def warm_stone(p, src, out):
             r, g, b, a = sp[x, y]
             if a == 255 and op[x, y][:3] == (255, 170, 170) and r - b >= 15 and g - b >= 6: op[x, y] = (170, 170, 85, 255)
 
+def gold_ore(p, src, out):
+    """The caves' gold veins (Shattered's mining): their middle and dark golds snapped to orange-peach and red, so the
+    nuggets read salmon pink on the panel. By brightness, as the gold coins are shaded: yellow, tan, brown."""
+    if region(p) != 'caves': return
+    sp, op = src.load(), out.load()
+    for y in range(src.height):
+        for x in range(src.width):
+            r, g, b, a = sp[x, y]
+            if a == 255 and b <= 10 and r >= 120 and r > g and y // 16 in (3, 5, 6, 10, 12):   # (not the orange crystals)
+                op[x, y] = ((255, 255, 0) if g >= 160 else (170, 170, 0) if g >= 100 else (170, 85, 0)) + (255,)
+
 # The Duelist's brown skin is low in colour, so the interface-grey rule (and the plain snap) turned her face grey.
 # Picked by hand as Pebble PD picked its potion colours: light tones rose-brown, the middle brown, shadows maroon.
 SKIN = {(115, 78, 77): (170, 85, 85), (108, 69, 64): (170, 85, 85), (95, 58, 52): (170, 85, 0),
@@ -367,6 +378,8 @@ RECOLOR.update({
     'sprites/warlock.png': {(102, 45, 145): (170, 0, 170), (89, 40, 128): (85, 0, 85), (82, 119, 92): (85, 170, 85)},
     # the evil eye, purple, came out steel blue: mauve
     'sprites/eye.png': {(113, 79, 147): (170, 85, 170), (107, 69, 154): (170, 85, 170)},
+    # the darker smoke puff (specks) was the floor's own grey, so it never showed: light grey
+    'effects/specks.png': {(119, 119, 102): _S},
     # the vault mirror's gold frame came out speckled pink and brown: cream, tan and dark brown
     'sprites/vault_mirror.png': {(195, 168, 53): (255, 255, 85), (141, 115, 0): (170, 170, 0)},
 })
@@ -478,7 +491,7 @@ if __name__ == '__main__':
             out.save(dst); continue
         pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else skin(p, im.copy())
         out = pebbleize(greys(pre, levels(p)) if not p.startswith(('environment/', 'splashes/')) else pre, levels(p), alpha_cut=1)
-        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out)
+        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out); gold_ore(p, im, out)
         a, o = im.load(), out.load()
         cut = CUT.get(p.split('/')[0], CUT.get(p))
         if p.startswith('environment/tiles_'): cut = 100   # Pebble PD's tiles: the water's foam edge solid, faint shadows gone (both were dotted checkers)
