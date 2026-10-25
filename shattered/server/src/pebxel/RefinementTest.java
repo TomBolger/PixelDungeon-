@@ -95,7 +95,10 @@ public final class RefinementTest {
         check(a != null && a.item == up, "a new floor offers the upgrade again: " + a);
         // ignored: something else done instead (the toolbar's search, held) passes it over too
         t0 = now(); p0 = h.pos;
-        oc.button(Controls.BACK); oc.button(Controls.BACK); oc.button(Controls.SELECT | Controls.LONG);
+        Object hud0 = get(oc, "hud"); Field hlF = pebxel.ui.WatchHud.class.getField("highlight");
+        for (int i = 0; i < 8 && (Integer) hlF.get(hud0) != pebxel.ui.WatchHud.TB_SEARCH; i++) oc.button(Controls.BACK);   // (Item assist: Back walks the Assistant's order)
+        check((Integer) hlF.get(hud0) == pebxel.ui.WatchHud.TB_SEARCH, "Back reaches the search button");
+        oc.button(Controls.SELECT | Controls.LONG);
         a = planA(app, t0, p0);
         check(a == null || a.item != up, "an upgrade ignored for something else is no longer first: " + a);
         // chosen, it is honoured (the bag opens on the armour for the player to confirm)
@@ -177,6 +180,54 @@ public final class RefinementTest {
         Controls.legacy = null;
         WatchSettings.assist(2); oc = null;
         System.out.println("obedience: passed over with Down, ignored, a new floor, chosen; camera: targets clear of the HUD, hero and target in view, Far's zoom out and back in, lock, pointers: ok");
+    }
+    // ---- Pebble PD's buttons: Back resets the list and walks the toolbar in the Assistant's order; Select with nothing
+    // listed: the camera back, else what lies underfoot, else a search; any button stops a walk; a blow buzzes ----
+    static void buttons(WatchApp app) throws Exception {
+        Hero h = Dungeon.hero; oc = new Controls();
+        WatchSettings.assist(1); WatchSettings.itemAssist(true); Assist.reset();
+        planA(app, -1, -1); frames(app, 3);
+        Field tf = Controls.class.getDeclaredField("target"); tf.setAccessible(true);
+        Object hud = get(oc, "hud"); Field hlF = pebxel.ui.WatchHud.class.getField("highlight");
+        if (list().size() > 1) {
+            oc.button(Controls.DOWN); check((Integer) tf.get(oc) == 1, "Down: the second suggestion");
+            oc.button(Controls.BACK); check((Integer) tf.get(oc) == 0, "Back: the list back to its first suggestion");
+        } else oc.button(Controls.BACK);
+        int[] order = (int[]) get(oc, "hlOrder");
+        check((Integer) hlF.get(hud) == order[0], "Item assist: Back starts on the Assistant's first button " + Arrays.toString(order));
+        Set<Integer> seen = new HashSet<>(); seen.add(order[0]);
+        for (int i = 1; i < 8; i++) { oc.button(Controls.BACK); seen.add((Integer) hlF.get(hud)); check((Integer) hlF.get(hud) == order[i], "Back walks the ranked order"); }
+        check(seen.size() == 8, "every button once: " + seen);
+        oc.button(Controls.BACK); check((Integer) hlF.get(hud) == -1, "then none");
+        // Select with nothing listed
+        Controls.legacy = aim -> new ArrayList<>();
+        Field st = Controls.class.getDeclaredField("targetsStale"); st.setAccessible(true); st.set(oc, true); frames(app, 3);
+        com.watabou.noosa.Camera cam = com.watabou.noosa.Camera.main;
+        cam.shift(new com.watabou.utils.PointF(300, 0)); frames(app, 3);
+        float t0 = now(); oc.button(Controls.SELECT); frames(app, 60);
+        check(now() == t0 && Math.abs(cam.scroll.x + cam.width / 2f - h.sprite.center().x) < 40, "Select, nothing listed, the map dragged off: the camera back on the hero, no turn");
+        Item it = new com.shatteredpixel.shatteredpixeldungeon.items.food.Food(); Dungeon.level.drop(it, h.pos);
+        oc.button(Controls.SELECT); frames(app, 30);
+        check(Dungeon.level.heaps.get(h.pos) == null && h.belongings.contains(it), "Select, nothing listed: what lies underfoot picked up");
+        while (Ui.topWindow() != null) Ui.topWindow().hide();
+        t0 = now(); int p0 = h.pos; oc.button(Controls.SELECT); frames(app, 30);
+        check(now() > t0 && h.pos == p0, "Select, nothing listed, nothing underfoot: a search");
+        Controls.legacy = null; st.set(oc, true);
+        // any button stops a walk (the step under way ends)
+        com.shatteredpixel.shatteredpixeldungeon.levels.Level L0 = Dungeon.level; Arrays.fill(L0.visited, true);
+        int[] d = walks(L0, h.pos); int far = -1;
+        for (int c = 0; c < d.length; c++) if (d[c] >= 4 && (L0.visited[c] || L0.mapped[c]) && (far < 0 || d[c] > d[far])) far = c;
+        check(far >= 0, "somewhere to walk: reach " + Arrays.stream(d).max().getAsInt());
+        GameScene.handleCell(far);
+        for (int f = 0; f < 300 && h.pos == p0; f++) frames(app, 1);
+        int p1 = h.pos; oc.button(Controls.UP);
+        for (int f = 0; f < 120 && !h.ready; f++) frames(app, 1);
+        check(h.ready && Dungeon.level.distance(h.pos, p1) <= 1 && h.pos != far, "Up stopped the walk where he was (" + p1 + " -> " + h.pos + ", going to " + far + ")");
+        // a blow: a short buzz and the light (C_EVENT); death: the long one
+        Feedback.take(); h.HP -= 1; frames(app, 1);
+        check((Feedback.take() & (Feedback.HURT | Feedback.LIGHT)) == (Feedback.HURT | Feedback.LIGHT), "hurt: a buzz and the light");
+        WatchSettings.assist(2); oc = null;
+        System.out.println("buttons: Back resets the list and walks the ranked toolbar; Select with nothing listed re-centres, picks up, searches; a press stops a walk; a blow buzzes: ok");
     }
     // ---- the Assistant's choice of places: near before far, keys, a held key's door, no stairs with the floor not done ----
     static int[] walks(com.shatteredpixel.shatteredpixeldungeon.levels.Level L, int from) {
@@ -285,6 +336,7 @@ public final class RefinementTest {
         t = hands(); check(t != null && t.item == up && t.on == h.belongings.weapon, "Mage invests in the staff first");
         h.belongings.backpack.items.clear();
         obedience(app);
+        buttons(app);
         places();
 
         Link link = new Link(new Assets()); Controls controls = new Controls(); Touches touches = new Touches();

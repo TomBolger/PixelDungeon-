@@ -42,11 +42,11 @@ public final class Ahead {
 
 	public Ahead(Link link, Pacer pacer) { this.link = link; this.pacer = pacer; }
 
-	/** How far ahead to run (game seconds): enough for a couple of the radio's round trips, within 0.45-1.2 s. */
+	/** How far ahead to run (game seconds): enough for a couple of the radio's round trips, within 0.3-0.8 s of real time. */
 	public float max() {
 		float rtt = pacer.rtt();   // real ms a message takes, lately
-		float s = rtt <= 0 ? 0.9f : 2 * rtt * Game.pebxelSpeed / 1000 + 0.15f;
-		return Math.max(0.45f, Math.min(1.2f, s));
+		float s = rtt <= 0 ? 0.6f : 2 * rtt / 1000 + 0.1f;
+		return Math.max(0.3f, Math.min(0.8f, s)) * Game.pebxelSpeed;
 	}
 
 	/** Is the hero on a walk the game carries on by itself, step by step? (not a fight: an attack is not run ahead) */
@@ -55,6 +55,9 @@ public final class Ahead {
 		Hero h = Dungeon.hero;
 		if (h == null || !h.isAlive() || h.ready || h.sprite == null) return false;
 		HeroAction a = h.curAction;
+		// (stopped by a press, Controls.button: the step under way still ends where it was going. Counted as over at
+		// once, its last frames played at the usual delay, after the walk's: the hero stood still mid-step, then went on)
+		if (a == null && h.sprite.isMoving && !h.resting) return true;
 		if (a instanceof HeroAction.Move || a instanceof HeroAction.PickUp || a instanceof HeroAction.OpenChest) return true;
 		// (the stairs: up to the step before them; the floor change itself happens in real time)
 		return a instanceof HeroAction.LvlTransition && Dungeon.level != null && !Dungeon.level.adjacent(h.pos, a.dst) && h.pos != a.dst;

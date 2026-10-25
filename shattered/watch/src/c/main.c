@@ -7,10 +7,8 @@
 #include "predict.h"
 
 enum { KEY_DATA = 1, KEY_HELLO = 2, KEY_BUTTON = 3, KEY_STATS = 4, KEY_VERSION = 5, KEY_TOUCH = 6, KEY_SCREEN = 7 };
-#define GAME_SPEED_NUM 3   // 1.5 x real time: must match Game.pebxelSpeed (WatchGame.java)
-#define GAME_SPEED_DEN 2
-#define PROTOCOL 12  // must match Link.PROTOCOL on the phone
-enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16 };
+#define PROTOCOL 13  // must match Link.PROTOCOL on the phone (GAME_SPEED: scene.h)
+enum { B_UP = 1, B_DOWN, B_SELECT, B_BACK, B_LONG = 16, B_WALKING = 32 };   // B_WALKING: pressed while a walk shows (Controls.WALKING)
 
 static Window *s_win;
 static Layer *s_layer;
@@ -61,7 +59,7 @@ static void update(Layer *l, GContext *ctx) {
   draw_scene(ctx, layer_get_bounds(l), now);
   note_free();
   uint32_t drawn = now_ms();
-  if (drawn - now > 300) APP_LOG(APP_LOG_LEVEL_WARNING, "slow frame: %d ms (game time)", (int)(drawn - now));   // (rare: worth knowing)
+  if (drawn - now > GAME_MS(200)) APP_LOG(APP_LOG_LEVEL_WARNING, "slow frame: %d ms (game time)", (int)(drawn - now));   // (rare: worth knowing)
   s_frame_end = drawn;
   sound_poll();
   static int frames; static uint32_t spent, spent_snd;
@@ -80,7 +78,7 @@ static void update(Layer *l, GContext *ctx) {
 // A breather after every frame (as in Pebble PD): the system task that reads the touch screen (and refills the
 // speaker) runs below the app, only while the app waits. Frames slower than the timer followed each other at once and
 // starved it: touches came seconds late or not at all (a quick tap was over before it was read) while anything moved.
-#define MIN_IDLE (10 * GAME_SPEED_NUM / GAME_SPEED_DEN)   // (10 ms real)
+#define MIN_IDLE GAME_MS(10)
 static void tick(void *data) {
   s_timer = NULL;
   uint32_t since = now_ms() - s_frame_end;
@@ -94,7 +92,7 @@ static void tick(void *data) {
 #ifndef STILL
   // power saving (as in the Pixel Dungeon port): idle animations stop 10 s after the last button
   // press, unless the game is still sending something new
-  bool awake = now - s_input_at < 15000 || now - s_data_at < 2250;   // (game time: 10 s and 1.5 s real)
+  bool awake = now - s_input_at < GAME_MS(10000) || now - s_data_at < GAME_MS(1500);
   if (awake && scene_moving(now)) s_timer = app_timer_register(40, tick, NULL);
 #endif
 }
@@ -123,16 +121,16 @@ static uint32_t s_cur_stamp; // ... and in phone time
 static uint32_t s_cur_due;   // ... and when it was due here (later than s_cur_at when it came very late)
 static AppTimer *s_ptimer;
 static bool s_flush;         // play everything waiting now, due or not
-#define MARGIN 40            // ms of slack for uneven radio
+#define MARGIN GAME_MS(27)   // ms of slack for uneven radio
 #define QMAX 6000            // more waiting than this (or memory running short): catch up at once
 // the inbox comes out of the heap; the phone sends at most 2.4 KB at a time (Pacer.CAP: a slow radio gains
 // nothing from bigger ones), so 8 KB of it was 4 KB of memory the dungeon could use
 #define INBOX 4096
-#define LATE_MAX 450         // ms (game time) of delay kept for slow messages beyond the quickest: a message later
+#define LATE_MAX GAME_MS(300) // ms (game time) of delay kept for slow messages beyond the quickest: a message later
                              // than that (one sent again after a refusal or a loss, a big one) plays as it comes,
                              // rather than holding everything after it back as late (that played "fast then slow")
 #define DRIFT 16             // the delay moves at most 1/16 of the time passing (6%: too little to see)
-#define SNAP 900             // ...unless it is this far off (game ms): the phone's clock jumped, or stood still
+#define SNAP GAME_MS(600)    // ...unless it is this far off (game ms): the phone's clock jumped, or stood still
 
 // the delay towards where the messages lately want it (at most DRIFT's pace, a jump of the phone's clock at once)
 static void off_move(uint32_t now) {
@@ -149,7 +147,7 @@ static uint32_t stamp_at(const uint8_t *d) { return d[1] | d[2] << 8 | d[3] << 1
 // that press, not a round trip and the play-out delay later, which kept everything the hero saw (the fog, monsters,
 // items) that far behind him; the first of them, a round trip late, catch up at once (at most CATCH).
 // The frames after the walk play at the usual delay again (the phone waited for real time to catch up meanwhile).
-#define CATCH 300            // game ms of a walk's start played at once, at most, when its frames came late
+#define CATCH GAME_MS(200)   // game ms of a walk's start played at once, at most, when its frames came late
 #define NO_END 0xFFFFFFFFu
 typedef struct { bool on; uint32_t a0, a1; int32_t off; } Walk;   // phone stamps a0..a1 play at stamp + off
 static Walk s_wk, s_wkp;     // the newest walk, and the one before it
@@ -193,7 +191,7 @@ static bool s_resyncing;   // asking for the whole screen again (a picture was l
 static void resync(void *data) {
   static uint32_t s_asked;
   uint32_t now = now_ms();
-  if (!g_lost || (s_asked && now - s_asked < 5000 * GAME_SPEED_NUM / GAME_SPEED_DEN)) return;
+  if (!g_lost || (s_asked && now - s_asked < GAME_MS(5000))) return;
   s_asked = now; g_lost = false;
   APP_LOG(APP_LOG_LEVEL_WARNING, "a picture was lost (free %d): asking for the whole screen", (int)heap_bytes_free());
   // the copy goes now (its memory back at once; "Loading..." meanwhile), and what the phone sent before it heard
@@ -237,7 +235,7 @@ static void pump(void *data) {
     if (m->pos >= m->len) { s_q = m->next; if (!s_q) s_qtail = NULL; s_qbytes -= m->len; free(m); }
   }
   if (g_lost) app_timer_register(1, resync, NULL);   // (not from in here: it empties the queue)
-  if (now_ms() - t0 > 300) APP_LOG(APP_LOG_LEVEL_WARNING, "slow messages: %d ms (game time)", (int)(now_ms() - t0));
+  if (now_ms() - t0 > GAME_MS(200)) APP_LOG(APP_LOG_LEVEL_WARNING, "slow messages: %d ms (game time)", (int)(now_ms() - t0));
 }
 
 static void enqueue(const uint8_t *data, int len, uint32_t now) {
@@ -328,7 +326,7 @@ static uint8_t s_seq;
 typedef struct { uint8_t seq; int16_t dx, dy; } PanDelta;   // map drags the phone hasn't applied yet
 static PanDelta s_pd[8];
 static int s_npd;
-#define SEND_LOST 20000          // (game ms, over 13 s real) the system answers every send by then; if not, it never will
+#define SEND_LOST GAME_MS(13333) // (game ms, over 13 s real) the system answers every send by then; if not, it never will
 
 static void tq_send(void);
 static void tq_timer(void *data) { s_tq_timer = NULL; tq_send(); }
@@ -368,7 +366,7 @@ static void failed(DictionaryIterator *it, AppMessageResult r, void *ctx) {
     // a touch the phone turned away (or never got) goes again: the phone knows a repeat by its number. Not a button
     // (it may have been taken: not twice), nor anything that waited out the whole time-out (too late to act on)
     uint8_t *b = s_tq[0].b;
-    bool again = b[0] != T_BUTTON && r != APP_MSG_SEND_TIMEOUT && now_ms() - s_sent_at < 3000 && ++s_tries < 4;
+    bool again = b[0] != T_BUTTON && r != APP_MSG_SEND_TIMEOUT && now_ms() - s_sent_at < GAME_MS(2000) && ++s_tries < 4;
     APP_LOG(APP_LOG_LEVEL_WARNING, "send failed (%d): %s", (int)r, again ? "again" : "let go");
     if (!again) {
       if (b[0] == T_PAN) {   // its drag will never be applied: take it off the map's preview
@@ -406,7 +404,10 @@ static void out_msg(int kind, int x, int y, bool lng) {
   tq_send();
 }
 
-static void send_button(int code) { out_msg(T_BUTTON, code, 0, false); }
+// Is the hero shown walking? (walked ahead here, predict.c, or a walk the phone worked out ahead still playing): a press
+// then stops him (Controls.button), even when the phone's hero has arrived already
+static bool walk_shown(void) { return predict_walk_shown() || (s_wk.on && (int32_t)(s_cur_stamp - s_wk.a0) >= 0 && (s_wk.a1 == NO_END || (int32_t)(s_wk.a1 - s_cur_stamp) > 0)); }   // (its last frame played: over)
+static void send_button(int code) { out_msg(T_BUTTON, code | (walk_shown() ? B_WALKING : 0), 0, false); }
 
 // the map follows the finger at once; the phone's own scroll takes over when it has applied the drag
 static void pan_preview(void) {
@@ -424,20 +425,39 @@ void touch_acked(uint8_t seq) {
   if (k != s_npd) { s_npd = k; pan_preview(); }
 }
 
+// ---- feedback, as in Pebble PD: a short buzz when the hero is hurt, a long one when he dies; the backlight (the system's
+// own setting decides whether it lights) on every press and touch and whenever the game has something happen (C_EVENT,
+// Feedback.java), so a long walk that let the light go out lights it again when it ends. At most once a second ----
+static void lite(void) {
+  static uint32_t s_lit; static bool s_lit_once;
+  uint32_t n = now_ms();
+  if (s_lit_once && n - s_lit < GAME_MS(1000)) return;
+  s_lit_once = true; s_lit = n;
+  light_enable_interaction();
+}
+void scene_event(int flags) {
+  if (flags & EV_HURT) vibes_enqueue_custom_pattern((VibePattern){ .durations = (uint32_t[]){ 40 }, .num_segments = 1 });
+  if (flags & EV_DEAD) vibes_long_pulse();
+  APP_LOG(APP_LOG_LEVEL_INFO, "event %d%s%s", flags, flags & EV_HURT ? " buzz" : "", flags & EV_DEAD ? " long buzz" : "");
+  lite();
+}
+
 static void button(ClickRecognizerRef r, void *ctx) {
+  lite();
   s_input_at = now_ms();
   send_button((int)ctx);
   if (predict_button((int)ctx, s_input_at)) kick();   // shown at once; the phone's frames confirm it later
 }
 
 static void button_long(ClickRecognizerRef r, void *ctx) {
+  lite();
   s_input_at = now_ms();
   send_button((int)ctx | B_LONG);
   if (predict_button((int)ctx | B_LONG, s_input_at)) kick();
 }
 
 // ---- touch (as in Pebble PD: under 40 px of movement is a tap, held 500 ms a long one; 24 px drags the map) ----
-#define TAP_SLOP 32
+#define TAP_SLOP 40
 #define PAN_START 24
 #define LONG_MS 500   // (real ms)
 static int16_t s_tx, s_ty, s_lx, s_ly, s_moved;
@@ -466,6 +486,7 @@ static void touch(const TouchEvent *e, void *ctx) {
   APP_LOG(APP_LOG_LEVEL_INFO, "TT %lu %d %d,%d nn %d", (unsigned long)now, (int)e->type, e->x, e->y, e->non_navigational);
 #endif
   s_input_at = now;
+  if (e->type != TouchEvent_PositionUpdate) lite();
   predict_touch();
   switch (e->type) {
     case TouchEvent_Touchdown:
@@ -515,9 +536,9 @@ static void clicks(void *ctx) {
   window_single_click_subscribe(BUTTON_ID_DOWN, button);
   window_single_click_subscribe(BUTTON_ID_SELECT, button);
   window_single_click_subscribe(BUTTON_ID_BACK, button);
-  window_long_click_subscribe(BUTTON_ID_SELECT, 400, button_long, NULL);
-  window_long_click_subscribe(BUTTON_ID_UP, 400, button_long, NULL);
-  window_long_click_subscribe(BUTTON_ID_DOWN, 400, button_long, NULL);
+  window_long_click_subscribe(BUTTON_ID_SELECT, LONG_MS, button_long, NULL);
+  window_long_click_subscribe(BUTTON_ID_UP, LONG_MS, button_long, NULL);
+  window_long_click_subscribe(BUTTON_ID_DOWN, LONG_MS, button_long, NULL);
   // the context (which button) goes with every recognizer of that button, so set it last
   window_set_click_context(BUTTON_ID_UP, (void *)B_UP);
   window_set_click_context(BUTTON_ID_DOWN, (void *)B_DOWN);

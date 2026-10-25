@@ -4,6 +4,7 @@ import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.SPDAction;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroAction;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
@@ -42,6 +43,9 @@ import java.util.*;
  */
 public class Controls {
 	public static final int UP = 1, DOWN = 2, SELECT = 3, BACK = 4, LONG = 16;
+	/** With the button: pressed while the watch showed the hero walking (main.c: a walk worked out ahead plays there
+	 *  after it is over here). It stops the walk, as in Pebble PD: nothing more (Back and long presses do theirs too). */
+	public static final int WALKING = 32;
 
 	// ---- what the frame is around ----
 	private final Frame frame = new Frame();
@@ -86,7 +90,17 @@ public class Controls {
 				case 1: dungeonButton(SELECT, false); break;
 				case 2: dungeonButton(DOWN, held); break;
 				case 3: key(SPDAction.WAIT_OR_PICKUP); break;
+				case 4: if (Dungeon.hero.ready) Dungeon.hero.resume(); break;   // (as Shattered's ResumeIndicator)
 			}
+		}
+		public boolean resumeShown() {   // Pebble PD's ResumeButton: Off only
+			Hero h = Dungeon.hero;
+			return WatchSettings.assist() == 0 && h != null && h.isAlive() && h.ready && h.lastAction != null && !aiming();
+		}
+		public int aimSlot() {   // the quickslot being aimed with at an enemy (Shattered's crossB), -1 none
+			int q = com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton.targetingSlot;
+			Char t = com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton.lastTarget;
+			return aiming() && q >= 0 && q < pebxel.ui.WatchHud.TB_Q.length && t != null && t.isAlive() ? q : -1;
 		}
 	};
 
@@ -226,6 +240,14 @@ public class Controls {
 			return;
 		}
 		if (Dungeon.hero == null || !Dungeon.hero.isAlive()) return;
+		// Pebble PD: any button stops a walk or a rest (the step under way still ends). Up, Down and Select do nothing
+		// more; Back and the long presses go on to do theirs. (A walk worked out ahead, Ahead: the phone's hero is up to
+		// a few steps further on than the watch shows, and stops there; the watch walks him there and no further. If he
+		// arrived here already, the press, marked WALKING by the watch, is the stop all the same)
+		Hero h = Dungeon.hero; HeroAction a = h.curAction;
+		boolean going = !h.ready && (h.resting || (a != null && !(a instanceof HeroAction.Attack) && a.dst != h.pos));
+		if (going) { h.interrupt(); targetsStale = true; }
+		if ((going || (code & WALKING) != 0) && !held && b != BACK) return;
 		dungeonButton(b, held);
 	}
 
@@ -381,10 +403,12 @@ public class Controls {
 		if (onToolbar && hud != null) {
 			// Back walks a highlight round the buttons: the toolbar left to right, the menu, the portrait, then none;
 			// Select presses it (held: a long press), Up goes back one, Down drops it (as Pebble PD)
+			// (Item assist: in the Assistant's order, best first, hlRank; Off: Down goes on to the next too)
+			boolean items = itemAssist();
 			switch (b) {
-				case BACK: hud.highlight++; if (hud.highlight > pebxel.ui.WatchHud.B_PORTRAIT) { hud.highlight = -1; onToolbar = false; } return;
-				case UP: if (hud.highlight > 0) hud.highlight--; return;
-				case DOWN: hud.highlight = -1; onToolbar = false; return;
+				case BACK: if (items) hud.highlight = ++hlp < hlOrder.length ? hlOrder[hlp] : -1; else hud.highlight++; if (hud.highlight > pebxel.ui.WatchHud.B_PORTRAIT || hud.highlight < 0) { hud.highlight = -1; onToolbar = false; } return;
+				case UP: hud.highlight = items ? (hlp > 0 ? hlOrder[--hlp] : -1) : hud.highlight - 1; if (hud.highlight < 0) onToolbar = false; return;
+				case DOWN: if (WatchSettings.assist() == 0 && hud.highlight < pebxel.ui.WatchHud.B_PORTRAIT) hud.highlight++; else { hud.highlight = -1; onToolbar = false; } return;
 				case SELECT: { int k = hud.highlight; hud.highlight = -1; onToolbar = false; hudPress(k, held); return; }
 			}
 		}
@@ -409,7 +433,7 @@ public class Controls {
 				if (held && !aiming) { GameScene.show(new WndBag(Dungeon.hero.belongings.backpack)); return; }
 				refreshTargets(aiming);
 				if (targets.isEmpty()) {
-					if (!aiming) key(SPDAction.WAIT_OR_PICKUP);
+					if (!aiming) nothingListed();
 					return;
 				}
 				int i = Math.min(target, targets.size() - 1), cell = targets.get(i);
@@ -428,10 +452,56 @@ public class Controls {
 				return;
 			case BACK:
 				if (aiming) { GameScene.cancelCellSelector(); targetsStale = true; return; }
-				onToolbar = true; focus = 0;
-				if (hud != null) hud.highlight = 0;
+				// Pebble PD: the list back to its first suggestion too (Downs undone: not passed over)
+				if (target != 0 && !targets.isEmpty()) { target = 0; skipped.clear(); zman = false; view(cellOf(targets.get(0)), PRESS); keepEnemy(); }
+				onToolbar = true; focus = 0; hlp = 0;
+				if (itemAssist()) hlRank();
+				if (hud != null) hud.highlight = itemAssist() ? hlOrder[0] : 0;
 				return;
 		}
+	}
+
+	/** Pebble PD's Select with nothing listed: the camera back on the hero if it was moved off him; else the stairs
+	 *  down or what lies underfoot; else a search (a closed room hides a door). */
+	private void nothingListed() {
+		Hero h = Dungeon.hero; Camera c = Camera.main;
+		if (h == null || !h.ready || h.sprite == null || c == null) return;
+		PointF r = restCentre(c), hc = heroCentre(c, c.zoom);
+		if (Math.abs(r.x - hc.x) > 2 || Math.abs(r.y - hc.y) > 2) { zman = false; view(-1, TURN); return; }
+		if (h.pos == Dungeon.level.exit() || Dungeon.level.heaps.get(h.pos) != null) GameScene.handleCell(h.pos);
+		else if (!GameScene.cancel()) h.search(true);
+		targetsStale = true; acted();
+	}
+
+	// ---- Back's buttons with Item assist: the Assistant's order (Pebble PD 0.54, tgt.c hl_rank) ----
+	private final int[] hlOrder = {0, 1, 2, 3, 4, 5, 6, 7};
+	private int hlp;   // where Back is in hlOrder
+	static boolean itemAssist() { return WatchSettings.assist() != 0 && WatchSettings.itemAssist(); }
+	/** The buttons best first: the hands' item's button (its quickslot, else the backpack); wait with a slow foe two
+	 *  steps off or a rest in hand, else when hurt and alone; search when plan A is to search here, more when alone; a
+	 *  quickslot's throw or zap with an enemy in sight; the backpack; the portrait and the menu last. */
+	private void hlRank() {
+		Hero h = Dungeon.hero; if (h == null || Dungeon.level == null) return;
+		boolean seen = false, foe2 = false;
+		for (Mob m : Dungeon.level.mobs) {
+			if (m.alignment != Char.Alignment.ENEMY || m.invisible > 0 || m.pos < 0 || !Dungeon.level.heroFOV[m.pos] || m.state == m.PASSIVE) continue;
+			seen = true;
+			if (m.state == m.HUNTING && Dungeon.level.distance(m.pos, h.pos) == 2 && m.speed() <= 1f) foe2 = true;   // (it walks into the first blow)
+		}
+		Assist.Target a = plan.isEmpty() || plan.size() != targets.size() ? null : plan.get(0);
+		int k = a == null ? 0 : kindOf(a), hands = a == null ? -1 : a.kind == Assist.USE && a.item != null ? buttonOf(a) : k == K_TALENT ? pebxel.ui.WatchHud.B_PORTRAIT : -1;
+		int[] sc = new int[8];
+		sc[pebxel.ui.WatchHud.TB_WAIT] = k == K_REST ? 92 : foe2 ? 90 : !seen && h.HP < h.HT ? 50 : 25;
+		sc[pebxel.ui.WatchHud.TB_SEARCH] = k == K_SEARCH ? 80 : seen ? 10 : 35;
+		sc[pebxel.ui.WatchHud.TB_BAG] = 40; sc[pebxel.ui.WatchHud.B_MENU] = 2; sc[pebxel.ui.WatchHud.B_PORTRAIT] = 3;
+		for (int q = 0; q < pebxel.ui.WatchHud.TB_Q.length; q++) {
+			com.shatteredpixel.shatteredpixeldungeon.items.Item it = Dungeon.quickslot.getItem(q);
+			boolean ranged = it instanceof com.shatteredpixel.shatteredpixeldungeon.items.weapon.missiles.MissileWeapon || it instanceof com.shatteredpixel.shatteredpixeldungeon.items.wands.Wand
+					|| it instanceof com.shatteredpixel.shatteredpixeldungeon.items.weapon.SpiritBow;
+			sc[pebxel.ui.WatchHud.TB_Q[q]] = it == null || !Dungeon.quickslot.isNonePlaceholder(q) ? 5 : seen && ranged ? 60 : 20;
+		}
+		if (hands >= 0) sc[hands] = 100;
+		for (int i = 0; i < 8; i++) { int b = 0; for (int j = 1; j < 8; j++) if (sc[j] > sc[b]) b = j; hlOrder[i] = b; sc[b] = -1; }
 	}
 
 	/** Is a spell, throw or wand asking for a cell? (GameScene keeps its cell selector private) */
@@ -924,6 +994,7 @@ public class Controls {
 	// ---- every frame: keep the frame where it belongs ----
 
 	public void frame() {
+		Feedback.frame();
 		if (pending) pendingFrames++;
 		keepHud();
 		Window w = Ui.topWindow();

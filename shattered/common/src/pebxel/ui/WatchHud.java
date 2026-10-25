@@ -73,6 +73,10 @@ public class WatchHud extends Group {
 		/** Far's zoom locked on the hero (long Up): the zoom tag shows a padlock. */
 		boolean zoomLocked();
 		void tag(int which, boolean held);   // 0 zoom, 1 act, 2 next target, 3 loot, 4 resume, 5 the target's pointer, 6 the hero's
+		/** Pebble PD's ResumeButton shows (Assist off, a walk cut short to go on with). */
+		boolean resumeShown();
+		/** The quickslot (0-2) being aimed with at an enemy: its crosshair (Shattered's QuickSlotButton crossB); -1 none. */
+		int aimSlot();
 	}
 
 	private Image avatar; private int avatarClass = -1, avatarTier = -1;
@@ -136,6 +140,7 @@ public class WatchHud extends Group {
 		add(tags);
 		add(log);
 		add(reticle);
+		add(cross);
 		add(heroEdge);
 		add(edge);
 
@@ -220,6 +225,7 @@ public class WatchHud extends Group {
 		add(tags);
 		add(log);
 		add(reticle);
+		add(cross);
 		add(heroEdge);
 		add(edge);
 		for (int i = 0; i < TB_N; i++) addButton(i, TBX[i] - TB_R, TBY[i] - TB_R, 2 * TB_R, 2 * TB_R);
@@ -397,6 +403,17 @@ public class WatchHud extends Group {
 		refreshTags(h);
 		refreshLog();
 		refreshReticle();
+		refreshCross();
+	}
+
+	// ---- aiming from a quickslot at an enemy: Icons.TARGET at 2x over that slot (Pebble PD: QuickSlot crossB) ----
+	private final Group cross = new Group(); private int shownCross = -2;
+	private void refreshCross() {
+		int q = hooks.aimSlot();
+		if (q == shownCross) return;
+		shownCross = q; cross.clear();
+		if (q < 0) return;
+		Image t = PdArt.image("icons", 67, 0, 16, 16, 2); t.x = quickAt[q][0] - 16; t.y = quickAt[q][1] - 16; cross.add(t);
 	}
 
 	// ---- the tags ----
@@ -416,8 +433,8 @@ public class WatchHud extends Group {
 
 	// each tag is its own group, rebuilt only when what it shows changes (not as the target moves about: every
 	// rebuilt picture is radio time)
-	private final Group[] tagGroups = new Group[4];
-	private final String[] tagKeys = {"", "", "", ""};
+	private final Group[] tagGroups = new Group[5];
+	private final String[] tagKeys = {"", "", "", "", ""};
 	private Group into;
 
 	private boolean tagChanged(int slot, String key) {
@@ -431,9 +448,9 @@ public class WatchHud extends Group {
 		boolean alive = h.isAlive();
 		int kind = hooks.targetKind(), cell = hooks.targetCell(), n = hooks.targetCount(), z = hooks.mapZoomLevel(); boolean lock = hooks.zoomLocked();
 		Heap under = Dungeon.level.heaps.get(h.pos);
-		boolean loot = alive && under != null && !(cell == h.pos && kind == 2);
+		boolean loot = alive && under != null && !under.isEmpty() && !(cell == h.pos && kind == 2);
 		Item weapon = h.belongings.weapon();
-		Heap there = cell >= 0 && kind == 2 ? Dungeon.level.heaps.get(cell) : null;
+		Heap there = cell >= 0 && kind == 2 ? Dungeon.level.heaps.get(cell) : null; if (there != null && there.isEmpty()) there = null;
 		// zoom (Up): the glass (locked: Pebble PD 1.0's padlock) and a pip per level
 		int[] a = ctag(0);
 		if (tagChanged(0, alive + "/" + z + "/" + lock)) {
@@ -448,8 +465,8 @@ public class WatchHud extends Group {
 			}
 		}
 		if (alive) tagButton(0, ctag(0)); else tagButtons[0].visible = tagButtons[0].active = false;
-		// the next target (Down)
-		boolean next = alive && n > 1;
+		// the next target (Down): with one or more (Pebble PD's cycle_shown)
+		boolean next = alive && n > 0;
 		if (tagChanged(2, "" + next) && next) {
 			a = ctag(2); tag(a, "tag_red");
 			Image t = PdArt.image("icons", 67, 0, 16, 16, 1); t.x = a[0] + 2 + (a[2] - 16) / 2; t.y = a[1] + (a[3] - 16) / 2; into.add(t);
@@ -464,16 +481,17 @@ public class WatchHud extends Group {
 		String actKey = !act ? "-" : kind == 4 || kind == 5 ? kind + "/" + use.image() : kind == 1 ? "1/" + (weapon == null ? 0 : weapon.image()) : kind == 2 && there != null ? "2/" + there.peek().image() : "" + kind;
 		if (tagChanged(1, actKey) && act) {
 			a = ctag(1);
+			fly = kind == 4 || kind == 5 ? use : null;
 			if (kind == 1 || kind == 4) {
 				tag(a, "tag_red");
 				Item shown = kind == 4 ? use : weapon;
-				if (shown != null) { ItemSprite s = new ItemSprite(shown); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s); }
+				if (shown != null) { ItemSprite s = new ItemSprite(shown); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s); flyIn(s); }
 			} else if (kind == 2 && there != null) {
 				tag(a, "tag_blue");
 				ItemSprite s = new ItemSprite(there); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
 			} else if (kind == 5) {
 				tag(a, "tag_white");
-				ItemSprite s = new ItemSprite(use); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
+				ItemSprite s = new ItemSprite(use); s.x = a[0] + 2 + Math.round((a[2] - s.width()) / 2); s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s); flyIn(s);
 			} else if (kind >= 6 && kind <= 8) {   // (the toolbar's own pictures: the clock for wait and rest, the magnifier)
 				tag(a, "tag_white");
 				int j = kind == 7 ? 1 : 0, w = TB_ICON[j][2], hh = TB_ICON[j][3];
@@ -490,12 +508,35 @@ public class WatchHud extends Group {
 			}
 		}
 		if (act) tagButton(1, ctag(1)); else tagButtons[1].visible = tagButtons[1].active = false;
+		// go on with the walk cut short (Pebble PD's ResumeButton: pale, the walk arrow at 2x; under the loot tag)
+		boolean resume = alive && hooks.resumeShown();
+		int[] ra = tagRect(2, loot);
+		if (tagChanged(4, resume ? "r" + loot : "-") && resume) {
+			a = ra.clone(); tag(a, "tag_white");
+			Image arrow = PdArt.image("icons", 83, 0, 12, 11, 2); arrow.x = a[0] + (a[2] - 24) / 2 + 2; arrow.y = a[1] + (a[3] - 22) / 2; into.add(arrow);
+		}
+		if (resume) tagButton(4, ra); else tagButtons[4].visible = tagButtons[4].active = false;
 		// what lies underfoot (left edge)
 		if (tagChanged(3, loot ? "" + under.peek().image() : "-") && loot) {
 			a = tagRect(1, true); tag(a, "tag_blue");
 			ItemSprite s = new ItemSprite(under); s.scale.set(2); s.x = a[0] + Math.round((a[2] - s.width()) / 2) + 2; s.y = a[1] + Math.round((a[3] - s.height()) / 2); into.add(s);
 		}
 		if (loot) tagButton(3, tagRect(1, true)); else tagButtons[3].visible = tagButtons[3].active = false;
+	}
+
+	/** The hands' item new on the Select tag: it flies there from its button first (its quickslot, else the backpack),
+	 *  as Pebble PD's (main.c HAND_MS: 0.7 s), once per new item or use. */
+	private Item fly, flown;
+	private void flyIn(ItemSprite s) {
+		Item it = fly; fly = null;
+		if (it == null || it == flown) return;
+		flown = it;
+		int b = TB_BAG;
+		for (int q = 0; q < NQ; q++) if (Dungeon.quickslot.getItem(q) == it && Dungeon.quickslot.isNonePlaceholder(q)) b = TB_Q[q];
+		int[] r = round ? tbBox[b] : buttonRect(b);
+		float tx = s.x, ty = s.y;
+		s.x = r[0] + Math.round((r[2] - s.width()) / 2); s.y = r[1] + Math.round((r[3] - s.height()) / 2);
+		into.add(new com.watabou.noosa.tweeners.PosTweener(s, new com.watabou.utils.PointF(tx, ty), 0.7f));
 	}
 
 	/** A tag: PD's 16x14 tag art stretched, reaching 4 px past its rectangle (off the screen's edge). */

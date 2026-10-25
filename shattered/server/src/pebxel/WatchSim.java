@@ -15,6 +15,8 @@ import javax.imageio.ImageIO;
 public final class WatchSim {
 	/** What the watch was told to play (kind:value), for tests. */
 	public final java.util.List<String> sounds = new java.util.ArrayList<>();
+	/** C_EVENT flags as they played (Feedback: 1 hurt, 2 dead, 4 light). */
+	public final java.util.List<Integer> events = new java.util.ArrayList<>();
 	/** The plans the watch was sent (Controls.plan), as text, for tests. */
 	public final java.util.List<String> plans = new java.util.ArrayList<>();
 	private String readPlan() {
@@ -183,7 +185,7 @@ public final class WatchSim {
 			if (stopAtTime && b[p] == Link.C_TIME && p > from) return p;
 			int c = u8();
 			// (as the watch: a frame only half here isn't drawn; the last whole one stays on screen)
-			if (c == Link.C_COMMIT) partial = false; else if (c != Link.C_TIME && c != Link.C_LATEST && c != Link.C_READY && c != Link.C_AHEAD) partial = true;
+			if (c == Link.C_COMMIT) partial = false; else if (c != Link.C_TIME && c != Link.C_LATEST && c != Link.C_READY && c != Link.C_AHEAD && c != Link.C_EVENT) partial = true;
 			switch (c) {
 				case Link.C_TIME: p += 4; break;
 				case Link.C_LATEST: p += 4; break;
@@ -265,6 +267,7 @@ public final class WatchSim {
 				case Link.C_RECIPE: { int id = u8(), n = u8(); if (p + n > b.length) n = b.length - p; recipeSet(id, b, p, n); p += n; break; }
 				case Link.C_READY: p += 4; break;
 				case Link.C_SOUND: { int k = u8(), v = u8(); sounds.add(k + ":" + v); break; }
+				case Link.C_EVENT: events.add(u8()); break;
 				case Link.C_COMMIT: break;
 				default: throw new IllegalStateException("bad command " + c + " at " + (p - 1));
 			}

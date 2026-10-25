@@ -3,11 +3,21 @@
 #include <pebble.h>
 
 // commands
-enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_INPUT, C_LATEST, C_SOUND, C_COMMIT, C_PREDICT, C_TILES2, C_ANIMTO, C_RECIPE, C_FOG, C_READY, C_AHEAD };   // C_SOUND: kind (0 effect, 1 music, 2 settings), value; C_PREDICT: the plan for the next press (predict.c)
+enum { C_RESET = 1, C_CAM, C_NEW, C_SET, C_DEL, C_ORDER, C_TILES, C_DTEX, C_MOVE, C_ANIM, C_TIME, C_INPUT, C_LATEST, C_SOUND, C_COMMIT, C_PREDICT, C_TILES2, C_ANIMTO, C_RECIPE, C_FOG, C_READY, C_AHEAD, C_EVENT };   // C_SOUND: kind (0 effect, 1 music, 2 settings), value; C_PREDICT: the plan for the next press (predict.c); C_EVENT: what happened (EV_*: main.c buzzes, lights)
 // picture kinds
 enum { K_IMG = 1, K_RECT, K_NINE, K_TILES, K_TEXT, K_SKIN, K_QUADS, K_SHAPE, K_EMIT };   // K_EMIT: particles made here (particles.c)
 enum { F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16, F_FOG = 32 };   // F_FOG: the fog of war (draw.c draw_fog)
 #define NONE 0xFFFF
+// C_EVENT's flags (Link.EV_*): the hero hurt (a short buzz), dead (a long one), something worth seeing (the backlight)
+enum { EV_HURT = 1, EV_DEAD = 2, EV_LIGHT = 4 };
+void scene_event(int flags);   // main.c
+
+// The game's clock against real time (Game.pebxelSpeed on the phone, which must match). 1: Shattered's own pace (it ran
+// 1.5 x earlier on; Thomas, 2026-10-25: "let's reset animations"). Every time here is in game ms; GAME_MS(real ms)
+// for the ones tuned in real time (they stay as they were whatever the speed)
+#define GAME_SPEED_NUM 1
+#define GAME_SPEED_DEN 1
+#define GAME_MS(ms) ((ms) * GAME_SPEED_NUM / GAME_SPEED_DEN)
 
 #define MAX_ID 1024
 #define MAX_CAM 16

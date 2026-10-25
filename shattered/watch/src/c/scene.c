@@ -404,7 +404,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
   while (p < end) {
     if (*p == C_TIME && p > data) break;   // the next frame's changes: they wait for their time
     int c = u8();
-    if (c != C_TIME && c != C_LATEST && c != C_COMMIT && c != C_READY && c != C_AHEAD) g_partial = true;
+    if (c != C_TIME && c != C_LATEST && c != C_COMMIT && c != C_READY && c != C_AHEAD && c != C_EVENT) g_partial = true;
     switch (c) {
       case C_TIME: p += 4; break;
       case C_LATEST: p += 4; break;
@@ -485,6 +485,7 @@ int scene_apply(const uint8_t *data, int len, uint32_t now) {
       }
       case C_INPUT: touch_acked(u8()); break;
       case C_SOUND: { int k = u8(), v = u8(); if (k == 0) sound_effect(v); else if (k == 1) sound_music(v == 255 ? -1 : v); else sound_settings(v); break; }
+      case C_EVENT: scene_event(u8()); break;   // (as the frame it came with plays)
       case C_COMMIT: g_dirty = true; g_partial = false; break;
       case C_PREDICT: {
         Plan *pl = predict_plan();

@@ -26,13 +26,13 @@ public final class Link {
 
 	// ---- commands ----
 	public static final int C_RESET = 1, C_CAM = 2, C_NEW = 3, C_SET = 4, C_DEL = 5, C_ORDER = 6,
-			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16, C_TILES2 = 17, C_ANIMTO = 18, C_RECIPE = 19, C_FOG = 20, C_READY = 21, C_AHEAD = 22;
+			C_TILES = 7, C_DTEX = 8, C_MOVE = 9, C_ANIM = 10, C_TIME = 11, C_INPUT = 12, C_LATEST = 13, C_SOUND = 14, C_COMMIT = 15, C_PREDICT = 16, C_TILES2 = 17, C_ANIMTO = 18, C_RECIPE = 19, C_FOG = 20, C_READY = 21, C_AHEAD = 22, C_EVENT = 23;
 	// ---- picture kinds ----
 	public static final int K_IMG = 1, K_RECT = 2, K_NINE = 3, K_TILES = 4, K_TEXT = 5, K_SKIN = 6, K_QUADS = 7, K_SHAPE = 8, K_EMIT = 9;
 	public static final int F_FLIPH = 1, F_FLIPV = 2, F_ANIM = 16, F_FOG = 32;   // F_FOG: the fog of war (the watch draws it as Pebble PD does)
 	public static final int NONE = 0xFFFF;
 	/** The command format's version; the watch app sends its own in its hello. */
-	public static final int PROTOCOL = 12;   // 10: tile maps in runs (C_TILES2), animation changes (C_ANIMTO); 11: particles made on the watch (K_EMIT, C_RECIPE); 12: walks worked out ahead (C_AHEAD)
+	public static final int PROTOCOL = 13;   // 10: tile maps in runs (C_TILES2), animation changes (C_ANIMTO); 11: particles made on the watch (K_EMIT, C_RECIPE); 12: walks worked out ahead (C_AHEAD); 13: buzz and backlight (C_EVENT), the game clock at real time
 
 	/** What to show on a watch whose app speaks another version of the commands. */
 	public static byte[] wrongVersion(int watch) {
@@ -124,6 +124,7 @@ public final class Link {
 		recipeIds.clear(); Arrays.fill(recipeKey, null);
 		out.reset(); marks.clear(); dropPending(); cmd(C_RESET); lastPlan = null;
 		Sounds.take();   // (effects from while the watch was away are stale)
+		Feedback.reset();
 		for (int[] e : Sounds.state()) sound(e);
 	}
 
@@ -134,6 +135,8 @@ public final class Link {
 	public byte[] sync(float dt) {
 		now += dt;
 		for (int[] e : Sounds.take()) sound(e);
+		// C_EVENT flags (Feedback.HURT, DEAD, LIGHT): played with this frame, the watch buzzes and lights up
+		int ev = Feedback.take(); if (ev != 0) { cmd(C_EVENT); out.write(ev); }
 		Scene scene = Game.scene();
 		if (scene != null) {
 			List<Gizmo> order = new ArrayList<>();
@@ -431,7 +434,7 @@ public final class Link {
 	}
 
 	private static int r(float f) { return Math.round(f); }
-	static final float GUESS_HOLD = 1.5f;   // game seconds (one of real time)
+	static final float GUESS_HOLD = 1f;   // game seconds (one of real time; the clock ran 1.5 x real time once: 1.5)
 
 	/** A difference in water's drift goes round its texture (SkinnedBlock wraps it there; so does the watch): a
 	 *  wrap is no change (it was sent as two corrections, and a wild speed between them, every few seconds). */
@@ -1366,7 +1369,7 @@ public final class Link {
 	}
 
 	/** Frames due within this long (game ms) go first when running ahead (take). */
-	static final int SOON_MS = 150;
+	static final int SOON_MS = 100;   // (100 ms of real time)
 	private static int stampAt(byte[] b, int at) { return (b[at + 1] & 255) | (b[at + 2] & 255) << 8 | (b[at + 3] & 255) << 16 | (b[at + 4] & 255) << 24; }
 
 	/** The last sync's bytes cut into messages of at most max bytes, each holding whole commands. */

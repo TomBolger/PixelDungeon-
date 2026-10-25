@@ -4,8 +4,9 @@ import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 
 /** Shattered PD exactly as shipped, except it never draws. */
 public class WatchGame extends ShatteredPixelDungeon {
-	/** One step from cell to cell (CharSprite's move), in game seconds: 133 ms of real time, as in Pebble PD. */
-	public static final float STEP = System.getenv("PEBXEL_STEP") != null ? Float.parseFloat(System.getenv("PEBXEL_STEP")) : 0.2f;   // (tests: PEBXEL_STEP)
+	/** One step from cell to cell (CharSprite's move), in game seconds: about 133 ms of real time, as in Pebble PD (132:
+	 *  the watch is told it in 4 ms units, Controls.plan). */
+	public static final float STEP = System.getenv("PEBXEL_STEP") != null ? Float.parseFloat(System.getenv("PEBXEL_STEP")) : 0.132f;   // (tests: PEBXEL_STEP)
 	public WatchGame() {
 		super(new WatchPlatform());
 		String z = System.getenv("PEBXEL_ZOOM");
@@ -17,10 +18,10 @@ public class WatchGame extends ShatteredPixelDungeon {
 		// Pebble PD's own windows in place of some of Shattered's
 		com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.pebxelWindows = pebxel.ui.Swaps::window;
 		com.watabou.noosa.Game.pebxelScenes = pebxel.ui.Swaps::scene;
-		// fighting half as quick again: on a watch, waiting out each swing feels slow
-		com.watabou.noosa.Game.pebxelSpeed = 1.5f;
-		// but not walking: at 1.5 times Shattered's 0.1 s a cell the hero raced 15 cells a second and a long walk was a
-		// blur. A step takes Pebble PD's 133 ms of real time instead (STEP of game time), each one easy to follow
+		// the game's animations at Shattered's own pace (Thomas, 2026-10-25: "let's reset animations": they ran 1.5 x, which
+		// once hid slowness since fixed). The watch's clock must match (scene.h GAME_SPEED)
+		com.watabou.noosa.Game.pebxelSpeed = 1f;
+		// but not walking: a step takes Pebble PD's 133 ms of real time (STEP), each one easy to follow, as Thomas approved
 		com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite.setMoveInterval(STEP);
 		Sounds.install();
 		// the story on the loading screen in pages that fit
