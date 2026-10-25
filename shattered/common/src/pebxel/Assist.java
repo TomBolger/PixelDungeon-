@@ -113,7 +113,8 @@ public final class Assist {
 	// =============================================================================================================
 	private static Level floor;                    // the floor this state is for
 	private static int goal = -1;                  // look() / explore: the spot chosen before (anti-dither)
-	private static final Set<Integer> passed = new HashSet<>();     // things put down on purpose or passed over
+	private static final Set<Integer> passed = new HashSet<>();     // things put down on purpose, or no use
+	private static final Set<Integer> skippedHeaps = new HashSet<>();   // things the player passed over: never plan A again this floor, still last in the list
 	private static final LinkedHashMap<String, Integer> declined = new LinkedHashMap<>();   // hands suggestions passed over (class:action -> how things stood)
 	private static final Map<Integer, Float> demoted = new HashMap<>();   // objectives passed over: behind the rest till then (game time)
 	static final int DEMOTE = 20;                  // turns an objective passed over stays behind the rest
@@ -170,6 +171,7 @@ public final class Assist {
 	static final boolean AMBUSH = opt("AMBUSH", true);
 	static final boolean AMBRANGED = opt("AMBRANGED", true);
 	static final int AMBWAIT = optInt("AMBWAIT", 4), AMBSEEN = optInt("AMBSEEN", 2);
+	static final int DOORW = optInt("DOORW", 10);    // doors this walk off listed even out of view (Pebble PD: in view only)
 	static final int GRASSD = optInt("GRASSD", 8);   // tall grass walked to within this many steps (dew, seeds); 0 none
 	static final int DEWKEEP = optInt("DEWKEEP", 5);  // drops kept in the waterskin when dew stands in for a rest
 	static final boolean SHOOTDM = opt("SHOOTDM", false);
@@ -266,7 +268,7 @@ public final class Assist {
 		int o = e.obj >= 0 ? e.obj : e.cell;
 		if ((e.kind == GO || e.kind == PICKUP) && o >= 0 && o < l.length() && o != h.pos && went >= 0 && from >= 0 && cheb(l, went, o) >= cheb(l, from, o)) {   // (not walked towards)
 			if (e.kind == PICKUP && keyAt(o)) demoted.put(o, Actor.now() + DEMOTE);   // (a key opens a locked room: back a while, never gone for the floor)
-			else if (e.kind == PICKUP) passed.add(o);
+			else if (e.kind == PICKUP) skippedHeaps.add(o);
 			else if (l.map[o] == Terrain.HIGH_GRASS) { grassSkip = true; grassKey = h.exp + h.lvl * 101; }   // (Pebble PD: grass skipped till a kill)
 			else demoted.put(o, Actor.now() + DEMOTE);
 			if (goal == o) goal = -1;
@@ -435,7 +437,7 @@ public final class Assist {
 
 	private static void ensureFloor(Level l) {
 		if (floor == l && srchFrom != null && srchFrom.length == l.length()) return;
-		floor = l; goal = -1; passed.clear(); declined.clear(); demoted.clear(); planned.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
+		floor = l; goal = -1; passed.clear(); skippedHeaps.clear(); declined.clear(); demoted.clear(); planned.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
 		vetoId = -1; vetoStand = -1; resumeCell = -1; stepBackWaited = false; ambGoal = -1; ambId = -1; waitId = -1; lastPos = -1; from = -1;
 		srchFrom = new boolean[l.length()]; checked = new boolean[l.length()]; fishSeen = false; fishAt = -99; talked.clear(); bad.clear();
 		huntMem.clear(); mobLast.clear();
@@ -700,7 +702,7 @@ public final class Assist {
 		if (first && (out.get(0).kind == GO || out.get(0).kind == PICKUP)) {
 			boolean left = floorLeft(); int bj = -1, bs = INF;
 			for (int j = 0; j < out.size(); j++) { Target t = out.get(j); int o = t.obj >= 0 ? t.obj : t.cell;
-				if ((t.kind != GO && t.kind != PICKUP) || o < 0 || t.why.equals("step away")) continue;
+				if ((t.kind != GO && t.kind != PICKUP) || o < 0 || t.why.equals("step away") || t.key >> 10 >= 9) continue;   // (nor one passed over before: those stay last)
 				if (left && (o == EXIT || o == ENT)) continue;
 				int s = walk(o) - (keyAt(o) ? 6 : 0);
 				if (s < bs) { bs = s; bj = j; } }
@@ -715,7 +717,8 @@ public final class Assist {
 			Target f = out.get(0); int fo = f.obj >= 0 ? f.obj : f.cell;
 			if (left && fo == ENT && bag(Amulet.class) == null) out.add(0, back.remove(0));   // (the way up is no plan A with the floor not done: the one passed over stays first; the way down may: the player may want to move on)
 		}
-		out.addAll(back);
+		int tail = out.size(); while (tail > 0 && out.get(tail - 1).key >> 10 >= 9) tail--;   // (before those passed over for good: they stay last)
+		out.addAll(tail, back);
 	}
 
 	/** The game walks its own shortest way (Hero.getCloser): one through a hazard is replaced by a cell on the safe way
@@ -941,10 +944,12 @@ public final class Assist {
 		return false;
 	}
 
-	private static boolean heapOk(Heap h) {
+	private static boolean heapOk(Heap h) { return heapOk(h, false); }
+	/** skippedToo: one the player passed over counts (the list's tail), else it doesn't (plan A, the floor left). */
+	private static boolean heapOk(Heap h, boolean skippedToo) {
 		if (h == null || h.isEmpty() || !h.seen) return false;
 		int c = h.pos;
-		if (c < 0 || c >= LEN || risky(h) || h.type == Heap.Type.FOR_SALE || !known[c] || L.avoid[c] || passed.contains(c) || bad.containsKey(c) || (danger[c] && c != hp) || (fishRelaxed && wet(c) && c != hp)) return false;
+		if (c < 0 || c >= LEN || risky(h) || h.type == Heap.Type.FOR_SALE || !known[c] || L.avoid[c] || passed.contains(c) || (!skippedToo && skippedHeaps.contains(c)) || bad.containsKey(c) || (danger[c] && c != hp) || (fishRelaxed && wet(c) && c != hp)) return false;
 		if (h.type == Heap.Type.LOCKED_CHEST && Notes.keyCount(new GoldenKey(Dungeon.depth)) <= 0) return false;
 		if (h.type == Heap.Type.CRYSTAL_CHEST && Notes.keyCount(new CrystalKey(Dungeon.depth)) <= 0) return false;
 		if (h.type == Heap.Type.HEAP) {
@@ -1107,7 +1112,7 @@ public final class Assist {
 			}
 			if (SHOP && best < 0) { int sb = -1, sk = INF;
 				for (Heap h : L.heaps.valueList()) {   // the shop, by the guide's order (2.7): what's wanted and affordable (the price is shown)
-					if (h.type != Heap.Type.FOR_SALE || !h.seen || h.pos == hp || passed.contains(h.pos) || bad.containsKey(h.pos) || seenChar(h.pos) != null) continue;
+					if (h.type != Heap.Type.FOR_SALE || !h.seen || h.pos == hp || passed.contains(h.pos) || skippedHeaps.contains(h.pos) || bad.containsKey(h.pos) || seenChar(h.pos) != null) continue;
 					int d = walk(h.pos), pr = buyRank(h.peek());
 					if (pr <= 0 || d >= INF) continue;
 					int sc = d - pr * 8;
@@ -1115,7 +1120,7 @@ public final class Assist {
 				}
 				if (sb >= 0) { why[0] = "buy"; return sb; } }
 			for (Mob m : mobs()) {   // a hidden mimic looks like a chest: opened like one (MimicSprite draws it so; knowing better would be cheating)
-				if (!disguised(m) || !L.heroFOV[m.pos] || passed.contains(m.pos) || bad.containsKey(m.pos) || H.HP * 3 < H.HT * 2 || danger[m.pos]) continue;
+				if (!disguised(m) || !L.heroFOV[m.pos] || passed.contains(m.pos) || skippedHeaps.contains(m.pos) || bad.containsKey(m.pos) || H.HP * 3 < H.HT * 2 || danger[m.pos]) continue;
 				int d = walk(m.pos);
 				if (d < bk && direct(m.pos) && !farOff(m.pos, d)) { bk = d; best = m.pos; }
 			}
@@ -1314,12 +1319,12 @@ public final class Assist {
 			if (m.alignment == Char.Alignment.ENEMY && m.invisible <= 0) { ne++; if (onScreen(m.pos) && (d < 2 || !(m instanceof Piranha)) && (d < 2 || !bad.containsKey(m.pos)) && !H.isCharmedBy(m)) add(m.pos, ENEMY, 1 << 10 | d, m.pos, "enemy"); }
 			else if ((npcWanted(m) || m instanceof Shopkeeper) && walk(m.pos) < INF) put(m.pos, GO, 4 << 10 | walk(m.pos), "talk");
 		}
-		for (Heap h : L.heaps.valueList()) {
-			if (!heapOk(h)) continue;
-			int d = h.pos == hp ? 0 : walk(h.pos);
-			if (d < INF) put(h.pos, PICKUP, 3 << 10 | d, "item");
+		for (Heap h : L.heaps.valueList()) {   // (one passed over: last, still there for a Down; owner: "several options at all times")
+			if (!heapOk(h, true)) continue;
+			int d = h.pos == hp ? 0 : walk(h.pos); boolean sk = skippedHeaps.contains(h.pos);
+			if (d < INF) put(h.pos, PICKUP, (sk ? 9 : 3) << 10 | d, sk ? "item, passed over" : "item");
 		}
-		for (Mob m : mobs()) if (disguised(m) && L.heroFOV[m.pos] && walk(m.pos) < INF && !passed.contains(m.pos)) put(m.pos, PICKUP, 3 << 10 | walk(m.pos), "item");   // (a chest, as far as anyone can see)
+		for (Mob m : mobs()) if (disguised(m) && L.heroFOV[m.pos] && walk(m.pos) < INF && !passed.contains(m.pos) && !skippedHeaps.contains(m.pos)) put(m.pos, PICKUP, 3 << 10 | walk(m.pos), "item");   // (a chest, as far as anyone can see)
 		int ent = L.entrance(), ex = L.exit();
 		for (int c = 0; c < LEN; c++) {
 			int t = L.map[c], d = walk(c);
@@ -1328,7 +1333,7 @@ public final class Assist {
 			else if (deadEnd(c)) put(c, GO, 4 << 10 | d, "dead end");
 			else if (c == ex && known[c] && (t != Terrain.LOCKED_EXIT || Notes.keyCount(new WornKey(Dungeon.depth)) > 0)) put(c, GO, 6 << 10 | d, "stairs down");
 			else if (c == ent && known[c]) put(c, GO, 7 << 10 | d, "stairs up");
-			else if ((t == Terrain.DOOR || t == Terrain.OPEN_DOOR) && onScreen(c)) put(c, GO, 8 << 10 | d, "door");
+			else if ((t == Terrain.DOOR || t == Terrain.OPEN_DOOR) && (onScreen(c) || d <= DOORW)) put(c, GO, 8 << 10 | d, "door");   // (Pebble PD: those in view; the owner: "multiple doors in my room" not offered: those a short walk off too)
 		}
 		boolean[] cov = new boolean[LEN]; int nreg = 0;
 		for (int n = 0; n < CAP; n++, nreg++) {   // the unexplored regions: one entry each
@@ -1340,6 +1345,7 @@ public final class Assist {
 				if (dist[c] < INF && Math.abs(dist[c] - bd) <= 3 && opening(c) && L.map[c] != Terrain.DOOR && L.map[best] != Terrain.DOOR && distance(c, best) <= 3) cov[c] = true;
 			put(best, GO, 5 << 10 | bd, "unexplored");
 		}
+		grass();
 		if (nreg == 0 && (ex <= 0 || !known[ex] || walk(ex) >= INF)) {   // all explored, the way on hidden: where to search
 			int a = srchSpot(-1, -1), b = a >= 0 ? srchSpot(a, -1) : -1, c = b >= 0 ? srchSpot(a, b) : -1;
 			if (a >= 0) put(a, GO, 5 << 10 | walk(a), "search spot");
@@ -1363,6 +1369,24 @@ public final class Assist {
 		}
 	}
 
+	/** Tall grass to trample (dew, seeds): one entry a patch, at its nearest spot, a short walk off or in view (plan A
+	 *  takes the nearest only: the owner, "only 2 tiles and nothing else when there is grass to trample"). Passed
+	 *  over (skipped till a kill, Pebble PD): last, still there for a Down. */
+	private static void grass() {
+		if (!GRASS || GRASSD <= 0) return;
+		boolean[] g = new boolean[LEN]; int[] q = new int[LEN];
+		for (int n = 0; n < 3; n++) {
+			int best = -1, bd = INF;
+			for (int c = 0; c < LEN; c++) if (!g[c] && L.map[c] == Terrain.HIGH_GRASS && known[c] && dist[c] > 0 && dist[c] < bd && (dist[c] <= GRASSD || onScreen(c)) && !bad.containsKey(c) && seenChar(c) == null && seenHeap(c) == null) { bd = dist[c]; best = c; }
+			if (best < 0) return;
+			boolean listed = false; int qh = 0, qt = 0; g[best] = true; q[qt++] = best;   // (the patch: the tall grass joined to it)
+			while (qh < qt) { int c = q[qh++];
+				for (Target t : out) listed |= t.cell == c || t.obj == c;
+				for (int k = 0; k < 8; k++) { int m = c + N8[k]; if (nb(c, m) && !g[m] && L.map[m] == Terrain.HIGH_GRASS && known[m]) { g[m] = true; q[qt++] = m; } } }
+			if (!listed) put(best, GO, (grassSkip ? 9 : 5) << 10 | bd, "grass");
+		}
+	}
+
 	/** "Read my mind": two steps or more nearer one of the list's other objectives (and plan A's not nearer): that's plan A. */
 	private static void mind() {
 		if (mode() == 0) return;
@@ -1382,7 +1406,7 @@ public final class Assist {
 		}
 		if (!up) {
 			mindFloor = L; mindPos = hp; mindObj = new int[out.size()]; mindWalk = new int[out.size()];
-			for (int i = 0; i < out.size(); i++) { Target t = out.get(i); int c = t.kind == ENEMY || t.kind == USE || t.kind == WAIT ? -1 : t.obj;
+			for (int i = 0; i < out.size(); i++) { Target t = out.get(i); int c = t.kind == ENEMY || t.kind == USE || t.kind == WAIT || (i > 0 && t.key >> 10 >= 9) ? -1 : t.obj;   // (not one passed over for good: walking by it isn't wanting it)
 				mindObj[i] = c; mindWalk[i] = c >= 0 && c < LEN ? walk(c) : INF; }
 		}
 	}

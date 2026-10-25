@@ -85,7 +85,12 @@ public final class RefinementTest {
         check(a.kind == Assist.GO || a.kind == Assist.PICKUP, "plan A walks somewhere: " + a);
         int o = a.obj >= 0 ? a.obj : a.cell; boolean grass = Dungeon.level.map[o] == com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.HIGH_GRASS;
         t0 = now(); p0 = h.pos;
-        oc.button(Controls.DOWN); oc.button(Controls.SELECT);
+        oc.button(Controls.DOWN);   // (to one that is no more tall grass, nor nearer plan A's: choosing that is no pass)
+        Field tgF = Controls.class.getDeclaredField("target"); tgF.setAccessible(true);
+        for (int i = 0; i < 6; i++) { Assist.Target e = list().get((Integer) tgF.get(oc)); int eo = objOf(e);
+            if (e.kind == Assist.ENEMY || eo < 0 || (Dungeon.level.map[eo] != com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.HIGH_GRASS && Dungeon.level.distance(e.cell, o) >= Dungeon.level.distance(h.pos, o))) break;
+            oc.button(Controls.DOWN); }
+        oc.button(Controls.SELECT);
         a = planA(app, t0, p0);
         check(a != null && (a.obj >= 0 ? a.obj : a.cell) != o, "a place passed over is not first again at once: " + o + " vs " + a);
         check(grass ? (Boolean) get(null, "grassSkip", Assist.class) : Assist.demoted(o), "a place passed over is held back: " + o + " now " + a + " list " + list());
@@ -101,6 +106,24 @@ public final class RefinementTest {
         oc.button(Controls.SELECT | Controls.LONG);
         a = planA(app, t0, p0);
         check(a == null || a.item != up, "an upgrade ignored for something else is no longer first: " + a);
+        // ignored for a walk tapped on the map: passed over too, as with the buttons (owner: "tapping movement is still not overriding item suggestions while buttons do")
+        Assist.reset(); Field st0 = Controls.class.getDeclaredField("targetsStale"); st0.setAccessible(true); st0.set(oc, true);
+        a = planA(app, -1, h.pos);
+        check(a != null && a.item == up, "after a reset the upgrade is offered again: " + a);
+        {
+            int[] wd = walks(Dungeon.level, h.pos); int tc = -1;
+            for (int c = 0; c < wd.length; c++) if (wd[c] >= 3 && wd[c] <= 4 && Controls.onScreen(c) && Dungeon.level.heaps.get(c) == null && com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c) == null && Dungeon.level.map[c] != com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.DOOR) { tc = c; break; }
+            check(tc >= 0, "a cell to tap");
+            Link tl = new Link(new Assets()); Touches tt = new Touches();
+            frames(app, 30);   // (the camera at rest: the tap lands on the cell aimed at)
+            com.watabou.utils.Point sp = com.watabou.noosa.Camera.main.cameraToScreen(com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.tileCenterToWorld(tc).x, com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.tileCenterToWorld(tc).y);
+            t0 = now(); p0 = h.pos;
+            touch(tt, tl, oc, 1, sp.x / 2, sp.y / 2);
+            for (int i = 0; i < 4; i++) { tt.frame(tl, oc, 1f/30); PointerEvent.processPointerEvents(); frames(app, 1); }
+            a = planA(app, t0, p0);
+            check(h.pos != p0, "the tap walked the hero (" + p0 + " -> " + h.pos + ", tapped " + tc + ")");
+            check(a == null || a.item != up, "an upgrade ignored for a tapped walk is no longer first: " + a);
+        }
         // chosen, it is honoured (the bag opens on the armour for the player to confirm)
         Assist.reset(); Field st = Controls.class.getDeclaredField("targetsStale"); st.setAccessible(true); st.set(oc, true);
         a = planA(app, -1, h.pos);
@@ -331,6 +354,64 @@ public final class RefinementTest {
         h.pos = pos0;
         System.out.println("places: near ground before a far door, the held key's door before the stairs, keys before the stairs and kept, no stairs with ground left, a tap steers: ok");
     }
+    // ---- several options at all times: a room with doors and grass offers them all (owner: "only 2 tiles") ----
+    static java.util.List<Assist.Target> screenPlan() throws Exception {
+        java.util.List<Assist.Target> l = new ArrayList<>(Assist.plan(false, Controls::onScreenFromHero));
+        Method once = Controls.class.getDeclaredMethod("once", java.util.List.class); once.setAccessible(true); once.invoke(null, l);
+        return l;
+    }
+    static void options() throws Exception {
+        com.shatteredpixel.shatteredpixeldungeon.levels.Level L = Dungeon.level; Hero h = Dungeon.hero; int pos0 = h.pos, W = L.width();
+        final int GR = com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.HIGH_GRASS, DOOR = com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.DOOR;
+        Field rf = com.shatteredpixel.shatteredpixeldungeon.levels.RegularLevel.class.getDeclaredField("rooms"); rf.setAccessible(true);
+        @SuppressWarnings("unchecked") java.util.List<com.shatteredpixel.shatteredpixeldungeon.levels.rooms.Room> rooms = (java.util.List<com.shatteredpixel.shatteredpixeldungeon.levels.rooms.Room>) rf.get(L);
+        com.shatteredpixel.shatteredpixeldungeon.levels.rooms.Room room = null; int doors = 0;
+        for (com.shatteredpixel.shatteredpixeldungeon.levels.rooms.Room r : rooms) { int nd = 0; for (Object d : r.connected.values()) if (d != null) nd++;
+            if (nd >= 2 && r.width() >= 7 && r.height() >= 6 && !r.inside(L.cellToPoint(L.entrance())) && !r.inside(L.cellToPoint(L.exit())) && nd > doors) { room = r; doors = nd; } }
+        check(room != null, "a room with two doors or more");
+        // the room alone known (its doors lead on to the unknown), tall grass in two corners, the hero in a third
+        L.heaps.clear(); L.mobs.clear(); Arrays.fill(L.visited, false); Arrays.fill(L.mapped, false);
+        for (int y = room.top; y <= room.bottom; y++) for (int x = room.left; x <= room.right; x++) { int c = x + y * W;
+            if (x > room.left && x < room.right && y > room.top && y < room.bottom) com.shatteredpixel.shatteredpixeldungeon.levels.Level.set(c, com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.EMPTY);
+            L.visited[c] = true; }
+        for (int y = room.top + 1; y <= room.top + 2; y++) for (int x = room.right - 2; x < room.right; x++) com.shatteredpixel.shatteredpixeldungeon.levels.Level.set(x + y * W, GR);
+        for (int x = room.left + 1; x <= room.left + 2; x++) com.shatteredpixel.shatteredpixeldungeon.levels.Level.set(x + (room.top + 1) * W, GR);
+        h.pos = (room.right - 2) + (room.bottom - 1) * W;
+        int nDoors = 0; for (int y = room.top; y <= room.bottom; y++) for (int x = room.left; x <= room.right; x++) if (L.map[x + y * W] == DOOR || L.map[x + y * W] == com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.OPEN_DOOR) nDoors++;
+        int want = Math.min(4, nDoors + 2);   // (each door, each patch of grass)
+        for (int mode = 1; mode <= 2; mode++) {
+            WatchSettings.assist(mode); Assist.reset();
+            java.util.List<Assist.Target> l = screenPlan();
+            System.out.println("options: a room with " + nDoors + " doors and two patches of grass, assist " + mode + ": " + l);
+            check(l.size() >= want, "several options: " + nDoors + " doors and two patches of grass give " + want + " entries or more (assist " + mode + "): " + l);
+            int grass = 0; for (Assist.Target t : l) if (t.cell >= 0 && L.map[objOf(t)] == GR) grass++;
+            check(grass >= 2, "each patch of grass is offered (assist " + mode + "): " + l);
+        }
+        // passed over: further down the list, not gone
+        WatchSettings.assist(1); Assist.reset();
+        java.util.List<Assist.Target> l = screenPlan(); Assist.Target a = l.get(0);
+        int o = objOf(a); boolean gr = L.map[o] == GR;
+        Assist.passed(a, h.pos, h.pos);
+        l = screenPlan(); int at = -1; for (int i = 0; i < l.size(); i++) if (objOf(l.get(i)) == o || (gr && L.map[objOf(l.get(i))] == GR)) at = i;
+        check(at > 0, "plan A passed over (" + a + ") is still in the list, further down: " + l);
+        Assist.Target b = l.get(0);
+        check(b.kind == Assist.GO && objOf(b) != o, "and another place is plan A: " + l);
+        Assist.passed(b, h.pos, h.pos);
+        java.util.List<Assist.Target> l2 = screenPlan(); boolean still = false; for (Assist.Target t : l2) still |= objOf(t) == objOf(b) || (L.map[objOf(b)] == GR && L.map[objOf(t)] == GR);
+        check(still && objOf(l2.get(0)) != objOf(b), "the next one passed over is still listed, not first: " + l2 + " first " + a + " then " + l + " bad " + get(null, "bad", Assist.class) + " demoted " + get(null, "demoted", Assist.class) + " hero " + h.pos);
+        System.out.println("options: after two passed over: " + l2);
+        // an item passed over (not walked towards): never plan A again, still last in the list
+        int ic = -1; for (int y = room.top + 1; y < room.bottom && ic < 0; y++) for (int x = room.left + 1; x < room.right && ic < 0; x++) { int c = x + y * W; if (c != h.pos && L.map[c] == com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.EMPTY && L.distance(c, h.pos) >= 2) ic = c; }
+        L.drop(new com.shatteredpixel.shatteredpixeldungeon.items.food.Food(), ic).seen = true; Assist.reset();
+        l = screenPlan(); a = l.get(0);
+        check(objOf(a) == ic, "an item in the room is plan A: " + l);
+        Assist.passed(a, h.pos, h.pos);
+        l = screenPlan(); at = -1; for (int i = 0; i < l.size(); i++) if (objOf(l.get(i)) == ic) at = i;
+        check(at > 0 && objOf(l.get(0)) != ic, "an item passed over is not plan A again, but still listed: " + l);
+        L.heaps.clear(); Arrays.fill(L.visited, true); Arrays.fill(L.mapped, true); Assist.reset(); WatchSettings.assist(2);
+        h.pos = pos0;
+        System.out.println("options: doors and each patch of grass offered, passed over goes down the list (places and items): ok");
+    }
     static Object get(Object o, String name, Class<?> c) throws Exception { Field f = c.getDeclaredField(name); f.setAccessible(true); return f.get(o); }
 
     public static void main(String[] args) {
@@ -379,6 +460,7 @@ public final class RefinementTest {
         obedience(app);
         buttons(app);
         places();
+        options();
         oc = new Controls(); WindowFit.check(() -> frames(app, 1), oc); oc = null;
 
         Link link = new Link(new Assets()); Controls controls = new Controls(); Touches touches = new Touches();

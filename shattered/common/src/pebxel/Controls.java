@@ -597,7 +597,10 @@ public class Controls {
 		offered = null; skipped.clear(); decided = honoured = windowSince = false;
 	}
 	private void passOne(Assist.Target e, int went, int from) {
-		if (e == null || aimed(e)) return;   // (a throw or zap at an enemy: the fight's, not a choice to remember)
+		// (a throw or zap at an enemy: the fight's, not a choice to remember. Aimed: at a cell other than where the hero
+		// stood when it was offered; where he is now would take a use offered on himself for an aimed one once he
+		// walked off: a tapped walk never passed the hands' suggestion over, the buttons did)
+		if (e == null || (e.kind == Assist.USE && e.item != null && e.cell >= 0 && e.cell != from)) return;
 		if (TALENTS.equals(e.action)) { talentsPassed = talentPoints(); return; }
 		if (e.kind == Assist.GO || e.kind == Assist.PICKUP) { int o = e.obj >= 0 ? e.obj : e.cell; if (o == shownObj) shownObj = -1; }
 		Assist.passed(e, went, from);
