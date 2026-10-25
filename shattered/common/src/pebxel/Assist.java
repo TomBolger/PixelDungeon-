@@ -265,7 +265,8 @@ public final class Assist {
 		if (e.kind == WAIT && REST_ACT.equals(e.action)) decline(null, REST_ACT);
 		int o = e.obj >= 0 ? e.obj : e.cell;
 		if ((e.kind == GO || e.kind == PICKUP) && o >= 0 && o < l.length() && o != h.pos && went >= 0 && from >= 0 && cheb(l, went, o) >= cheb(l, from, o)) {   // (not walked towards)
-			if (e.kind == PICKUP) passed.add(o);
+			if (e.kind == PICKUP && keyAt(o)) demoted.put(o, Actor.now() + DEMOTE);   // (a key opens a locked room: back a while, never gone for the floor)
+			else if (e.kind == PICKUP) passed.add(o);
 			else if (l.map[o] == Terrain.HIGH_GRASS) { grassSkip = true; grassKey = h.exp + h.lvl * 101; }   // (Pebble PD: grass skipped till a kill)
 			else demoted.put(o, Actor.now() + DEMOTE);
 			if (goal == o) goal = -1;
@@ -434,7 +435,7 @@ public final class Assist {
 
 	private static void ensureFloor(Level l) {
 		if (floor == l && srchFrom != null && srchFrom.length == l.length()) return;
-		floor = l; goal = -1; passed.clear(); declined.clear(); demoted.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
+		floor = l; goal = -1; passed.clear(); declined.clear(); demoted.clear(); planned.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
 		vetoId = -1; vetoStand = -1; resumeCell = -1; stepBackWaited = false; ambGoal = -1; ambId = -1; waitId = -1; lastPos = -1; from = -1;
 		srchFrom = new boolean[l.length()]; checked = new boolean[l.length()]; fishSeen = false; fishAt = -99; talked.clear(); bad.clear();
 		huntMem.clear(); mobLast.clear();
@@ -471,7 +472,7 @@ public final class Assist {
 		// the last act did nothing (no time passed, nowhere moved): that target is no use for a while
 		if (actTime >= 0 && actPos == hp && Actor.now() == actTime && actCell >= 0 && actKind != USE && actKind != WAIT) {
 			bad.put(actCell, Actor.now() + 30);
-			if (actKind == PICKUP) passed.add(actCell);
+			if (actKind == PICKUP && !keyAt(actCell)) passed.add(actCell);   // (a key: only the while above)
 		}
 		actTime = -1;
 		bad.values().removeIf(t -> t < Actor.now());
@@ -499,6 +500,14 @@ public final class Assist {
 	}
 	/** The heap on c, if the hero has seen it. */
 	private static Heap seenHeap(int c) { Heap h = L.heaps.get(c); return h != null && h.seen ? h : null; }
+	/** A key of this floor lying on c, as seen (iron: a locked door; golden: a chest; crystal: the crystal door or
+	 *  chest; worn: the boss's exit). */
+	private static boolean keyAt(int c) {
+		Level l = Dungeon.level; Heap h = l == null || c < 0 ? null : l.heaps.get(c);
+		if (h == null || !h.seen || h.type != Heap.Type.HEAP) return false;
+		for (Item i : h.items) if (i instanceof Key && ((Key) i).depth == Dungeon.depth) return true;
+		return false;
+	}
 	/** The character on c as the hero sees it (none out of sight or invisible: Thomas's rule). */
 	private static Char seenChar(int c) {
 		Char ch = Actor.findChar(c);
@@ -670,6 +679,8 @@ public final class Assist {
 		if (anyDanger && !inDanger) for (Target t : out) if (t.kind != USE && t.kind != WAIT && t.cell >= 0) t.cell = safeWay(t.cell);
 		demote();
 		mind();
+		planned.values().removeIf(t -> t < Actor.now());
+		if (!out.isEmpty() && (out.get(0).kind == GO || out.get(0).kind == PICKUP) && out.get(0).obj >= 0) planned.put(out.get(0).obj, Actor.now() + 30);
 		return out;
 	}
 
@@ -679,9 +690,31 @@ public final class Assist {
 		if (demoted.isEmpty()) return;
 		demoted.values().removeIf(t -> t < Actor.now());
 		if (seenFoe || inDanger || out.size() < 2) return;
+		Target last0 = out.get(0);
 		List<Target> back = new ArrayList<>();
 		for (Iterator<Target> it = out.iterator(); it.hasNext(); ) { Target t = it.next(); int o = t.obj >= 0 ? t.obj : t.cell;
 			if ((t.kind == GO || t.kind == PICKUP) && demoted.containsKey(o)) { it.remove(); back.add(t); } }
+		boolean first = !back.isEmpty() && !out.isEmpty() && back.get(0) == last0;
+		// plan A passed over: the next plan A is the nearest of the other places (the list's groups put a far item or
+		// the stairs before a spot to explore beside the hero: owner, "suggesting I step down the stairs")
+		if (first && (out.get(0).kind == GO || out.get(0).kind == PICKUP)) {
+			boolean left = floorLeft(); int bj = -1, bs = INF;
+			for (int j = 0; j < out.size(); j++) { Target t = out.get(j); int o = t.obj >= 0 ? t.obj : t.cell;
+				if ((t.kind != GO && t.kind != PICKUP) || o < 0 || t.why.equals("step away")) continue;
+				if (left && (o == EXIT || o == ENT)) continue;
+				int s = walk(o) - (keyAt(o) ? 6 : 0);
+				if (s < bs) { bs = s; bj = j; } }
+			if (bj > 0) out.add(0, out.remove(bj));
+			if (bj < 0 && left) {   // (only the stairs left in front: another place passed over earlier, not the one just passed, before them)
+				for (int j = 1; j < back.size(); j++) { Target t = back.get(j); int o = t.obj >= 0 ? t.obj : t.cell;
+					if (o == EXIT || o == ENT || t.why.equals("step away")) continue;
+					int s = walk(o) - (keyAt(o) ? 6 : 0);
+					if (s < bs) { bs = s; bj = j; } }
+				if (bj > 0) out.add(0, back.remove(bj));
+			}
+			Target f = out.get(0); int fo = f.obj >= 0 ? f.obj : f.cell;
+			if (left && fo == ENT && bag(Amulet.class) == null) out.add(0, back.remove(0));   // (the way up is no plan A with the floor not done: the one passed over stays first; the way down may: the player may want to move on)
+		}
 		out.addAll(back);
 	}
 
@@ -916,7 +949,7 @@ public final class Assist {
 		if (h.type == Heap.Type.CRYSTAL_CHEST && Notes.keyCount(new CrystalKey(Dungeon.depth)) <= 0) return false;
 		if (h.type == Heap.Type.HEAP) {
 			Item top = h.peek();
-			if (!roomFor(top) || junk(top)) return false;
+			if ((!roomFor(top) || junk(top)) && !keyAt(c)) return false;
 			// the Wandmaker's candles, set round the ritual spot: they stay there
 			if (top instanceof com.shatteredpixel.shatteredpixeldungeon.items.quest.CeremonialCandle && L.adjacent(c, com.shatteredpixel.shatteredpixeldungeon.items.quest.CeremonialCandle.ritualPos)) return false;
 			if (top instanceof Dewdrop) {   // with room in the waterskin it goes there; else it heals (at full health it stays put)
@@ -930,6 +963,8 @@ public final class Assist {
 	private static boolean floorLeft() {
 		for (int c = 0; c < LEN; c++) if (dist[c] < INF && dist[c] > 0 && unseenBy(c)) return true;
 		for (Heap h : L.heaps.valueList()) if (heapOk(h) && walk(h.pos) < INF) return true;
+		boolean iron = Notes.keyCount(new IronKey(Dungeon.depth)) > 0, crystal = Notes.keyCount(new CrystalKey(Dungeon.depth)) > 0;   // (a locked room a held key opens)
+		if (iron || crystal) for (int c = 0; c < LEN; c++) if (known[c] && walk(c) < INF && ((iron && L.map[c] == Terrain.LOCKED_DOOR) || (crystal && L.map[c] == Terrain.CRYSTAL_DOOR))) return true;
 		return false;
 	}
 
@@ -1059,12 +1094,16 @@ public final class Assist {
 		for (int pass2 = 0; pass2 < 3; pass2++) {
 			// things worth picking up (underfoot first), the nearest
 			kind[0] = PICKUP; bk = INF; best = -1;
+			fx = -1; deferred = false;   // (the nearest spot to explore: worked out when first asked, per pass)
 			for (Heap h : L.heaps.valueList()) {
 				int c = h.pos;
 				if (!heapOk(h) || L.map[c] == Terrain.ALCHEMY || (c != hp && seenChar(c) != null) || (fish && water(c))) continue;
 				int d = c == hp ? 0 : walk(c);
 				if (d >= INF) continue;
-				if (d < bk && (d == 0 || (direct(c) && (od < 0 || (d <= 4 && off(c, od) <= 6))) || (h.type == Heap.Type.HEAP && precious(h.peek())))) { bk = d; best = c; }
+				boolean key = keyAt(c), must = key || (h.type == Heap.Type.HEAP && precious(h.peek()));
+				if (!must && d > 0 && farOff(c, d)) continue;   // (owner: "far away when unexplored areas are right nearby": those first, this on the way back)
+				int k = key ? d - 6 : d;   // (a key a little further before other things: it opens a room)
+				if (k < bk && (d == 0 || must || (direct(c) && (od < 0 || (d <= 4 && off(c, od) <= 6))))) { bk = k; best = c; }
 			}
 			if (SHOP && best < 0) { int sb = -1, sk = INF;
 				for (Heap h : L.heaps.valueList()) {   // the shop, by the guide's order (2.7): what's wanted and affordable (the price is shown)
@@ -1078,7 +1117,7 @@ public final class Assist {
 			for (Mob m : mobs()) {   // a hidden mimic looks like a chest: opened like one (MimicSprite draws it so; knowing better would be cheating)
 				if (!disguised(m) || !L.heroFOV[m.pos] || passed.contains(m.pos) || bad.containsKey(m.pos) || H.HP * 3 < H.HT * 2 || danger[m.pos]) continue;
 				int d = walk(m.pos);
-				if (d < bk && direct(m.pos)) { bk = d; best = m.pos; }
+				if (d < bk && direct(m.pos) && !farOff(m.pos, d)) { bk = d; best = m.pos; }
 			}
 			if (best >= 0) { why[0] = "pick up"; return best; }
 			kind[0] = GO;
@@ -1094,12 +1133,16 @@ public final class Assist {
 			}
 			if (best >= 0) { why[0] = "talk"; return best; }
 			for (int c = 0; c < LEN; c++) {   // a door to unlock, a well worth a drink
-				if (!known[c] || walk(c) >= bk || !ahead(c) || bad.containsKey(c)) continue;
+				if (!known[c] || walk(c) >= bk || !ahead(c) || bad.containsKey(c) || farOff(c, walk(c))) continue;   // (a held key's door far off, unexplored right by: that first; the door once nearer, or before the stairs)
 				int t = L.map[c];
 				if ((t == Terrain.LOCKED_DOOR && Notes.keyCount(new IronKey(Dungeon.depth)) > 0) || (t == Terrain.CRYSTAL_DOOR && Notes.keyCount(new CrystalKey(Dungeon.depth)) > 0)
 						|| (t == Terrain.WELL && wellUseful(c))) { bk = walk(c); best = c; }
 			}
 			if (best >= 0) { why[0] = "unlock / well"; return best; }
+			if (deferred && fxc >= 0) {   // something far off left for later: the spot to explore it was left for, now (not the grass or whatever came next: walked back and forth)
+				int g = goal; if (g >= 0 && g < LEN && dist[g] < INF && dist[g] > 0 && dist[g] <= fx + 3 && !bad.containsKey(g) && unseenBy(g) && ahead(g)) fxc = g;
+				kind[0] = GO; goal = fxc; why[0] = "explore"; return fxc;
+			}
 			int st = amulet ? L.entrance() : L.exit();
 			boolean way = st > 0 && known[st] && walk(st) < INF && (L.map[st] != Terrain.LOCKED_EXIT || Notes.keyCount(new WornKey(Dungeon.depth)) > 0);
 			if (!way) { int d0 = 9; for (int c = 0; c < LEN; c++) if (walk(c) < d0 && deadEnd(c) && ahead(c) && !bad.containsKey(c)) { d0 = walk(c); best = c; }
@@ -1121,6 +1164,10 @@ public final class Assist {
 			if (best >= 0) { why[0] = "over the trap"; return best; }
 			if (od >= 0) { wayOn = od; ovrC = -1; od = -1; continue; }   // nothing left the player's way: the plan again
 			if ((best = look(true)) >= 0) { why[0] = "grass"; return best; }
+			for (Heap h : L.heaps.valueList()) {   // a key left on a mild trap (its locked room the last thing here): over the trap for it, before the stairs
+				com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap tr = L.traps.get(h.pos);
+				if (keyAt(h.pos) && known[h.pos] && tr != null && tr.visible && mild(tr) && walk(h.pos) < INF && !bad.containsKey(h.pos) && seenChar(h.pos) == null && !danger[h.pos]) { kind[0] = PICKUP; why[0] = "the key, over the trap"; return h.pos; }
+			}
 			if (way) { if (st == hp) kind[0] = PICKUP; why[0] = amulet ? "up" : "stairs"; return st; }
 			if (st > 0 && L.map[st] == Terrain.LOCKED_EXIT) {   // the boss's key
 				for (Heap h : L.heaps.valueList()) if (h.seen && h.type == Heap.Type.HEAP && h.peek() instanceof WornKey && known[h.pos] && walk(h.pos) < INF) { kind[0] = PICKUP; why[0] = "the key"; return h.pos; }
@@ -1186,6 +1233,24 @@ public final class Assist {
 		if (a != null && a.volume > 0 && a.cur != null && a.cur[c] > 0) return true;
 		return false;
 	}
+
+	/** A trap a player would step on for a key: it alarms, slimes, confuses, chills, pricks or moves him, no worse. */
+	private static boolean mild(com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap t) {
+		String n = t.getClass().getSimpleName();
+		return n.equals("AlarmTrap") || n.equals("OozeTrap") || n.equals("ConfusionTrap") || n.equals("ChillingTrap") || n.equals("WornDartTrap") || n.equals("FlockTrap") || n.equals("TeleportationTrap");
+	}
+
+	/** Is a walk of d far off next to the nearest spot to explore (a sensible player looks round where he is first)? */
+	private static boolean farOff(int c0, int d) {
+		Float pt = planned.get(c0); if (pt != null && pt >= Actor.now()) return false;   // (plan A lately: on the way there already, kept, or the hero walked back and forth)
+		if (fx < 0) { fx = INF; fxc = -1; for (int c = 0; c < LEN; c++) if (dist[c] < fx && dist[c] > 0 && !bad.containsKey(c) && unseenBy(c) && ahead(c) && direct(c)) { fx = dist[c]; fxc = c; } }
+		boolean far = fx < INF && d > 2 * fx + 6;
+		deferred |= far;
+		return far;
+	}
+	private static int fxc = -1; private static boolean deferred;
+	private static final Map<Integer, Float> planned = new HashMap<>();   // plan A's objectives lately (till when)
+	private static int fx = -1;
 
 	/** On screen first: the spots beside the unknown and the tall grass, nearest first, those ahead before the rest. */
 	private static int look(boolean all) {
@@ -1306,7 +1371,8 @@ public final class Assist {
 			for (int j = 0; j < mindObj.length; j++) {
 				int c = mindObj[j]; int g = mindWalk[j] - (c >= 0 && c < LEN ? walk(c) : INF);
 				if (j == 0 && c < 0) break;
-				if (g > 0) { if (j == 0) break; up = true; if (g >= 2 && (od < 0 || off(c, od) <= 8)) { pr = c; up = false; break; } }
+				if (g > 0) { if (j == 0) break; if ((c == EXIT || c == ENT) && floorLeft()) continue;   // (walking past the stairs isn't wanting them, with the floor not done)
+					up = true; if (g >= 2 && (od < 0 || off(c, od) <= 8)) { pr = c; up = false; break; } }
 			}
 		}
 		if (pr >= 0) {
