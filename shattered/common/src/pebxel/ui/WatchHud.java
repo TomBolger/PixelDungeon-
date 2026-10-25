@@ -251,9 +251,9 @@ public class WatchHud extends Group {
 		if (ex > 0) bars.add(Shape.arc(130, 130, 113, 115, deg(-166), -290 + (60 + 290) * ex / mx, 0, YELLOW));
 	}
 
-	/** The items' and the backpack's size on the toolbar: 1.5x, so they sit inside their frames (2x ran over the
-	 *  edges); the clock and magnifier are small enough at 2x. */
-	static float ICON_SCALE = 1.5f;
+	/** The items' and the backpack's size on the toolbar: 2x, as Pebble PD (at 1.5x every texel came out 1 or 2 px
+	 *  wide and the art looked lumpy). */
+	static float ICON_SCALE = 2f;
 	static float iconScale(int j) { return TB_ICON_AT[j] == TB_BAG ? ICON_SCALE : 2f; }
 	static int tbX(int i) { return (W - TB_N * TB_W - TB_GAP) / 2 + i * TB_W + (i >= 2 ? TB_GAP : 0); }   // wait, search | the rest
 	public static int[] buttonRect(int k) {
@@ -467,8 +467,8 @@ public class WatchHud extends Group {
 			} else if (kind >= 6 && kind <= 8) {   // (the toolbar's own pictures: the clock for wait and rest, the magnifier)
 				tag(a, "tag_white");
 				int j = kind == 7 ? 1 : 0, w = TB_ICON[j][2], hh = TB_ICON[j][3];
-				Image ic = PdArt.image("toolbar", TB_ICON[j][0], TB_ICON[j][1], w, hh, kind == 7 ? 1.5f : 1.5f);
-				ic.x = a[0] + 2 + Math.round((a[2] - 1.5f * w) / 2); ic.y = a[1] + Math.round((a[3] - 1.5f * hh) / 2); into.add(ic);
+				Image ic = PdArt.image("toolbar", TB_ICON[j][0], TB_ICON[j][1], w, hh, 1);   // (1x, as the other tag pictures)
+				ic.x = a[0] + 2 + (a[2] - w) / 2; ic.y = a[1] + (a[3] - hh) / 2; into.add(ic);
 				if (kind == 8) { WatchText zz = new WatchText(WatchText.G14B, "z", YELLOW); zz.outline = true; place(zz, a[0] + a[2] - 8, a[1] - 2, 8, 0); into.add(zz); }
 			} else if (kind == 9) {
 				tag(a, "tag_white");

@@ -359,7 +359,7 @@ public final class WatchSim {
 		px0 = d(o, Link.D_X) / 8f; py0 = d(o, Link.D_Y) / 8f;
 		scx = d(o, Link.D_SX) / 256f; scy = d(o, Link.D_SY) / 256f;
 		double ang = Math.toRadians(d(o, Link.D_ANG) / 64f); cs = (float) Math.cos(ang); sn = (float) Math.sin(ang);
-		orx = ory = 0;
+		orx = ory = 0; fine = false;
 		switch (o.kind) {
 			case Link.K_EMIT: drawEmit(o); break;
 			case Link.K_SHAPE: shape(o, s); break;
@@ -395,6 +395,7 @@ public final class WatchSim {
 				break;
 			}
 			case Link.K_RECT: {
+				fine = true;
 				orx = s16(s, 2) / 8f; ory = s16(s, 4) / 8f;
 				float w = s16(s, 6) / 8f, h = s16(s, 8) / 8f;
 				int r = s[10] & 255, g = s[11] & 255, bb = s[12] & 255, a = s[13] & 255;
@@ -626,9 +627,14 @@ public final class WatchSim {
 		int x0 = Math.max(clipX0, (int) Math.floor(minX)), x1 = Math.min(clipX1, (int) Math.ceil(maxX));
 		int y0 = Math.max(clipY0, (int) Math.floor(minY)), y1 = Math.min(clipY1, (int) Math.ceil(maxY));
 		float z = cam.zoom / 256f;
+		// upright: spread over the whole pixels it covers, as draw.c blit (its edges snapped to the pixel grid)
+		int X0 = Math.round(minX), X1 = Math.round(maxX), Y0 = Math.round(minY), Y1 = Math.round(maxY);
+		boolean snap = sn == 0 && X1 > X0 && Y1 > Y0;
+		if (snap) { x0 = Math.max(clipX0, X0); x1 = Math.min(clipX1, X1); y0 = Math.max(clipY0, Y0); y1 = Math.min(clipY1, Y1); }
 		for (int py = y0; py < y1; py++) for (int px = x0; px < x1; px++) {
 			// screen -> camera units -> local
-			float cx = ((px + 0.5f) * 8 - cam.x) / z / 8 + cam.sx / 8f, cy = ((py + 0.5f) * 8 - cam.y) / z / 8 + cam.sy / 8f;
+			float fx = snap ? minX + (px + 0.5f - X0) * (maxX - minX) / (X1 - X0) : px + 0.5f, fy = snap ? minY + (py + 0.5f - Y0) * (maxY - minY) / (Y1 - Y0) : py + 0.5f;
+			float cx = (fx * 8 - cam.x) / z / 8 + cam.sx / 8f, cy = (fy * 8 - cam.y) / z / 8 + cam.sy / 8f;
 			float dx = cx - px0 - orx, dy = cy - py0 - ory;
 			float rx = cs * dx + sn * dy, ry = -sn * dx + cs * dy;
 			if (scx == 0 || scy == 0) continue;
@@ -671,10 +677,13 @@ public final class WatchSim {
 		if (w < 0) { x += w; w = -w; fx = !fx; }
 		if (h < 0) { y += h; h = -h; fy = !fy; }
 		if (t == null) { fill(x, y, w, h, 1, 0, 1, 1); return; }
-		int x0 = Math.max(clipX0, (int) Math.floor(x)), x1 = Math.min(clipX1, (int) Math.ceil(x + w));
-		int y0 = Math.max(clipY0, (int) Math.floor(y)), y1 = Math.min(clipY1, (int) Math.ceil(y + h));
+		// as draw.c: the whole pixels whose centres are inside, the picture spread evenly over them
+		int X0 = Math.round(x), X1 = Math.round(x + w), Y0 = Math.round(y), Y1 = Math.round(y + h);
+		if (X1 <= X0 || Y1 <= Y0) return;
+		int x0 = Math.max(clipX0, X0), x1 = Math.min(clipX1, X1);
+		int y0 = Math.max(clipY0, Y0), y1 = Math.min(clipY1, Y1);
 		for (int py = y0; py < y1; py++) for (int px = x0; px < x1; px++) {
-			float u = (px + 0.5f - x) / w, v = (py + 0.5f - y) / h;
+			float u = (px + 0.5f - X0) / (X1 - X0), v = (py + 0.5f - Y0) / (Y1 - Y0);
 			if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
 			if (fx) u = 1 - u; if (fy) v = 1 - v;
 			int sxp = tx + (int) (u * tw), syp = ty + (int) (v * th);
@@ -789,9 +798,11 @@ public final class WatchSim {
 		fb[y * W + x] = 0xFF000000 | (q(r) << 16) | (q(g) << 8) | q(b);
 	}
 
+	// as draw.c: pictures solid, on a 50% checker or gone; plain colour blocks (fades) the 16 levels
+	private boolean fine;
 	private void put(int px, int py, float r, float g, float b, float a) {
 		int A = Math.round(a * 255);
-		if (A <= 247 && A <= BAYER[((py & 3) << 2) | (px & 3)]) return;
+		if (fine ? A <= 247 && A <= BAYER[((py & 3) << 2) | (px & 3)] : A < 213 && (A < 43 || ((px ^ py) & 1) == 0)) return;
 		fb[py * W + px] = 0xFF000000 | (q(r) << 16) | (q(g) << 8) | q(b);
 	}
 

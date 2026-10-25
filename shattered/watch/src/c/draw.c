@@ -43,9 +43,15 @@ static void colour_setup(const uint8_t *col, int alpha) {
   }
 }
 
-// see-through pixels are dithered (a 4x4 ordered pattern) rather than blended: with only four levels
-// per colour, blending would turn dimmed areas (fog of war over remembered rooms) to plain black
+// see-through pixels are dithered rather than blended: with only four levels per colour, blending would turn
+// dimmed areas to plain black. Pictures (sprites, halos, particles, shadows) are there, gone, or on a 50% checker, as
+// Pebble PD draws them: a 16-level 4x4 pattern read as speckle at the watch's pixel size. Plain colour blocks (a
+// scene's fade, a window's shade) keep the 16 levels (s_fine), so a fade still fades.
 static const uint8_t BAYER[16] = {8, 136, 40, 168, 200, 72, 232, 104, 56, 184, 24, 152, 248, 120, 216, 88};
+#define A_SOLID 213   // alpha from here up: solid; from A_HALF: the checker; below: not drawn
+#define A_HALF 43
+static bool s_fine;
+static inline bool dot(int A, int x, int y) { return s_fine ? A > BAYER[((y & 3) << 2) | (x & 3)] : A >= A_SOLID || (A >= A_HALF && ((x ^ y) & 1)); }
 static inline void put(uint8_t *d, uint8_t c, int x, int y) {
   int A;
   if (s_plain) {
@@ -57,7 +63,7 @@ static inline void put(uint8_t *d, uint8_t c, int x, int y) {
     A = s_la[c]; c = s_lc[c];
     if (A > 247) { *d = c; return; }
   }
-  if (A > BAYER[((y & 3) << 2) | (x & 3)]) *d = c | 0xC0;
+  if (dot(A, x, y)) *d = c | 0xC0;
 }
 
 // pixels xa..xb-1 of row y (d: the first) all from one source colour c, as put() would draw them: the colour and
@@ -67,7 +73,8 @@ static void span(uint8_t *d, int xa, int xb, int y, uint8_t c) {
   int A; uint8_t out;
   if (s_plain) { int a = c >> 6; if (!a) return; out = c | 0xC0; A = a == 3 ? 256 : a * 85; }
   else { A = s_la[c]; out = s_lc[c] | 0xC0; if (A > 247) A = 256; }
-  if (A == 256) { memset(d, out, xb - xa); return; }
+  if (A == 256 || (!s_fine && A >= A_SOLID)) { memset(d, out, xb - xa); return; }
+  if (!s_fine) { if (A < A_HALF) return; for (int x = xa + ((xa ^ y ^ 1) & 1); x < xb; x += 2) d[x - xa] = out; return; }
   const uint8_t *bt = BAYER + ((y & 3) << 2);
   for (int x = xa; x < xb; x++, d++) if (A > bt[x & 3]) *d = out;
 }
@@ -75,8 +82,8 @@ static void span(uint8_t *d, int xa, int xb, int y, uint8_t c) {
 // ---- camera ----
 static Cam *s_cam;
 // camera units x8 -> screen px x8
-static inline int32_t scx(int32_t x8) { return s_cam->x + (int32_t)((int64_t)(x8 * 256 - s_cam->sx) * s_cam->zoom / 65536); }
-static inline int32_t scy(int32_t y8) { return s_cam->y + (int32_t)((int64_t)(y8 * 256 - s_cam->sy) * s_cam->zoom / 65536); }
+static inline int32_t scx(int32_t x8) { return s_cam->x + (int32_t)(((int64_t)x8 * 256 - s_cam->sx) * s_cam->zoom >> 16); }
+static inline int32_t scy(int32_t y8) { return s_cam->y + (int32_t)(((int64_t)y8 * 256 - s_cam->sy) * s_cam->zoom >> 16); }
 
 // ---- an upright (unturned) picture: source texels [tx, tx+tw) to screen edges L..R, T..B (px x8; reversed = mirrored) ----
 static void blit(int tex, int tx, int ty, int tw, int th, int32_t L, int32_t T, int32_t R, int32_t B, bool fx, bool fy) {
@@ -86,6 +93,12 @@ static void blit(int tex, int tx, int ty, int tw, int th, int32_t L, int32_t T, 
   if (R < L) { int32_t t = L; L = R; R = t; fx = !fx; }
   if (B < T) { int32_t t = T; T = B; B = t; fy = !fy; }
   int x0 = (L + 4) >> 3, x1 = (R + 4) >> 3, y0 = (T + 4) >> 3, y1 = (B + 4) >> 3;   // pixels whose centres are inside
+  // The picture is spread over exactly those whole pixels: its edges snapped to the pixel grid, so at a whole scale
+  // every texel is the same number of pixels (the phone places things at half watch pixels, and the camera eases in
+  // smaller steps: sampled from the unsnapped edges, a texel came out 1 or 3 px wide, or was dropped, and the map
+  // shimmered as the camera moved).
+  if (x0 >= x1 || y0 >= y1) return;
+  L = x0 * 8; R = x1 * 8; T = y0 * 8; B = y1 * 8;
   if (x0 < s_cx0) x0 = s_cx0; if (x1 > s_cx1) x1 = s_cx1;
   if (y0 < s_cy0) y0 = s_cy0; if (y1 > s_cy1) y1 = s_cy1;
   if (x0 >= x1 || y0 >= y1) return;
@@ -216,21 +229,24 @@ static void draw_skin(Obj *o) {
   int32_t ox = obj_dyn(o, 6, s_now), oy = obj_dyn(o, 7, s_now);
   int32_t L = scx(X), T = scy(Y), R = scx(X + o->w), B = scy(Y + o->h);
   int x0 = (L + 4) >> 3, x1 = (R + 4) >> 3, y0 = (T + 4) >> 3, y1 = (B + 4) >> 3;
+  int X0 = x0, Y0 = y0;   // its snapped top left: the texels counted from there, as blit does
   if (x0 < s_cx0) x0 = s_cx0; if (x1 > s_cx1) x1 = s_cx1;
   if (y0 < s_cy0) y0 = s_cy0; if (y1 > s_cy1) y1 = s_cy1;
   if (x0 >= x1 || y0 >= y1) return;
   ArtSrc src; if (!art_open(&src, o->tex, 0, 0, tw, th)) return;
   int32_t z = s_cam->zoom;
+  // the drift in whole watch pixels (units x8 per pixel: 2048 / zoom), so it moves the water a pixel at a time
+  int32_t pu = 2048 / z; if (pu > 1) { ox -= ox % pu; oy -= oy % pu; }
   // source x in 1/256 texel steps: one screen pixel is 256*256/zoom of them
   int32_t step = 65536 / z;                          // texels x256 per screen pixel
   for (int y = y0; y < y1; y++) {
-    int32_t cy = (int32_t)((int64_t)(y * 8 + 4 - s_cam->y) * 65536 / z / 256) + s_cam->sy / 256;
-    int sv = ((cy - Y + oy) / 8) % th; if (sv < 0) sv += th;
+    int32_t cy = (int32_t)((int64_t)((y - Y0) * 8 + 4) * 65536 / z / 256);   // down from its top, units x8
+    int sv = ((cy + oy) / 8) % th; if (sv < 0) sv += th;
     const uint8_t *row = art_row(&src, sv); if (!row) continue;
     int xa = x0, xb = x1; ROWCLIP(y, xa, xb); if (xa >= xb) continue;
     uint8_t *d = ROWPTR(y) + xa;
-    int32_t cx = (int32_t)((int64_t)(xa * 8 + 4 - s_cam->x) * 65536 / z / 256) + s_cam->sx / 256;
-    int32_t u = (cx - X + ox) * 32;                    // texels x256
+    int32_t cx = (int32_t)((int64_t)((xa - X0) * 8 + 4) * 65536 / z / 256);
+    int32_t u = (cx + ox) * 32;                        // texels x256
     int32_t span = tw * 256;
     u %= span; if (u < 0) u += span;
     for (int x = xa; x < xb; x++, d++) {
@@ -409,8 +425,7 @@ static void __attribute__((noinline, optimize("Os"))) fill_a(int32_t L, int32_t 
   for (int y = y0; y < y1; y++) {
     int xa = x0, xb = x1; ROWCLIP(y, xa, xb);
     uint8_t *d = ROWPTR(y) + xa;
-    const uint8_t *bt = BAYER + ((y & 3) << 2);
-    for (int x = xa; x < xb; x++, d++) if (A > 247 || A > bt[x & 3]) *d = c;
+    for (int x = xa; x < xb; x++, d++) if (A > 247 || dot(A, x, y)) *d = c;
   }
 }
 static void __attribute__((noinline, optimize("Os"))) draw_emit(Obj *o) {
@@ -446,6 +461,7 @@ static void draw_obj(Obj *o) {
   s_cx0 = s_cam->x >> 3; s_cy0 = s_cam->y >> 3; s_cx1 = (s_cam->x + s_cam->w) >> 3; s_cy1 = (s_cam->y + s_cam->h) >> 3;
   if (s_cx0 < 0) s_cx0 = 0; if (s_cy0 < 0) s_cy0 = 0; if (s_cx1 > s_W) s_cx1 = s_W; if (s_cy1 > s_H) s_cy1 = s_H;
   int alpha = obj_dyn(o, 2, s_now);
+  s_fine = o->kind == K_RECT;
   if (o->kind == K_TEXT) { draw_text(o); return; }
   fb_take();
   if (!s_fb) return;

@@ -108,9 +108,12 @@ def frame_widths():
     out = {}
     for f in glob.glob(os.path.join(j, 'sprites', '*.java')):
         s = open(f).read()
-        films = re.findall(r'new TextureFilm\(\s*texture\s*,\s*(\d+)\s*,', s)
+        films = re.findall(r'new TextureFilm\(\s*texture\s*,\s*(\d+)\s*,\s*(\d*)', s)   # (a height worked out at run time: none)
         for t in re.findall(r'texture\(\s*Assets\.Sprites\.(\w+)\s*\)', s):
-            if t in consts and films and consts[t] not in NO_OUTLINE: out[consts[t]] = int(films[0])
+            if t in consts and films:
+                if films[0][1]: FRAME_H.setdefault(consts[t], int(films[0][1]))
+                if consts[t] not in NO_OUTLINE: out[consts[t]] = int(films[0][0])
+    for h in ('warrior', 'mage', 'rogue', 'huntress', 'duelist', 'cleric'): FRAME_H['sprites/%s.png' % h] = 15   # HeroSprite: a row per tier
     return out
 
 NO_OUTLINE = {'sprites/items.png', 'sprites/item_icons.png', 'sprites/avatars.png', 'sprites/amulet.png', 'sprites/pet.png',
@@ -130,6 +133,51 @@ def outline(im, fw, col=(0, 0, 0, 255)):
                     px[x, y] = col; break
 
 FRAME_W = {}
+FRAME_H = {}   # creature sheets' frame heights: their colours are folded a row (one creature, or one armour tier) at a time
+
+# ---- Pebble PD's fold16 (its convert_art.py, 0.60): at most 15 colours per strip, dropping first the colour whose loss
+# looks least on the panel. Pebble PD folds every creature's strip and hero tier; Shattered's richer shading kept
+# shades a pixel or two strong (speckle at the watch's size).
+PAL = [(r, g, b) for r in (0, 85, 170, 255) for g in (0, 85, 170, 255) for b in (0, 85, 170, 255)]
+PANEL = dict(zip(PAL, [((v >> 16) & 255, (v >> 8) & 255, v & 255) for v in (
+    0x000000, 0x001E41, 0x004387, 0x0068CA, 0x2B4A2C, 0x27514F, 0x16638D, 0x007DCE, 0x5E9860, 0x5C9B72, 0x57A5A2,
+    0x4CB4DB, 0x8EE391, 0x8EE69E, 0x8AEBC0, 0x84F5F1, 0x4A161B, 0x482748, 0x40488A, 0x2F6BCC, 0x564E36, 0x545454,
+    0x4F6790, 0x4180D0, 0x759A64, 0x759D76, 0x71A6A4, 0x69B5DD, 0x9EE594, 0x9DE7A0, 0x9BECC2, 0x95F6F2, 0x99353F,
+    0x983E5A, 0x955694, 0x8F74D2, 0x9D5B4D, 0x9D6064, 0x9A7099, 0x9587D5, 0xAFA072, 0xAEA382, 0xABABAB, 0xA7BAE2,
+    0xC9E89D, 0xC9EAA7, 0xC7F0C8, 0xC3F9F7, 0xE35462, 0xE25874, 0xE16AA3, 0xDE83DC, 0xE66E6B, 0xE6727C, 0xE37FA7,
+    0xE194DF, 0xF1AA86, 0xF1AD93, 0xEFB5B8, 0xECC3EB, 0xFFEEAB, 0xFFF1B5, 0xFFF6D3, 0xFFFFFF)]))
+def panel_lab(c):
+    def lin(u): u /= 255; return ((u + 0.055) / 1.055) ** 2.4 if u > 0.04045 else u / 12.92
+    r, g, b = (lin(v) for v in PANEL[tuple(min(3, (v + 42) // 85) * 85 for v in c)])   # (a source pixel at alpha 254 is kept unsnapped)
+    f = lambda t: t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+    X, Y, Z = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.9505, 0.2126 * r + 0.7152 * g + 0.0722 * b, (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.089
+    return 116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))
+def fold16(img, box):
+    x0, y0, x1, y1 = box; px = img.load(); counts = {}
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            if px[x, y][3]: counts[px[x, y][:3]] = counts.get(px[x, y][:3], 0) + 1
+    if len(counts) <= 15: return 0
+    lab = {c: panel_lab(c) for c in counts}
+    d = lambda a, b: sum((u - v) ** 2 for u, v in zip(lab[a], lab[b])) ** 0.5
+    orig, remap = dict(counts), {}
+    while len(counts) > 15:
+        best = None
+        for c in sorted(counts):
+            to = min((o for o in sorted(counts) if o != c), key=lambda o: d(c, o))
+            cost = sum(orig[m] * d(m, to) ** 2 for m in [k for k, v in remap.items() if v == c] + [c])
+            if best is None or cost < best[0]: best = (cost, c, to)
+        _, c, to = best
+        counts[to] += counts.pop(c)
+        for k, v in list(remap.items()):
+            if v == c: remap[k] = to
+        remap[c] = to
+    n = 0
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            r, g, b, a = px[x, y]
+            if a and (r, g, b) in remap: px[x, y] = remap[(r, g, b)] + (a,); n += 1
+    return n
 
 def spread_greys(src, out, cell):
     """Buff icons: two greys of one icon mustn't become the same Pebble grey (the warrior's armour buff turned into a
@@ -376,6 +424,8 @@ if __name__ == '__main__':
                     if 0 < al < 255:
                         q = min(3, (al + 42) // 85)
                         o[x, y] = o[x, y][:3] + ((0, 85, 170, 255)[q],)
+        if p in FRAME_H:
+            for y0 in range(0, out.height, FRAME_H[p]): fold16(out, (0, y0, out.width, min(out.height, y0 + FRAME_H[p])))
         if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255))
         if p == 'interfaces/chrome.png': simple_frames(out)
         if p in ('interfaces/buffs.png', 'interfaces/large_buffs.png'): spread_greys(im, out, 7 if 'large' not in p else 16)
