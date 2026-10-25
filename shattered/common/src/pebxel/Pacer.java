@@ -136,7 +136,15 @@ public final class Pacer {
 	private void transmit(byte[] m) { outAt = nowMs; sentAt = clock.getAsLong(); bytes += m.length; msgs++; radio.send(m); }
 
 	/** See BUDGET. */
-	public synchronized int budget() { return rate == 0 ? BUDGET : Math.max(MIN_BUDGET, Math.min(BUDGET, Math.round(rate * TARGET / 1000))); }
+	public synchronized int budget() {
+		int b = rate == 0 ? BUDGET : Math.max(MIN_BUDGET, Math.min(BUDGET, Math.round(rate * TARGET / 1000)));
+		// (a walk worked out ahead, Ahead: what waits is the walk the watch will show next, not a backlog to keep short;
+		// held to the usual budget, a slow radio ran barely ahead, and merged the walk's frames: the hero hopped)
+		return walking ? Math.max(b, WALK_BUDGET) : b;
+	}
+	/** On a walk worked out ahead (Ahead sets it). */
+	public volatile boolean walking;
+	public static int WALK_BUDGET = env("PACE_WALK", 1800);
 	public synchronized float rate() { return rate; }
 	/** Real ms a message has taken lately, sent to answered (0: not known yet). */
 	public synchronized float rtt() { return msgMs; }

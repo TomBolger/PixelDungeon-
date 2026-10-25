@@ -128,12 +128,12 @@ public final class WatchSim {
 		pump();
 	}
 
-	// a walk worked out ahead (C_AHEAD, see Ahead): its frames [a0, a1] play from when it arrived (main.c also from
-	// when the watch began it, predict.c: not modelled here), the one before it as it was
+	// a walk worked out ahead (C_AHEAD, see Ahead): its frames [a0, a1] (main.c plays them from the press when it
+	// walked the hero ahead, predict.c: not modelled here), the one before it as it was
 	private float a0 = -1, a1, aOff, p0 = -1, p1, pOff;
 	private void ahead(float from, long to) {
 		float end = to == 0xFFFFFFFFL ? Float.MAX_VALUE : to / 1000f;
-		if (from != a0) { p0 = a0; p1 = a1; pOff = aOff; a0 = from; aOff = Math.min(off, now + MARGIN - from); }
+		if (from != a0) { p0 = a0; p1 = a1; pOff = aOff; a0 = from; aOff = off; }   // (main.c: not shown ahead, at the usual delay)
 		a1 = end;
 	}
 	private float dueOf(float st) {

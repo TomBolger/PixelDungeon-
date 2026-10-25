@@ -1357,7 +1357,13 @@ public final class Link {
 	/** The hero set off on a walk the game carries on by itself: its frames from the last one noted are marked for the watch. */
 	public void walkStart() { walkFrom = nowMs(); walkTo = -1; }
 	/** ...and it is over, in the last frame noted. */
-	public void walkEnd() { if (walkFrom >= 0) walkTo = nowMs(); }
+	public void walkEnd() {
+		if (walkFrom >= 0) walkTo = nowMs();
+		// he stands there (C_READY at the head of the next message: the watch walking him ahead stops there). The plan's
+		// own word of it came only a few frames later, after the game had waited for real time: seconds late
+		com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero h = com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero;
+		if (h != null && h.ready && h.sprite != null && !h.sprite.isMoving) ready = new int[]{Math.round(h.sprite.x * 8), Math.round(h.sprite.y * 8)};
+	}
 
 	/** Frames due within this long (game ms) go first when running ahead (take). */
 	static final int SOON_MS = 150;

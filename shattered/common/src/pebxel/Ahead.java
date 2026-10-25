@@ -62,8 +62,11 @@ public final class Ahead {
 
 	/** At the start of a loop round of dt game seconds: true while the game waits for real time (skip its frame). */
 	public boolean hold(float dt) {
+		// (a walk that ended since the last frame is over before any press is taken: else the next walk, set off at
+		// once, counted as the same one, from its start)
+		if (ON) mark();
 		if (lead <= 0) return false;
-		if (walking && committed()) return false;
+		if (walking) return false;
 		lead = Math.max(0, lead - dt);
 		link.aheadMs = Math.round(lead * 1000);
 		held++;
@@ -94,12 +97,16 @@ public final class Ahead {
 	}
 
 	/**
-	 * Before a round's own frame is noted (Pacer.frame): on a walk, the game's actor thread is given the moment it
+	 * Before a round's own frame is noted (Pacer.frame): the game's actor thread is given the moment it
 	 * needs to set the hero off on his next step (it does so as his last one ends, in that frame). Noted before
 	 * that, the frame had him standing at the end of the step, and the next one had him a part of a step on: on the
 	 * watch, a stop and a hop at every step.
 	 */
-	public void beforeSync(long roundStartNs) { if (ON && walking) settle(roundStartNs); }
+	public void beforeSync(long roundStartNs) {
+		if (!ON) return;
+		settle(roundStartNs);   // (at once when nothing is going on)
+		mark();                 // (on the round of the press: the walk marked in the very first message about it)
+	}
 
 	/** The walk's first and last frames, for the watch (Link.walkFrom / walkTo). */
 	private void mark() {
@@ -107,6 +114,7 @@ public final class Ahead {
 		if (c && !walking) link.walkStart();
 		else if (!c && walking) link.walkEnd();
 		walking = c;
+		pacer.walking = c;
 	}
 
 	/** Waits until the game's actor thread waits again (it works out the turns between frames); false if it takes too long. */
@@ -120,5 +128,5 @@ public final class Ahead {
 	}
 
 	/** The watch started over (a whole new screen): nothing of a walk is pending there. */
-	public void reset() { walking = false; }
+	public void reset() { walking = false; pacer.walking = false; }
 }

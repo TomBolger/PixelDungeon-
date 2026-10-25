@@ -173,7 +173,7 @@ static void walk_heard(uint32_t a0, uint32_t a1, uint32_t now) {
     if (off < lo) off = lo;
     if (off > s_off) off = s_off;   // (never later than usual)
     s_wk.on = true; s_wk.a0 = a0; s_wk.off = off;
-    APP_LOG(APP_LOG_LEVEL_INFO, "walk ahead: %d ms before the usual delay", (int)(s_off - off));
+    APP_LOG(APP_LOG_LEVEL_INFO, "walk ahead: %d ms before the usual delay (press %d, came %d)", (int)(s_off - off), (int)(s_off - (int32_t)(began - a0)), (int)(s_off - (int32_t)(now - a0)));
   }
   s_wk.a1 = a1;
 }

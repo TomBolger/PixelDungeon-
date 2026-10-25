@@ -1,5 +1,7 @@
 package pebxel;
 
+import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+
 import com.badlogic.gdx.Files;
 import com.shatteredpixel.shatteredpixeldungeon.*;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
@@ -86,6 +88,7 @@ public class Server {
 			controls.frame();
 			Gallery.tick();
 			stairsTick();
+			mappedTick();
 			ahead.beforeSync(roundNs);
 			pacer.frame(Game.elapsed, connected);
 			ahead.after(() -> { app.frame(); controls.frame(); }, connected, roundNs);
@@ -110,6 +113,16 @@ public class Server {
 	}
 
 	static long frames, lastBytes, lastMsgs;
+	// MAPPED=1: each floor mapped once the hero stands in it (as a scroll of magic mapping), for testing long walks on
+	// the emulator: the Assistant's places to go are then far off
+	static int mappedDepth = -1;
+	static void mappedTick() {
+		if (System.getenv("MAPPED") == null || !(Game.scene() instanceof com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene)
+				|| Dungeon.hero == null || Dungeon.level == null || Dungeon.depth == mappedDepth) return;
+		mappedDepth = Dungeon.depth;
+		for (int c = 0; c < Dungeon.level.length(); c++) if (Dungeon.level.discoverable[c]) Dungeon.level.mapped[c] = true;
+		com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene.updateFog();
+	}
 	// STAIRS=pattern (u/d letters, repeated) and STAIRS_EVERY=seconds (default 8): take the stairs by themselves, for
 	// testing floor changes on the emulator (see StairsTest)
 	static final String STAIRS = System.getenv("STAIRS");
