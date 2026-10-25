@@ -244,6 +244,8 @@ static QueuedFx *s_qfx; static int s_n_qfx;   // (0.51: on the heap: the app's s
 char (*s_msg)[100]; static GColor s_msg_color[2]; static uint32_t s_msg_until;
 
 uint32_t now_ms(void) { time_t s; uint16_t ms; time_ms(&s, &ms); return (uint32_t)s * 1000 + ms; }
+static uint32_t s_lit;   // 1.02 (owner): the backlight (the system's own setting decides) on every press and touch, and when something happens: once a second at most
+static void lite(void) { uint32_t n = now_ms(); if (n - s_lit >= 1000) { s_lit = n; light_enable_interaction(); } }
 static Vis *vis_of(int who) { return who < 0 ? &s_vis_hero : &s_vis_mob[who]; }
 static void vis_anim(Vis *v, int a) { v->anim = a; v->t0 = now_ms(); }
 static void vis_snap(Vis *v, int16_t cell) {
@@ -406,7 +408,7 @@ static GColor msg_color(MsgColor c) {
   }
 }
 void cap_first(char *s) { if (s[0] >= 'a' && s[0] <= 'z') s[0] -= 32; }
-void ui_log(const char *msg, MsgColor c) {
+void ui_log(const char *msg, MsgColor c) { lite();
   if (s_msg_until < now_ms()) s_msg[0][0] = s_msg[1][0] = 0;
   if (s_msg[1][0]) { memcpy(s_msg[0], s_msg[1], sizeof s_msg[0]); s_msg_color[0] = s_msg_color[1]; }
   snprintf(s_msg[1], sizeof s_msg[1], "%s", msg); s_msg_color[1] = msg_color(c); cap_first(s_msg[1]);
@@ -433,6 +435,7 @@ void ui_fx(FxKind kind, int16_t cell, int who, const char *text) {
     return;
   }
   Vis *v = vis_of(who);
+  if (kind <= FX_ALERT) lite();                     // 1.02: blows, hurt, a new floor, a monster noticing (not grass, splashes)
   switch (kind) {
     case FX_ATTACK: if (v->active) vis_anim(v, A_ATTACK); break;
     case FX_DIE: if (v->active) vis_anim(v, A_DIE); break;
@@ -526,7 +529,7 @@ static void schedule(uint32_t ms) {
 }
 static uint32_t s_last_tick;
 static void busy(void);
-static void woke(void) { s_last_in = now_ms(); if (!s_timer) busy(); }
+static void woke(void) { s_last_in = now_ms(); lite(); if (!s_timer) busy(); }
 // waking from an idle wait: the first frame counts as one 33 ms step, not the whole wait (that made a step a jump)
 static void busy(void) { if (s_timer_ms != 33) s_last_tick = now_ms() - 33; schedule(33); }
 static void idle(void) { schedule(s_scene == SC_TITLE || s_scene == SC_SELECT ? 250 : 500); }
@@ -660,7 +663,7 @@ static void tick(void *data) {
     if (s_walking && hero_arrived && s_scene == SC_GAME) {
       ActResult r = game_continue();
       after_turn(r);
-      if (r != ACT_WALK) s_walking = false;
+      if (r != ACT_WALK) { s_walking = false; lite(); }   // 1.02: a walk or a rest over
       else step_vis(&s_vis_hero, G.hero.pos, &HERO_ART, true);   // start the next tween this frame: no pause between tiles
     }
     if (s_walking && s_scene != SC_GAME) s_walking = false;
