@@ -102,6 +102,9 @@ public class WatchHud extends Group {
 		camera = cam;
 		round = pebxel.Screen.round;
 		if (round) { buildRound(); return; }
+		// the health bar strip takes a tap and does nothing (Pebble PD's on_tap; below it, beside the portrait, is map).
+		// Made before the buttons, so they come first. (Shattered's unseen hero button under it opened the hero sheet.)
+		add(new com.watabou.noosa.PointerArea(0, 0, W, SC(10)));
 
 		// the status pane: PD's art at 1.5x, its left 80 px, a stretched column, its right 48 px
 		add(PdArt.image("status_pane", 0, 0, 80, SP_H, 1.5f));
@@ -309,7 +312,26 @@ public class WatchHud extends Group {
 	public void update() {
 		refresh();
 		placeBossBar();
+		deafen();
 		super.update();
+	}
+
+	/** Shattered's own screen furniture, never drawn on the watch (Link's skip list): this HUD stands in for it and
+	 *  presses its buttons in code. Its touch areas stayed live, unseen: a tap just left of the menu button opened
+	 *  Shattered's journal (on its badges page, when the menu's Badges was the last used). Each frame, as Shattered
+	 *  gives some of them back their place in the line (the buffs, when they change). Keys still reach them. */
+	private static final java.util.Set<String> FURNITURE = new java.util.HashSet<>(java.util.Arrays.asList(
+			"StatusPane", "MenuPane", "Toolbar", "GameLog", "AttackIndicator", "LootIndicator", "ResumeIndicator", "ActionIndicator", "InventoryPane"));
+	private void deafen() {
+		Group s = Game.scene(); if (s == null) return;
+		for (com.watabou.noosa.Gizmo g : com.watabou.noosa.GroupAccess.members(s))
+			if (g instanceof Group && g != this && FURNITURE.contains(g.getClass().getSimpleName())) deafen((Group) g);
+	}
+	private static void deafen(Group grp) {
+		for (com.watabou.noosa.Gizmo g : com.watabou.noosa.GroupAccess.members(grp)) {
+			if (g instanceof com.watabou.noosa.PointerArea) com.watabou.input.PointerEvent.removePointerListener((com.watabou.noosa.PointerArea) g);
+			else if (g instanceof Group) deafen((Group) g);
+		}
 	}
 
 	/** Shattered's boss health bar: under the status pane, centred (Shattered put it where the buffs are). */
@@ -687,6 +709,8 @@ public class WatchHud extends Group {
 	/** A creature's picture standing still: its idle animation's first frame. */
 	private static Image still(CharSprite s) {
 		Image i = new Image(s);
+		i.scale = new com.watabou.utils.PointF(1, 1);   // (Image's copy shares the sprite's scale: shrinking the picture shrank the creature on the map)
+		i.resetColor();   // (and its colour of the moment: a hit's flash, a dimmed or see-through creature; the frame shows it plain)
 		try { Field f = CharSprite.class.getDeclaredField("idle"); f.setAccessible(true);
 			com.watabou.noosa.MovieClip.Animation a = (com.watabou.noosa.MovieClip.Animation) f.get(s);
 			if (a != null && a.frames.length > 0) i.frame(a.frames[0]);

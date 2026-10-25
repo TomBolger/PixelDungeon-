@@ -379,6 +379,7 @@ public final class RefinementTest {
         obedience(app);
         buttons(app);
         places();
+        oc = new Controls(); WindowFit.check(() -> frames(app, 1), oc); oc = null;
 
         Link link = new Link(new Assets()); Controls controls = new Controls(); Touches touches = new Touches();
         pebxel.ui.WndWatchMenu menu = new pebxel.ui.WndWatchMenu(); GameScene.show(menu);
