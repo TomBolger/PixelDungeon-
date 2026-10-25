@@ -23,12 +23,13 @@ import java.util.List;
 public final class Caps extends Group {
 	private final Window w;
 	private final NinePatch chrome, top, bot;
-	private final ColorBlock strip, above, below;
+	private final ColorBlock strip, above, below, back;
 	private final Camera fc;
 	private final int mt, mb;
 
 	/** Every frame (WatchGame.update): the top window's caps up to date. */
 	public static void keep() {
+		CLIP.clear();
 		Window w = pebxel.Ui.topWindow();
 		if (w == null || w.camera == null || !w.exists) return;
 		Caps c = null;
@@ -43,6 +44,38 @@ public final class Caps extends Group {
 		c.visible = true;
 		c.place();
 		c.front();
+		// the window's pictures (and its lists') are drawn only between the frame's ends, inside their margins: nothing
+		// shows over or under the frame (a tabbed window's tabs hang under its foot: down to the view's foot there,
+		// the foot's backing and the strip cover the rest)
+		int[] in = inner(w);
+		int[] clip = {in[0], tabsOf(w) != null ? pebxel.Controls.viewBottom(w) : in[1]};
+		CLIP.put(w.camera, clip);
+		panes(w, clip);
+	}
+
+	/** Cameras drawn only between two heights on the screen (phone px), this frame: Link sends them cut to that. */
+	private static final java.util.Map<Camera, int[]> CLIP = new java.util.HashMap<>();
+	public static int[] clip(Camera c) { return CLIP.isEmpty() ? null : CLIP.get(c); }
+
+	private static void panes(Group g, int[] clip) {
+		for (Gizmo m : GroupAccess.members(g)) {
+			if (m instanceof com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane) {
+				Camera pc = ((com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane) m).content().camera;
+				if (pc != null) CLIP.put(pc, clip);
+			}
+			if (m instanceof Group && !(m instanceof Caps)) panes((Group) m, clip);
+		}
+	}
+
+	/** A tall window's scroll area on the screen (phone px: top, bottom): between its frame's held ends, inside their
+	 *  margins (the same rounding as place()). The view's ends for a window with no frame of this kind. */
+	public static int[] inner(Window w) {
+		int vt = pebxel.Controls.viewTop(w), vb = pebxel.Controls.viewBottom(w);
+		NinePatch ch = chromeOf(w);
+		Camera wc = w.camera;
+		if (ch == null || !ch.visible || wc == null) return new int[]{vt, vb};
+		float z = wc.zoom, under = (wc.scroll.y + wc.height) - (ch.y + ch.height);
+		return new int[]{Math.round((Math.round(vt / z) + ch.marginTop()) * z), Math.round(Math.round(vb / z - under - ch.marginBottom()) * z)};
 	}
 
 	private Caps(Window w, NinePatch chrome) {
@@ -52,6 +85,7 @@ public final class Caps extends Group {
 		strip = WatchHud.block(0x000000, 0, 0, 0, 0); add(strip);
 		above = WatchHud.block(0x000000, 0, 0, 0, 0); add(above);
 		below = WatchHud.block(0x000000, 0, 0, 0, 0); add(below);
+		back = WatchHud.block(0x000000, 0, 0, 0, 0); add(back);   // (under the foot's picture: a tabbed window's content, cut lower down, never shows through it)
 		top = new NinePatch(chrome.texture, r[0], r[1], r[2], mt, chrome.marginLeft(), mt, chrome.marginRight(), 0);
 		bot = new NinePatch(chrome.texture, r[0], r[1] + r[3] - mb, r[2], mb, chrome.marginLeft(), 0, chrome.marginRight(), mb);
 		for (NinePatch n : new NinePatch[]{top, bot}) {
@@ -84,6 +118,8 @@ public final class Caps extends Group {
 		set(strip, bot.y + mb, wd, under > 0 ? vb - (bot.y + mb) : 0);
 		set(above, 0, wd, vt > 0 ? vt : 0);   // (round: the view is a band; nothing scrolls past its ends into sight)
 		set(below, vb, wd, vb < fc.height ? fc.height - vb : 0);
+		set(back, bot.y, wd - chrome.marginLeft() - chrome.marginRight(), under > 0 ? mb : 0);
+		back.x = x + chrome.marginLeft();
 		pin(off);
 	}
 
@@ -126,6 +162,8 @@ public final class Caps extends Group {
 	}
 
 	private static java.lang.reflect.Field chromeF, outerF, tabsF;
+
+	public static NinePatch chrome(Window w) { return chromeOf(w); }
 
 	private static NinePatch chromeOf(Window w) {
 		try {

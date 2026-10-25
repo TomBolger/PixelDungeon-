@@ -300,6 +300,16 @@ public class Controls {
 		Camera c = w.camera;
 		int[][] spots = Screen.round ? new int[][]{{186, 40}, {50, 40}, {222, 118}, {14, 118}, {186, 196}, {50, 196}}
 				: new int[][]{{Screen.w - 24, 0}, {0, 0}, {Screen.w - 24, Screen.h - 24}, {0, Screen.h - 24}};
+		// (a spot over the window's frame moves inside it: the frame's edge is never drawn over, nor the tag cut off
+		// where a tall window's frame ends are held)
+		float[] in = innerRect(w);
+		for (int i = 0; i < spots.length; i++) {
+			int[] sp = spots[i];
+			if (in != null && sp[0] < in[4] && sp[0] + 24 > in[5] && sp[1] < in[6] && sp[1] + 24 > in[7]
+					&& !(sp[0] >= in[0] && sp[0] + 24 <= in[2] && sp[1] >= in[1] && sp[1] + 24 <= in[3])) {
+				spots[i] = new int[]{(int) Math.max(Math.ceil(in[0]), Math.min(Math.floor(in[2]) - 24, sp[0])), (int) Math.max(Math.ceil(in[1]), Math.min(Math.floor(in[3]) - 24, sp[1]))};
+			}
+		}
 		int[] at = spots[0];
 		for (int[] sp : spots) {
 			boolean free = true;
@@ -313,6 +323,23 @@ public class Controls {
 		}
 		close.setRect((at[0] * 2 - c.x) / c.zoom + c.scroll.x, (at[1] * 2 - c.y) / c.zoom + c.scroll.y, 24 * 2 / c.zoom, 24 * 2 / c.zoom);
 	}
+
+	/** A window's frame on the screen (watch px): inside its edges (left, top, right, bottom; a tall one's between its
+	 *  held ends), then its outer edges (right, left, bottom, top). Null: no frame picture (round: drawn by shapes). */
+	public static float[] innerRect(Window w) {
+		com.watabou.noosa.NinePatch ch = pebxel.ui.Caps.chrome(w);
+		Camera c = w.camera;
+		if (ch == null || !ch.visible || c == null) return null;
+		float x0 = (c.x + (ch.x - c.scroll.x) * c.zoom) / 2, y0 = (c.y + (ch.y - c.scroll.y) * c.zoom) / 2;
+		float x1 = x0 + ch.width * c.zoom / 2, y1 = y0 + ch.height * c.zoom / 2;
+		float l = x0 + ch.marginLeft() * c.zoom / 2, r = x1 - ch.marginRight() * c.zoom / 2;
+		float t = y0 + ch.marginTop() * c.zoom / 2, b = y1 - ch.marginBottom() * c.zoom / 2;
+		if (tall(w)) { int[] a = pebxel.ui.Caps.inner(w); t = a[0] / 2f; b = a[1] / 2f; y0 = t - ch.marginTop() * c.zoom / 2; y1 = b + ch.marginBottom() * c.zoom / 2; }
+		return new float[]{l, t, r, b, x1, x0, y1, y0};
+	}
+
+	/** (tests) The yellow box round the framed button: its group, and its x, y, w, h there. */
+	Object[] highlight() { return frame.box(); }
 
 	/** Pebble PD's red exit tag. */
 	static class CloseTag extends com.shatteredpixel.shatteredpixeldungeon.ui.Button {
@@ -349,7 +376,18 @@ public class Controls {
 	 *  above the content's 0: left out, a button at a tall window's foot counted as shown while cut off)? */
 	private static boolean visible(Window w, Component c) {
 		float top = w.camera.y + (c.top() - w.camera.scroll.y) * w.camera.zoom, bottom = w.camera.y + (c.bottom() - w.camera.scroll.y) * w.camera.zoom;
-		return top >= viewTop(w) && bottom <= viewBottom(w);
+		int[] in = area(w);
+		return top >= in[0] && bottom <= in[1];
+	}
+
+	/** Where a window's buttons can be seen whole (phone px: top, bottom): a tall one's between its frame's held ends. */
+	static int[] area(Window w) { return tall(w) ? pebxel.ui.Caps.inner(w) : new int[]{viewTop(w), viewBottom(w)}; }
+
+	/** How far (phone px) a tall window would have to scroll to show the component whole. */
+	private static float reach(Window w, Component c) {
+		float top = w.camera.y + (c.top() - w.camera.scroll.y) * w.camera.zoom, bottom = w.camera.y + (c.bottom() - w.camera.scroll.y) * w.camera.zoom;
+		int[] in = area(w);
+		return Math.max(0, Math.max(bottom - in[1], in[0] - top));
 	}
 
 	/** Move a tall window up (negative) or down by some phone pixels, within its ends. */
@@ -377,7 +415,8 @@ public class Controls {
 		scroll(w, 0);
 		if (c != null && !visible(w, c)) {
 			float top = w.camera.y + (c.top() - w.camera.scroll.y) * w.camera.zoom, bottom = w.camera.y + (c.bottom() - w.camera.scroll.y) * w.camera.zoom;
-			int vt = viewTop(w), vb = viewBottom(w);
+			int[] in = area(w);
+			int vt = in[0], vb = in[1];
 			if (bottom > vb && top > vt) scroll(w, (int) -Math.min(top - vt, bottom - vb));
 			else if (top < vt && bottom < vb) scroll(w, (int) Math.min(vt - top, vb - bottom));
 		}
@@ -1030,12 +1069,26 @@ public class Controls {
 			}
 			Component c = (Component) bs.get(Math.max(0, Math.min(bs.size() - 1, focus))).g;
 			if (menu instanceof pebxel.ui.Navigable && ((pebxel.ui.Navigable) menu).focused() != null) c = ((pebxel.ui.Navigable) menu).focused();
-			// (a tall window opens at its top for reading, even when its first button is further down)
-			if (w != null && keptFor != w) { keptFor = w; keepInView(w, tall(w) ? null : c); }
+			// (a tall window opens at its top for reading, even when its first button is further down; one only a little
+			// too tall shows its framed button whole: the game slot's Continue and Erase were cut by the frame's foot)
+			if (w != null && keptFor != w) { keptFor = w; keepInView(w, !tall(w) || reach(w, c) <= (viewBottom(w) - viewTop(w)) / 4f ? c : null); }
 			for (Ui.Part p : bs) if (p.g instanceof pebxel.ui.Focusable) ((pebxel.ui.Focusable) p.g).focus(p.g == c);
 			if (c instanceof pebxel.ui.Focusable) { frame.hide(); return; }
 			if (menu instanceof pebxel.ui.WatchWindow) frame.around(menu, c.left(), c.top(), c.width(), c.height(), 0xFFFFAA00, 2);   // Pebble PD: a 2 px yellow box
-			else frame.around(menu, c.left() - 1, c.top() - 1, c.width() + 2, c.height() + 2, 0xFFFFFF44, 1);
+			else {   // (kept inside the window's frame: a button against its edge has its box there, not on the edge)
+				float x0 = c.left() - 1, y0 = c.top() - 1, x1 = c.right() + 1, y1 = c.bottom() + 1;
+				float[] in = w != null ? innerRect(w) : null;
+				if (in != null) {
+					Camera k = w.camera;
+					float ib = (in[3] * 2 - k.y) / k.zoom + k.scroll.y, ob = (in[6] * 2 - k.y) / k.zoom + k.scroll.y;
+					if (c.top() >= ib - 2 && c.bottom() > ob) y0 = Math.max(y0, ob);   // a tab hanging under the frame: its box under the frame's foot
+					else {
+						x0 = Math.max(x0, (in[0] * 2 - k.x) / k.zoom + k.scroll.x); x1 = Math.min(x1, (in[2] * 2 - k.x) / k.zoom + k.scroll.x);
+						if (!tall(w)) { y0 = Math.max(y0, (in[1] * 2 - k.y) / k.zoom + k.scroll.y); y1 = Math.min(y1, ib); }
+					}
+				}
+				frame.around(menu, x0, y0, x1 - x0, y1 - y0, 0xFFFFFF44, 1);
+			}
 			return;
 		}
 		frame.hide();
@@ -1192,5 +1245,11 @@ public class Controls {
 		}
 
 		void hide() { for (ColorBlock b : bar) if (b != null) b.visible = false; }
+
+		/** (tests) The box drawn: its group, then x, y, w, h in that group's units (null: none). */
+		Object[] box() {
+			if (bar[0] == null || !bar[0].visible || bar[0].parent == null) return null;
+			return new Object[]{bar[0].parent, new float[]{bar[0].x, bar[0].y, bar[0].width(), bar[3].y + bar[3].height() - bar[0].y}};
+		}
 	}
 }

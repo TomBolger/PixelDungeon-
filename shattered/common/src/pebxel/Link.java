@@ -919,6 +919,14 @@ public final class Link {
 			CamObj k = camObjs.computeIfAbsent(id, x -> new CamObj());
 			ByteArrayOutputStream b = new ByteArrayOutputStream();
 			int[] v = {c.x * 4, c.y * 4, Math.round(c.width * c.zoom * 4), Math.round(c.height * c.zoom * 4), Math.round(c.zoom * 128)};
+			// a tall window's cameras cut to the space between its frame's ends (pebxel.ui.Caps): the same picture, drawn
+			// only there (its top moved down and the scroll with it)
+			int[] cut = pebxel.ui.Caps.clip(c);
+			float cutY = 0;
+			if (cut != null) {
+				int y0 = Math.max(c.y, cut[0]), y1 = Math.max(y0, Math.min(Math.round(c.y + c.height * c.zoom), cut[1]));
+				cutY = (y0 - c.y) / c.zoom; v[1] = y0 * 4; v[3] = (y1 - y0) * 4;
+			}
 			for (int x : v) { b.write(x & 255); b.write((x >> 8) & 255); }
 			float[] pan = NoosaAccess.pan(c);
 			Visual f = NoosaAccess.followTarget(c);
@@ -941,7 +949,7 @@ public final class Link {
 				float s = 1 - (float) Math.pow(1 - Math.min(1f, dt / n * pan[2]), n);
 				k.sx += dx * s * 8; k.sy += dy * s * 8;
 			}
-			float sx = c.scroll.x * 8, sy = c.scroll.y * 8;
+			float sx = c.scroll.x * 8, sy = (c.scroll.y + cutY) * 8;
 			if (!Arrays.equals(fixed, k.fixed) || Math.abs(k.sx - sx) > TOL_CAM || Math.abs(k.sy - sy) > TOL_CAM) {
 				k.fixed = fixed; k.sx = Math.round(sx); k.sy = Math.round(sy);
 				int b0 = out.size();
