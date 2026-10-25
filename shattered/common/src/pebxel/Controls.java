@@ -1136,7 +1136,7 @@ public class Controls {
 			else { w16(b, Math.round(xy[0] * 8)); w16(b, Math.round(xy[1] * 8)); }
 			Assist.Target t = i < plan.size() && plan.size() == targets.size() ? plan.get(i) : null;
 			boolean walks = t == null || t.kind == Assist.GO || t.kind == Assist.PICKUP || (t.kind == Assist.ENEMY && t.action == null);   // (an item's use, a wait: no walk)
-			List<Integer> path = aiming || hid < 0 || i >= PLAN_WALKS || !walks ? null : walk(h, cell);
+			List<Integer> path = aiming || hid < 0 || i >= PLAN_WALKS || !walks ? null : steps(h, cell);
 			int k = path == null ? 0 : Math.min(PLAN_STEPS, path.size());
 			byte[] dirs = new byte[k];
 			int from = h.pos, w = Dungeon.level.width();
@@ -1151,6 +1151,17 @@ public class Controls {
 	}
 
 	private static void w16(java.io.ByteArrayOutputStream b, int v) { b.write(v & 255); b.write((v >> 8) & 255); }
+
+	/** The cells Select walks the hero through for a target: as walk(), but a chest (a tomb, a skeleton...) is opened
+	 *  from beside it (Hero.actOpenChest), so he stops a step short; next to it already, no walk. Thomas: "I shouldn't
+	 *  ever step into the square a chest is on" (the watch walked him onto it, then back when the phone's frames came). */
+	static List<Integer> steps(Hero h, int cell) {
+		List<Integer> p = walk(h, cell);
+		com.shatteredpixel.shatteredpixeldungeon.items.Heap hp = Dungeon.level.heaps.get(cell);
+		if (p == null || hp == null || hp.type == com.shatteredpixel.shatteredpixeldungeon.items.Heap.Type.HEAP
+				|| hp.type == com.shatteredpixel.shatteredpixeldungeon.items.Heap.Type.FOR_SALE || p.get(p.size() - 1) != cell) return p;
+		return p.size() <= 1 ? null : new ArrayList<>(p.subList(0, p.size() - 1));
+	}
 
 	/** The cells Select would walk the hero through to a cell (as Hero.getCloser finds them), or null: not a walk. */
 	private static List<Integer> walk(Hero h, int cell) {

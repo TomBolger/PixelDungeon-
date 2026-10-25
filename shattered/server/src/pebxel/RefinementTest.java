@@ -302,6 +302,32 @@ public final class RefinementTest {
         WatchSettings.assist(2); oc = null;
         System.out.println("buttons: Back resets the list and walks the ranked toolbar; Select with nothing listed re-centres, picks up, searches; a press stops a walk; a blow buzzes: ok");
     }
+    /** A chest is opened from the cell beside it (Hero.actOpenChest): the walk the watch shows at once (Controls.plan,
+     *  predict.c) never puts the hero on it (Thomas: "I step into it, then teleport back after it opens"). */
+    static void chestFromBeside() {
+        com.shatteredpixel.shatteredpixeldungeon.levels.Level L = Dungeon.level; Hero hh = Dungeon.hero;
+        int[] d = walks(L, hh.pos); int n = 0;
+        for (int c = 0; c < L.length() && n < 6; c++) {
+            if (d[c] < 1 || d[c] > 4 || L.heaps.get(c) != null || com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(c) != null || !L.visited[c]) continue;
+            java.util.List<Integer> plain = Controls.steps(hh, c);
+            if (plain == null) continue;
+            for (com.shatteredpixel.shatteredpixeldungeon.items.Heap.Type ty : new com.shatteredpixel.shatteredpixeldungeon.items.Heap.Type[]{
+                    com.shatteredpixel.shatteredpixeldungeon.items.Heap.Type.CHEST, com.shatteredpixel.shatteredpixeldungeon.items.Heap.Type.TOMB, com.shatteredpixel.shatteredpixeldungeon.items.Heap.Type.SKELETON}) {
+                com.shatteredpixel.shatteredpixeldungeon.items.Heap hp = new com.shatteredpixel.shatteredpixeldungeon.items.Heap();
+                hp.type = ty; hp.pos = c; hp.drop(new com.shatteredpixel.shatteredpixeldungeon.items.Gold(5)); L.heaps.put(c, hp);
+                java.util.List<Integer> st = Controls.steps(hh, c);
+                L.heaps.remove(c);
+                if (L.adjacent(hh.pos, c)) check(st == null, "a " + ty + " next to the hero: opened from where he stands, no walk shown");
+                else check(st != null && !st.contains(c) && L.adjacent(st.get(st.size() - 1), c) && st.size() == plain.size() - 1,
+                        "a " + ty + " " + d[c] + " steps off: the walk shown stops beside it (" + st + " of " + plain + ")");
+            }
+            check(plain.get(plain.size() - 1) == c, "a plain heap: walked onto, to pick up");
+            n++;
+        }
+        check(n > 0, "chests tried");
+        System.out.println("chests: opened from beside, the hero never shown on one (" + n + " places): ok");
+    }
+
     static void pic(String dir, String name) throws Exception {
         Link l = new Link(new Assets()); WatchSim sim = new WatchSim(new java.io.File("."), new Assets());
         l.frame(1f/30); for (byte[] m : l.take(1000000)) sim.apply(m);
@@ -476,6 +502,7 @@ public final class RefinementTest {
         places();
         options();
         oc = new Controls(); WindowFit.check(() -> frames(app, 1), oc); oc = null;
+        chestFromBeside();
 
         Link link = new Link(new Assets()); Controls controls = new Controls(); Touches touches = new Touches();
         pebxel.ui.WndWatchMenu menu = new pebxel.ui.WndWatchMenu(); GameScene.show(menu);
