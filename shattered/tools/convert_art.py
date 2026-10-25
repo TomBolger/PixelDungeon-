@@ -426,8 +426,8 @@ RECOLOR.update({
     # God's larva, a pale grub, went grey: cream, tan and dark brown
     'sprites/larva.png': {(204, 194, 163): _CREAM, (204, 193, 145): _CREAM, (179, 172, 152): _TAN, (194, 185, 159): _TAN,
                           (179, 166, 113): _TAN, (126, 116, 91): _DKBR},
-    # the golden bee's grey wings were the floor's grey (it read as a black and peach blob): light grey wings
-    'sprites/bee.png': {(77, 71, 67): _S, (49, 44, 42): _G},
+    # the golden bee's dark thorax: grey and black, under its wings (see WINGS)
+    'sprites/bee.png': {(77, 71, 67): _G, (49, 44, 42): _K},
     # the dwarf warlock's purple robe turned blue (the panel's (85,0,170) is a steel blue) and its grey-green cloak the
     # city floor's grey: purple, dark purple, and green-grey
     'sprites/warlock.png': {(102, 45, 145): (170, 0, 170), (89, 40, 128): (85, 0, 85), (82, 119, 92): (85, 170, 85)},
@@ -461,6 +461,23 @@ RAMPS = {'sprites/guardian.png': _guardian, 'sprites/yog_fists.png': _fists}
 # a frame row's edge colour, when not the sheet's; a row named here also keeps its whole ring (see outline()): the
 # tormented spirit's see-through maroon body has no edge of its own, the ring is what shows it on dark ground
 OUTLINE_ROWS = {'sprites/slime.png': {1: (85, 85, 85, 255)}, 'sprites/wraith.png': {1: (0, 0, 0, 255)}}
+
+# The bee's and the fly swarm's wings are pale and see-through (a quarter solid), so the cut that keeps a pixel only
+# when it is mostly solid dropped them: a bee and a fly with no wings at all. Drawn as a light grey line round each
+# wing, the floor showing through inside (filled in, they were two grey blobs bigger than the insect).
+WINGS = {'sprites/bee.png': _S, 'sprites/swarm.png': _S}
+
+def wings(p, src, out, fw):
+    if p not in WINGS: return
+    sp, op = src.load(), out.load(); w, h = src.size
+    wing = lambda x, y: 15 < sp[x, y][3] < 100 and _lum(*sp[x, y][:3]) > 140
+    for y in range(h):
+        for x in range(w):
+            if not wing(x, y): continue
+            f0 = x // fw * fw
+            if any(not (f0 <= x + dx < f0 + fw and 0 <= y + dy < h) or sp[x + dx, y + dy][3] <= 15
+                   for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                op[x, y] = WINGS[p] + (255,)
 
 def plant_edges(p, im):
     """Pebble PD's plants: their 40% black shadow (a dotted checker on the watch) is a solid black edge, so they stand
@@ -571,6 +588,7 @@ if __name__ == '__main__':
         if p in FRAME_H:
             for y0 in range(0, out.height, FRAME_H[p]): fold16(out, (0, y0, out.width, min(out.height, y0 + FRAME_H[p])))
         if p in FRAME_W: outline(out, FRAME_W[p], (85, 85, 85, 255) if p == 'sprites/goo.png' else (0, 0, 0, 255), OUTLINE_ROWS.get(p), FRAME_H.get(p, 16), KEEP_RING.get(p, ()))
+        if p in FRAME_W: wings(p, im, out, FRAME_W[p])
         if p == 'interfaces/chrome.png': simple_frames(out)
         if p in ('interfaces/buffs.png', 'interfaces/large_buffs.png'): spread_greys(im, out, 7 if 'large' not in p else 16)
         out.save(dst)
