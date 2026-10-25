@@ -80,6 +80,8 @@ public final class Assist {
 		public int quickslot = -1;
 		/** Why (for debugging). */
 		public String why = "";
+		/** USE: how many of the item there were when offered (a use the player made himself is no pass). */
+		int qty = -1;
 		int key;
 
 		Target(int cell, int kind, String why) { this.cell = cell; this.kind = kind; this.why = why; obj = cell; }
@@ -112,7 +114,9 @@ public final class Assist {
 	private static Level floor;                    // the floor this state is for
 	private static int goal = -1;                  // look() / explore: the spot chosen before (anti-dither)
 	private static final Set<Integer> passed = new HashSet<>();     // things put down on purpose or passed over
-	private static final ArrayDeque<String> declined = new ArrayDeque<>();   // hands suggestions passed over (class:action)
+	private static final LinkedHashMap<String, Integer> declined = new LinkedHashMap<>();   // hands suggestions passed over (class:action -> how things stood)
+	private static final Map<Integer, Float> demoted = new HashMap<>();   // objectives passed over: behind the rest till then (game time)
+	static final int DEMOTE = 20;                  // turns an objective passed over stays behind the rest
 	private static boolean upgradeHeld;            // an upgrade was passed over: only for worn-down gear from now on
 	private static int ovrC = -1;                  // the player's choice: -1 none, WAY: only the way, else an objective cell
 	private static final int WAY = -2;
@@ -220,18 +224,16 @@ public final class Assist {
 			Hero h = Dungeon.hero; Level l = Dungeon.level; int p = h.pos;
 			resumeCell = -1;
 			mindFloor = null;   // (the mind is read afresh from here: a reading from before the choice took the walk the player chose for one towards another objective)
-			// a hands suggestion passed over: not again this floor (pass_hands)
-			if (planA.kind == USE && planA.item != null) decline(planA.item.getClass(), planA.action);
-			if (planA.kind == WAIT && REST_ACT.equals(planA.action)) decline(null, REST_ACT);
-			// a thing passed over (not walked towards): not offered again
-			if (planA.kind == PICKUP && planA.obj >= 0 && t.cell >= 0 && cheb(l, t.cell, planA.obj) >= cheb(l, p, planA.obj)) passed.add(planA.obj);
+			// plan A passed over (pass_hands): the hands' suggestion not again this floor, a thing not walked towards not
+			// offered again, grass not till a kill, an objective behind the rest a while; the one chosen not held back
+			pass(planA, t.cell >= 0 ? t.cell : p, p);
+			demoted.remove(t.obj >= 0 ? t.obj : t.cell);
 			if (planA.kind == ENEMY && t.cell >= 0 && cheb(l, t.cell, p) <= 1 && t.kind == GO) return;   // a step back: the doorway fight goes on
 			if (planA.kind == ENEMY && planA.cell >= 0) {
 				Char c = Actor.findChar(planA.cell);
 				if (c != null) { vetoId = c.id(); vetoUntil = Actor.now() + 15; }
 			}
 			if (planA.why.startsWith("tactic")) { vetoStand = planA.cell; vetoStandUntil = Actor.now() + 10; }
-			if (planAGrass) grassSkip = true; grassKey = h.exp + h.lvl * 101;
 			if (t.kind == ENEMY || t.kind == USE || t.kind == WAIT || t.cell < 0) return;
 			int o = t.obj >= 0 ? t.obj : t.cell;
 			int dx = l.cellToPoint(o).x - l.cellToPoint(p).x, dy = l.cellToPoint(o).y - l.cellToPoint(p).y;
@@ -240,6 +242,38 @@ public final class Assist {
 			ovrUnseen = setupOk(l) && unseenBy(o);
 		} catch (Throwable e) { lastError = e; }
 	}
+
+	/** An entry the player passed over some other way than choosing another from the list: cycled past with Down, or
+	 *  something else done while it was offered (a tap, the toolbar, the backpack). went: where the hero went (the cell
+	 *  chosen, or where he is now); from: where he was when it was offered. An item he used himself, a thing or a
+	 *  place he went towards, and enemies (a tap on one is a fight, not a pass) are not passes. */
+	public static void passed(Target e, int went, int from) {
+		try {
+			Hero h = Dungeon.hero; if (e == null || h == null || Dungeon.level == null || e.kind == ENEMY) return;
+			if (e.kind == USE && e.item != null) {
+				boolean has = false; for (Item i : h.belongings) if (i == e.item) { has = true; break; }
+				if (!has || e.item.quantity() < e.qty) return;   // (used, thrown, eaten...)
+				if (e.item instanceof EquipableItem && ((EquipableItem) e.item).isEquipped(h) && EquipableItem.AC_EQUIP.equals(e.action)) return;
+			}
+			pass(e, went, from);
+		} catch (Throwable x) { lastError = x; }
+	}
+
+	private static void pass(Target e, int went, int from) {
+		Level l = Dungeon.level; Hero h = Dungeon.hero;
+		if (e.kind == USE && e.item != null) decline(e.item.getClass(), e.action);
+		if (e.kind == WAIT && REST_ACT.equals(e.action)) decline(null, REST_ACT);
+		int o = e.obj >= 0 ? e.obj : e.cell;
+		if ((e.kind == GO || e.kind == PICKUP) && o >= 0 && o < l.length() && o != h.pos && went >= 0 && from >= 0 && cheb(l, went, o) >= cheb(l, from, o)) {   // (not walked towards)
+			if (e.kind == PICKUP) passed.add(o);
+			else if (l.map[o] == Terrain.HIGH_GRASS) { grassSkip = true; grassKey = h.exp + h.lvl * 101; }   // (Pebble PD: grass skipped till a kill)
+			else demoted.put(o, Actor.now() + DEMOTE);
+			if (goal == o) goal = -1;
+		}
+	}
+
+	/** Has this objective been passed over lately (tests)? */
+	public static boolean demoted(int cell) { Float t = demoted.get(cell); return t != null && t >= Actor.now(); }
 
 	/** The player tapped a cell on the touch screen (optional): its way is followed like a choice from the list. */
 	public static void tapped(int cell) {
@@ -400,7 +434,7 @@ public final class Assist {
 
 	private static void ensureFloor(Level l) {
 		if (floor == l && srchFrom != null && srchFrom.length == l.length()) return;
-		floor = l; goal = -1; passed.clear(); declined.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
+		floor = l; goal = -1; passed.clear(); declined.clear(); demoted.clear(); upgradeHeld = false; ovrC = -1; wayOn = -1; grassSkip = false;
 		vetoId = -1; vetoStand = -1; resumeCell = -1; stepBackWaited = false; ambGoal = -1; ambId = -1; waitId = -1; lastPos = -1; from = -1;
 		srchFrom = new boolean[l.length()]; checked = new boolean[l.length()]; fishSeen = false; fishAt = -99; talked.clear(); bad.clear();
 		huntMem.clear(); mobLast.clear();
@@ -634,8 +668,21 @@ public final class Assist {
 			h0 = 0;
 		}
 		if (anyDanger && !inDanger) for (Target t : out) if (t.kind != USE && t.kind != WAIT && t.cell >= 0) t.cell = safeWay(t.cell);
+		demote();
 		mind();
 		return out;
+	}
+
+	/** Objectives the player passed over lately go behind the rest (still there for a Down), unless an enemy is in
+	 *  sight or the hero is in danger (then what's safest stays first). */
+	private static void demote() {
+		if (demoted.isEmpty()) return;
+		demoted.values().removeIf(t -> t < Actor.now());
+		if (seenFoe || inDanger || out.size() < 2) return;
+		List<Target> back = new ArrayList<>();
+		for (Iterator<Target> it = out.iterator(); it.hasNext(); ) { Target t = it.next(); int o = t.obj >= 0 ? t.obj : t.cell;
+			if ((t.kind == GO || t.kind == PICKUP) && demoted.containsKey(o)) { it.remove(); back.add(t); } }
+		out.addAll(back);
 	}
 
 	/** The game walks its own shortest way (Hero.getCloser): one through a hazard is replaced by a cell on the safe way
@@ -916,8 +963,25 @@ public final class Assist {
 	private static boolean line(int a, int b) { try { Ballistica bl = new Ballistica(a, b, Ballistica.PROJECTILE); return bl.collisionPos != null && bl.collisionPos == b; } catch (Throwable e) { return false; } }
 
 	private static String dk(Class<?> c, String a) { return (c == null ? "-" : c.getSimpleName()) + ":" + a; }
-	private static void decline(Class<?> c, String a) { declined.addLast(dk(c, a)); while (declined.size() > 8) declined.removeFirst(); if (c == ScrollOfUpgrade.class) upgradeHeld = true; }
-	private static boolean declined(Class<?> c, String a) { return declined.contains(dk(c, a)); }
+	private static void decline(Class<?> c, String a) {
+		String k = dk(c, a); declined.remove(k); declined.put(k, situation(c, a));
+		while (declined.size() > 8) declined.remove(declined.keySet().iterator().next());
+		if (c == ScrollOfUpgrade.class) upgradeHeld = true;
+	}
+	/** Passed over on this floor, and nothing has changed since (more of the item came, or, for resting, the hero is
+	 *  worse hurt by a quarter: then it is offered again). */
+	private static boolean declined(Class<?> c, String a) {
+		String k = dk(c, a); Integer s = declined.get(k);
+		if (s == null) return false;
+		if (situation(c, a) > s) { declined.remove(k); return false; }
+		return true;
+	}
+	private static int situation(Class<?> c, String a) {
+		Hero h = Dungeon.hero; if (h == null) return 0;
+		if (c == null) return REST_ACT.equals(a) ? (h.HT - h.HP) * 4 / Math.max(1, h.HT) : 0;
+		int n = 0; for (Item i : h.belongings) if (i.getClass() == c) n += i.quantity();
+		return n;
+	}
 
 	// =============================================================================================================
 	// plan A (tgt.c first())
@@ -1375,7 +1439,7 @@ public final class Assist {
 	// =============================================================================================================
 
 	private static Target use(Item it, String action, int aim, String why) {
-		Target t = new Target(aim >= 0 ? aim : hp, USE, why); t.item = it; t.action = action; t.obj = -1;
+		Target t = new Target(aim >= 0 ? aim : hp, USE, why); t.item = it; t.action = action; t.obj = -1; t.qty = it.quantity();
 		try { for (int i = 0; i < QuickSlot.SIZE; i++) if (Dungeon.quickslot.getItem(i) == it) { t.quickslot = i; break; } } catch (Throwable e) { }
 		return t;
 	}
@@ -1396,7 +1460,7 @@ public final class Assist {
 		boolean passedEat = declinedAny(Food.AC_EAT);
 		if (!passedEat) eatBand = 0;
 		else if (eatBand == 0) eatBand = band + 1;
-		else if (band + 1 > eatBand) { passedEat = false; declined.removeIf(s -> s.endsWith(":" + Food.AC_EAT)); eatBand = 0; }
+		else if (band + 1 > eatBand) { passedEat = false; declined.keySet().removeIf(s -> s.endsWith(":" + Food.AC_EAT)); eatBand = 0; }
 		if (eat && !passedEat) {
 			Item f = null;
 			for (Item i : H.belongings.backpack) if (foodItem(i) && (f == null || (f instanceof MysteryMeat && !(i instanceof MysteryMeat)))) f = i;
@@ -1491,7 +1555,7 @@ public final class Assist {
 		return null;
 	}
 
-	private static boolean declinedAny(String a) { for (String s : declined) if (s.endsWith(":" + a)) return true; return false; }
+	private static boolean declinedAny(String a) { for (String s : declined.keySet()) if (s.endsWith(":" + a)) return true; return false; }
 	private static int tier(Item i) { return i instanceof Armor ? ((Armor) i).tier : i instanceof MeleeWeapon ? ((MeleeWeapon) i).tier : 0; }
 
 	/** Has the wand a charge? Its count is shown only once its level is known; till then a guess: not zapped in 30 turns. */

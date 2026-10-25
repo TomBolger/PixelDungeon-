@@ -134,6 +134,7 @@ public class WatchHud extends Group {
 		add(tags);
 		add(log);
 		add(reticle);
+		add(edge);
 
 		// what fingers and the Back button press
 		for (int i = 0; i < TB_N; i++) addButton(i, tbX(i), TB_Y, TB_W, TB_H);
@@ -215,6 +216,7 @@ public class WatchHud extends Group {
 		add(tags);
 		add(log);
 		add(reticle);
+		add(edge);
 		for (int i = 0; i < TB_N; i++) addButton(i, TBX[i] - TB_R, TBY[i] - TB_R, 2 * TB_R, 2 * TB_R);
 		addButton(B_MENU, 188, 29, 40, 40);
 		addButton(B_PORTRAIT, 26, 23, 52, 52);
@@ -582,6 +584,25 @@ public class WatchHud extends Group {
 			c.x = r[0] + (i & 1) * (r[2] - 12); c.y = r[1] + (i >> 1) * (r[3] - 12);
 			reticle.add(c);
 		}
+	}
+
+	// ---- a target the view can't show: its mark at the play area's edge nearest it, a pip on the side it lies ----
+	private final Group edge = new Group();
+	private Image edgeMark; private ColorBlock edgePip; private int edgeKey = Integer.MIN_VALUE;
+	/** x, y: the mark's centre (watch px), x < -900 none; dx, dy: which way the target lies (-1, 0, 1). The pictures
+	 *  are made once and only moved (radio time). */
+	public void edge(int x, int y, int dx, int dy) {
+		int k = x < -900 ? -1 : (x << 16) ^ (y << 4) ^ ((dx + 1) << 2) ^ (dy + 1);
+		if (k == edgeKey) return;
+		edgeKey = k;
+		if (edgeMark == null) {
+			edgeMark = PdArt.image("icons", 67, 0, 16, 16, 1); edge.add(edgeMark);
+			edgePip = block(YELLOW, 0, 0, 4, 4); edge.add(edgePip);
+		}
+		edge.visible = x > -900;
+		if (!edge.visible) return;
+		edgeMark.x = x - 8; edgeMark.y = y - 8;
+		edgePip.x = x - 2 + dx * 11; edgePip.y = y - 2 + dy * 11;
 	}
 
 	public void pressHighlighted(boolean held) { if (highlight >= 0) hooks.press(highlight, held); }

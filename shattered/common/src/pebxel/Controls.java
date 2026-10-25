@@ -24,6 +24,7 @@ import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.ui.Component;
 import com.watabou.utils.PathFinder;
+import com.watabou.utils.PointF;
 import java.util.*;
 
 /**
@@ -392,8 +393,11 @@ public class Controls {
 					if (!aiming && WatchSettings.assist() == 0 && hud != null) { onToolbar = true; hud.highlight = 0; }
 					return;
 				}
+				int was = Math.min(target, targets.size() - 1);
 				target = held ? (target + targets.size() - 1) % targets.size() : (target + 1) % targets.size();
-				if (!aiming) farView(cellOf(targets.get(target)), true);
+				// (the entry cycled past: passed over, unless it is chosen after all: select, obeyed)
+				if (!aiming && was < plan.size() && plan.size() == targets.size() && !skipped.contains(plan.get(was))) skipped.add(plan.get(was));
+				view(cellOf(targets.get(target)), true);
 				keepEnemy();
 				return;
 			}
@@ -406,7 +410,7 @@ public class Controls {
 				}
 				int i = Math.min(target, targets.size() - 1), cell = targets.get(i);
 				Assist.Target t = current();
-				farView(-1, false);
+				view(-1, false);
 				if (t != null) select(t, aiming);
 				else if (cell == -2) { Dungeon.hero.search(true); }   // (a test's bare cells)
 				else if (shot(cell)) shoot(cellOf(cell));
@@ -452,6 +456,7 @@ public class Controls {
 	private void zoom() {
 		Camera c = Camera.main;
 		if (c == null) return;
+		farZoomFrom = -1;   // (the player's zoom now: Far's step out isn't given back over it)
 		int z = Math.round(c.zoom), to = z < 2 ? 2 : z < 4 ? 4 : 1;
 		to = Math.max(Math.round(PixelScene.minZoom), Math.min(Math.round(PixelScene.maxZoom), to));
 		for (int i = z; i < to; i++) key(SPDAction.ZOOM_IN);
@@ -490,9 +495,10 @@ public class Controls {
 		if (waiting(now, aiming)) return;
 		if (!targetsStale && Dungeon.hero.pos == lastPos && Dungeon.depth == lastDepth && aiming == lastAiming && now == lastNow && settings == lastSettings) return;
 		String why = log ? (targetsStale ? "stale " : "") + (Dungeon.hero.pos != lastPos ? "pos " : "") + (now != lastNow ? "time " + lastNow + "->" + now + " " : "") + (aiming != lastAiming ? "aim " : "") : "";
+		obeyed(Dungeon.hero.pos != lastPos || now != lastNow, Dungeon.depth == lastDepth);
 		targetsStale = false; lastPos = Dungeon.hero.pos; lastDepth = Dungeon.depth; lastAiming = aiming; lastNow = now; lastSettings = settings;
 		plans++;
-		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; farView(-1, false); return; }
+		if (legacy != null) { targets = legacy.apply(aiming); plan = new ArrayList<>(); target = 0; view(-1, false); return; }
 		plan = new ArrayList<>(Assist.plan(aiming, Controls::onScreenFromHero));
 		if (Assist.lastError != null) { System.out.println("pebxel: assist " + Assist.lastError); Assist.lastError = null; }
 		if (!aiming) { once(plan); steady(plan); shots(plan); if (WatchSettings.assist() != 0) { veins(plan); talents(plan); } }   // (Off: the enemies only)
@@ -502,10 +508,34 @@ public class Controls {
 		if (WatchSettings.assist() == 0 && keptId >= 0)   // (Off: the enemy chosen stays chosen, as PD's last target)
 			for (int j = 0; j < plan.size(); j++) { Char c = plan.get(j).kind == Assist.ENEMY ? com.shatteredpixel.shatteredpixeldungeon.actors.Actor.findChar(plan.get(j).cell) : null; if (c != null && c.id() == keptId) { target = j; break; } }
 		keepEnemy();
-		// Far: the camera shows plan A wherever it is (Pebble PD 0.76: on whatever is chosen, cycled to or not); else back on the hero
-		farView(aiming || targets.isEmpty() ? -1 : targets.get(0), false);
+		if (!aiming && !plan.isEmpty() && plan.size() == targets.size()) { offered = plan.get(0); offeredPos = Dungeon.hero.pos; }
+		// the camera shows the target on show whole, clear of the HUD (Far: wherever it is, Pebble PD 0.76); else it stays on the hero
+		view(targets.isEmpty() ? -1 : cellOf(targets.get(target)), false);
 		if (log) System.out.println("pebxel: plan d" + Dungeon.depth + " t" + Math.round(now) + " hero " + Dungeon.hero.pos + (aiming ? " aiming" : "") + " (" + why.trim() + "): " + plan);
 	}
+	// ---- obeying the player (Pebble PD's pass_hands): what he passes over isn't pressed on him again ----
+	private Assist.Target offered;         // plan A of the list on show, till the hero acts
+	private int offeredPos = -1;
+	private final List<Assist.Target> skipped = new ArrayList<>();   // entries Down cycled past
+	private boolean decided, honoured, windowSince;   // Select answered the list (plan A itself: honoured); a window came up since
+	/** A new list is due: if the hero acted (moved / time passed, same floor) without Select answering the list (a tap,
+	 *  the toolbar, the backpack...), plan A and the entries cycled past were passed over; plan A's own use chosen, but
+	 *  its window closed with nothing done (no time passed), was passed over too. */
+	private void obeyed(boolean acted, boolean sameFloor) {
+		Hero h = Dungeon.hero;
+		if (offered != null && sameFloor && h != null) {
+			if (acted && !decided) { passOne(offered, h.pos, offeredPos); for (Assist.Target e : skipped) if (e != offered) passOne(e, h.pos, offeredPos); }
+			else if (!acted && decided && honoured && windowSince && offered.kind == Assist.USE) passOne(offered, h.pos, offeredPos);
+		}
+		offered = null; skipped.clear(); decided = honoured = windowSince = false;
+	}
+	private void passOne(Assist.Target e, int went, int from) {
+		if (e == null || aimed(e)) return;   // (a throw or zap at an enemy: the fight's, not a choice to remember)
+		if (TALENTS.equals(e.action)) { talentsPassed = talentPoints(); return; }
+		if (e.kind == Assist.GO || e.kind == Assist.PICKUP) { int o = e.obj >= 0 ? e.obj : e.cell; if (o == shownObj) shownObj = -1; }
+		Assist.passed(e, went, from);
+	}
+
 	/** A press acted: no new list until the game has taken it (game time moved, the hero moved, a window or the aim
 	 *  came up) or a few frames went by with nothing (it came to nothing: then the Assistant hears so). Shattered's
 	 *  actor thread takes a tap's walk up a frame or two later; till then the hero still reads as ready, and a list
@@ -542,6 +572,12 @@ public class Controls {
 		if (!aiming && a != null) {
 			if (a != t && TALENTS.equals(a.action)) talentsPassed = talentPoints();
 			Assist.chose(t, a);
+			// the others cycled past on the way to this one: passed over too (plan A: chose)
+			int h = Dungeon.hero.pos;
+			for (Assist.Target e : skipped) if (e != t && e != a) passOne(e, t.cell >= 0 ? t.cell : h, h);
+			skipped.clear();
+			decided = true; honoured = t == a;
+			if (a != t) shownObj = -1;   // (steady() mustn't bring the one passed over back)
 		}
 		if (TALENTS.equals(t.action)) { talentsOpen = true; talentsPassed = talentPoints(); talentFocus = Build.nextTalent(Dungeon.hero); talentTries = 0; pebxel.ui.WndWatchHero.openTalents(); return; }
 		Assist.act(t, true);
@@ -651,47 +687,116 @@ public class Controls {
 
 	// ---- the assistant's reach (Settings): Near keeps to the screen, Far looks anywhere, Off offers only enemies ----
 
-	/** Is the cell well inside what the watch shows (clear of the HUD; round: inside the circle's middle)? */
+	// ---- the play area: the screen less the HUD, where the target box must show whole ----
+	// Emery: left of the tags (x 178), above the toolbar (y 190), under the status pane's top strip (y 28) and, at the
+	// left, under the portrait and its level badge (52 x 52). Round: inside the circle's middle.
+	static final int PLAY_R = 22, PLAY_B = 38, PLAY_T = 28, PORTRAIT = 52, ROUND_R = 100;
+	/** Half the target box (watch px): 16 px across, a whole cell at 32 px tiles. */
+	static float markHalf() { Camera c = Camera.main; return Math.max(8, 4 * (c == null ? 2 : c.zoom)); }
+	/** Does a box centred at (sx, sy) (watch px) show whole in the play area? */
+	static boolean inPlay(float sx, float sy, float half) {
+		if (Screen.round) { float dx = sx - Screen.w / 2f, dy = sy - Screen.h / 2f; return (float) Math.sqrt(dx * dx + dy * dy) + half <= ROUND_R + 0.5f; }
+		float l = sx - half, t = sy - half, r = sx + half, b = sy + half;
+		return l >= -0.5f && r <= Screen.w - PLAY_R + 0.5f && b <= Screen.h - PLAY_B + 0.5f && t >= (l < PORTRAIT ? PORTRAIT : PLAY_T) - 0.5f;
+	}
+	/** Is the cell's box whole in the play area, with the camera as it is now? */
 	static boolean onScreen(int cell) {
 		Camera c = Camera.main;
 		if (c == null || cell < 0) return true;
-		com.watabou.utils.PointF p = com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.tileCenterToWorld(cell);
+		PointF p = DungeonTilemap.tileCenterToWorld(cell);
 		float sx = (c.x + (p.x - c.scroll.x) * c.zoom) / 2f, sy = (c.y + (p.y - c.scroll.y) * c.zoom) / 2f;   // watch pixels
-		return inView(sx, sy);
-	}
-	private static boolean inView(float sx, float sy) {
-		if (Screen.round) { float dx = sx - Screen.w / 2f, dy = sy - Screen.h / 2f; return dx * dx + dy * dy <= 95 * 95; }
-		return sx >= 8 && sx <= Screen.w - 26 && sy >= 38 && sy <= Screen.h - 42;
+		return inPlay(sx, sy, markHalf());
 	}
 	/** As onScreen, with the camera where it comes to rest: on the hero (the list is made as a walk ends, while the
-	 *  camera is still catching him up; Far's swoop may have it elsewhere). */
+	 *  camera is still catching him up; a move for the last target may have it elsewhere). */
 	static boolean onScreenFromHero(int cell) {
 		Camera c = Camera.main;
 		if (c == null || cell < 0 || Dungeon.hero == null || Dungeon.level == null) return true;
 		int w = Dungeon.level.width(), h = Dungeon.hero.pos;
 		float t = DungeonTilemap.SIZE * c.zoom / 2f;   // a cell in watch pixels
-		return inView(Screen.w / 2f + (cell % w - h % w) * t, Screen.h / 2f + (cell / w - h / w) * t);
+		return inPlay(Screen.w / 2f + (cell % w - h % w) * t, Screen.h / 2f + (cell / w - h / w) * t, markHalf());
 	}
 
-	/** Far: a goal off the screen brings the camera over to show it and the hero (on a Down, zooming out a step if they
-	 *  won't both fit); -1, or a goal on the screen, gives the camera back to the hero (and the zoom it had). */
-	private int farZoomFrom = -1;
-	private void farView(int cell, boolean zoomOut) {
+	/** The camera's centre on the hero (world units), as SPD's follow puts it. */
+	private static PointF heroCentre(Camera c) {
+		PointF p = Dungeon.hero.sprite.center();
+		return new PointF(p.x + c.centerOffset.x, p.y + c.centerOffset.y);
+	}
+	/** Where the camera's centre comes to rest (world units): on what it follows, at the point it pans to, else where
+	 *  it is (the map dragged by a finger; a zoom: SPD's zoom stops the camera where it is). */
+	private static PointF restCentre(Camera c) {
+		float[] pan = com.watabou.noosa.NoosaAccess.pan(c); com.watabou.noosa.Visual f = com.watabou.noosa.NoosaAccess.followTarget(c);
+		if (pan[2] > 0 && f != null && f.visible) return new PointF(f.x + f.width() / 2 + c.centerOffset.x, f.y + f.height() / 2 + c.centerOffset.y);
+		if (pan[2] > 0 && f == null) return new PointF(pan[0], pan[1]);
+		return new PointF(c.scroll.x + c.width / 2f, c.scroll.y + c.height / 2f);
+	}
+	/** Where the cell's box shows (watch px) with the camera's centre at q. */
+	private static float[] seen(int cell, PointF q, Camera c) {
+		PointF p = DungeonTilemap.tileCenterToWorld(cell); float k = c.zoom / 2f;
+		return new float[]{Screen.w / 2f + (p.x - q.x) * k, Screen.h / 2f + (p.y - q.y) * k};
+	}
+	/** The nearest place (watch px) where a box shows whole in the play area. */
+	private static float[] clampPlay(float sx, float sy, float half) {
+		if (Screen.round) {
+			float ex = sx - Screen.w / 2f, ey = sy - Screen.h / 2f, d = (float) Math.sqrt(ex * ex + ey * ey), r = ROUND_R - half;
+			return d <= r ? new float[]{sx, sy} : new float[]{Screen.w / 2f + ex * r / d, Screen.h / 2f + ey * r / d};
+		}
+		float x = Math.max(half, Math.min(Screen.w - PLAY_R - half, sx));
+		float y = Math.max((x - half < PORTRAIT ? PORTRAIT : PLAY_T) + half, Math.min(Screen.h - PLAY_B - half, sy));
+		return new float[]{x, y};
+	}
+	/** The least move of the camera's centre from q that shows the cell's box whole; null: none needed. */
+	private static PointF shiftFor(int cell, PointF q, Camera c) {
+		float[] s = seen(cell, q, c); float half = markHalf();
+		if (inPlay(s[0], s[1], half)) return null;
+		float[] in = clampPlay(s[0], s[1], half); float k = c.zoom / 2f;
+		return new PointF(q.x + (s[0] - in[0]) / k, q.y + (s[1] - in[1]) / k);
+	}
+
+	/** The camera for the target on show (-1: none, or an action taken). A target that shows whole from the hero's own
+	 *  view, or none, leaves the camera following the hero (and gives back the zoom Far took); else the view moves as
+	 *  little as will show the target's box whole in the play area, clear of the HUD (it used to swing to halfway
+	 *  between the hero and the target, centred on the whole screen: the target could land under the toolbar or the
+	 *  tags). press: a Down; in Far a step out first when the hero would leave the view. */
+	private int farZoomFrom = -1, viewCell = -1; private float seenZoom = -1;
+	private void view(int cell, boolean press) {
 		Camera c = Camera.main;
-		if (c == null || Dungeon.hero == null || Dungeon.hero.sprite == null) return;
-		if (cell < 0 || WatchSettings.assist() != 2 || onScreenFromHero(cell)) {
-			if (c.followTarget() != Dungeon.hero.sprite) c.panFollow(Dungeon.hero.sprite, 5f);
-			if (farZoomFrom > 0) { int z = Math.round(c.zoom); for (int i = z; i < farZoomFrom; i++) key(SPDAction.ZOOM_IN); farZoomFrom = -1; }
+		if (c == null || Dungeon.hero == null || Dungeon.hero.sprite == null || !(Game.scene() instanceof GameScene)) return;
+		viewCell = cell;
+		PointF hc = heroCentre(c), q = cell < 0 ? null : shiftFor(cell, hc, c);
+		if (q == null) {
+			if (c.followTarget() != Dungeon.hero.sprite || com.watabou.noosa.NoosaAccess.pan(c)[2] <= 0) c.panFollow(Dungeon.hero.sprite, 5f);
+			if (cell < 0 && farZoomFrom > 0) { int z = Math.round(c.zoom); for (int i = z; i < farZoomFrom; i++) key(SPDAction.ZOOM_IN); farZoomFrom = -1; }
 			return;
 		}
-		com.watabou.utils.PointF hp = Dungeon.hero.sprite.center(), tp = com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap.tileCenterToWorld(cell);
-		// do they fit in the middle of the view at this zoom? (world units: two phone pixels a watch pixel)
-		float span = Math.max(Math.abs(hp.x - tp.x), Math.abs(hp.y - tp.y)) * c.zoom / 2f;
-		if (zoomOut && span > (Screen.round ? 150 : 130) && Math.round(c.zoom) > Math.round(PixelScene.minZoom)) {
+		float[] hs = seen(Dungeon.hero.pos, q, c);
+		if (press && !inPlay(hs[0], hs[1], markHalf()) && WatchSettings.assist() == 2 && Math.round(c.zoom) > Math.round(PixelScene.minZoom)) {
 			if (farZoomFrom < 0) farZoomFrom = Math.round(c.zoom);
-			key(SPDAction.ZOOM_OUT);
+			key(SPDAction.ZOOM_OUT);   // (the view is worked out again once the zoom has changed: zoomed)
+			return;
 		}
-		c.panTo(new com.watabou.utils.PointF((hp.x + tp.x) / 2, (hp.y + tp.y) / 2), 5f);
+		c.panTo(new PointF(q.x - c.centerOffset.x, q.y - c.centerOffset.y), 5f);
+	}
+	/** Every frame: SPD's zoom (Up, or Far's step out) stops the camera where it is, following nothing, so the view
+	 *  stayed off the hero until he next moved (and the watch's map stood still under the walk it showed ahead): once
+	 *  the zoom has changed, the view is worked out again. */
+	private void zoomed() {
+		Camera c = Camera.main; if (c == null) return;
+		if (c.zoom == seenZoom) return;
+		boolean first = seenZoom < 0; seenZoom = c.zoom;
+		if (!first && Ui.topWindow() == null) view(viewCell, false);
+	}
+	/** The target outside the play area where the camera comes to rest (the map dragged by a finger, say): the HUD
+	 *  shows it at the edge nearest it, a pip on the side it lies (true: the box on the map is hidden). -1: none. */
+	private boolean edge(int cell) {
+		if (hud == null) return false;
+		Camera c = Camera.main;
+		if (cell < 0 || c == null || Dungeon.hero == null) { hud.edge(-999, 0, 0, 0); return false; }
+		float[] s = seen(cell, restCentre(c), c);
+		if (inPlay(s[0], s[1], markHalf())) { hud.edge(-999, 0, 0, 0); return false; }
+		float[] in = clampPlay(s[0], s[1], 8);
+		hud.edge(Math.round(in[0]), Math.round(in[1]), (int) Math.signum(Math.round(s[0] - in[0])), (int) Math.signum(Math.round(s[1] - in[1])));
+		return true;
 	}
 
 	/** Walking distance from the hero over known, walkable cells (0 = unreachable, the hero's cell = 1). */
@@ -728,6 +833,7 @@ public class Controls {
 		Group menu = w != null ? w : !(Game.scene() instanceof GameScene) ? Game.scene() : null;
 		if (touching) { frame.hide(); if (menu != null) { marker.hide(); return; } }
 		else if (menu != null) {
+			if (w != null && decided) windowSince = true;
 			pending = false;   // (a window came up: the press has been taken; the list is made again once it goes)
 			onToolbar = false;
 			if (hud != null) hud.highlight = -1;
@@ -753,12 +859,14 @@ public class Controls {
 			return;
 		}
 		frame.hide();
-		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) { marker.hide(); return; }
-		if (onToolbar || !Dungeon.hero.ready) { marker.hide(); return; }   // (the toolbar's highlight is drawn by the HUD)
+		if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) { marker.hide(); edge(-1); return; }
+		zoomed();
+		if (onToolbar || !Dungeon.hero.ready) { marker.hide(); edge(-1); return; }   // (the toolbar's highlight is drawn by the HUD)
 		refreshTargets(aiming());
 		int cell = targets.isEmpty() || pending ? -1 : cellOf(targets.get(Math.min(target, targets.size() - 1)));
-		if (cell < 0) { marker.hide(); return; }   // (an action of the toolbar's: its button's reticle shows it, WatchHud)
+		if (cell < 0) { marker.hide(); edge(-1); return; }   // (an action of the toolbar's: its button's reticle shows it, WatchHud)
 		marker.at(cell);
+		if (edge(cell)) marker.hide();
 	}
 
 	// ---- what the watch may do by itself before hearing back (its predict.c) ----
@@ -782,22 +890,27 @@ public class Controls {
 		java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
 		int n = Math.min(targets.size(), PLAN_TARGETS);
 		b.write(1); w16(b, mid); w16(b, hid < 0 ? 0xFFFF : hid); b.write(STEP_MS / 4); b.write(n); b.write(Math.min(target, n - 1));
+		Camera cam = Camera.main; PointF rest = cam == null ? null : restCentre(cam);
 		for (int i = 0; i < n; i++) {
 			int cell = cellOf(targets.get(i));
 			if (cell < 0) { w16(b, 0x7FFF); w16(b, 0x7FFF); b.write(0); continue; }
 			float[] xy = Marker.place(cell);
-			w16(b, Math.round(xy[0] * 8)); w16(b, Math.round(xy[1] * 8));
+			// (a box the view must move for, or one hidden by the HUD: no box at once; the phone's frames bring the
+			// view and the box together, rather than the box first under the HUD and the view a round trip later)
+			if (rest != null && shiftFor(cell, rest, cam) != null) { w16(b, 0x7FFF); w16(b, 0x7FFF); }
+			else { w16(b, Math.round(xy[0] * 8)); w16(b, Math.round(xy[1] * 8)); }
 			Assist.Target t = i < plan.size() && plan.size() == targets.size() ? plan.get(i) : null;
 			boolean walks = t == null || t.kind == Assist.GO || t.kind == Assist.PICKUP || (t.kind == Assist.ENEMY && t.action == null);   // (an item's use, a wait: no walk)
 			List<Integer> path = aiming || hid < 0 || i >= PLAN_WALKS || !walks ? null : walk(h, cell);
 			int k = path == null ? 0 : Math.min(PLAN_STEPS, path.size());
-			b.write(k);
+			byte[] dirs = new byte[k];
 			int from = h.pos, w = Dungeon.level.width();
 			for (int j = 0; j < k; j++) {
 				int to = path.get(j), dx = to % w - from % w, dy = to / w - from / w;
 				if (Math.abs(dx) > 1 || Math.abs(dy) > 1) { k = j; break; }   // (not a step: stop the plan there)
-				b.write((dx + 1) + 3 * (dy + 1)); from = to;
+				dirs[j] = (byte) ((dx + 1) + 3 * (dy + 1)); from = to;
 			}
+			b.write(k); b.write(dirs, 0, k);   // (the count as written: stopped short, it used to say more steps than came)
 		}
 		return b.toByteArray();
 	}

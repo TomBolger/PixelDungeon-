@@ -171,7 +171,14 @@ bool predict_button(int code, uint32_t now) {
   // the map follows him closely while he walks, as the phone's camera will (HeroSprite.move: panFollow at 20 a
   // second). Left at its resting pace until the phone's frames said so, the view lagged behind the hero for the
   // first half second of every walk, then caught up with a lurch.
-  if (g_map_cam >= 0 && g_cam[g_map_cam].mode == 1 && g_cam[g_map_cam].follow == s_wid) g_cam[g_map_cam].intensity = 255;
+  // A map standing still (SPD's zoom stops its camera) or moved over to show a target (Controls.view) follows him
+  // from the press too, as the phone's will (Select gives its camera back to the hero): it stood still under the
+  // walk shown ahead, the hero walking off towards the edge till the phone's frames came.
+  if (g_map_cam >= 0) {
+    Cam *c = &g_cam[g_map_cam];
+    if (c->mode == 1 && c->follow == s_wid) c->intensity = 255;
+    else if (c->mode != 1) { c->mode = 1; c->follow = s_wid; c->ofx = c->ofy = 0; c->dead = 0; c->intensity = 255; c->cx = c->cy = 0; }
+  }
   if (s_eid == s_wid) s_eid = NONE;
   return true;
 }
