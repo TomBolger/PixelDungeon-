@@ -1,7 +1,0 @@
-spd/
-lib/
-build/
-watch/build/
-dist/
-watch/.lock-waf*
-lib

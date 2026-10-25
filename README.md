@@ -71,3 +71,6 @@ cd bot && ./score.sh 20               # 20 games under normal rules, with a summ
 - **This port:** © 2026 Thomas Bolger. It is also released under the **GNU General Public License v3**; see [LICENSE](LICENSE).
 
 This is a fan project and is not affiliated with Watabou.
+
+## Shattered Pixel Dungeon on Pebble
+Shattered PD on Pebble (the phone runs Shattered, the watch shows it) has moved to its own repo, [TomBolger/ShatteredPixel](https://github.com/TomBolger/ShatteredPixel), with its history. `sim/` here still holds the Monolith runner and job scripts that both projects use.
