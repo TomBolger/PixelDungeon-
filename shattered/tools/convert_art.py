@@ -339,6 +339,23 @@ def halls_stone(p, src, out):
                     if col: op[x, y] = col + (255,)
                     break
 
+PRISON_BRICK = [(82, (0, 0, 0)), (120, (85, 85, 0)), (140, (170, 170, 85))]
+
+def prison_brick(p, src, out):
+    """The prison's wall faces (raised walls) are grey-beige bricks in darker mortar. Brick and mortar both snapped to
+    the same grey, so the bricks were gone and only broken dashes of their lit edges were left. By brightness
+    (PRISON_BRICK, as HALLS_STONE): mortar, brick, and the bricks' lit top edge. The light top band is left as it was."""
+    if not p.endswith('tiles_prison.png'): return
+    sp, op = src.load(), out.load()
+    for y in range(80, 112):
+        for x in range(src.width):
+            r, g, b, a = sp[x, y]
+            if a != 255 or max(r, g, b) - min(r, g, b) >= 40: continue
+            L = 0.3 * r + 0.5 * g + 0.2 * b
+            if L < 50: continue
+            for top, col in PRISON_BRICK:
+                if L < top: op[x, y] = col + (255,); break
+
 # The Duelist's brown skin is low in colour, so the interface-grey rule (and the plain snap) turned her face grey.
 # Picked by hand as Pebble PD picked its potion colours: light tones rose-brown, the middle brown, shadows maroon.
 SKIN = {(115, 78, 77): (170, 85, 85), (108, 69, 64): (170, 85, 85), (95, 58, 52): (170, 85, 0),
@@ -533,7 +550,7 @@ if __name__ == '__main__':
             out.save(dst); continue
         pre = floors_lifted(p, im.copy()) if p.startswith('environment/') else skin(p, im.copy())
         out = pebbleize(greys(pre, levels(p)) if not p.startswith(('environment/', 'splashes/')) else pre, levels(p), alpha_cut=1)
-        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out); gold_ore(p, im, out); halls_stone(p, im, out)
+        if p.startswith('environment/'): cave_grit(p, im, out); warm_stone(p, im, out); gold_ore(p, im, out); halls_stone(p, im, out); prison_brick(p, im, out)
         a, o = im.load(), out.load()
         cut = CUT.get(p.split('/')[0], CUT.get(p))
         if p.startswith('environment/tiles_'): cut = 100   # Pebble PD's tiles: the water's foam edge solid, faint shadows gone (both were dotted checkers)
