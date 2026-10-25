@@ -39,6 +39,77 @@ public final class RefinementTest {
         touches.add(new byte[]{(byte)kind, (byte)++seq, (byte)255, 0, (byte)x, 0, (byte)y, 0, 0, 0, 0, 0});
         touches.frame(link, controls, 1f/30); PointerEvent.processPointerEvents();
     }
+    // ---- the Assistant obeys: what the player passes over isn't pressed on him again (Pebble PD's pass_hands) ----
+    static Controls oc;
+    @SuppressWarnings("unchecked")
+    static java.util.List<Assist.Target> list() throws Exception { return (java.util.List<Assist.Target>) get(oc, "plan"); }
+    static void frames(WatchApp app, int n) { for (int i = 0; i < n; i++) { app.frame(); oc.frame(); } }
+    /** Frames until the hero is ready with a list made since game time `after` (or his place changed from `from`). */
+    static Assist.Target planA(WatchApp app, float after, int from) throws Exception {
+        for (int f = 0; f < 3000; f++) {
+            frames(app, 1);
+            Hero h = Dungeon.hero;
+            if (h.ready && Ui.topWindow() == null && (com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now() > after || h.pos != from) && !list().isEmpty()
+                    && !(Boolean) get(oc, "pending")) { frames(app, 2); return list().isEmpty() ? null : list().get(0); }
+        }
+        return null;
+    }
+    static float now() { return com.shatteredpixel.shatteredpixeldungeon.actors.Actor.now(); }
+    static void descend(WatchApp app) throws Exception {
+        int d0 = Dungeon.depth;
+        StairsTest.jump(StairsTest.stairs(false));   // (the real way down: the exit's transition)
+        for (int f = 0; f < 5000; f++) {
+            app.frame(); if (Game.scene() instanceof InterlevelScene) HandoffTest.pressOn();
+            if (Dungeon.depth > d0 && Game.scene() instanceof GameScene && Dungeon.hero != null && Dungeon.hero.ready) break;
+            Thread.sleep(1);
+        }
+        check(Dungeon.depth > d0, "down a floor");
+        while (Ui.topWindow() != null) Ui.topWindow().hide();
+        Gallery.calm();
+    }
+    static void obedience(WatchApp app) throws Exception {
+        Hero h = Dungeon.hero; oc = new Controls(); h.lvl = 1; h.exp = 0;   // (no talent points to offer first)
+        WatchSettings.assist(1); WatchSettings.itemAssist(true); Assist.reset();
+        h.belongings.weapon = null; h.belongings.armor = new ClothArmor(); h.belongings.armor.identify();
+        ScrollOfUpgrade up = new ScrollOfUpgrade(); up.identify(); h.belongings.backpack.items.add(up);
+        Assist.Target a = planA(app, -1, -1);
+        check(a != null && a.item == up, "the upgrade scroll is offered first: " + a);
+        // skipped with Down, the next one chosen: not first again
+        float t0 = now(); int p0 = h.pos;
+        oc.button(Controls.DOWN); oc.button(Controls.SELECT);
+        a = planA(app, t0, p0);
+        check(a != null && a.item != up, "an upgrade passed over with Down is no longer first: " + a);
+        for (Assist.Target e : list()) check(e.item != up, "an upgrade passed over is not offered again on this floor: " + list());
+        // an objective to explore (or grass) passed over: not offered first again at once
+        a = list().get(0);
+        check(a.kind == Assist.GO || a.kind == Assist.PICKUP, "plan A walks somewhere: " + a);
+        int o = a.obj >= 0 ? a.obj : a.cell; boolean grass = Dungeon.level.map[o] == com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.HIGH_GRASS;
+        t0 = now(); p0 = h.pos;
+        oc.button(Controls.DOWN); oc.button(Controls.SELECT);
+        a = planA(app, t0, p0);
+        check(a != null && (a.obj >= 0 ? a.obj : a.cell) != o, "a place passed over is not first again at once: " + o + " vs " + a);
+        check(grass ? (Boolean) get(null, "grassSkip", Assist.class) : Assist.demoted(o), "a place passed over is held back: " + o);
+        // a new floor: things stand afresh, the upgrade first again
+        descend(app); h = Dungeon.hero;
+        a = planA(app, -1, -1);
+        check(a != null && a.item == up, "a new floor offers the upgrade again: " + a);
+        // ignored: something else done instead (the toolbar's search, held) passes it over too
+        t0 = now(); p0 = h.pos;
+        oc.button(Controls.BACK); oc.button(Controls.BACK); oc.button(Controls.SELECT | Controls.LONG);
+        a = planA(app, t0, p0);
+        check(a == null || a.item != up, "an upgrade ignored for something else is no longer first: " + a);
+        // chosen, it is honoured (the bag opens on the armour for the player to confirm)
+        Assist.reset(); Field st = Controls.class.getDeclaredField("targetsStale"); st.setAccessible(true); st.set(oc, true);
+        a = planA(app, -1, h.pos);
+        check(a != null && a.item == up, "after a reset the upgrade is offered: " + a);
+        oc.button(Controls.SELECT); frames(app, 5);
+        check(Ui.topWindow() != null, "Select on the upgrade opens its choice for the player");
+        while (Ui.topWindow() != null) Ui.topWindow().hide();
+        h.belongings.backpack.items.remove(up); WatchSettings.assist(2); oc = null;
+        System.out.println("obedience: passed over with Down, ignored, a new floor, chosen: ok");
+    }
+    static Object get(Object o, String name, Class<?> c) throws Exception { Field f = c.getDeclaredField(name); f.setAccessible(true); return f.get(o); }
+
     public static void main(String[] args) {
         try { run(); } catch (Throwable e) { e.printStackTrace(); System.exit(1); }
     }
@@ -82,6 +153,7 @@ public final class RefinementTest {
         ScrollOfUpgrade up = new ScrollOfUpgrade(); up.identify(); h.belongings.backpack.items.add(up);
         t = hands(); check(t != null && t.item == up && t.on == h.belongings.weapon, "Mage invests in the staff first");
         h.belongings.backpack.items.clear();
+        obedience(app);
 
         Link link = new Link(new Assets()); Controls controls = new Controls(); Touches touches = new Touches();
         pebxel.ui.WndWatchMenu menu = new pebxel.ui.WndWatchMenu(); GameScene.show(menu);
