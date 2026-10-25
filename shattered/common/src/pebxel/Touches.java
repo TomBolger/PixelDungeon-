@@ -38,8 +38,22 @@ public class Touches {
 	private void endTap(boolean cancel) {
 		if (upAt < 0) return;
 		if (cancel || upOwner != owner()) Game.inputHandler.touchCancelled(upX, upY, ID, 0);
-		else Game.inputHandler.touchUp(upX, upY, ID, 0);
+		else {
+			Game.inputHandler.touchUp(upX, upY, ID, 0);
+			if (upOwner instanceof GameScene && Ui.topWindow() == null && com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero != null && !Controls.aiming()) { tapBefore = com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero.curAction; tapWatch = true; }
+		}
 		upAt = -1; upOwner = null;
+	}
+	/** A tap on the map (Pebble PD's on_tap): once the game has taken it (the next frame), the walk it set off on tells
+	 *  the Assistant the player's way, as a choice from its list does: its plan follows where the player tapped. */
+	private boolean tapWatch; private Object tapBefore;
+	private void tapTaken() {
+		if (!tapWatch) return;
+		tapWatch = false;
+		com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero h = com.shatteredpixel.shatteredpixeldungeon.Dungeon.hero;
+		com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroAction a = h == null ? null : h.curAction;
+		if (a == null || a == tapBefore || a.dst < 0 || a instanceof com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroAction.Attack) return;   // (a blow is a fight, not a way)
+		Assist.tapped(a.dst);
 	}
 
 	public synchronized void add(byte[] b) { if (b != null && b.length >= 12) in.add(b.clone()); }
@@ -48,6 +62,7 @@ public class Touches {
 	/** Call on the game thread before each frame, with the time since the last call. */
 	public void frame(Link link, Controls controls, float dt) {
 		clock += dt;
+		tapTaken();
 		if (dragOwner != null && dragOwner != owner()) cancelDrag();
 		if (upAt >= 0 && (clock >= upAt || upOwner != owner())) endTap(false);
 		byte[] b;

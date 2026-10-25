@@ -88,7 +88,7 @@ public final class RefinementTest {
         oc.button(Controls.DOWN); oc.button(Controls.SELECT);
         a = planA(app, t0, p0);
         check(a != null && (a.obj >= 0 ? a.obj : a.cell) != o, "a place passed over is not first again at once: " + o + " vs " + a);
-        check(grass ? (Boolean) get(null, "grassSkip", Assist.class) : Assist.demoted(o), "a place passed over is held back: " + o);
+        check(grass ? (Boolean) get(null, "grassSkip", Assist.class) : Assist.demoted(o), "a place passed over is held back: " + o + " now " + a + " list " + list());
         // a new floor: things stand afresh, the upgrade first again
         descend(app); h = Dungeon.hero;
         a = planA(app, -1, -1);
@@ -129,6 +129,67 @@ public final class RefinementTest {
         check(!((com.watabou.noosa.Group) edge).visible, "a Down brings the view back to show the target");
         WatchSettings.assist(2); oc = null;
         System.out.println("obedience: passed over with Down, ignored, a new floor, chosen; camera: targets clear of the HUD, edge pointer: ok");
+    }
+    // ---- the Assistant's choice of places: near before far, keys, a held key's door, no stairs with the floor not done ----
+    static int[] walks(com.shatteredpixel.shatteredpixeldungeon.levels.Level L, int from) {
+        int[] d = new int[L.length()]; Arrays.fill(d, -1); ArrayDeque<Integer> q = new ArrayDeque<>(); d[from] = 0; q.add(from);
+        while (!q.isEmpty()) { int c = q.poll(); for (int k : com.watabou.utils.PathFinder.NEIGHBOURS8) { int n = c + k;
+            if (n < 0 || n >= d.length || d[n] >= 0 || !L.passable[n] || L.avoid[n] || Math.abs(n % L.width() - c % L.width()) > 1) continue; d[n] = d[c] + 1; q.add(n); } }
+        return d;
+    }
+    /** A floor cell at about walk w (the nearest above it), not the stairs, none of `not`. */
+    static int at(com.shatteredpixel.shatteredpixeldungeon.levels.Level L, int[] d, int w, int... not) {
+        int best = -1;
+        outer: for (int c = 0; c < d.length; c++) {
+            if (d[c] < w || c == L.exit() || c == L.entrance() || !(L.map[c] == com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.EMPTY || L.map[c] == com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.EMPTY_DECO || L.map[c] == com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.GRASS) || L.heaps.get(c) != null || L.traps.get(c) != null) continue;
+            for (int x : not) if (L.distance(c, x) <= 2) continue outer;
+            if (best < 0 || d[c] < d[best]) best = c; }
+        return best;
+    }
+    static Assist.Target first() { java.util.List<Assist.Target> l = Assist.plan(false, null); return l.isEmpty() ? null : l.get(0); }
+    static int objOf(Assist.Target t) { return t == null ? -1 : t.obj >= 0 ? t.obj : t.cell; }
+    static void places() throws Exception {
+        com.shatteredpixel.shatteredpixeldungeon.levels.Level L = Dungeon.level; Hero h = Dungeon.hero; int dep = Dungeon.depth;
+        WatchSettings.assist(2); WatchSettings.itemAssist(false); Assist.reset(); Gallery.calm();
+        L.heaps.clear(); h.buff(Hunger.class).satisfy(1000);
+        int pos0 = h.pos, bestN = -1;   // (the hero set down where most of the floor is a walk away: the room he arrived in may be shut off)
+        for (int c = 0; c < L.length(); c += 7) if (L.passable[c] && !L.avoid[c] && L.map[c] != com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.DOOR && c != L.exit() && c != L.entrance()) {
+            long n = Arrays.stream(walks(L, c)).filter(x -> x >= 0).count(); if (n > bestN) { bestN = (int) n; h.pos = c; } }
+        int[] d = walks(L, h.pos);
+        Arrays.fill(L.visited, true); Arrays.fill(L.mapped, true);
+        int near = at(L, d, 5), far = at(L, d, 22, near);
+        check(near >= 0 && far >= 0, "a floor to set the scenes on: " + near + " " + far + " hero " + h.pos + " reach " + Arrays.stream(d).filter(x -> x >= 0).count() + " max " + Arrays.stream(d).max().getAsInt() + " " + L.getClass().getSimpleName());
+        // 1. a held iron key's door far off, unexplored ground a few steps away: the near ground first
+        com.shatteredpixel.shatteredpixeldungeon.levels.Level.set(far, com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.LOCKED_DOOR);
+        com.shatteredpixel.shatteredpixeldungeon.items.keys.IronKey iron = new com.shatteredpixel.shatteredpixeldungeon.items.keys.IronKey(dep);
+        com.shatteredpixel.shatteredpixeldungeon.journal.Notes.add(iron);
+        L.visited[near] = L.mapped[near] = false;
+        Assist.Target a = first(); int o = objOf(a);
+        check(o >= 0 && o != far && d[o] >= 0 && d[o] <= 6, "unexplored ground nearby before a far door (" + d[far] + " steps): " + a);
+        // 2. explored: the held key makes its door the objective, before the stairs
+        L.visited[near] = L.mapped[near] = true; Assist.reset();
+        a = first(); check(objOf(a) == far, "a held iron key's locked door is plan A once the floor is explored, not the stairs: " + a);
+        com.shatteredpixel.shatteredpixeldungeon.journal.Notes.remove(iron);
+        com.shatteredpixel.shatteredpixeldungeon.levels.Level.set(far, com.shatteredpixel.shatteredpixeldungeon.levels.Terrain.EMPTY);
+        // 3. a key lying about: picked up before the stairs; passed over, it is held back a while, not forgotten
+        int kc = at(L, d, 10, near);
+        L.drop(new com.shatteredpixel.shatteredpixeldungeon.items.keys.IronKey(dep), kc).seen = true; Assist.reset();
+        a = first(); check(objOf(a) == kc, "a seen key is plan A before the stairs: " + a);
+        Assist.passed(a, h.pos, h.pos);
+        check(Assist.demoted(kc), "a key passed over is held back a while");
+        boolean still = false; for (Assist.Target t : Assist.plan(false, null)) still |= objOf(t) == kc;
+        check(still, "a key passed over is still in the list (not dropped for the floor)");
+        L.heaps.clear(); Assist.reset();
+        // 4. unexplored ground left only far off: that, never the stairs
+        L.visited[far] = L.mapped[far] = false;
+        a = first(); check(objOf(a) != L.exit() && objOf(a) != L.entrance(), "no stairs while reachable unexplored ground remains: " + a);
+        // 5. a tap steers: the next plan follows the cell tapped
+        Assist.reset(); L.visited[near] = L.mapped[near] = false;
+        first(); Assist.tapped(far);   // (after a list: a new floor forgets the player's way)
+        a = first(); check(objOf(a) == far, "a tap on the map: its way is plan A: " + a);
+        Arrays.fill(L.visited, true); Arrays.fill(L.mapped, true); Assist.reset(); WatchSettings.itemAssist(true);
+        h.pos = pos0;
+        System.out.println("places: near ground before a far door, the held key's door before the stairs, keys before the stairs and kept, no stairs with ground left, a tap steers: ok");
     }
     static Object get(Object o, String name, Class<?> c) throws Exception { Field f = c.getDeclaredField(name); f.setAccessible(true); return f.get(o); }
 
@@ -176,6 +237,7 @@ public final class RefinementTest {
         t = hands(); check(t != null && t.item == up && t.on == h.belongings.weapon, "Mage invests in the staff first");
         h.belongings.backpack.items.clear();
         obedience(app);
+        places();
 
         Link link = new Link(new Assets()); Controls controls = new Controls(); Touches touches = new Touches();
         pebxel.ui.WndWatchMenu menu = new pebxel.ui.WndWatchMenu(); GameScene.show(menu);

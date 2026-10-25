@@ -280,6 +280,9 @@ public class AssistBot {
 			if (t == null && Cheat.ON) t = BotAlchemy.pick();
 			if (t == null && plan.isEmpty()) { Dungeon.hero.rest(false); continue; }
 			if (t == null) t = plan.get(0);
+			if (t == plan.get(0)) Sense.grade(plan);
+			if (HUMAN > 0 && t == plan.get(0) && plan.size() > 1 && ++humanN % HUMAN == 0 && (plan.get(1).kind == Assist.GO || plan.get(1).kind == Assist.PICKUP) && t.kind != Assist.ENEMY) {   // (a player who now and then takes plan B)
+				Assist.chose(plan.get(1), t); t = plan.get(1); }
 			String key = t.kind + ":" + t.cell + ":" + t.action + ":" + (t.item == null ? "" : t.item.getClass().getSimpleName());
 			boolean still = Dungeon.hero.pos == lastPos && key.equals(lastKey) && t.kind != Assist.WAIT && !"wait".equals(t.action);
 			if (still) { stuckEvents++; sameRun++; } else sameRun = 0;
@@ -342,6 +345,7 @@ public class AssistBot {
 		Coverage.watch = watch == null ? "" : watch.summary();
 		Coverage.report(end);
 		System.out.println(BotStats.line());
+		if (Sense.ON) System.out.println(Sense.line());
 		System.out.printf("RESULT class %s seed %d: %s depth %d (max %d) turns %.0f lvl %d hp %d/%d picked %d stuck %d actfails %d windows %d decisions %d frames %d  %.1fs%s%n",
 				cls, seed, end, Dungeon.depth, maxD, Statistics.duration, Dungeon.hero == null ? 0 : Dungeon.hero.lvl, Dungeon.hero == null ? 0 : Dungeon.hero.HP, Dungeon.hero == null ? 0 : Dungeon.hero.HT,
 				picked, stuckEvents, actFails, windows, decisions, Lockstep.frames - frames0, (System.currentTimeMillis() - t0) / 1000.0, cause.isEmpty() ? "" : "\n  last log: " + cause);
@@ -357,6 +361,7 @@ public class AssistBot {
 	 *  before the Assistant drove it (OldTargets), to compare presses on the same seeds. */
 	static final boolean SELECTONLY = "select".equals(System.getenv("PLAYER"));
 	static final int PERTURB = Integer.parseInt(System.getenv().getOrDefault("PERTURB", "0"));
+	static final int HUMAN = Integer.parseInt(System.getenv().getOrDefault("HUMAN", "0")); static int humanN;
 	static final boolean VRND = System.getenv("VRND") != null;
 	/** The random numbers' state (debugging repeatability: needs --add-opens java.base/java.util=ALL-UNNAMED and java.util.concurrent.atomic). */
 	static String rnd() {
