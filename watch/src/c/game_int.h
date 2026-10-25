@@ -137,6 +137,7 @@ typedef struct {
   bool (*sees)(int i, int enemy);              // Mob.act's enemyInFOV: does creature i see its enemy (-1 the hero)
   int (*closer)(int i, int target);            // Mob.getCloser overridden: the cell to step towards, or CL_MOVED / CL_STAYS (handled)
   bool (*search)(bool intentional);            // Hero.search (0.99: the mobs overlay; never NULL)
+  void (*edge)(int x, int y, int who, int pip);  // 1.01: main.c's pointers at the screen's edge, framed (who -1 the hero, a creature, 256 + a thing's sprite, -2 the target mark; pip 4 none)
 } MobHooks;
 enum { CL_MOVED = -2, CL_STAYS = -3 };
 #define SEES_CELL(c) (-0x1000 - (c))           // sees(i, SEES_CELL(c)): is cell c in creature i's field of view (Level.fieldOfView)

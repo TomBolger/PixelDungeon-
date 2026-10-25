@@ -4,6 +4,9 @@
  * Loaded once at start-up and kept; each depth band adds its own creatures on top (src/ovl/<band>, 0.9).
  */
 #include "mobovl.h"
+#ifndef OVL_HOST
+#include "ui_int.h"
+#endif
 #include <stddef.h>
 
 // ---------------- shops: Shopkeeper / ImpShopkeeper ----------------
@@ -408,6 +411,21 @@ static bool search(bool intentional) {                // Hero.search (0.99: move
   return found;
 }
 
+// 1.01: main.c's pointers at the screen's edge (out of the app: its size limit): the window frame (Gabbro: main.c's bubble)
+// with the hero (who -1), a creature (who: its index), a thing (256 + its sprite) or the target mark in it; a yellow pip on
+// the side the target lies (pip: (dx + 1) + 3 (dy + 1), 4 none)
+#ifndef OVL_HOST                                  // (the bot draws nothing)
+static void edge(int x, int y, int who, int pip) {
+#ifndef PBL_ROUND
+  blit_nine(&s_chrome, 22, 0, 18, 18, 5, x, y, 28, 28);
+#endif
+  if (who == -1) { g_blit_flip = G.hero.facing_left; blit(&s_hero, 0, 0, 12, 15, x + 8, y + 7, 1); g_blit_flip = false; return; }   // (HeroSprite's frame)
+  if (who >= 256) item_spr(who - 256, x + 6, y + 6, 1);
+  else if (who >= 0) { const CharArt *a = mob_art(G.mobs[who].type); blit(mob_sheet(G.mobs[who].type), 0, 0, a->fw, a->fh, x + (28 - a->fw) / 2, y + (28 - a->fh) / 2, 1); }
+  else blit(&s_icons, 67, 0, 16, 16, x + 6, y + 6, 1);
+  if (pip != 4) blit_fill(x + 12 + (pip % 3 - 1) * 12, y + 12 + (pip / 3 - 1) * 12, 4, 4, ARGB(GColorIcterine));
+}
+#endif
 static int closer(int i, int target) { return target; }   // Mob.getCloser: the plain step (the bands override it)
 static void install(MobHooks *h) {
   h->act = act;
@@ -423,5 +441,8 @@ static void install(MobHooks *h) {
   h->turn = floor_turn;
   h->buffs = buffs_tick;
   h->sees = sees; h->closer = closer; h->search = search;
+#ifndef OVL_HOST
+  h->edge = edge;
+#endif
 }
 OVL_ENTRY(mobs, (void *)install);
