@@ -2,7 +2,7 @@
 # wait_report.sh JOB [DIR]: waits until the PebxelSim runner on Monolith has pushed JOB's report to the sim-reports
 # branch, then unpacks it into DIR (default /tmp/simreports/JOB) and prints the file list. Run it in the background:
 # it exits (one notification) the moment the report lands. Gives up after 6 hours.
-J=$1; OUT=${2:-/tmp/simreports/$1}; R=https://github.com/TomBolger/PixelDungeon-.git; C=/tmp/simreports/.repo
+J=$1; OUT=${2:-/tmp/simreports/$1}; R=https://github.com/TomBolger/PixelDungeon-.git; C=/tmp/simreports/.repo-$J   # (a clone per job: several agents wait at once)
 mkdir -p "$OUT"; [ -d "$C/.git" ] || { mkdir -p "$C"; git -C "$C" init -q; git -C "$C" remote add origin "$R"; }
 last=""
 for ((i = 0; i < 720; i++)); do
