@@ -1,0 +1,9 @@
+# HE-a2
+bundle=HE-a2-1026024730.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run e0 TALENTS=human SIMSEED=1
+run e1 TALENTS=human SIMSEED=1 AS_ARMENC=1
+run e1f1 TALENTS=human SIMSEED=1 AS_ARMENC=1 AS_ARMFUT=1

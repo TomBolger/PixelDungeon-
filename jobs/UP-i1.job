@@ -1,0 +1,10 @@
+# UP-i1
+bundle=UP-i1-1026122337.tgz
+bin=simbot
+games=288
+chunk=12
+first=0
+run iA MILD=1 TALENTS=human SIMSEED=1 AS_UPTIME=15
+run iB MILD=1 TALENTS=human SIMSEED=1 AS_UPTIME=25
+run iC TALENTS=human SIMSEED=1
+run iD TALENTS=human SIMSEED=1 AS_UPTIME=15

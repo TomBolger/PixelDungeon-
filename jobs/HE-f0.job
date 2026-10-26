@@ -1,0 +1,7 @@
+# HE-f0
+bundle=HE-f0-1026021905.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run honest TALENTS=human SIMSEED=1

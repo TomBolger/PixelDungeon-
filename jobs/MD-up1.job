@@ -1,0 +1,8 @@
+# MD-up1
+bundle=MD-up1-1026033741.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run on MILD=1 TALENTS=human SIMSEED=1
+run off MILD=1 TALENTS=human SIMSEED=1 AS_MDUP=0

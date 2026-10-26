@@ -1,0 +1,8 @@
+# HE-d2
+bundle=HE-d2-1026045525.tgz
+bin=simbot
+games=576
+chunk=6
+first=0
+run eatnb TALENTS=human SIMSEED=1 AS_EATHUNGRY=1
+run eatnbpos TALENTS=human SIMSEED=1 AS_EATHUNGRY=1 AS_EGPOSGAIN=10

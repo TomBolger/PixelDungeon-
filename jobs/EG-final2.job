@@ -1,0 +1,12 @@
+# EG-final2
+bundle=EG-final2-1026015018.tgz
+bin=simbot
+games=96
+chunk=6
+first=0
+run full MILD=1 TALENTS=human SIMSEED=1
+run honest TALENTS=human SIMSEED=1
+run head11 MILD=1 TALENTS=human SIMSEED=1 HEAD=1 STARTDEPTH=11
+run head16 MILD=1 TALENTS=human SIMSEED=1 HEAD=1 STARTDEPTH=16
+run head21 MILD=1 TALENTS=human SIMSEED=1 HEAD=1 STARTDEPTH=21
+run head26 MILD=1 TALENTS=human SIMSEED=1 HEAD=1 STARTDEPTH=26

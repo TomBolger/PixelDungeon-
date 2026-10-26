@@ -1,0 +1,10 @@
+# HE-a3
+bundle=HE-a3-1026031355.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run cur TALENTS=human SIMSEED=1
+run long1 TALENTS=human SIMSEED=1 AS_ARMLONGD=1
+run long5 TALENTS=human SIMSEED=1 AS_ARMLONGD=5
+run long3 TALENTS=human SIMSEED=1 AS_ARMLONGD=3

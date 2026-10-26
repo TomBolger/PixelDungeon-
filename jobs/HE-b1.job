@@ -1,0 +1,10 @@
+# HE-b1
+bundle=HE-b1-1026033334.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run he TALENTS=human SIMSEED=1
+run armoff TALENTS=human SIMSEED=1 AS_ARMPLAN=0
+run pos0 TALENTS=human SIMSEED=1 AS_EGPOSGAIN=0
+run pos10 TALENTS=human SIMSEED=1 AS_EGPOSGAIN=10

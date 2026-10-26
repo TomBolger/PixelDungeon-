@@ -1,0 +1,10 @@
+# DS-feel1
+bundle=DS-feel1-1026085928.tgz
+bin=simbot
+games=48
+chunk=3
+first=0
+run wilful-on WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1
+run wilful-off WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1 AS_INTENT=0
+run human-on WATCH=1 PLAYER=human MILD=1 SIMSEED=1
+run human-off WATCH=1 PLAYER=human MILD=1 SIMSEED=1 AS_INTENT=0

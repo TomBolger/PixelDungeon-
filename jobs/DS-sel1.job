@@ -1,0 +1,11 @@
+# DS-sel1
+bundle=DS-sel1-1026082334.tgz
+bin=simbot
+games=36
+chunk=3
+first=0
+run sel-honest WATCH=1 PLAYER=select SIMSEED=1
+run sel-mild WATCH=1 PLAYER=select MILD=1 SIMSEED=1
+run human-mild WATCH=1 PLAYER=human MILD=1 SIMSEED=1
+run bot-honest TALENTS=human SIMSEED=1
+run bot-mild MILD=1 TALENTS=human SIMSEED=1

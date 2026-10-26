@@ -1,0 +1,8 @@
+# MD-pace1
+bundle=MD-pace1-1026041658.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run all MILD=1 TALENTS=human SIMSEED=1
+run nopace MILD=1 TALENTS=human SIMSEED=1 AS_MDWAIT=0

@@ -1,0 +1,11 @@
+# DS-abl1
+bundle=DS-abl1-1026125940.tgz
+bin=simbot
+games=60
+chunk=3
+first=100
+run noway WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1 AS_INTENTWAY=0
+run nodis WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1 AS_INTENTDIS=0
+run noagain WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1 AS_INTENTAGAIN=0
+run nopost WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1 AS_INTENTPOST=0
+run norank WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1 AS_INTENTRANK=0

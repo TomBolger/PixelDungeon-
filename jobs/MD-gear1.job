@@ -1,0 +1,8 @@
+# MD-gear1
+bundle=MD-gear1-1026032806.tgz
+bin=simbot
+games=192
+chunk=6
+first=0
+run full MILD=1 TALENTS=human SIMSEED=1
+run head11 MILD=1 TALENTS=human SIMSEED=1 HEAD=1 STARTDEPTH=11

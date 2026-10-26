@@ -1,0 +1,10 @@
+# UP-b1
+bundle=UP-b1-1026081430.tgz
+bin=simbot
+games=288
+chunk=12
+first=0
+run hon TALENTS=human SIMSEED=1
+run honnohold TALENTS=human SIMSEED=1 AS_UPHOLDON=0
+run honhm5 TALENTS=human SIMSEED=1 AS_UPHOLDMIN=5
+run hontime TALENTS=human SIMSEED=1 AS_UPTIME=3

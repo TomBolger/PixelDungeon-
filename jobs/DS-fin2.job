@@ -1,0 +1,8 @@
+# DS-fin2
+bundle=DS-fin2-1026120123.tgz
+bin=simbot
+games=60
+chunk=3
+first=100
+run wilful-on WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1
+run human-on WATCH=1 PLAYER=human MILD=1 SIMSEED=1

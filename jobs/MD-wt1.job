@@ -1,0 +1,8 @@
+# MD-wt1
+bundle=MD-wt1-1026042317.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run wt3 MILD=1 TALENTS=human SIMSEED=1
+run wt2 MILD=1 TALENTS=human SIMSEED=1 AS_MDWPNTIER=2

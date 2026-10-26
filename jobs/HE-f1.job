@@ -1,0 +1,7 @@
+# HE-f1
+bundle=HE-f1-1026030348.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run fx TALENTS=human SIMSEED=1 FIGHTX=1

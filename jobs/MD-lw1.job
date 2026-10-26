@@ -1,0 +1,9 @@
+# MD-lw1
+bundle=MD-lw1-1026051142.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run lw MILD=1 TALENTS=human SIMSEED=1
+run lnowp MILD=1 TALENTS=human SIMSEED=1 AS_MDWPLAN=0
+run lnosplit MILD=1 TALENTS=human SIMSEED=1 AS_MDUP=0

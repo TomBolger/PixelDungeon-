@@ -1,0 +1,9 @@
+# UP-g1
+bundle=UP-g1-1026103000.tgz
+bin=simbot
+games=288
+chunk=12
+first=0
+run gA MILD=1 TALENTS=human SIMSEED=1
+run gB MILD=1 TALENTS=human SIMSEED=1 AS_UPHOLDON=0
+run gC MILD=1 TALENTS=human SIMSEED=1 AS_UPHOLDMIN=6 AS_UPGAM=200

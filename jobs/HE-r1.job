@@ -1,0 +1,8 @@
+# HE-r1
+bundle=HE-r1-1026055600.tgz
+bin=simbot
+games=576
+chunk=6
+first=0
+run final TALENTS=human SIMSEED=1
+run ref TALENTS=human SIMSEED=1 AS_ARMPLAN=0 AS_ESCAPE=0 AS_EATHUNGRY=0 AS_EGPOSGAIN=25 AS_EXILEHT=0 AS_HEALGUESS=101

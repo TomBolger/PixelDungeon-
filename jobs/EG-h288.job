@@ -1,0 +1,8 @@
+# EG-h288
+bundle=EG-h288-1026013743.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run now TALENTS=human SIMSEED=1
+run bossfood0 TALENTS=human SIMSEED=1 AS_EGBOSSFOOD=100000

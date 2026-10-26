@@ -1,0 +1,11 @@
+# DS-fin4
+bundle=DS-fin4-1026131132.tgz
+bin=simbot
+games=60
+chunk=3
+first=100
+run wilful-on WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1
+run wilful-off WATCH=1 PLAYER=wilful MILD=1 SIMSEED=1 AS_INTENT=0
+run human-on WATCH=1 PLAYER=human MILD=1 SIMSEED=1
+run human-off WATCH=1 PLAYER=human MILD=1 SIMSEED=1 AS_INTENT=0
+run sel-mild WATCH=1 PLAYER=select MILD=1 SIMSEED=1

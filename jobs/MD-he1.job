@@ -1,0 +1,8 @@
+# MD-he1
+bundle=MD-he1-1026034243.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run hemd MILD=1 TALENTS=human SIMSEED=1
+run he MILD=1 TALENTS=human SIMSEED=1 AS_MDUP=0

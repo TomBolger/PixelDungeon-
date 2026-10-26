@@ -1,0 +1,10 @@
+# HE-c1
+bundle=HE-c1-1026035356.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run esc TALENTS=human SIMSEED=1
+run esc60 TALENTS=human SIMSEED=1 AS_ESCPCT=60
+run escpd5 TALENTS=human SIMSEED=1 AS_ESCPD=5
+run escoff TALENTS=human SIMSEED=1 AS_ESCAPE=0

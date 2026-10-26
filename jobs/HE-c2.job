@@ -1,0 +1,9 @@
+# HE-c2
+bundle=HE-c2-1026041158.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run cur TALENTS=human SIMSEED=1
+run eat TALENTS=human SIMSEED=1 AS_EATHUNGRY=1
+run eatpos TALENTS=human SIMSEED=1 AS_EATHUNGRY=1 AS_EGPOSGAIN=10

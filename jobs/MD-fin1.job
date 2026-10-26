@@ -1,0 +1,8 @@
+# MD-fin1
+bundle=MD-fin1-1026063408.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run full MILD=1 TALENTS=human SIMSEED=1
+run fullnowp MILD=1 TALENTS=human SIMSEED=1 AS_MDWPLAN=0

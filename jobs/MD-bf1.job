@@ -1,0 +1,8 @@
+# MD-bf1
+bundle=MD-lw1-1026051142.tgz
+bin=simbot
+games=288
+chunk=6
+first=0
+run bf300 MILD=1 TALENTS=human SIMSEED=1 AS_EGBOSSFOOD=300
+run bf600 MILD=1 TALENTS=human SIMSEED=1 AS_EGBOSSFOOD=600
