@@ -175,6 +175,12 @@ int hero_attack_skill(const Item *ranged, int target_pos) {   // Hero.attackSkil
   if (ranged && distance(G.hero.pos, target_pos) == 1) s /= 2;
   return s;
 }
+#ifdef PD_FACE                                         // the watchface only (entertainment): the lower his health, the better he dodges: none above half, a sure dodge from 15% down
+static bool face_evades(void) { int hp = G.hero.HP, ht = G.hero.HT > 0 ? G.hero.HT : 1, f = hp * 100 / ht; return f < 50 && (f <= 15 || rnd_int(35) < 50 - f); }
+#define FACE_EVADES() (face_evades())
+#else
+#define FACE_EVADES() false
+#endif
 static int hero_defense_skill(void) {                  // Hero.defenseSkill
   int e = armor_enc(), rogue = G.hero.hclass == 2 && e <= 0, ev = rogue ? -e : 0;   // a rogue dodges better in light armour
   if (rogue && G.hero.subclass == SUB_FREERUNNER && G.action != HA_NONE && G.action != HA_REST && !game_starving()) ev = G.hero.defense_skill + 2 * ev;   // and twice as well running
@@ -497,6 +503,9 @@ void hero_damage(int dmg, const char *cause_fmt) {
   paralysis_break(&h->b, dmg, h->HP, -1);
   if (h->b.paralysis == 0 && hero_paralysed() == false && dmg && G.action == HA_REST) G.action = HA_NONE;
   h->HP -= dmg;
+#ifdef PD_FACE
+  if (h->HP < 1) h->HP = 1;                            // the watchface hero cannot die (the dodging above is the show, this the safety net)
+#endif
   char num[12]; snprintf(num, sizeof num, "%d", dmg);
   ui_fx(FX_DAMAGE, h->pos, -1, num);
   if (dmg > 0) ui_fx(FX_HURT, h->pos, -1, NULL);
@@ -981,6 +990,9 @@ void process(void) {
   if (G.hero.time > G.now) G.now = G.hero.time;
   update_fov();
   check_visible_mobs();
+#ifdef PD_FACE
+  if (G.hero.HP > 0 && game_bag_find(IK_RATION) < 0 && game_bag_find(IK_PASTY) < 0) bag_add(item_make(IK_RATION, 1));   // the watchface hero always has a meal in the bag
+#endif
 }
 
 // ---------------- Combat (Char.attack / Char.hit) ----------------
@@ -988,6 +1000,7 @@ bool char_hit(int att, int def, bool magic) {         // Char.hit: magic doubles
   Mob *am = att >= 0 ? &G.mobs[att] : NULL, *dm = def >= 0 ? &G.mobs[def] : NULL;
   int a = att < 0 ? hero_attack_skill(NULL, pos_of(def)) : mstat(att, STAT_ATT, MOB_DEFS[am->type].att);
   int d = def < 0 ? hero_defense_skill() : ((dm->flags & MF_SEEN) && !mob_paralysed(dm) ? mstat(def, STAT_DEF, MOB_DEFS[dm->type].def) : 0);
+  if (def < 0 && FACE_EVADES()) return false;
   return rnd_scaled(magic ? 2 * a : a) >= rnd_scaled(d);
 }
 // att / def: -1 hero, else mob index. thrown: the missile the hero threw (or NULL)
@@ -1002,7 +1015,7 @@ bool attack(int att, int def, Item *thrown) {
   if (!thrown && visible) ui_fx(FX_ATTACK, apos, att, NULL);
   int att_skill = att < 0 ? hero_attack_skill(thrown, dpos) : am->type == MT_MIRROR ? am->aux : mstat(att, STAT_ATT, ad->att);
   int def_skill = def < 0 ? hero_defense_skill() : ((dm->flags & MF_SEEN) && !mob_paralysed(dm) ? mstat(def, STAT_DEF, dd->def) : 0);   // surprise: no defense
-  if (rnd_scaled(att_skill) < rnd_scaled(def_skill)) {
+  if ((def < 0 && FACE_EVADES()) || rnd_scaled(att_skill) < rnd_scaled(def_skill)) {
     if (visible) {
       ui_sound(SND_MISS);
       const char *verb = def < 0 ? "dodged" : VERBS[dd->verb];
