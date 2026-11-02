@@ -31,6 +31,7 @@ function needWeather() {
 function tenths(x) { return Math.round(x * 10); }
 function weather() {
   if (!needWeather()) return;
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(function (p) {
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + p.coords.latitude.toFixed(3) + '&longitude=' + p.coords.longitude.toFixed(3) +
       '&current=temperature_2m&daily=temperature_2m_max,temperature_2m_min&forecast_days=1&timezone=auto';
