@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
   int N = argc > 1 ? atoi(argv[1]) : 8, maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 60000;
   static const uint8_t VIEW1[4] = { 6, 4, 4, 4 };
   int drops = 0, stuck_up = 0, floods = 0, wins = 0, deaths = 0, nofood = 0, stuckf = 0, floors = 0; long steps_total = 0;
-  g_assist = 3;
+  g_assist = getenv("FULLVIEW") ? 7 : 3;
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
     cur_game = g; srand(g + 1); memset(g_keys, 0, sizeof g_keys);
     g_new_class = g % 4; game_new(); if (getenv("AMU")) { bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET; } s_won = 0; s_amu = 0; s_fb_depth = -1;
@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
       if (ov == FB_LEVEL) { floods++; continue; }
       if (ov == FB_DROP) { drops++; walk(game_item_do(s_fb_slot, ACN_DROP)); continue; }
       if (ov >= 0) { int32_t t = G.hero.time; ActResult r = game_tap_cell(ov); if (getenv("UPD") && game_bag_find(IK_AMULET) >= 0 && fl_steps < 40) printf("up g%d d%d step %d hero %d,%d -> %d,%d r=%d moved=%d vis=%d foe=%d\n", g, G.depth, fl_steps, cx(G.hero.pos), cy(G.hero.pos), cx(ov), cy(ov), r, G.hero.time != t, BIT_GET(G.visited, ov), fb_foe()); if (r != ACT_NONE || G.hero.time != t) { walk(r); continue; } }
-      memcpy(g_view, VIEW1, 4);
+      if (getenv("FULLVIEW")) memset(g_view, 0, 4); else memcpy(g_view, VIEW1, 4);   // FULLVIEW=1: the face's Assist Max (targets anywhere)
       int16_t cell[TARGETS_MAX]; uint8_t kind[TARGETS_MAX]; int n = game_targets(cell, kind);
       if (getenv("TR") && g == atoi(getenv("TR")) && G.depth == 26 && steps > 5000) printf("   targets n=%d first %d,%d kind %d ha %d\n", n, n>0?cx(cell[0]):-1, n>0?cy(cell[0]):-1, n>0?kind[0]:-1, g_ovr.ha);
       if (n <= 0) { walk(G.hero.pos == G.exit || heap_at(G.hero.pos) >= 0 ? game_tap_cell(G.hero.pos) : game_search()); continue; }
