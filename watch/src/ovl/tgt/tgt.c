@@ -163,7 +163,7 @@ static bool dead_end(int c) {                          // 0.48 (owner): a corrid
 }
 static bool risky(const Heap *h) {                     // 0.64 (the Assist alone died to wraiths and piranhas): a tomb (wraiths) till
   Hero *hr = &G.hero; int c = h->pos;                  // well ahead of the depth; a pool room's prize (piranhas) unless levitating or
-  if (h->type == HEAP_TOMB) return hr->lvl < G.depth + 3;   // invisible; a skeleton (a cursed one takes half your health) while hurt
+  if (h->type == HEAP_TOMB) return hr->lvl < G.depth + XENV("TOMBLVL", 3);   // invisible; a skeleton (a cursed one takes half your health) while hurt
   if (h->type == HEAP_SKELETON && hr->HP * 3 < hr->HT * 2) return true;
   if (((1 << h->type) & (1 << HEAP_CHEST | 1 << HEAP_MIMIC)) && hr->HP < 2 * G.depth + 10) return true;   // 0.93 (bot): a chest is a mimic 1 time in 5 ((3 + depth) x 4 HP)
   for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r];
@@ -398,6 +398,15 @@ again:
   if (s_od >= 0) { G.tgm.wo = s_od + 1; g_ovr.c = -1; s_od = -1; goto again; }   // nothing left the player's way: the plan again (0.72: tgt2 offers the way on, if there is one)
   if ((best = look(true)) >= 0) DBG_RET(best);        // the rest of the grass before the stairs (after exploring: what lies on is worth more)
   if (st == hp) *kind = TK_ITEM;                       // (on the stairs: Select takes them, not a search)
+#ifdef OVL_HOST
+  { extern int tgt_hwhy[64] __attribute__((weak));       // WG audit: why each heap was not taken (host only)
+    if (tgt_hwhy && way) for (int i = 0; i < G.n_heaps && i < 64; i++) { Heap *h = &G.heaps[i]; int c = h->pos, r = 0;
+      if (c >= MAP_LEN) r = 20; else if (XENV("RISKY", 1) && risky(h)) r = 1; else if (h->type >= HEAP_CARRIED || h->type == HEAP_FOR_SALE) r = 2; else if (!BIT_GET(G.visited, c)) r = 3; else if (TFLAGS(G.map[c]) & F_AVOID) r = 4;
+      else if (dropped(c)) r = 5; else if ((c == G.entrance || c == G.exit) && !food_k(h->item.kind)) r = 6; else if ((unsigned)(h->type - HEAP_LOCKED_CHEST) < 2 && !(G.keys[G.depth] & 0x30)) r = 7;
+      else if (h->type == HEAP_PLAIN && !room_for(&h->item)) r = 8; else if (h->type == HEAP_PLAIN && junk(&h->item)) r = 9; else if (G.map[c] == T_ALCHEMY) r = 10; else if (c != hp && char_at(c)) r = 11; else if (s_fish && IS_WATER(G.map[c])) r = 12;
+      else if (h->item.kind == IK_DEW) r = 13; else if (walk(c) >= 255) r = 14; else r = 15;
+      tgt_hwhy[i] = r; } }
+#endif
   if (way) DBG_RET(st);                                // the stairs (0.61 (owner): no more "the quest: look around a while longer first": it searched walls)
   if (G.map[st] == T_LOCKED_EXIT && !(keys & 64)) {   // the boss's key: the boss, the iron key to its arena, the key itself
     for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) DBG_RET(G.mobs[i].pos);
@@ -443,7 +452,7 @@ static int escape(void) {                              // 0.64 (moved from first
   if (XENV("FOUL", 1) && (foul(hp) || G.hero.b.burning)) {   // 0.64 (the Assist alone died in the gas of a potion it had drunk to learn it):
     bool w = G.hero.b.burning;                         // out of the gas / fire, the nearest clean cell (alight: water, if it's near)
     for (int p = 0; p < 2 && best < 0; p++, w = false)
-      for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < bk && s_dist[c] > 0 && (!w || s_dist[c] <= 4) && open_cell(c) && !foul(c) && !char_at(c) && (!w || IS_WATER(G.map[c]))) { bk = s_dist[c]; best = c; }
+      for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < bk && s_dist[c] > 0 && (!w || s_dist[c] <= 4) && open_cell(c) && !foul(c) && !char_at(c) && (!w || IS_WATER(G.map[c])) && !(G.hero.b.burning && (TFLAGS(G.map[c]) & F_FLAMABLE) && XENV("BURNFIX", 1))) { bk = s_dist[c]; best = c; }   // (day-WG: alight: not onto grass, it burns on with you: the Assist alone oscillated between two grass cells till dead)
     if (best >= 0) { return best; }
     bk = 0x7FFF; }
   if (G.hero.ooze && !IS_WATER(G.map[hp]) && XENV("OOZE", 1)) {   // 0.64: Goo's caustic ooze eats 20 turns at you: water 2 steps off washes it
@@ -469,14 +478,39 @@ static bool stand_ok(int c, int hp) { return c == hp || (open_cell(c) && !char_a
 static int tactics(void) {
   Hero *h = &G.hero; int hp = h->pos; bool hit;
   if (h->b.roots) return -1;
-    { int adj = 0, os = 0, bc = -1, bo = 9;               // 0.50 (owner): two or more beside you in the open: back into a narrow spot none touches
-      for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, hp)) adj++;
-      for (int k = 0; k < 8; k++) os += nb_ok(hp, hp + N8[k]) && open_cell(hp + N8[k]);   // (0.77: all 8: PD has no corner rule)
-      if (adj >= 2 && os > 2) for (int k = 0; k < 8; k++) { int c = hp + N8[k], o = 0; if (!nb_ok(hp, c) || !open_cell(c) || char_at(c) || IS_WATER(G.map[c])) continue;
-        bool touch = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, c)) touch = true;
-        for (int j = 0; j < 8; j++) o += nb_ok(c, c + N8[j]) && open_cell(c + N8[j]);
-        if (!touch && o <= 2 && o < bo) { bo = o; bc = c; } }
-      if (bc >= 0) return bc; }
+  { int adj = 0, nc = 0, bad = 0, far = 0, mx = 0, os = 0, bc = -1, bo = 99, wr = 0;   // 0.50 (owner): two or more beside you in the open: back into a narrow spot none touches
+    // (day-WG: the narrow spot may be up to 3 steps off, and the same when two or more are coming for you: go there first
+    // and wait for them, they reach you one at a time. A spot is a cell with 2 open neighbours or fewer (PD has no corner rule))
+    for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; int t = m->type, fl = MOB_DEFS[t].flags, d = distance(m->pos, hp);
+      if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING || (fl & MD_NPC) || d > 7 || (d > 1 && !BIT_GET(G.fov, m->pos))) continue;
+      if (d <= 1) adj++; else if (!(fl & MD_WATER)) { nc++; if (d > mx) mx = d; }
+      if (fl & (MD_BOSS | MD_IMMOVABLE)) bad++;
+      if (t == MT_WRAITH && m->aux2 != 1) wr++;            // (a wraith: hard to hit, but a blow at one that has not seen you always lands)
+      if (t == MT_SHAMAN || t == MT_WARLOCK || t == MT_EYE || t == MT_SCORPIO || t == MT_ACIDIC || t == MT_SPINNER || t == MT_THIEF) bad++;
+      if (MOB_DEFS[t].move_cost * 2 <= hero_move_cost()) far++; }                // (fast ones: bats, crabs: no walking away from them)
+    for (int k = 0; k < 8; k++) os += nb_ok(hp, hp + N8[k]) && open_cell(hp + N8[k]);   // (0.77: all 8: PD has no corner rule)
+    bool wd = wr && adj + nc >= 1 && !bad && !(G.tgm.tr == hp && G.now < G.tgm.trt + 40 * TICK) && XENV("WRAITHDOOR", 1);
+    bool ch = adj >= 2 || (adj + nc >= 2 && adj <= 1 && !bad && !far && XENV("CHOKEAP", 1));
+    if (os > 2 && (wd || ch)) {
+      int R = !ch ? 0 : bad || far ? 1 : XENV("CHOKER", 3);
+      if (wd) {                                        // (day-WG: wraiths. Through a door and one step beyond it: the door shuts behind you, whoever follows
+        // comes through it blind, so the blow it meets is a surprise (no defence: it lands). Not into a room full of them: one at a time)
+        for (int D = 0; D < MAP_LEN; D++) { int t = G.map[D]; if ((t != T_DOOR && t != T_OPEN_DOOR) || walk(D) < 1 || walk(D) > 5) continue;
+          for (int k = 0; k < 4; k++) { int A = D + N8[k]; int w = walk(A); if (!nb_ok(D, A) || w <= walk(D) || w > 6 || !open_cell(A) || char_at(A) || IS_WATER(G.map[A]) || G.map[A] == T_DOOR || G.map[A] == T_OPEN_DOOR || A == G.entrance || A == G.exit || foul(A)) continue;
+            bool ok = true; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && distance(m->pos, A) < w - 1) ok = false; }
+            if (ok && w < bo) { bo = w; bc = A; } } }
+        if (bc >= 0) { if (G.tgm.tr != bc || G.now >= G.tgm.trt) { G.tgm.tr = bc; G.tgm.trt = G.now + (walk(bc) + 8) * TICK; } return bc; } }
+      for (int c = 0; c < MAP_LEN; c++) { int w = walk(c), o = 0; if (w < 1 || w > R || !open_cell(c) || char_at(c) || IS_WATER(G.map[c]) || c == G.entrance || c == G.exit || foul(c)) continue;
+        for (int j = 0; j < 8; j++) { int n = c + N8[j]; if (nb_ok(c, n)) { o += open_cell(n); if (!BIT_GET(G.visited, n)) o += 9; } }
+        if (o > 2) continue;
+        bool ok = true; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && distance(m->pos, c) < w && !(w == 1 && adjacent(m->pos, hp))) ok = false; }   // (none gets there first)
+        if (ok && o * 4 + w < bo) { bo = o * 4 + w; bc = c; } }
+      if (bc >= 0 && !(G.tgm.tr == bc && G.now >= G.tgm.trt && G.now < G.tgm.trt + 40 * TICK)) {   // (a hold that ran out: not again at once, else in and out of it)
+        if (G.tgm.tr != bc || G.now >= G.tgm.trt) { G.tgm.tr = bc; G.tgm.trt = G.now + (walk(bc) + mx + 3) * TICK; }
+        return bc; } }
+    else if (os <= 2 && !adj && nc && !bad && !far && XENV("CHOKEHOLD", 1)) {   // already in a narrow spot, melee foes coming: let them come (not out into the open to meet them), a while
+      if (G.tgm.tr != hp || G.now >= G.tgm.trt + 40 * TICK) { G.tgm.tr = hp; G.tgm.trt = G.now + (mx + 3) * TICK; }
+      if (G.now < G.tgm.trt) return hp; } }
   Mob *bf = 0, *rf = 0, *dm = 0, *sh = 0, *ki = 0; int kd = 99;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->type == MT_GOO && m->HP > 0 && m->aux2 && BIT_GET(G.fov, m->pos) && XENV("GOOPUMP", 1)) {
       // 0.64 (the Assist alone's first killer once past floor 4): Goo pumped up hits 3x, and reaches 2 cells: out of its reach
@@ -539,6 +573,18 @@ static int16_t s_aim;                                 // 0.50: the cell an aimed
 static bool decl(int k, int a) { int n = G.tgm.dd != G.depth ? 0 : G.tgm.dn < 8 ? G.tgm.dn : 8; for (int i = 0; i < n; i++) if (G.tgm.da[i] == a && (k < 0 || G.tgm.dk[i] == k)) return true; return false; }
 #define DECL(k, a) decl(k, a)
 #define decl_a(a) decl(-1, a)
+static int rest_k(bool seen, bool full) {                         // day-WG: rest in the open? A narrow spot (corridor, a room's corner by its door) a few steps off first
+  int hp = G.hero.pos, os = 0, bc = -1, bo = 99;
+  g_ovr.ha = full || G.health_pos == hp;                // (day-WG: marks a rest meant to run to full health: the bot's audit tells the two apart)
+  for (int k = 0; k < 8; k++) os += nb_ok(hp, hp + N8[k]) && open_cell(hp + N8[k]);
+  if (os <= 3 || seen || G.health_pos == hp || !XENV("RESTSPOT", 1)) return TK_REST;
+  for (int c = 0; c < MAP_LEN; c++) { int w = walk(c), o = 0; if (w < 1 || w > 8 || !open_cell(c) || char_at(c) || IS_WATER(G.map[c]) || c == G.entrance || c == G.exit || heap_at(c) >= 0 || foul(c)) continue;
+    for (int j = 0; j < 8; j++) { int n = c + N8[j]; if (nb_ok(c, n)) { o += open_cell(n); if (!BIT_GET(G.visited, n)) o += 9; } }
+    if (o > 3 || (o == 3 && (os < 6 || w > 3))) continue;
+    if (o * 3 + w < bo) { bo = o * 3 + w; bc = c; } }
+  if (bc < 0) return TK_REST;
+  s_aim = bc; return TK_GO;
+}
 static int hands(void) {
   Hero *h = &G.hero; int hp = h->pos; bool near = false, seen = false, adj = false; int hard = 0;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & MD_NPC)) continue; seen = true;
@@ -587,6 +633,10 @@ static int hands(void) {
       int a = -1; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && adjacent(m->pos, hp)) a = m->pos; }   // shooting at you
       if (a >= 0 && h->HP * 5 < h->HT * 2) { g_ovr.hs = fs; g_ovr.ha = ACN_ZAP; s_aim = a; return TK_BAG; }
       if (e && ed >= 2 && (e->type == MT_SHAMAN || e->type == MT_WARLOCK)) { g_ovr.hs = fs; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }
+    if (e && ed < 2 && h->HP * XENV("MWDIV", 4) < h->HT && e->HP >= 8 && XENV("MELEEWAND", 1)) {   // day-WG: losing a fight in melee: a known wand's charge before the end (the Assist kept them for afar and died with them: 93 known wands in 200 deaths)
+      static const uint8_t WK[6] = { IK_WND_TELEPORT, IK_WND_SLOW, IK_WND_DISINTEGRATION, IK_WND_POISON, IK_WND_FIREBOLT, IK_WND_MM };
+      for (int j = 0; j < 6; j++) { int k = WK[j], sl = game_bag_find(k); if (sl < 0) continue; Item *it = game_slot(sl);
+        if ((item_known(k) || k == IK_WND_MM) && it->ench > 0 && !(k == IK_WND_FIREBOLT && (TFLAGS(G.map[hp]) & F_FLAMABLE)) && !(k == IK_WND_TELEPORT && h->HP * 3 >= h->HT)) { g_ovr.hs = sl; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } } }
     if (!e || ed < 2) return -1;
     if (e->type == MT_DM300 && XENV("DMOPEN", 1)) {      // 0.93 (bot: DM-300 deaths with bombs and missiles unused): from afar, paralytic gas (5+: it isn't immune; ~20 turns held), a bomb, liquid flame, curare, heavy missiles
       static const uint8_t K[] = { IK_POT_PARALYTIC, IK_BOMB, IK_POT_FLAME, IK_CURARE_DART, IK_JAVELIN, IK_TOMAHAWK };
@@ -679,14 +729,15 @@ static int hands(void) {
   if (XENV("DROPJUNK", 1) && G.depth % 5 != 1 && G.depth % 5 != 2) {   // (0.73 (owner): not on a shop floor or the one below: sell it there)   // 0.64: a nearly full pack: put down what's known to be bad, or a weapon / armour
     int n = 0; for (int i = 0; i < BAG_SIZE; i++) n += h->bag[i].kind != 0;   // known no better than what's worn
     if (n >= BAG_SIZE - 2) for (int i = 0; i < BAG_SIZE; i++) { Item *it = &h->bag[i]; int c = item_cat(it->kind); Item *cur = c == CAT_WEAPON ? &h->weapon : &h->armor;
-      bool worse = (c == CAT_WEAPON || c == CAT_ARMOR) && it->kind != IK_PICKAXE && (it->flags & IF_LEVEL_KNOWN) && cur->kind && !CLASS_ARMOR(it->kind) &&
-                   2 * item_tier(it->kind) + it->lvl <= 2 * (CLASS_ARMOR(cur->kind) ? 6 : item_tier(cur->kind)) + ((cur->flags & IF_LEVEL_KNOWN) ? cur->lvl : 0);
+      bool worse = (c == CAT_WEAPON || c == CAT_ARMOR) && it->kind != IK_PICKAXE && cur->kind && !CLASS_ARMOR(it->kind) &&   // (day-WG: one not known too: a whole tier below what's worn is worse whatever it is, a spare nobody will use)
+                   2 * item_tier(it->kind) + ((it->flags & IF_LEVEL_KNOWN) ? it->lvl : 2) <= 2 * (CLASS_ARMOR(cur->kind) ? 6 : item_tier(cur->kind)) + ((cur->flags & IF_LEVEL_KNOWN) ? cur->lvl : 0);
+      if (c == CAT_SEED && it->kind != IK_SEED_SUNGRASS && it->kind != IK_SEED_FIREBLOOM && it->kind != IK_SEED_SORROWMOSS && XENV("DROPSEED", 1)) worse = true;   // (and the seeds that are never planted or thrown)
       if ((junk(it) || worse) && !DECL(it->kind, ACN_DROP)) { g_ovr.hs = i; g_ovr.ha = ACN_DROP; return TK_BAG; } } }
   if (!seen && G.depth >= 22 && G.depth <= 25 && !h->light && (s = game_bag_find(IK_TORCH)) >= 0 && XENV("TORCH", 1)) { g_ovr.hs = s; g_ovr.ha = ACN_LIGHT; return TK_BAG; }   // 0.93 (audit): the halls' sight is 25 - depth; the eyes, succubi and scorpios see 4
-  if (!seen && h->HP * 20 < h->HT * 19 && !game_starving() && XENV("BOSSREST", 1) && boss_depth(G.depth) && G.depth < 25 && !(G.boss & (G.depth == 5 ? 1 : G.depth == 10 ? 2 : G.depth == 15 ? 8 : 16)) && !DECL(0, 255)) return TK_REST;   // 0.93 (bot): a boss floor has no respawns: rest to full before the boss
-  if (!seen && !HUNGRY && h->HP < h->HT && h->HP * 5 >= h->HT * 4 && G.dew < 10 && has(IK_DEW_VIAL) && !DECL(0, 255) && XENV("DEWREST", 1))   // 0.78 (owner): fed and nearly
-    for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW && G.heaps[i].type == HEAP_PLAIN && s_dist[G.heaps[i].pos] < 255) return TK_REST;   // full, dew about: rest first (it then fills the vial)
-  if ((h->HP * 10 < h->HT * XENV("RESTP", 5) || (G.health_pos == hp && h->HP < h->HT)) && !game_starving() && !DECL(0, 255)) return TK_REST;   // (0.64: on Sungrass: to full)
+  if (!seen && h->HP * 20 < h->HT * XENV("BOSSHP", 15) && !game_starving() && XENV("BOSSREST", 1) && boss_depth(G.depth) && G.depth < 25 && !(G.boss & (G.depth == 5 ? 1 : G.depth == 10 ? 2 : G.depth == 15 ? 8 : 16)) && !DECL(0, 255)) return rest_k(seen, true);   // 0.93 (bot): a boss floor has no respawns: rest to full before the boss
+  if (!seen && !HUNGRY && h->HP < h->HT && h->HP * 10 >= h->HT * XENV("DEWHP", 9) && G.dew < 10 && has(IK_DEW_VIAL) && !DECL(0, 255) && XENV("DEWREST", 1))   // 0.78 (owner): fed and nearly
+    for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW && G.heaps[i].type == HEAP_PLAIN && s_dist[G.heaps[i].pos] < 255) return rest_k(seen, true);   // full, dew about: rest first (it then fills the vial)
+  if ((h->HP * 10 < h->HT * XENV("RESTP", 4) || (G.health_pos == hp && h->HP < h->HT)) && !game_starving() && !DECL(0, 255)) return rest_k(seen, false);   // (0.64: on Sungrass: to full)
   return -1;
 }
 #endif
@@ -774,6 +825,12 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // 0.63: tgt3: the 
   if ((getenv("PRESS") || getenv("TACTBOT")) && !getenv("NOTACT"))   // (the solver bot keeps its own: only when it plays by the buttons; 0.78: or asks)
 #endif
   { int tc = tactics(); if (tc >= 0) { if (tc == hp) g_ovr.d |= 128; else g_ovr.d &= ~128; t_front(tc, TK_GO); G.tgm.src0 = 2; } }   // 0.50: where to stand (0.51: then the rest; 0.61: there: wait)
+  if (!(G.tgm.src0 == 2) && s_tn > s_h0 && (s_tc[s_h0] == G.exit || g_tgobj[s_h0] == G.exit) && G.hero.HP * 2 >= G.hero.HT && XENV("SLEEPLOOT", 1)) {   // day-WG: leaving the floor, and something worth having lies under a sleeper: clear it away first
+    int bc = -1, bw = 255; bool hunt = false;
+    for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; int hi = heap_at(m->pos), fl = MOB_DEFS[m->type].flags; if (m->HP <= 0 || ally(i)) continue;
+      if (m->state == ST_HUNTING && BIT_GET(G.fov, m->pos)) hunt = true;
+      if (m->state == ST_SLEEPING && hi >= 0 && !(fl & (MD_BOSS | MD_NPC | MD_IMMOVABLE | MD_WATER)) && heap_ok(&G.heaps[hi]) && walk(m->pos) < bw) { bw = walk(m->pos); bc = m->pos; } }
+    if (bc >= 0 && !hunt) { g_ovr.d &= ~128; t_front(bc, TK_ENEMY); G.tgm.src0 = 2; } }
   return s_tn;
 #endif
 }
@@ -827,6 +884,8 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
   for (int i = 0; i < G.n_heaps; i++) {
     Heap *h = &G.heaps[i];                              // (a carried heap's pos is off the map: not walked to)
     if (!heap_ok(h)) continue;                          // (0.48: not what you put down, not junk you know of)
+    if (h->type == HEAP_TOMB && XENV("ONEGRAVE", 1)) { bool out = false; for (int j = 0; j < G.n_mobs; j++) out |= G.mobs[j].HP > 0 && G.mobs[j].type == MT_WRAITH && G.mobs[j].aux2 != 1;
+      if (out) continue; }                               // (day-WG: one grave at a time: not with wraiths about)
     int d = h->pos == hp ? 0 : walk(h->pos);
     if (d < 255) t_put(h->pos, TK_ITEM, 3 << 10 | d);
   }

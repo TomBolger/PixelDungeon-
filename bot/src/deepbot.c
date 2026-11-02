@@ -2829,12 +2829,74 @@ static bool contra(int n, int16_t *cell, uint8_t *kind) {
   return true;
 }
 static void ph_save(const char *name, int g, int steps);
+// WG audit (test-only counters for the Assist's tactics): fights with 2+ beside the hero in the open while a narrow
+// spot is one step away; heaps left behind on leaving a floor; rests in the open with a narrow spot near
+int tgt_hwhy[64];
+static long wg_tt[5]; static int32_t wg_t0 = -1; static int wg_tcat = -1, wg_tgame = -1;
+static long wg_extra, wg_adjt, wg_hw[16], wg_nodew;
+static long wg_o2, wg_o2c, wg_o2_stay, wg_o2c_stay, wg_ap, wg_apc, wg_ap_stay, wg_rest, wg_rest_open, wg_rest_open_sp, wg_adjt, wg_extra, wg_heaps_floors, wg_fell, wg_heaps_left[4];
+static int wg_unseen_n, wg_unseen_k[16]; static long wg_unseen;
+static int wg_lastp, wg_lastex; static long wg_fell;
+static int wg_spot, wg_ent0, wg_src0;
+static int wg_pend, wg_pend_pos, wg_pend_ap, wg_hd = -1, wg_hg = -1, wg_hn; static struct { int16_t pos, d; uint8_t kind, why, bag, terr, ch, hw; } wg_h[24];
+static int wg_opens(int c) { int o = 0; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && PASSABLE(G.map[n]) && !(TFLAGS(G.map[n]) & F_AVOID)) o++; } return o; }
+static uint8_t wg_dm[MAP_LEN], wg_dv[MAP_LEN / 8]; static int16_t wg_dh[64], wg_dn, wg_dhero, wg_dex, wg_den; static uint8_t wg_dhk[64];
+static void wg_dump(void) { printf("  MAPDUMP g%d d%d hero %d,%d exit %d,%d  (. seen floor, # wall, + door, ~ water, i item seen, I item NEVER seen, ? unseen floor, T trap)\n", cur_game, wg_hd, cx(wg_dhero), cy(wg_dhero), cx(wg_dex), cy(wg_dex));
+  for (int y = 0; y < MAP_H; y++) { printf("   "); for (int x = 0; x < MAP_W; x++) { int c = x + y * MAP_W, t = wg_dm[c]; int hi = -1; for (int i = 0; i < wg_dn; i++) if (wg_dh[i] == c) hi = i; bool v = wg_dv[c >> 3] >> (c & 7) & 1;
+      putchar(c == wg_dhero ? '@' : c == wg_dex ? '>' : hi >= 0 ? (v ? 'i' : 'I') : !v ? (PASSABLE(t) && t != T_WALL ? '?' : ' ') : t == T_WALL || t == T_WALL_DECO ? '#' : t == T_DOOR || t == T_OPEN_DOOR || t == T_LOCKED_DOOR ? '+' : t == T_SECRET_DOOR ? 'S' : (t >= 48) ? '~' : (TFLAGS(t) & F_AVOID) ? 'T' : '.'); } putchar('\n'); } }
+static long wg_wr_t, wg_wr_graves, wg_wr_kills, wg_wr_hits, wg_wr_games; static int wg_wr_prev, wg_wr_g = -1, wg_wr_hp; static int32_t wg_wr_t0; static bool wg_wr_seen;
+static void wg_audit(int p0, int n, const uint8_t *kind, const int16_t *cell) {
+  if (s_rollout || s_is_child) return;
+  { int w = 0; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_WRAITH && G.mobs[i].aux2 != 1) w++;   // (the audit may see them: it only counts)
+    if (wg_wr_g == cur_game && wg_wr_prev > 0 && G.hero.time >= wg_wr_t0) wg_wr_t += (G.hero.time - wg_wr_t0) / (TICK / 10);
+    if (wg_wr_g == cur_game && w >= wg_wr_prev + 2) { wg_wr_graves++; if (!wg_wr_seen) { wg_wr_seen = true; wg_wr_games++; } }
+    if (wg_wr_g != cur_game) wg_wr_seen = false;
+    wg_wr_g = cur_game; wg_wr_prev = w; wg_wr_t0 = G.hero.time; }
+  if (wg_tcat >= 0 && wg_tgame == cur_game && G.hero.time >= wg_t0) wg_tt[wg_tcat] += (G.hero.time - wg_t0) / (TICK / 10);
+  wg_tgame = cur_game; wg_t0 = G.hero.time; wg_tcat = n > 0 && kind[0] == TK_REST ? (g_ovr.ha ? 4 : 1) : n > 0 && kind[0] == TK_GO && cell[0] == p0 ? ((g_ovr.d & 128) ? 3 : 2) : 0;
+  if (wg_pend) { if (G.hero.pos == wg_pend_pos) { if (wg_pend_ap) wg_ap_stay++; else { wg_o2_stay++; if (wg_pend == 2) { wg_o2c_stay++; if (getenv("AUDO2")) { printf("  AUDIT stayed in an open fight g%d d%d hero %d,%d spot %d,%d entry0 %d src %d\n", cur_game, G.depth, cx(wg_pend_pos), cy(wg_pend_pos), cx(wg_spot), cy(wg_spot), wg_ent0, wg_src0); if (getenv("AUDMAP")) aud_dump(wg_spot, wg_pend_pos); } } } } wg_pend = 0; }
+  if (wg_hg != cur_game || wg_hd != G.depth) {                    // a new floor: what the last one left lying
+    if (getenv("AUDDUMP") && cur_game == atoi(getenv("AUDDUMP")) && wg_hg == cur_game && wg_unseen_n) wg_dump();
+    if (wg_hg == cur_game && G.depth == wg_hd + 1 && distance(wg_lastp, wg_lastex) > 1) wg_fell++;
+    if (wg_hg == cur_game && G.depth == wg_hd + 1 && distance(wg_lastp, wg_lastex) <= 1) { wg_heaps_floors++; wg_unseen += wg_unseen_n; if (getenv("AUDV") && wg_unseen_n) { printf("  AUDIT unseen heaps g%d d%d:", cur_game, wg_hd); for (int i = 0; i < wg_unseen_n; i++) printf(" k%d/t%d", wg_unseen_k[i] & 255, wg_unseen_k[i] >> 8); printf("\n"); } for (int i = 0; i < wg_hn; i++) { wg_heaps_left[wg_h[i].why]++; if (wg_h[i].kind != IK_DEW) { wg_nodew++; wg_hw[wg_h[i].hw & 15]++; } if (getenv("AUDV")) printf("  AUDIT heap left g%d d%d kind %d cat %d why %d at %d,%d walk %d bag %d terr %d ch %d hw %d\n", cur_game, wg_hd, wg_h[i].kind, item_cat(wg_h[i].kind), wg_h[i].why, cx(wg_h[i].pos), cy(wg_h[i].pos), wg_h[i].d, wg_h[i].bag, wg_h[i].terr, wg_h[i].ch, wg_h[i].hw); } }
+    if (getenv("AUDBAG") && bag_used() >= BAG_SIZE - 3) { printf("  AUDBAG g%d d%d:", cur_game, G.depth); for (int i = 0; i < BAG_SIZE; i++) if (G.hero.bag[i].kind) printf(" %d/c%d%s%s", G.hero.bag[i].kind, item_cat(G.hero.bag[i].kind), item_known(G.hero.bag[i].kind) ? "k" : "", (G.hero.bag[i].flags & IF_LEVEL_KNOWN) ? "L" : ""); printf("\n"); }
+    wg_hg = cur_game; wg_hd = G.depth; wg_hn = 0; }
+  if (getenv("AUDDUMP") && cur_game == atoi(getenv("AUDDUMP"))) { memcpy(wg_dm, G.map, sizeof wg_dm); memcpy(wg_dv, G.visited, sizeof wg_dv); wg_dn = 0; for (int i = 0; i < G.n_heaps && i < 64; i++) if (G.heaps[i].pos < MAP_LEN) { wg_dh[wg_dn] = G.heaps[i].pos; wg_dn++; } wg_dhero = p0; wg_dex = G.exit; }
+  wg_lastp = n > 0 && cell[0] == G.exit ? G.exit : p0; wg_lastex = G.exit;
+  { int cand = 0; for (int i = 0; i < G.n_heaps; i++) { Heap *h = &G.heaps[i]; if (h->type == HEAP_PLAIN && h->pos < MAP_LEN && BIT_GET(G.visited, h->pos)) cand++; }
+    wg_unseen_n = 0; for (int i = 0; i < G.n_heaps; i++) { Heap *h = &G.heaps[i]; if (h->pos < MAP_LEN && h->type != HEAP_FOR_SALE && h->type < HEAP_CARRIED && !BIT_GET(G.visited, h->pos) && wg_unseen_n < 16) wg_unseen_k[wg_unseen_n++] = h->item.kind | (h->type << 8); }
+    wg_hn = 0;
+    if (cand) { bfs(p0, false);
+      for (int i = 0; i < G.n_heaps && wg_hn < 24; i++) { Heap *h = &G.heaps[i]; int c = h->pos; if (h->type != HEAP_PLAIN || c >= MAP_LEN || !BIT_GET(G.visited, c) || b_dist[c] >= 0x7FFF || c == G.entrance || c == G.exit || (TFLAGS(G.map[c]) & F_AVOID) || c == g_drop[0] || c == g_drop[1] || c == g_drop[2] || c == g_drop[3]) continue;
+        const Item *it = &h->item; bool junk = ((it->flags & IF_CURSED_KNOWN) && (it->flags & IF_CURSED)) || ((it->flags & IF_LEVEL_KNOWN) && (it->lvl < 0 || (item_cat(it->kind) == CAT_RING && !it->lvl)));
+        int why = junk ? 2 : (bag_used() >= BAG_SIZE - 2 && !item_stackable(it->kind) && it->kind != IK_GOLD) ? 1 : 0;
+        wg_h[wg_hn].pos = c; wg_h[wg_hn].d = b_dist[c]; wg_h[wg_hn].bag = bag_used(); wg_h[wg_hn].terr = G.map[c]; wg_h[wg_hn].hw = i < 64 ? tgt_hwhy[i] : 0; wg_h[wg_hn].ch = char_at(c) ? 1 : 0; wg_h[wg_hn].kind = it->kind; wg_h[wg_hn++].why = why; } } }
+  if (getenv("AUDX") && n > 0 && wg_hn && cell[0] == G.exit && kind[0] != TK_ENEMY) { printf("  AUDX g%d d%d step %d: stairs are entry 0 (kind %d) hero %d,%d hp %d/%d foes %d; left:", cur_game, G.depth, s_bot_steps, kind[0], cx(p0), cy(p0), G.hero.HP, G.hero.HT, enemy_count()); for (int i = 0; i < wg_hn; i++) printf(" k%d@%d,%d/w%d/t%d/ch%d/hp%d", wg_h[i].kind, cx(wg_h[i].pos), cy(wg_h[i].pos), wg_h[i].d, G.map[wg_h[i].pos], char_at(wg_h[i].pos), G.heaps[heap_at(wg_h[i].pos)].type); printf("\n"); }
+  int hunting_adj = 0, near = 0;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING || (MOB_DEFS[m->type].flags & (MD_NPC | MD_WATER))) continue;
+    if (adjacent(m->pos, p0)) hunting_adj++; else if (BIT_GET(G.fov, m->pos) && distance(m->pos, p0) <= 6) near++; }
+  int os = wg_opens(p0);
+  if (hunting_adj) { wg_adjt++; wg_extra += hunting_adj - 1; }
+  { static int lo2 = -9; if (getenv("AUDO2F") && hunting_adj >= 2 && os > 2 && s_bot_steps > lo2 + 3) { printf("  AUDIT fight start g%d d%d step %d hero %d,%d adj %d os %d hp %d/%d entry0 %d/%d src %d\n", cur_game, G.depth, s_bot_steps, cx(p0), cy(p0), hunting_adj, os, G.hero.HP, G.hero.HT, n > 0 ? cell[0] : -1, n > 0 ? kind[0] : -1, G.tgm.src0); aud_dump(-1, p0); } if (hunting_adj >= 2 && os > 2) lo2 = s_bot_steps; }
+  if (hunting_adj >= 2 && os > 2) { wg_o2++; wg_pend = 1; wg_pend_pos = p0; wg_pend_ap = 0;
+    bfs(p0, false);
+    for (int c = 0; c < MAP_LEN; c++) { if (b_dist[c] < 1 || b_dist[c] > 3 || !PASSABLE(G.map[c]) || (TFLAGS(G.map[c]) & F_AVOID) || char_at(c) || IS_WATER(G.map[c]) || wg_opens(c) > 2 || c == G.entrance || c == G.exit) continue;
+      bool touch = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && distance(G.mobs[i].pos, c) < b_dist[c] && !(b_dist[c] == 1 && adjacent(G.mobs[i].pos, p0))) touch = true;
+      if (!touch) { wg_pend = 2; wg_o2c++; wg_spot = c; wg_ent0 = n > 0 ? cell[0] : -1; wg_src0 = G.tgm.src0; break; } } }
+  else if (hunting_adj + near >= 2 && hunting_adj <= 1 && os > 2) { wg_ap++; bfs(p0, false); bool ch = false;
+    for (int c = 0; c < MAP_LEN && !ch; c++) if (b_dist[c] > 0 && b_dist[c] <= 3 && PASSABLE(G.map[c]) && !(TFLAGS(G.map[c]) & F_AVOID) && !char_at(c) && !IS_WATER(G.map[c]) && wg_opens(c) <= 2) { bool touch = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && distance(G.mobs[i].pos, c) <= b_dist[c]) touch = true; ch = !touch; }
+    if (ch) { wg_apc++; wg_pend = 1; wg_pend_pos = p0; wg_pend_ap = 1; } }
+  if (n > 0 && kind[0] == TK_REST && !enemy_count()) { wg_rest++; if (os >= 4) { wg_rest_open++; bfs(p0, false); bool sp = false;
+      for (int c = 0; c < MAP_LEN && !sp; c++) if (b_dist[c] > 0 && b_dist[c] <= 8 && PASSABLE(G.map[c]) && !(TFLAGS(G.map[c]) & F_AVOID) && !char_at(c) && !IS_WATER(G.map[c]) && c != G.entrance && c != G.exit && wg_opens(c) <= 2) sp = true;
+      if (sp) { wg_rest_open_sp++; if (getenv("AUDV")) printf("  AUDIT rest in the open g%d d%d hero %d,%d open %d\n", cur_game, G.depth, cx(p0), cy(p0), os); } } }
+}
 static bool press(void) {
   int16_t cell[TARGETS_MAX]; uint8_t kind[TARGETS_MAX];
   { int h = hg_count(); if (G.depth != s_hg_depth) { if (s_hg_depth >= 0) st_grass_left += s_hg_last; s_hg_depth = G.depth; } else if (h < s_hg_last) st_tramp += s_hg_last - h; s_hg_last = h; }
-  s_f0 = -1;
+  s_f0 = -1; memset(tgt_hwhy, 0, sizeof tgt_hwhy);
   int n = game_targets(cell, kind), p0 = G.hero.pos, i0 = 0;
   st_press_n++;
+  wg_audit(p0, n, kind, cell);
   if (getenv("CONTRA") && !s_rollout && !s_is_child && contra(n, cell, kind)) return true;   // 0.72: the contrary player
   if (s_f0 >= 0 && s_k0 != TK_ENEMY && s_k0 != TK_ITEM && g_ovr.c < 0 && !enemy_count() && !p_onscreen(s_f0)) { st_offf_n++; if (onscreen_frontier()) { st_offf++; if (V) printf("  OFFSCREEN-FIRST %d while an on-screen frontier exists\n", s_f0); } }
   if (P == 2 && n > 0) {
@@ -4901,6 +4963,7 @@ int main(int argc, char **argv) {
     for (int d = 5; d <= 25; d += 5) if (G.max_depth > d) st_boss_kill[d]++;
     st_qs[0][G.q.ghost]++; st_qs[1][G.q.wand]++; st_qs[2][G.q.smith]++; st_qs[3][G.q.imp]++;
     if (G.hero.HP <= 0) ledger_death();
+    if (getenv("AUDHEAL") && G.hero.HP <= 0 && game_bag_find(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) printf("  AUDIT died with known healing g%d d%d\n", cur_game, G.depth);
     if (getenv("D")) { int fd = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_FOOD) fd += G.hero.bag[i].qty; printf("DEATHINFO g%d hunger %d food %d depth %d turn %d\n", g, G.hero.hunger, fd, G.depth, G.now / TICK); }
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
                            G.depth, G.max_depth, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl,
@@ -4935,6 +4998,10 @@ int main(int argc, char **argv) {
   if (P) printf("assist audit: steps straight back %d (an enemy in sight %d); dithering (a cell a third time in 24 moves, nothing new seen, no enemy) %d\n", st_turnback, st_turnback_foe, st_dither);
   if (P && getenv("NEAR")) printf("far audit: %d presses going somewhere with something unexplored reachable, objective far beyond the nearest: %d; flips (A, B, A, nothing new seen): %d; meals while starving %d, of them with the floor done at half health or more: %d\n", st_far_n, st_far, st_flip, st_eatst_n, st_eatst);
   if (P && getenv("NEAR")) printf("near audit: %d presses with an unexplored spot within 3, entry 0 elsewhere far: %d (that spot not in the list at all: %d)\n", st_near_n, st_near_skip, st_near_any);
+  if (P) printf("WG audit: 2+ beside, in the open %ld (narrow spot within 3 steps %ld); stayed put: %ld (with a spot %ld). 2+ coming within 6 in the open %ld (narrow spot within 3 %ld, stayed put %ld). rests (no foe in sight) %ld, in the open %ld (narrow spot within 8: %ld). presses with a foe beside %ld, extra attackers %ld. floors left by the stairs %ld (fell %ld), heaps left: other %ld, pack full %ld, known junk %ld, heaps never seen %ld\n", wg_o2, wg_o2c, wg_o2_stay, wg_o2c_stay, wg_ap, wg_apc, wg_ap_stay, wg_rest, wg_rest_open, wg_rest_open_sp, wg_adjt, wg_extra, wg_heaps_floors, wg_fell, wg_heaps_left[0], wg_heaps_left[1], wg_heaps_left[2], wg_unseen);
+  if (P) { long t = wg_tt[0] + wg_tt[1] + wg_tt[2] + wg_tt[3] + wg_tt[4]; printf("WG time: turns %ld; resting (TK_REST) %ld (%.1f%%), searching %ld (%.1f%%), waiting for a foe %ld (%.1f%%), resting to full (dew, boss, sungrass) %ld\n", t / 10, wg_tt[1] / 10, 100.0 * wg_tt[1] / (t ? t : 1), wg_tt[2] / 10, 100.0 * wg_tt[2] / (t ? t : 1), wg_tt[3] / 10, 100.0 * wg_tt[3] / (t ? t : 1), wg_tt[4] / 10); }
+  if (P) printf("WG wraiths: graves opened (2+ wraiths at once) %ld in %ld games; turns with a wraith alive %ld\n", wg_wr_graves, wg_wr_games, wg_wr_t / 10);
+  if (P) printf("WG heaps left, not dew: %ld; why (0 unexplained, 1 chest/tomb/pool risk, 8 pack nearly full, 9 known junk, 11 creature on it, 12 in water with piranhas about, 15 taken next): 0:%ld 1:%ld 8:%ld 9:%ld 11:%ld 12:%ld 15:%ld\n", wg_nodew, wg_hw[0], wg_hw[1], wg_hw[8], wg_hw[9], wg_hw[11], wg_hw[12], wg_hw[15]);
   if (P) printf("assist audit: searches %d (with a foe hunting %d, with the way down known %d); hungry, no food, food within 3: %d presses, not entry 0: %d\n", st_srch, st_srch_foe, st_srch_exit, st_food_near, st_food_left);
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);
   ledger_print();

@@ -57,7 +57,7 @@ Settings are environment variables; there are about 300 of them. Most are experi
 | `NOLA=1` | Turn off look-ahead (rules only) |
 | `LAMULT`, `LAK` | Look-ahead effort |
 | `ASSIST=n` | The watch's Assist switches, for testing the predictor: 0 off, 1 on, 3 on with items, 5 on with off-screen targets, 7 both |
-| `PRESS=1` (`MIND=1`) | Play by the watch's predictions, pressing Select only. Ends with an "assist audit": steps straight back, dithering, wall searches with the way down known, and food left lying while hungry (`AUDV=1` lists each one, `AUDMAP=1` with a map) |
+| `PRESS=1` (`MIND=1`) | Play by the watch's predictions, pressing Select only. Ends with an "assist audit": steps straight back, dithering, wall searches with the way down known, and food left lying while hungry (`AUDV=1` lists each one, `AUDMAP=1` with a map). It also prints a "WG audit" line for the Assist's tactics: presses with 2+ foes beside the hero in the open (and with a narrow spot within 3 steps), the same for foes coming, rests in the open (and with a narrow spot within 8), attackers beyond the first, and heaps left on floors left by the stairs (`AUDV=1` lists them with a reason code from the Assist's heap filter, `AUDX=1`, `AUDO2=1`, `AUDDUMP=game` give more). `PURE=1` makes this the Assist alone (`PRESS=1 PURE=1 ASSIST=3` is the measurement setup) |
 | `REC=file.jsonl` | Record every step of every game as one JSON line (map, hero, creatures, items, decision, log) |
 | `CAMPDIR=dir` | Write a checkpoint at each new floor (`dir/gGGGG_dDD.bin`) |
 | `CAMPLOAD=file` | Continue a game from a checkpoint |
