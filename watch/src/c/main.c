@@ -8,6 +8,9 @@
 #include "ovl.h"
 #include "ui_int.h"
 #include "game_int.h"                           // (1.01: g_mh, the mobs overlay draws the pointers)
+#ifdef PD_FACE
+#include "face_brain.h"                         // the watchface build: the autoplayer (face.inc), the cheats are in game.c
+#endif
 static void ui_win(int what, GContext *ctx);
 static void ui_win_free(void);
 static void ui_input(int ev, int x, int y);
@@ -245,7 +248,11 @@ char (*s_msg)[100]; static GColor s_msg_color[2]; static uint32_t s_msg_until;
 
 uint32_t now_ms(void) { time_t s; uint16_t ms; time_ms(&s, &ms); return (uint32_t)s * 1000 + ms; }
 static uint32_t s_lit;   // 1.02 (owner): the backlight (the system's own setting decides) on every press and touch, and when something happens: once a second at most
-static void lite(void) { uint32_t n = now_ms(); if (n - s_lit >= 1000) { s_lit = n; light_enable_interaction(); } }
+static void lite(void) {
+#ifdef PD_FACE
+  return;                                          // the watchface never lights the screen by itself
+#endif
+  uint32_t n = now_ms(); if (n - s_lit >= 1000) { s_lit = n; light_enable_interaction(); } }
 static Vis *vis_of(int who) { return who < 0 ? &s_vis_hero : &s_vis_mob[who]; }
 static void vis_anim(Vis *v, int a) { v->anim = a; v->t0 = now_ms(); }
 static void vis_snap(Vis *v, int16_t cell) {
@@ -520,7 +527,14 @@ void ui_pick_item(PickMode mode) {
 // ---------------- timing ----------------
 static void tick(void *data);
 static uint32_t s_last_in;                          // 0.55 (owner): the last button or touch: 10 s without one, the idle animations stop
+#ifdef PD_FACE
+static bool s_f_on;                                 // a burst of play is running (else frozen: no timer, no redraw)
+static void face_tick(bool moving);
+#endif
 static void schedule(uint32_t ms) {
+#ifdef PD_FACE
+  if (!s_f_on) { if (s_timer) app_timer_cancel(s_timer); s_timer = NULL; return; }
+#endif
   if (ms >= 125 && now_ms() - s_last_in > 10000) { if (s_timer) app_timer_cancel(s_timer); s_timer = NULL; return; }   // (power saving: asleep till the next press)
   if (s_timer && s_timer_ms == ms) return;
   if (s_timer) app_timer_cancel(s_timer);
@@ -670,6 +684,9 @@ static void tick(void *data) {
     if (s_walking) moving = true;
     if (s_msg[1][0] && now_ms() > s_msg_until) log_clear();
   }
+#ifdef PD_FACE
+  face_tick(moving);
+#endif
   bool win = s_scene != SC_GAME && s_scene != SC_TARGET && s_scene != SC_INSPECT && s_scene != SC_DEAD && !FRONT(s_scene);
   if (!win || moving) redraw();                      // 0.28: a window over the game redraws for input only (a full bag ground the watch down)
   if (moving) busy(); else if (win) idle(); else idle_anim();
@@ -878,7 +895,7 @@ static void assign_quickslot(int q, int kind) {
 
 // ---------------- input ----------------
 // title: PD DashboardItem "Play" (staircase); hero select: PD StartScene 2x2 class grid
-#ifdef TEST_BUILD
+#if defined(TEST_BUILD) || defined(PD_FACE)
 bool huntress_unlocked(void) { return true; }                          // the test kit: every class
 #else
 bool huntress_unlocked(void) { return persist_exists(KEY_HUNTRESS); }
@@ -1833,6 +1850,9 @@ static void update_proc(Layer *layer, GContext *ctx) {
 #ifdef PERF_PROBE
 #undef update_proc
 #endif
+#ifdef PD_FACE
+#include "face.inc"
+#endif
 // ---------------- app ----------------
 static void window_load(Window *w) {
   Layer *root = window_get_root_layer(w);
@@ -1845,8 +1865,17 @@ static void window_load(Window *w) {
   layer_set_update_proc(s_text_layer, text_proc);
   layer_set_hidden(s_text_layer, true);
   layer_add_child(root, s_text_layer);
+#ifdef PD_FACE
+  s_clock_layer = layer_create(b);                     // always the top layer: over the map, every window and the victory screen
+  layer_set_update_proc(s_clock_layer, clock_proc);
+  layer_add_child(root, s_clock_layer);
+#endif
 }
-static void window_unload(Window *w) { layer_destroy(s_text_layer); s_text_layer = NULL; layer_destroy(s_layer); }
+static void window_unload(Window *w) {
+#ifdef PD_FACE
+  layer_destroy(s_clock_layer); s_clock_layer = NULL;
+#endif
+  layer_destroy(s_text_layer); s_text_layer = NULL; layer_destroy(s_layer); }
 
 static void init(void) {
   if (!game_init()) return;                     // no memory for the game state: nothing sensible to show
@@ -1866,16 +1895,29 @@ static void init(void) {
   s_font_big = fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
   s_window = window_create();
   window_set_background_color(s_window, GColorBlack);
+#ifndef PD_FACE
   window_set_click_config_provider(s_window, click_config);
-  window_set_window_handlers(s_window, (WindowHandlers){ .load = window_load, .unload = window_unload });
+#endif
+  window_set_window_handlers(s_window, (WindowHandlers){ .load = window_load, .unload = window_unload
+#ifdef PD_FACE
+    , .appear = face_appear
+#endif
+  });
   window_stack_push(s_window, true);
+#ifdef PD_FACE
+  face_boot();
+#else
   if (touch_service_is_enabled()) touch_service_subscribe(touch_handler, NULL);
   to_title();
+#endif
 }
 static void deinit(void) {
   if (!s_window) return;
   // leaving the app any way at all keeps the game where it is (PD saves on pause): no going back to an older autosave
   if (g_game && G.hero.HP > 0 && s_scene != SC_DEAD && (!FRONT(s_scene) || (s_scene == SC_AMULET && s_amulet != 2))) { ui_win_free(); game_art(false); game_save(); }
+#ifdef PD_FACE
+  tick_timer_service_unsubscribe(); accel_tap_service_unsubscribe();
+#endif
   snd_deinit();
   if (s_timer) app_timer_cancel(s_timer);
   touch_service_unsubscribe();

@@ -60,6 +60,9 @@ void snd_cycle(void) {
   snd_set(m);
 }
 void snd_init(void) {
+#ifdef PD_FACE
+  g_sound = 0; return;                                    // the watchface is silent (and keeps its heap)
+#endif
   if (persist_exists(KEY_SOUND)) { g_sound = persist_read_int(KEY_SOUND) & 15; if (SOUND_VOL(g_sound) > 2) g_sound &= 3; }
   s_quiet_until = ms_now() + QUIET_MS;
   if (g_sound & SOUND_FX) load();                       // loaded now, low in the heap: it stays, and must not split it later
