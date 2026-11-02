@@ -415,11 +415,11 @@ typedef struct { int32_t t; int16_t c; uint8_t d, on; int8_t ms; uint8_t gk; int
 extern uint8_t g_hl_order[8];                        // 0.54: the bottom bar, the bot's best first (Assist High: Back walks it)
 #ifdef PD_FACE
 #define PD_FACE_ON 1
-#define qkp(h, q) ((q) < 2 ? &(h)->quick[q] : &G.q.spare[0])   // (a third slot in the saved quest block's spare byte: the Hero struct keeps its size)
+#define qkp(h, n) ((n) < 2 ? &(h)->quick[n] : &G.q.spare[0])   // (a third slot in the saved quest block's spare byte: the Hero struct keeps its size)
 #define NQ 3                                                // the face has three quickslots (the "?" button's place holds the third)
 #else
 #define PD_FACE_ON 0
-#define qkp(h, q) (&(h)->quick[q])
+#define qkp(h, n) (&(h)->quick[n])
 #define NQ 2
 #endif
 extern Ovr g_ovr;                                  // the floor (t: level_t0; just chosen: the hero's cell - 65536), its heading (d; bit 7: Select waits), on (1: one was on before, 2: entry 0 is grass,

@@ -1820,7 +1820,9 @@ static void ui_input(int ev, int x, int y) {               // ev: a ButtonId, or
     case C_BAG_CLOSE: bag_close(); break;
     case C_DO: item_do(a); break;
     case C_PAGE: text_page(1); break;
+#ifndef PD_FACE                                    // (the watchface has no game menu: nothing a viewer can press opens it)
     case C_MENU: menu_select(a); break;
+#endif
     case C_JUMP: jump_choose(a); break;
   }
 }
