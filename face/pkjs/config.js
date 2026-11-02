@@ -11,6 +11,45 @@ function slot(key, label, def, desc) { return { type: 'select', messageKey: key,
 module.exports = [
   { type: 'heading', defaultValue: 'Pixel Dungeon Face' },
   { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Controls' },
+    { type: 'toggle', messageKey: 'CTL_NEW', label: 'Start a new run', defaultValue: false,
+      description: 'Switch on and tap Save: the watch starts a new run right away (with the classes and starting stage below). It switches itself off again.' },
+    { type: 'toggle', messageKey: 'CTL_TELE', label: 'Teleport the hero', defaultValue: false,
+      description: 'Switch on and tap Save: the hero is moved to a random place on the floor, as a Scroll of Teleportation would (not on a boss floor). It switches itself off again.' }
+  ] },
+  { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Cheats' },
+    { type: 'text', defaultValue: 'This game is hard, and the bot is not very good at it yet. Since this is for entertainment only, use these cheats to see deeper parts of the dungeon and spend less time resting!' },
+    { type: 'toggle', messageKey: 'GOD', label: 'God mode', defaultValue: false,
+      description: 'The hero cannot die: his health never falls below 1 (starving, falls, traps and explosions included).' },
+    { type: 'select', messageKey: 'REGEN', label: 'Healing speed', defaultValue: '2', options: [
+      { label: 'Normal', value: '0' }, { label: '2x', value: '1' }, { label: '3x', value: '2' }, { label: '5x', value: '3' } ],
+      description: 'How fast health comes back by itself.' },
+    { type: 'toggle', messageKey: 'HEAL', label: 'Ever-present healing potion', defaultValue: true,
+      description: 'One Potion of Healing is always in the backpack (drunk, lost or stolen, it comes back). Off: only the potions he finds.' },
+    { type: 'toggle', messageKey: 'UNBREAK', label: 'Unbreakable gear', defaultValue: true,
+      description: 'Weapons and armour wear down but never break.' },
+    { type: 'toggle', messageKey: 'LOOT', label: 'Better loot', defaultValue: true,
+      description: 'Weapons and armour are found a little better than in the original game. Off: the original odds.' },
+    { type: 'toggle', messageKey: 'HUNGER', label: 'Slow hunger', defaultValue: true,
+      description: 'Hunger comes 8 times slower. Off: the original pace.' }
+  ] },
+  { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Starting stage' },
+    { type: 'select', messageKey: 'STAGE', label: 'New runs start at', defaultValue: '0', options: [
+      { label: 'Sewers (floor 1)', value: '0' }, { label: 'Goo (floor 5)', value: '1' }, { label: 'Prison (floor 6)', value: '2' },
+      { label: 'Tengu (floor 10)', value: '3' }, { label: 'Caves (floor 11)', value: '4' }, { label: 'DM-300 (floor 15)', value: '5' },
+      { label: 'Dwarven City (floor 16)', value: '6' }, { label: 'Dwarf King (floor 20)', value: '7' },
+      { label: 'Demon Halls (floor 21)', value: '8' }, { label: 'Yog-Dzewa (floor 25)', value: '9' } ],
+      description: 'Starting deeper, the hero arrives with a level, gear and a backpack of things (some potions and scrolls already known) like a player would have there. Applies to the next new run.' }
+  ] },
+  { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Classes' },
+    { type: 'checkboxgroup', messageKey: 'CLASSES', label: 'New runs pick from', defaultValue: [true, true, true, true],
+      options: ['Warrior', 'Mage', 'Rogue', 'Huntress'],
+      description: 'A new run picks one of the ticked classes at random, never the same as the last run (unless only one is ticked). None ticked: all four.' }
+  ] },
+  { type: 'section', items: [
     { type: 'heading', defaultValue: 'The big clock' },
     { type: 'toggle', messageKey: 'CLK_ON', label: 'Show the big clock', defaultValue: true },
     { type: 'select', messageKey: 'CLK_FMT', label: '12 or 24 hours', defaultValue: '0', options: [

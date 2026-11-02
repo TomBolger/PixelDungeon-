@@ -65,6 +65,22 @@ static bool fb_noprog(int seen) {
   if (prog) s_fb_npt = G.now;
   return G.now - s_fb_npt >= FACE_NOPROG_TURNS * TICK;
 }
+// day-WK: a random teleport as a Scroll of Teleportation does it (no scroll used, nothing logged). The stuck rules below and the settings
+// page's "Teleport the hero" use it. false: no room for it (a boss floor).
+static bool fb_teleport(void) {
+  int c = random_respawn_cell();                         // (-1: no room for it, a boss floor)
+  if (c < 0) return false;
+  G.hero.pos = c; hero_press(c); update_fov();
+  return true;
+}
+// day-WK: the class of a new run: among the ticked ones (mask bits: warrior, mage, rogue, huntress; none ticked = all), never the last
+// run's unless it is the only one. r: random bits (>> 7). With all four ticked: the choice the face always made.
+static int fb_pick_class(int mask, bool had, int last, uint32_t r) {
+  mask &= 15; if (!mask) mask = 15;
+  int n = __builtin_popcount(mask), c[4], k = 0;
+  for (int j = 0; j < 4; j++) { int x = (had ? last + 1 + j : j) & 3; if ((mask >> x & 1) && !(had && n > 1 && x == last)) c[k++] = x; }
+  return c[(r >> 7) % k];
+}
 static void fb_stuck(int seen) {
   Hero *h = &G.hero;
   if (fb_foe() || distance(h->pos, s_fb_sa) > 2 || h->HP > s_fb_shp) { s_fb_sa = h->pos; s_fb_st = G.now; }
@@ -72,9 +88,7 @@ static void fb_stuck(int seen) {
   bool np = fb_noprog(seen);
   if (!np && G.now - s_fb_st < FACE_STUCK_TURNS * (h->HP < h->HT ? 3 : 1) * TICK) return;   // (hurt and resting: a third of the rate)
   s_fb_st = s_fb_npt = G.now;
-  int c = random_respawn_cell();                         // (-1: no room for it, a boss floor)
-  if (c < 0) return;
-  h->pos = c; hero_press(c); update_fov();
+  if (!fb_teleport()) return;
 #ifdef OVL_HOST
   if (np) g_fb_tele2++; else g_fb_tele++;
   if (getenv("TELEDBG")) printf("TELE%s g%d d%d pos %d,%d HP %d/%d hunger %d since %d amu %d mobs %d\n", np ? "2" : "", g_fb_game, G.depth, cx(h->pos), cy(h->pos), h->HP, h->HT, h->hunger, s_fb_since, game_bag_find(IK_AMULET) >= 0, G.n_mobs);

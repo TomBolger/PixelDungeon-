@@ -36,9 +36,11 @@ static void fclk_glyph(GContext *g, int d, int x, int y, int k, int grow, GColor
 #define KEY_FACE_CFG 211
 #define KEY_FACE_WX 212
 enum { FV_GAME, FV_TIME, FV_DATE, FV_TEMP, FV_HIGH, FV_LOW, FV_STEPS, FV_HR, FV_BATT, FV_WDAY, FV_MDAY, FV_SEC, FV_AMPM, FV_GOLD, FV_HPP, FV_HILO, FV_BLANK };
-typedef struct { uint8_t clk_on, clk_fmt, clk_size, clk_line, res, date_ord, unit_f, slot[FS_N], vibe; } FaceCfg;   // clk_fmt 0 system 1 12h 2 24h; clk_size 0 big 1 small; clk_line: shadow and outline; res: the old "clock inside the HUD" (gone; an old save's 1 becomes the time and date slots); date_ord 0 MM/DD 1 DD/MM; vibe: game events buzz (default off)
-#define FACE_CFG_OLD 12                                // the size of a saved FaceCfg before vibe
-static FaceCfg s_cfg = { 1, 0, 0, 1, 0, 0, 1, { 0 }, 0 };
+typedef struct { uint8_t clk_on, clk_fmt, clk_size, clk_line, res, date_ord, unit_f, slot[FS_N], vibe, god, regen, heal, unbreak, loot, hunger, stage, cls; } FaceCfg;   // clk_fmt 0 system 1 12h 2 24h; clk_size 0 big 1 small; clk_line: shadow and outline; res: the old "clock inside the HUD" (gone; an old save's 1 becomes the time and date slots); date_ord 0 MM/DD 1 DD/MM; vibe: game events buzz (default off); day-WK, the Cheats and the rest (see face_rules_apply): god mode, healing speed (0 normal 1 x2 2 x3 3 x5), ever-present healing potion, unbreakable gear, better loot, slow hunger, starting stage (0..9: Sewers .. Yog-Dzewa), classes (bit mask: warrior, mage, rogue, huntress; none = all)
+#define FACE_CFG_OLD 12                                // the size of a saved FaceCfg before vibe (day-WK: and 13, before the Cheats)
+#define FACE_CFG_V13 13
+static FaceCfg s_cfg = { 1, 0, 0, 1, 0, 0, 1, { 0 }, 0, 0, 2, 1, 1, 1, 1, 0, 15 };   // (the Cheats' defaults: the game's rules as the face has always had them, but mortal)
+static uint8_t s_f_cmd;                                // a one-shot command from the settings page, waiting for the next think: 1 a new run, 2 teleport
 static int16_t s_wx[3]; static uint8_t s_wx_ok;        // the weather: now, high, low, in tenths of a degree C
 static bool face_vibe(void) { return s_cfg.vibe; }
 static bool face_hud_dyn(void) { for (int i = 0; i < FS_N; i++) if (s_cfg.slot[i]) return true; return false; }
@@ -98,23 +100,35 @@ static bool face_slot(int s, char *b, int n) {         // the slot's text; false
   if (!b[0]) snprintf(b, n, "--");
   return true;
 }
+static void face_rules_apply(void) {                   // the settings' rules into the game's (game_int.h FaceRules)
+  static const uint8_t RX[4] = { 1, 2, 3, 5 }, SD[10] = { 1, 5, 6, 10, 11, 15, 16, 20, 21, 25 };
+  g_fr = (FaceRules){ s_cfg.god, RX[s_cfg.regen & 3], s_cfg.hunger ? 8 : 1, s_cfg.heal, s_cfg.unbreak, s_cfg.loot, SD[s_cfg.stage % 10] };
+}
 static void face_cfg_fix(void) {                       // after a load: an old save's "clock inside the HUD" is the time and date slots (and no big clock), as it was; unknown choices are the game's number
   if (s_cfg.res) { if (!s_cfg.slot[FS_LVL]) s_cfg.slot[FS_LVL] = FV_TIME; if (!s_cfg.slot[FS_HP]) s_cfg.slot[FS_HP] = FV_DATE; s_cfg.clk_on = 0; s_cfg.res = 0; }
   for (int i = 0; i < FS_N; i++) if (s_cfg.slot[i] > FV_BLANK) s_cfg.slot[i] = 0;
   s_cfg.vibe &= 1; s_cfg.date_ord &= 1;
+  s_cfg.god &= 1; s_cfg.heal &= 1; s_cfg.unbreak &= 1; s_cfg.loot &= 1; s_cfg.hunger &= 1;
+  if (s_cfg.regen > 3) s_cfg.regen = 2;
+  if (s_cfg.stage > 9) s_cfg.stage = 0;
+  s_cfg.cls &= 15;
+  face_rules_apply();
 }
 static void face_cfg_load(void) {
-  if (persist_exists(KEY_FACE_CFG)) { int n = persist_get_size(KEY_FACE_CFG); if (n == (int)sizeof s_cfg || n == FACE_CFG_OLD) { persist_read_data(KEY_FACE_CFG, &s_cfg, n); face_cfg_fix(); } }
+  if (persist_exists(KEY_FACE_CFG)) { int n = persist_get_size(KEY_FACE_CFG); if (n == (int)sizeof s_cfg || n == FACE_CFG_OLD || n == FACE_CFG_V13) { persist_read_data(KEY_FACE_CFG, &s_cfg, n); face_cfg_fix(); } }
   if (persist_exists(KEY_FACE_WX) && persist_get_size(KEY_FACE_WX) == (int)sizeof s_wx) { persist_read_data(KEY_FACE_WX, s_wx, sizeof s_wx); s_wx_ok = 1; }
 #ifdef FACE_FAKE
   s_wx[0] = 215; s_wx[1] = 262; s_wx[2] = 118; s_wx_ok = 1;      // 21.5 C now, 26.2 high, 11.8 low
 #endif
 }
+static void face_burst(void);
 static void face_inbox(DictionaryIterator *it, void *ctx) {
   Tuple *t = dict_find(it, MESSAGE_KEY_CFG);
-  if (t && (t->length == sizeof s_cfg || t->length == FACE_CFG_OLD)) { s_cfg.vibe = 0; memcpy(&s_cfg, t->value->data, t->length); face_cfg_fix(); persist_write_data(KEY_FACE_CFG, &s_cfg, sizeof s_cfg); }
+  if (t && (t->length == sizeof s_cfg || t->length == FACE_CFG_OLD || t->length == FACE_CFG_V13)) { s_cfg.vibe = 0; memcpy(&s_cfg, t->value->data, t->length); face_cfg_fix(); persist_write_data(KEY_FACE_CFG, &s_cfg, sizeof s_cfg); }
   t = dict_find(it, MESSAGE_KEY_WX);
   if (t && t->length == sizeof s_wx) { memcpy(s_wx, t->value->data, sizeof s_wx); s_wx_ok = 1; persist_write_data(KEY_FACE_WX, s_wx, sizeof s_wx); }
+  t = dict_find(it, MESSAGE_KEY_CMD);
+  if (t) { s_f_cmd = t->length >= 4 ? (uint8_t)t->value->int32 : t->value->uint8; face_burst(); }   // (Controls on the settings page: handled at the next think, when the game is at rest)
   face_clk_changed();
 }
 
@@ -198,13 +212,18 @@ static void face_new_game(void) {
   bool had = persist_exists(KEY_FACE_CLS); int last = had ? persist_read_int(KEY_FACE_CLS) & 3 : 0;
   uint32_t r = (uint32_t)time(NULL) * 2654435761u ^ now_ms() * 40503u ^ (uint32_t)last * 2246822519u;   // random, from its own mix (the game's RNG is left alone)
   r ^= r >> 15; r *= 2246822519u; r ^= r >> 13;
-  int c = had ? (last + 1 + (int)((r >> 7) % 3)) & 3 : (int)((r >> 7) & 3);   // never the last hero's class twice in a row
+  int c = fb_pick_class(s_cfg.cls, had, last, r);   // among the classes ticked in the settings, never the last hero's twice in a row (unless it is the only one)
   persist_write_int(KEY_FACE_CLS, c);
   s_fp = 0; s_f_vic = 0; s_hl = -1; s_fp_bad = 0; s_fp_chk = 0; s_fb_depth = -1;
   g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; memset(g_drop, 0xFF, sizeof g_drop); g_goal = g_from = -1;   // nothing of the last hero's plans carries over
   sheet_free(&s_gameover); sheet_free(&s_arcs); sheet_free(&s_avatars);   // the victory screen's pictures out of the heap before a floor is built (it needs one big block)
   game_art(false); mob_sheets_free(); game_free_fx(); mreg_drop();   // what the last hero's floor held (pictures, creatures' sheets, the region's creatures) out of the heap while the next floor is built: it needs one big block
+#ifdef FACE_NGLOG                                      // test build: the heap's low point of the new game alone (the heap log of the pauses, FACE_HEAPLOG, no longer fits beside it)
+  { int m0 = g_heap_min; g_heap_min = 0x7FFFFFFF; s_sel = c; start_game(false);
+    app_log(APP_LOG_LEVEL_INFO, "face", 0, "NG d%d low %d res %d", G.depth, g_heap_min, g_heap_id); if (m0 < g_heap_min) g_heap_min = m0; }
+#else
   s_sel = c; start_game(false);
+#endif
   APP_LOG(APP_LOG_LEVEL_INFO, "new game: class %d", c);
 }
 static void press(ButtonId id, uint32_t wait) {          // a button, as main.c's button() / click_back() would route it (without the real handlers: they cost app size)
@@ -368,8 +387,17 @@ static void face_game(void) {
 #endif
   press(BUTTON_ID_SELECT, STEP_MS);
 }
+static bool face_cmd(void) {                           // a command from the settings page (Controls). true: this think is used up
+  if (!s_f_cmd) return false;
+  if (s_f_cmd == 1) { s_f_cmd = 0; ui_win_free(); face_new_game(); s_f_next = now_ms() + 600; redraw(); return true; }   // a new run: any window closed first
+  if (G.hero.HP <= 0) { s_f_cmd = 0; return false; }
+  if (s_scene != SC_GAME || s_fp) return false;                            // (a teleport waits for the game's own view: no window open, no item plan under way)
+  s_f_cmd = 0; if (fb_teleport()) { cam_center(); redraw(); s_f_next = now_ms() + 300; return true; }
+  return false;
+}
 static void face_think(void) {
   fb_scene(s_scene, &s_fp_n);                                              // (each window counts its own presses)
+  if (face_cmd()) return;
   if (s_scene == SC_GAME) { s_fp_abort = false; s_fp_age = 0; }
   else if (!s_fp_abort && (s_fp || s_scene == SC_OPTIONS) && OWN_INPUT(s_scene) && s_fp_age > FP_MS) {   // a plan taking too long
     FL("dropped %d %d %d", s_scene, s_fp, s_fp_n);
@@ -421,6 +449,7 @@ static void face_boot(void) {
   s_fc_t = now_ms() - 5000;                                            // (now_ms() is the epoch's low 32 bits: 0 is not "long ago" as a signed difference: the camera gate never opened)
   g_assist = 3; s_zoom = s_zuser = 2; s_zto = -1;                      // Assist High; the closest zoom (face_game's camera moves out to a far target and back)
   s_has_save = game_peek_save(&s_save_depth, &s_save_lvl);
+  face_cfg_load();                                                     // (before any game starts: the rules and the starting stage are the settings')
 #ifdef FACE_WINTEST                                   // test build: a new game that already holds the Amulet, on its way up from floor 1
   face_new_game(); bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET;
 #elif defined(FACE_NEWGAME)
@@ -432,8 +461,7 @@ static void face_boot(void) {
 #else
   if (s_has_save) { s_sel = 0; start_game(true); } else face_new_game();
 #endif
-  face_cfg_load();
-  app_message_register_inbox_received(face_inbox); app_message_open(24, 0);      // the settings and the weather, from the phone (pkjs)
+  app_message_register_inbox_received(face_inbox); app_message_open(32, 0);      // the settings and the weather, from the phone (pkjs)
   tick_timer_service_subscribe(MINUTE_UNIT, minute_tick);
   accel_tap_service_subscribe(face_tap);
   unobstructed_area_service_subscribe((UnobstructedAreaHandlers){ .did_change = face_unob }, NULL);

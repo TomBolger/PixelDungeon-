@@ -1,11 +1,13 @@
 // Pixel Dungeon Face, phone side: the Clay settings page, and the weather (Open-Meteo, no key needed).
 var Clay = require('./clay');
 var clay = new Clay(require('./config'), null, { autoHandleEvents: false });
-var ORDER = ['CLK_ON', 'CLK_FMT', 'CLK_SIZE', 'CLK_LINE', 'RES', 'DATE_ORD', 'UNIT_F', 'SL_DEPTH', 'SL_KEYS', 'SL_LVL', 'SL_HP', 'SL_GOLD', 'VIBE'];   // = FaceCfg in face.inc (RES: a byte the watch keeps for old saves, always 0)
-var DEF = { CLK_ON: 1, CLK_LINE: 1, UNIT_F: 1 };
+var ORDER = ['CLK_ON', 'CLK_FMT', 'CLK_SIZE', 'CLK_LINE', 'RES', 'DATE_ORD', 'UNIT_F', 'SL_DEPTH', 'SL_KEYS', 'SL_LVL', 'SL_HP', 'SL_GOLD', 'VIBE',
+  'GOD', 'REGEN', 'HEAL', 'UNBREAK', 'LOOT', 'HUNGER', 'STAGE', 'CLASSES'];   // = FaceCfg in face.inc (RES: a byte the watch keeps for old saves, always 0); 21 bytes (the watch also loads 12 and 13)
+var DEF = { CLK_ON: 1, CLK_LINE: 1, UNIT_F: 1, REGEN: 2, HEAL: 1, UNBREAK: 1, LOOT: 1, HUNGER: 1, CLASSES: 15 };   // (a setting the page has never saved: the page's own default)
 function stored() { try { return JSON.parse(localStorage.getItem('clay-settings')) || {}; } catch (e) { return {}; } }
 function num(v, key) {
-  if (v && typeof v === 'object') v = v.value;
+  if (v && typeof v === 'object' && !Array.isArray(v)) v = v.value;
+  if (Array.isArray(v)) { var m = 0; for (var i = 0; i < 4; i++) if (v[i]) m |= 1 << i; return m; }   // the class boxes: bit 0 warrior, 1 mage, 2 rogue, 3 huntress
   if (v === undefined || v === null) return DEF[key] || 0;
   if (v === true) return 1; if (v === false) return 0;
   return parseInt(v, 10) || 0;
@@ -20,8 +22,15 @@ function pack(s) {
   if (out[5] === 2) out[5] = dmyPhone() ? 1 : 0;
   return out;
 }
-function send(msg, tries) {
-  Pebble.sendAppMessage(msg, function () {}, function () { if (tries > 0) setTimeout(function () { send(msg, tries - 1); }, 4000); });
+function send(msg, tries, done) {
+  Pebble.sendAppMessage(msg, function () { if (done) done(); }, function () { if (tries > 0) setTimeout(function () { send(msg, tries - 1, done); }, 4000); });
+}
+// The Controls: two switches on the page that act once. Whatever was on when the page was saved is sent as one command (CMD: 1 a new
+// run, 2 teleport; both on: the new run) after the settings, and the switches are put back to off for the next time the page opens.
+function command(raw) {
+  var n = num(raw.CTL_NEW, 'CTL_NEW'), t = num(raw.CTL_TELE, 'CTL_TELE');
+  try { clay.setSettings({ CTL_NEW: false, CTL_TELE: false }); } catch (e) {}
+  return n ? 1 : t ? 2 : 0;
 }
 function needWeather() {
   var s = stored(), w = { '3': 1, '4': 1, '5': 1, '15': 1 };
@@ -52,6 +61,7 @@ Pebble.addEventListener('showConfiguration', function () { Pebble.openURL(clay.g
 Pebble.addEventListener('webviewclosed', function (e) {
   if (!e || !e.response) return;
   var raw = clay.getSettings(e.response, false);          // (this also remembers them for the next time the page opens)
-  send({ CFG: pack(raw) }, 2);
+  var cmd = command(raw);
+  send({ CFG: pack(raw) }, 2, cmd ? function () { send({ CMD: cmd }, 2); } : null);   // (the command after the settings have landed: a new run uses them)
   weather();
 });
