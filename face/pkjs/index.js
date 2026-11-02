@@ -2,7 +2,7 @@
 var Clay = require('./clay');
 var clay = new Clay(require('./config'), null, { autoHandleEvents: false });
 var ORDER = ['CLK_ON', 'CLK_FMT', 'CLK_SIZE', 'CLK_LINE', 'RES', 'DATE_ORD', 'UNIT_F', 'SL_DEPTH', 'SL_KEYS', 'SL_LVL', 'SL_HP', 'SL_GOLD', 'VIBE',
-  'GOD', 'REGEN', 'HEAL', 'UNBREAK', 'LOOT', 'HUNGER', 'STAGE', 'CLASSES'];   // = FaceCfg in face.inc (RES: a byte the watch keeps for old saves, always 0); 21 bytes (the watch also loads 12 and 13)
+  'GOD', 'REGEN', 'HEAL', 'UNBREAK', 'LOOT', 'HUNGER', 'STAGE', 'CLASSES', 'SPEED', 'BURST', 'FPS'];   // = FaceCfg in face.inc (RES: a byte the watch keeps for old saves, always 0); 24 bytes (the watch also loads 12, 13 and 21)
 var DEF = { CLK_ON: 1, CLK_LINE: 1, UNIT_F: 1, REGEN: 2, HEAL: 1, UNBREAK: 1, LOOT: 1, HUNGER: 1, CLASSES: 15 };   // (a setting the page has never saved: the page's own default)
 function stored() { try { return JSON.parse(localStorage.getItem('clay-settings')) || {}; } catch (e) { return {}; } }
 function num(v, key) {

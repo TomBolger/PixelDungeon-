@@ -69,6 +69,21 @@ module.exports = [
       description: 'For any number set to Date.' }
   ] },
   { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Game speed' },
+    { type: 'select', messageKey: 'SPEED', label: 'Speed of play', defaultValue: '0', options: [
+      { label: 'Fast', value: '0' }, { label: 'Normal', value: '1' }, { label: 'Relaxed', value: '2' } ],
+      description: 'How long the bot takes between moves, and over each screen it opens (backpack, items). Fast is the original pace. Normal is about 1.6 times as slow, Relaxed about 2.5 times (windows a little less). Fewer moves are played in each wake.' }
+  ] },
+  { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Battery saver' },
+    { type: 'select', messageKey: 'BURST', label: 'Play per wake', defaultValue: '0', options: [
+      { label: 'Long (20 seconds)', value: '0' }, { label: 'Medium (10 seconds)', value: '1' }, { label: 'Short (5 seconds)', value: '2' } ],
+      description: 'How long the game plays each time you flick your wrist, tap, or the face appears. Then it freezes again.' },
+    { type: 'select', messageKey: 'FPS', label: 'Frame rate', defaultValue: '0', options: [
+      { label: 'Full (about 30 a second)', value: '0' }, { label: 'Reduced (about 15 a second)', value: '1' }, { label: 'Low (about 7 a second, no zoom-out glances)', value: '2' } ],
+      description: 'How often the picture is redrawn while it plays. Lower uses less battery; the game itself plays the same.' }
+  ] },
+  { type: 'section', items: [
     { type: 'heading', defaultValue: 'Vibration' },
     { type: 'toggle', messageKey: 'VIBE', label: 'Vibrate for game events', defaultValue: false,
       description: 'A buzz when the hero is hurt or dies. Off by default.' }

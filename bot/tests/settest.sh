@@ -33,5 +33,7 @@ done
 for e in FR_REGEN=1 FR_REGEN=5 FR_HUNGER=1 FR_HEAL=0 FR_UNBREAK=0 FR_LOOT=0; do
   GAMES=4 run VARY=1 GOD=1 $e STEPS=3000; rc=$?; r=ok; [ $rc = 0 ] || r="exit $rc"; chk "$e: 4 games play" "$r"
 done
+# 6. the pacing of the speed / battery choices (day-WL; pure arithmetic of face_pace.h: Fast = the old numbers, caps and plan timeouts scale)
+cc -std=c99 -Wall -I../watch/src/c -o build/pacetest tests/pacetest.c && build/pacetest > /tmp/settest_last.txt; r=ok; grep -q "ALL PASS" /tmp/settest_last.txt || r="$(grep FAIL /tmp/settest_last.txt | head -1)"; chk "pacing: Fast is the old pacing, caps and plan timeouts scale, the walk keeps its speed" "$r"
 [ $FAIL = 0 ] && echo "ALL PASS" || echo "SOME FAILED"
 exit $FAIL

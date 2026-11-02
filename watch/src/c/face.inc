@@ -2,6 +2,7 @@
 // A burst of play (20 s) when the face appears or the wrist is flicked, then everything freezes: no timers, no redraws,
 // just the clock layer once a minute. The autoplayer is the Assist's first suggestion (ovl/tgt: the bot's targeting) plus
 // face_brain.h; items are used through the real windows, button by button, so a viewer can follow.
+#include "face_pace.h"
 #define FACE_BURST_MS 20000
 #if defined(FACE_HEAPLOG) && defined(FACE_CAMLOG)
 #define FL(...) app_log(APP_LOG_LEVEL_INFO, "face", 0, __VA_ARGS__)
@@ -14,8 +15,8 @@
 #define STEP_MS 140
 #define NAV_MS 330
 #else
-#define STEP_MS 100                                   // a decision after a walk or a hit
-#define NAV_MS 480                                    // one button press in a window: every item-use screen dwells about half a second (movement and fights run at STEP_MS)
+#define STEP_MS stepms()                                   // a decision after a walk or a hit
+#define NAV_MS navms()                                    // one button press in a window: every item-use screen dwells about half a second (movement and fights run at STEP_MS)
 #endif
 static uint32_t s_f_end, s_f_next, s_f_last, s_f_vic;
 static int32_t s_fp_t0; static uint8_t s_fp_chk; static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
@@ -36,10 +37,15 @@ static void fclk_glyph(GContext *g, int d, int x, int y, int k, int grow, GColor
 #define KEY_FACE_CFG 211
 #define KEY_FACE_WX 212
 enum { FV_GAME, FV_TIME, FV_DATE, FV_TEMP, FV_HIGH, FV_LOW, FV_STEPS, FV_HR, FV_BATT, FV_WDAY, FV_MDAY, FV_SEC, FV_AMPM, FV_GOLD, FV_HPP, FV_HILO, FV_BLANK };
-typedef struct { uint8_t clk_on, clk_fmt, clk_size, clk_line, res, date_ord, unit_f, slot[FS_N], vibe, god, regen, heal, unbreak, loot, hunger, stage, cls; } FaceCfg;   // clk_fmt 0 system 1 12h 2 24h; clk_size 0 big 1 small; clk_line: shadow and outline; res: the old "clock inside the HUD" (gone; an old save's 1 becomes the time and date slots); date_ord 0 MM/DD 1 DD/MM; vibe: game events buzz (default off); day-WK, the Cheats and the rest (see face_rules_apply): god mode, healing speed (0 normal 1 x2 2 x3 3 x5), ever-present healing potion, unbreakable gear, better loot, slow hunger, starting stage (0..9: Sewers .. Yog-Dzewa), classes (bit mask: warrior, mage, rogue, huntress; none = all)
+typedef struct { uint8_t clk_on, clk_fmt, clk_size, clk_line, res, date_ord, unit_f, slot[FS_N], vibe, god, regen, heal, unbreak, loot, hunger, stage, cls, speed, burst, fps; } FaceCfg;   // clk_fmt 0 system 1 12h 2 24h; clk_size 0 big 1 small; clk_line: shadow and outline; res: the old "clock inside the HUD" (gone; an old save's 1 becomes the time and date slots); speed 0 Fast 1 Normal 2 Relaxed (face_brain.h fb_pace), burst 0 Long 1 Medium 2 Short, fps 0 Full 1 Reduced 2 Low (day-WL); date_ord 0 MM/DD 1 DD/MM; vibe: game events buzz (default off); day-WK, the Cheats and the rest (see face_rules_apply): god mode, healing speed (0 normal 1 x2 2 x3 3 x5), ever-present healing potion, unbreakable gear, better loot, slow hunger, starting stage (0..9: Sewers .. Yog-Dzewa), classes (bit mask: warrior, mage, rogue, huntress; none = all)
 #define FACE_CFG_OLD 12                                // the size of a saved FaceCfg before vibe (day-WK: and 13, before the Cheats)
 #define FACE_CFG_V13 13
-static FaceCfg s_cfg = { 1, 0, 0, 1, 0, 0, 1, { 0 }, 0, 0, 2, 1, 1, 1, 1, 0, 15 };   // (the Cheats' defaults: the game's rules as the face has always had them, but mortal)
+#define FACE_CFG_V21 21
+static FaceCfg s_cfg = { 1, 0, 0, 1, 0, 0, 1, { 0 }, 0, 0, 2, 1, 1, 1, 1, 0, 15, 0, 0, 0 };   // (the Cheats' defaults: the game's rules as the face has always had them, but mortal)
+static __attribute__((noinline)) uint32_t pace(uint32_t ms, int nav) { return fb_pace(ms, nav, s_cfg.speed & 3); }
+static __attribute__((noinline)) uint32_t stepms(void) { return pace(100, 0); }
+static __attribute__((noinline)) uint32_t navms(void) { return pace(480, 1); }   // (the Game speed setting)
+static uint32_t face_fi(void) { return FB_FRM[s_cfg.fps & 3]; }   // the redraw interval of the Frame rate setting (main.c busy / face_wake)
 static uint8_t s_f_cmd;                                // a one-shot command from the settings page, waiting for the next think: 1 a new run, 2 teleport
 static int16_t s_wx[3]; static uint8_t s_wx_ok;        // the weather: now, high, low, in tenths of a degree C
 static bool face_vibe(void) { return s_cfg.vibe; }
@@ -107,15 +113,11 @@ static void face_rules_apply(void) {                   // the settings' rules in
 static void face_cfg_fix(void) {                       // after a load: an old save's "clock inside the HUD" is the time and date slots (and no big clock), as it was; unknown choices are the game's number
   if (s_cfg.res) { if (!s_cfg.slot[FS_LVL]) s_cfg.slot[FS_LVL] = FV_TIME; if (!s_cfg.slot[FS_HP]) s_cfg.slot[FS_HP] = FV_DATE; s_cfg.clk_on = 0; s_cfg.res = 0; }
   for (int i = 0; i < FS_N; i++) if (s_cfg.slot[i] > FV_BLANK) s_cfg.slot[i] = 0;
-  s_cfg.vibe &= 1; s_cfg.date_ord &= 1;
-  s_cfg.god &= 1; s_cfg.heal &= 1; s_cfg.unbreak &= 1; s_cfg.loot &= 1; s_cfg.hunger &= 1;
-  if (s_cfg.regen > 3) s_cfg.regen = 2;
-  if (s_cfg.stage > 9) s_cfg.stage = 0;
-  s_cfg.cls &= 15;
+  s_cfg.cls &= 15;                                     // (the other choices come from the phone's page only: 0/1, or an index masked or taken modulo where it is used)
   face_rules_apply();
 }
 static void face_cfg_load(void) {
-  if (persist_exists(KEY_FACE_CFG)) { int n = persist_get_size(KEY_FACE_CFG); if (n == (int)sizeof s_cfg || n == FACE_CFG_OLD || n == FACE_CFG_V13) { persist_read_data(KEY_FACE_CFG, &s_cfg, n); face_cfg_fix(); } }
+  if (persist_exists(KEY_FACE_CFG)) { int n = persist_get_size(KEY_FACE_CFG); if (n == (int)sizeof s_cfg || n == FACE_CFG_OLD || n == FACE_CFG_V13 || n == FACE_CFG_V21) { persist_read_data(KEY_FACE_CFG, &s_cfg, n); face_cfg_fix(); } }
   if (persist_exists(KEY_FACE_WX) && persist_get_size(KEY_FACE_WX) == (int)sizeof s_wx) { persist_read_data(KEY_FACE_WX, s_wx, sizeof s_wx); s_wx_ok = 1; }
 #ifdef FACE_FAKE
   s_wx[0] = 215; s_wx[1] = 262; s_wx[2] = 118; s_wx_ok = 1;      // 21.5 C now, 26.2 high, 11.8 low
@@ -124,7 +126,7 @@ static void face_cfg_load(void) {
 static void face_burst(void);
 static void face_inbox(DictionaryIterator *it, void *ctx) {
   Tuple *t = dict_find(it, MESSAGE_KEY_CFG);
-  if (t && (t->length == sizeof s_cfg || t->length == FACE_CFG_OLD || t->length == FACE_CFG_V13)) { s_cfg.vibe = 0; memcpy(&s_cfg, t->value->data, t->length); face_cfg_fix(); persist_write_data(KEY_FACE_CFG, &s_cfg, sizeof s_cfg); }
+  if (t && (t->length == sizeof s_cfg || t->length == FACE_CFG_OLD || t->length == FACE_CFG_V13 || t->length == FACE_CFG_V21)) { s_cfg.vibe = 0; memcpy(&s_cfg, t->value->data, t->length); face_cfg_fix(); persist_write_data(KEY_FACE_CFG, &s_cfg, sizeof s_cfg); }
   t = dict_find(it, MESSAGE_KEY_WX);
   if (t && t->length == sizeof s_wx) { memcpy(s_wx, t->value->data, sizeof s_wx); s_wx_ok = 1; persist_write_data(KEY_FACE_WX, s_wx, sizeof s_wx); }
   t = dict_find(it, MESSAGE_KEY_CMD);
@@ -178,7 +180,7 @@ static void face_burst(void) {
 #ifdef FACE_ACTLOG
   app_log(APP_LOG_LEVEL_INFO, "face", 0, "B %d", s_f_on);
 #endif
-  s_f_end = n + FACE_BURST_MS; s_f_last = n; s_f_next = n + 300;
+  s_f_end = n + (FACE_BURST_MS >> (s_cfg.burst & 3)); s_f_last = n; s_f_next = n + 300;
   if (s_f_on) { if (!s_timer) busy(); return; }   // (running: but with no timer it is stuck: kicked)
   s_f_on = true; s_last_in = n; s_timer = NULL; busy();
 }
@@ -279,7 +281,7 @@ static void face_item(void) {
   if (s_fp != 2 && s_fp != 1) { s_fp_bad = 1; back_out(); return; }
   if (j < 0 || ++s_fp_n > 20) { s_fp = 0; s_fp_bad = 1; back_out(); return; }
   s_fp = 2;
-  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; s_fp = 0; press(BUTTON_ID_SELECT, 500); } else press(BUTTON_ID_DOWN, NAV_MS);
+  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; s_fp = 0; press(BUTTON_ID_SELECT, pace(500, 1)); } else press(BUTTON_ID_DOWN, NAV_MS);
 }
 
 
@@ -321,7 +323,7 @@ static bool fq_plan(void) {
 #define FC_HOLD_MS 1100
 #define FC_GAP_MS 1200
 #else
-#define FC_HOLD_MS 650                                 // a glance: the swoop out (300 ms) and a moment to read
+#define FC_HOLD_MS pace(650, 0)                                 // a glance: the swoop out (300 ms) and a moment to read
 #define FC_GAP_MS 3000
 #endif
 static bool face_cam_ok(void) { return false; }        // (main.c's tg_refresh asks it only with Assist Max; the face is on High: face_cam below does the camera)
@@ -348,7 +350,7 @@ static bool face_cam(int c) {
   if (face_melee()) { s_fc_key = -1; if (zoom_now() != 2 || cam_free()) { s_fc_t = n; cam_center(); redraw(); s_f_next = n + 150; return true; } return false; }
   if (c < 0) return false;
   int32_t key = s_tgk == TK_ENEMY && c == s_tg ? 0x10000 | s_tgu : c;
-  if (!face_far(c)) { if (cam_free() || zoom_now() != 2) { cam_center(); redraw(); } return false; }
+  if (!face_far(c) || s_cfg.fps > 1) { if (cam_free() || zoom_now() != 2) { cam_center(); redraw(); } return false; }
   if (key == s_fc_key || (int32_t)(n - s_fc_t) < FC_GAP_MS) return false;      // the same place, or a change not long ago: no flicker
   s_fc_key = key; s_fc_t = n; cam_to(c);
   s_fc_held = true; s_fc_hold = n + FC_HOLD_MS; redraw(); s_f_next = s_fc_hold; return true;
@@ -374,12 +376,12 @@ static void face_game(void) {
   }
   if (!s_fp_bad && !fp_cool() && s_scene == SC_GAME && game_nearest_enemy() < 0 && s_fb_presses % 20 == 7 && fq_plan()) {   // rarely, with nothing about: a better wand or missile into a slot
     s_fp = 1; s_fp_n = 0; s_fp_act = ACN_QUICK; s_walking = false; fp_begin();
-    FL("qp %d %d", s_fp_slot, s_fq_q); APP_LOG(APP_LOG_LEVEL_INFO, "quickslot plan: bag slot %d into slot %d", s_fp_slot, s_fq_q); open_bag(-1); s_f_next = now_ms() + 650; return;
+    FL("qp %d %d", s_fp_slot, s_fq_q); APP_LOG(APP_LOG_LEVEL_INFO, "quickslot plan: bag slot %d into slot %d", s_fp_slot, s_fq_q); open_bag(-1); s_f_next = now_ms() + pace(650, 1); return;
   }
   if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && !fp_cool() && game_slot(g_ovr.hs)->kind) {   // the bot's hands: through the windows
     s_fp = 1; s_fp_n = 0; s_fp_slot = g_ovr.hs; s_fp_act = g_ovr.ha; fp_begin();
     APP_LOG(APP_LOG_LEVEL_INFO, "hands: slot %d action %d", s_fp_slot, s_fp_act);
-    s_walking = false; open_bag(-1); s_f_next = now_ms() + 650; return;
+    s_walking = false; open_bag(-1); s_f_next = now_ms() + pace(650, 1); return;
   }
   s_fp_bad = 0;
 #ifdef FACE_LOGP
@@ -399,7 +401,7 @@ static void face_think(void) {
   fb_scene(s_scene, &s_fp_n);                                              // (each window counts its own presses)
   if (face_cmd()) return;
   if (s_scene == SC_GAME) { s_fp_abort = false; s_fp_age = 0; }
-  else if (!s_fp_abort && (s_fp || s_scene == SC_OPTIONS) && OWN_INPUT(s_scene) && s_fp_age > FP_MS) {   // a plan taking too long
+  else if (!s_fp_abort && (s_fp || s_scene == SC_OPTIONS) && OWN_INPUT(s_scene) && s_fp_age > pace(FP_MS, 0)) {   // a plan taking too long
     FL("dropped %d %d %d", s_scene, s_fp, s_fp_n);
     s_fp = 0; s_fp_bad = 1; s_fp_abort = true; s_fp_cool = FP_COOL_MS; }
   if (s_fp_abort && (s_scene == SC_BAG || s_scene == SC_ITEM || s_scene == SC_OPTIONS || s_scene == SC_TARGET)) { s_pick = -1; back_out(); return; }
@@ -420,7 +422,7 @@ static void face_think(void) {
 #ifdef FACE_OLDPACE
 static uint32_t face_wake(uint32_t ms) { return ms; }
 #else
-static uint32_t face_wake(uint32_t ms) { int32_t d = (int32_t)(s_f_next - now_ms()); return d > 0 && (uint32_t)d < ms ? (d < 12 ? 12 : (uint32_t)d) : ms; }
+static uint32_t face_wake(uint32_t ms) { if (ms < face_fi()) ms = face_fi(); int32_t d = (int32_t)(s_f_next - now_ms()); return d > 0 && (uint32_t)d < ms ? (d < 12 ? 12 : (uint32_t)d) : ms; }
 #endif
 static void face_tick(bool moving) {
   if (!s_f_on) return;
@@ -437,7 +439,7 @@ static void face_tick(bool moving) {
 #endif
   if (s_scene == SC_AMULET && s_amulet == 2) s_f_vic += dt;            // the victory screen is counted in play time
 #ifndef FACE_OLDPACE
-  if ((int32_t)(s_f_next - n) > 700) s_f_next = n;
+  if ((int32_t)(s_f_next - n) > (int32_t)pace(700, 0)) s_f_next = n;
 #endif                   // (no wait is longer: a clock that stepped a second back made them so)
   if ((int32_t)(n - s_f_end) >= 0) { face_pause(); return; }
   if (s_scene == SC_AMULET && s_amulet == 2 && s_f_vic >= FACE_WIN_MS) { face_new_game(); s_f_next = n + 600; return; }   // 30 s of victory: the next hero

@@ -18,7 +18,7 @@ p["name"] = "pixel-dungeon-face"
 p["pebble"]["displayName"] = "Pixel Dungeon Face"
 p["pebble"]["uuid"] = "37f0622a-65c2-4eb6-b4ad-92181e5a899c"
 p["pebble"]["watchapp"]["watchface"] = True
-p["pebble"]["messageKeys"] = ["CFG", "WX", "CLK_ON", "CLK_FMT", "CLK_SIZE", "CLK_LINE", "DATE_ORD", "UNIT_F", "SL_DEPTH", "SL_KEYS", "SL_LVL", "SL_HP", "SL_GOLD", "VIBE", "CMD", "CTL_NEW", "CTL_TELE", "GOD", "REGEN", "HEAL", "UNBREAK", "LOOT", "HUNGER", "STAGE", "CLASSES"]
+p["pebble"]["messageKeys"] = ["CFG", "WX", "CLK_ON", "CLK_FMT", "CLK_SIZE", "CLK_LINE", "DATE_ORD", "UNIT_F", "SL_DEPTH", "SL_KEYS", "SL_LVL", "SL_HP", "SL_GOLD", "VIBE", "CMD", "CTL_NEW", "CTL_TELE", "GOD", "REGEN", "HEAL", "UNBREAK", "LOOT", "HUNGER", "STAGE", "CLASSES", "SPEED", "BURST", "FPS"]
 p["pebble"]["enableMultiJS"] = True
 p["pebble"]["capabilities"] = ["location", "configurable", "health"]
 # the face is silent (sfx.c): its music and sound data (about 125 KB) are replaced by one byte each (the resource names stay: the host tools list them)

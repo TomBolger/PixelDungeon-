@@ -582,7 +582,7 @@ static uint32_t s_last_in;                          // 0.55 (owner): the last bu
 #ifdef PD_FACE
 static bool s_f_on;                                 // a burst of play is running (else frozen: no timer, no redraw)
 static void face_tick(bool moving);
-static uint32_t face_wake(uint32_t ms);              // face.inc: the wait, cut short to the bot's next decision (an idle tick waited up to a second past it)
+static uint32_t face_wake(uint32_t ms); static uint32_t face_fi(void);              // face.inc: the wait, cut short to the bot's next decision (an idle tick waited up to a second past it)
 #endif
 static void schedule(uint32_t ms) {
 #ifdef PD_FACE
@@ -601,7 +601,12 @@ static uint32_t s_last_tick;
 static void busy(void);
 static void woke(void) { s_last_in = now_ms(); lite(); if (!s_timer) busy(); }
 // waking from an idle wait: the first frame counts as one 33 ms step, not the whole wait (that made a step a jump)
-static void busy(void) { if (s_timer_ms != 33) s_last_tick = now_ms() - 33; schedule(33); }
+#ifdef PD_FACE
+#define BUSY_MS face_fi()                           // the face's Frame rate setting: 33 ms (Full), 66, 133
+#else
+#define BUSY_MS 33
+#endif
+static void busy(void) { if (s_timer_ms != BUSY_MS) s_last_tick = now_ms() - BUSY_MS; schedule(BUSY_MS); }
 static void idle(void) { schedule(s_scene == SC_TITLE || s_scene == SC_SELECT ? 250 : 500); }
 static uint32_t anim_wait(void);
 // nothing sliding: wake for the next animation frame of anything in sight (at most ~12 redraws a second)
