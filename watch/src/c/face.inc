@@ -164,9 +164,6 @@ static void face_new_game(void) {
   game_art(false); mob_sheets_free(); game_free_fx(); mreg_drop();   // what the last hero's floor held (pictures, creatures' sheets, the region's creatures) out of the heap while the next floor is built: it needs one big block
   s_sel = c; start_game(false);
   APP_LOG(APP_LOG_LEVEL_INFO, "new game: class %d", c);
-#ifdef FACE_HEAPTRACE
-  app_log(APP_LOG_LEVEL_INFO, "face", 0, "new game class %d free %d", c, (int)heap_bytes_free());
-#endif
 }
 static void press(ButtonId id, uint32_t wait) {          // a button, as main.c's button() / click_back() would route it (without the real handlers: they cost app size)
   s_f_next = now_ms() + wait;
@@ -339,9 +336,6 @@ static void face_think(void) {
 static void face_tick(bool moving) {
   if (!s_f_on) return;
   { int f = (int)heap_bytes_free(); if (f < g_heap_min) g_heap_min = f;
-#ifdef FACE_HEAPTRACE
-    { static int lf; if (abs(f - lf) > 700) { lf = f; app_log(APP_LOG_LEVEL_INFO, "face", 0, "tick f %d scene %d walking %d", f, s_scene, s_walking); } }
-#endif
     if (f < s_f_tlow) { s_f_tlow = f; s_f_tsc = s_scene; } }
   uint32_t n = now_ms(), dt = n - s_f_last; s_f_last = n; if (dt > 1500) dt = 33;
   s_fp_age += dt; s_fp_cool = s_fp_cool > dt ? s_fp_cool - dt : 0;

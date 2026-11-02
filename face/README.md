@@ -18,4 +18,5 @@ Round 2 (bot behaviour, toolbar, memory):
 - Camera: Assist High (targets within the middle zoom's view, as in round 1) with the closest zoom as the home zoom. `face_cam_ok` (face.inc) gates main.c's `cam_to`: close in for a fight; a new far target zooms out to show both, holds ~1.1 s, then closes in for the run; no change within 1.2 s of the last.
 - Amulet pickup with a full pack: `FB_DROP` in face_brain.h drops the least useful item first.
 - Sound is stubbed out in the face (sfx.c); a new game frees the old floor's pictures first. Each pause logs the lowest free heap and the overlay loading at the time.
+- Test builds (round 3): `FACE_NEWGAME FACE_QPTEST` (javelins, tomahawks etc. in the pack: watch the quickslot plan), `FACE_CAMLOG` (with FACE_HEAPLOG: a few log lines).
 - Host: `bot/tests/levtest.c` (traps room + chest + Levitation).
