@@ -118,6 +118,7 @@ static void face_game(void) {
   if (s_hl >= 0) { s_hl = -1; redraw(); }
   int ov = fb_override();
   if (ov != -1) APP_LOG(APP_LOG_LEVEL_INFO, "override %d: exit %d entrance %d amulet %d since %d presses %d", ov, G.exit, G.entrance, game_bag_find(IK_AMULET), s_fb_since, s_fb_presses);
+  if (ov == FB_DROP) { act(game_item_do(s_fb_slot, ACN_DROP)); s_f_next = now_ms() + STEP_MS * 2; return; }
   if (ov == FB_LEVEL) { act(ACT_LEVEL); s_f_next = now_ms() + 400; return; }
   if (ov >= 0) { ActResult r = game_tap_cell(ov); if (s_scene != SC_GAME) { s_f_next = now_ms() + STEP_MS; return; }   // (the win: the Surface scene is up)
     if (r != ACT_NONE) { act(r); s_f_next = now_ms() + STEP_MS; return; } }
