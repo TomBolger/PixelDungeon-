@@ -9,13 +9,13 @@
 #define FL(...) ((void)0)
 #endif
 #define FACE_WIN_MS 30000
-#define KEY_FACE_CLS 210                              // persist: the class of the next new game (they take turns)
+#define KEY_FACE_CLS 210                              // persist: the last hero's class (the next one is random among the other three)
 #ifdef FACE_OLDPACE                                   // test build: the pacing before the owner's pacing round (to measure against)
 #define STEP_MS 140
 #define NAV_MS 330
 #else
 #define STEP_MS 100                                   // a decision after a walk or a hit
-#define NAV_MS 200                                    // one button press in a window
+#define NAV_MS 260                                    // one button press in a window (items: a little slower than the walk/fight pace)
 #endif
 static uint32_t s_f_end, s_f_next, s_f_last, s_f_vic;
 static int32_t s_fp_t0; static uint8_t s_fp_chk; static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
@@ -195,8 +195,11 @@ static void bt_disappear(Window *w) { EVL(400, 0); }
 #endif
 
 static void face_new_game(void) {
-  int c = persist_exists(KEY_FACE_CLS) ? persist_read_int(KEY_FACE_CLS) & 3 : 0;
-  persist_write_int(KEY_FACE_CLS, (c + 1) & 3);
+  bool had = persist_exists(KEY_FACE_CLS); int last = had ? persist_read_int(KEY_FACE_CLS) & 3 : 0;
+  uint32_t r = (uint32_t)time(NULL) * 2654435761u ^ now_ms() * 40503u ^ (uint32_t)last * 2246822519u;   // random, from its own mix (the game's RNG is left alone)
+  r ^= r >> 15; r *= 2246822519u; r ^= r >> 13;
+  int c = had ? (last + 1 + (int)((r >> 7) % 3)) & 3 : (int)((r >> 7) & 3);   // never the last hero's class twice in a row
+  persist_write_int(KEY_FACE_CLS, c);
   s_fp = 0; s_f_vic = 0; s_hl = -1; s_fp_bad = 0; s_fp_chk = 0; s_fb_depth = -1;
   g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; memset(g_drop, 0xFF, sizeof g_drop); g_goal = g_from = -1;   // nothing of the last hero's plans carries over
   sheet_free(&s_gameover); sheet_free(&s_arcs); sheet_free(&s_avatars);   // the victory screen's pictures out of the heap before a floor is built (it needs one big block)
@@ -256,7 +259,7 @@ static void face_item(void) {
   if (s_fp != 2 && s_fp != 1) { s_fp_bad = 1; back_out(); return; }
   if (j < 0 || ++s_fp_n > 20) { s_fp = 0; s_fp_bad = 1; back_out(); return; }
   s_fp = 2;
-  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; s_fp = 0; press(BUTTON_ID_SELECT, STEP_MS * 3); } else press(BUTTON_ID_DOWN, NAV_MS);
+  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; s_fp = 0; press(BUTTON_ID_SELECT, 400); } else press(BUTTON_ID_DOWN, NAV_MS);
 }
 
 
@@ -350,12 +353,12 @@ static void face_game(void) {
   }
   if (!s_fp_bad && !fp_cool() && s_scene == SC_GAME && game_nearest_enemy() < 0 && s_fb_presses % 20 == 7 && fq_plan()) {   // rarely, with nothing about: a better wand or missile into a slot
     s_fp = 1; s_fp_n = 0; s_fp_act = ACN_QUICK; s_walking = false; fp_begin();
-    FL("qp %d %d", s_fp_slot, s_fq_q); APP_LOG(APP_LOG_LEVEL_INFO, "quickslot plan: bag slot %d into slot %d", s_fp_slot, s_fq_q); open_bag(-1); s_f_next = now_ms() + 500; return;
+    FL("qp %d %d", s_fp_slot, s_fq_q); APP_LOG(APP_LOG_LEVEL_INFO, "quickslot plan: bag slot %d into slot %d", s_fp_slot, s_fq_q); open_bag(-1); s_f_next = now_ms() + 650; return;
   }
   if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && !fp_cool() && game_slot(g_ovr.hs)->kind) {   // the bot's hands: through the windows
     s_fp = 1; s_fp_n = 0; s_fp_slot = g_ovr.hs; s_fp_act = g_ovr.ha; fp_begin();
     APP_LOG(APP_LOG_LEVEL_INFO, "hands: slot %d action %d", s_fp_slot, s_fp_act);
-    s_walking = false; open_bag(-1); s_f_next = now_ms() + 500; return;
+    s_walking = false; open_bag(-1); s_f_next = now_ms() + 650; return;
   }
   s_fp_bad = 0;
 #ifdef FACE_LOGP

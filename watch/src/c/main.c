@@ -306,7 +306,11 @@ static int tb_w(void) { return 2 * TB_R; }
 static int toolbar_y(void) { return 190; }               // the log ends above it
 // (0.83 owner: the backpack and the quickslots a cluster with the quickslot by it at the bottom, a gap, the other three up the left:
 // bearings 264, 244, 224 | 200, 180, 160, clear of the tags on the right)
+#ifdef PD_FACE                                           // wait, search up the left; the backpack and the three quickslots along the bottom right (bearings 30, 10, -10, -30 at 112)
+static const uint8_t TBX[TB_N] = { 19, 29, 74, 111, 149, 186 }, TBY[TB_N] = { 142, 179, 227, 240, 240, 227 };
+#else
 static const uint8_t TBX[TB_N] = { 19, 29, 52, 92, 130, 168 }, TBY[TB_N] = { 142, 179, 211, 235, 242, 235 };
+#endif
 static int tb_x(int i) { return TBX[i] - TB_R; }
 static int tb_in(int x, int y) { for (int i = 0; i < TB_N; i++) { int dx = x - TBX[i], dy = y - TBY[i]; if (dx * dx + dy * dy <= (TB_R + 4) * (TB_R + 4)) return i; } return -1; }
 #define TB_ROW(x, y) (tb_in(x, y) >= 0)
@@ -322,7 +326,11 @@ static int tb_w(void) { return 32; }
 static int tb_gap(void) { return 8; }
 static int toolbar_y(void) { return s_h - TB_H; }
 static int toolbar_x0(void) { return (s_w - TB_N * tb_w() - tb_gap()) / 2; }
+#ifdef PD_FACE
+static int tb_x(int i) { return toolbar_x0() + i * tb_w() + (i >= 2 ? tb_gap() : 0); }
+#else
 static int tb_x(int i) { return toolbar_x0() + i * tb_w() + (i >= 3 ? tb_gap() : 0); }
+#endif
 static int tb_hit(int x) { for (int i = 0; i < TB_N; i++) if (x >= tb_x(i) && x < tb_x(i) + tb_w()) return i; return -1; }
 #define TB_ROW(x, y) (y >= toolbar_y() && y < toolbar_y() + TB_H)
 #define TB_HIT(x, y) tb_hit(x)
@@ -1564,8 +1572,14 @@ static void draw_hud_art(void) {
   if (toolbar_hidden()) goto after_toolbar;
   GRect tc[TB_N];                                         // (the bubbles' pictures' places)
   for (int i = 0; i < TB_N; i++) tc[i] = bubble(hl_rect(i), ARGB(GColorDarkGray), ARGB(GColorLightGray));
+#ifdef PD_FACE
+  { static const uint8_t I[4][4] = { { 5, 8, 10, 10 }, { 24, 7, 12, 12 }, { 65, 5, 14, 15 }, { 46, 7, 8, 12 } };   // wait, search, backpack, (inspect: not drawn)
+    for (int i = 0; i < 4; i++) { if (i == 3) continue;
+#else
   { static const uint8_t I[4][4] = { { 5, 8, 10, 10 }, { 24, 7, 12, 12 }, { 46, 7, 8, 12 }, { 65, 5, 14, 15 } };   // wait, search, inspect, backpack
-    for (int i = 0; i < 4; i++) { if (PD_FACE_ON && i == 2) continue; GRect c = tc[i]; blit(&s_toolbar, I[i][0], I[i][1], I[i][2], I[i][3], BPIC(c, 2 * I[i][2], 2 * I[i][3]), 2); } }
+    for (int i = 0; i < 4; i++) { if (PD_FACE_ON && i == 2) continue;
+#endif
+      GRect c = tc[i]; blit(&s_toolbar, I[i][0], I[i][1], I[i][2], I[i][3], BPIC(c, 2 * I[i][2], 2 * I[i][3]), 2); } }
   for (int q = 0; q < NQ; q++) {
     int kind = *qkp(h, q); GRect c = tc[TBQ(q)];
     if (kind == IK_NONE) continue;

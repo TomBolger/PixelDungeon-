@@ -13,7 +13,11 @@ typedef struct { int16_t x, y; uint32_t t0; uint8_t anim, uid; bool active; } Vi
 #define SC(v) ((v) * 3 / 2)                       // status pane scale
 #define TB_H 38
 #define TB_N 6
+#ifdef PD_FACE
+enum { TB_WAIT, TB_SEARCH, TB_BAG, TB_INFO, TB_Q2, TB_Q1 };   // (the face: no "?" button; the backpack and the three quickslots are one group on the right, TB_INFO is quickslot 3)
+#else
 enum { TB_WAIT, TB_SEARCH, TB_INFO, TB_BAG, TB_Q2, TB_Q1 };
+#endif
 #define TEXT_BUF 720
 #define BAG_COLS 5                                 // 0.18: a 5x5 grid filling the screen (weapon, armour, rings, gold; 19 slots; Exit)
 #define BAG_ROWS 5
