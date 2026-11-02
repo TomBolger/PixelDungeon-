@@ -5,6 +5,12 @@
 #include "pd.h"
 #include "ovl.h"
 
+#ifdef PD_FACE
+// the watchface is silent: no engine, no timer, no settings (the sound overlay is never loaded)
+uint8_t g_sound = 0;
+void snd_poll(void) {} void snd_music(int track) {} void ui_sound(int id) {} void snd_set(uint8_t mask) {} void snd_cycle(void) {}
+void snd_init(void) {} void snd_hold(bool off) {} void snd_deinit(void) {}
+#else
 #define KEY_SOUND 202                       // bit 0 music, bit 1 sound on, bits 2-3 volume (absent: on, loud)
 #define QUIET_MS 2000
 uint8_t g_sound = SOUND_MUSIC | SOUND_FX;
@@ -72,3 +78,4 @@ void snd_hold(bool off) {                                 // the engine out of t
   else if ((g_sound & SOUND_FX) && !s_snd) load();
 }
 void snd_deinit(void) { if (s_snd) cmd(SNDC_STOP, 0); }
+#endif

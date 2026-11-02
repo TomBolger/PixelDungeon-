@@ -43,6 +43,7 @@ bool char_at(int c);
 bool discoverable(int c);
 void dispel_invisibility(void);
 bool distance_map(int from, int stop);
+void tgt_pass(void);
 void mark_chars(bool only_visible);            // s_pass: the creatures (those in sight) and the hero block the way
 void earn_exp(int exp);
 void eat_satisfy(int energy);

@@ -593,7 +593,7 @@ static int hands(void) {
       for (int j = 0; j < 6; j++) { int k = K[j], sl = game_bag_find(k); if (sl >= 0 && (item_cat(k) != CAT_POTION || item_known(k)) && (j || (ed >= 5 && !e->b.paralysis))) { g_ovr.hs = sl; g_ovr.ha = ACN_THROW; s_aim = e->pos; return TK_BAG; } } }
     int t = e->type; bool shooter = t == MT_TENGU || t == MT_EYE || t == MT_SCORPIO || t == MT_ACIDIC;
     if (t == MT_SHAMAN || t == MT_WARLOCK) return -1;   // 0.63 (owner): those want melee, from round a corner (tactics), not a wand duel
-    for (int q = 0; q < 2; q++) { int k = h->quick[q], sl = k ? game_bag_find(k) : -1; if (sl < 0) continue; Item *it = game_slot(sl); int c = item_cat(k);   // 0.54 (owner): what's in a quickslot first, and more readily
+    for (int q = 0; q < NQ; q++) { int k = *qkp(h, q), sl = k ? game_bag_find(k) : -1; if (sl < 0) continue; Item *it = game_slot(sl); int c = item_cat(k);   // 0.54 (owner): what's in a quickslot first, and more readily
       if (c == CAT_MISSILE && !shooter && k != IK_BOOMERANG) { g_ovr.hs = sl; g_ovr.ha = ACN_THROW; s_aim = e->pos; return TK_BAG; }
       if (c == CAT_WAND && it->ench > 0 && item_known(k) && k != IK_WND_TELEPORT && k != IK_WND_REGROWTH && k != IK_WND_BLINK && k != IK_WND_REACH && k != IK_WND_FLOCK && k != IK_WND_AMOK
           && !((k == IK_WND_LIGHTNING || k == IK_WND_AVALANCHE) && ed < 3) && !(k == IK_WND_FIREBOLT && (TFLAGS(G.map[hp]) & F_FLAMABLE))) { g_ovr.hs = sl; g_ovr.ha = ACN_ZAP; s_aim = e->pos; return TK_BAG; } }
@@ -695,8 +695,7 @@ static int targets(int16_t *cell, uint8_t *kind) {
   int hp = G.hero.pos;
   s_tn = 0; s_tc = cell; s_tk = kind;
   { int f = g_from, dx = (hp & 31) - (f & 31), dy = (hp >> 5) - (f >> 5); s_head = f >= 0 && (dx || dy) && abs(dx) <= 8 && abs(dy) <= 8 ? pang(dx, dy) : -1; }
-  for (int c = 0; c < MAP_LEN; c++)                    // 0.25: distances are walks through what's known (the pathfinder's)
-    if ((open_cell(c) || (G.hero.b.levitation >= 3 && (TFLAGS(G.map[c]) & (F_AVOID | F_PIT | F_SOLID)) == F_AVOID)) && (BIT_GET(G.visited, c) || BIT_GET(G.fov, c))) BIT_SET(s_pass, c); else BIT_CLR(s_pass, c);   // (floating, with a few turns left: the traps are floor too: the traps room's chest is walked to, not left)
+  tgt_pass();                                          // 0.25: distances are walks through what's known (the pathfinder's; game.c)
   mark_chars(true);                                    // Hero.getCloser: those in sight block the way
   for (int i = 0; i < G.n_mobs; i++) {                 // 0.43: and the quest people seen before (they stay put: a way only open
     Mob *m = &G.mobs[i];                               // while one was out of sight sent the hero to and fro)
@@ -742,7 +741,7 @@ static void t_first(int obj) {                        // 0.73: the entry standin
 }
 #if TGT_PART >= 2
 #if TGT_PART == 2
-enum { HB_WAIT, HB_SEARCH, HB_INFO, HB_BAG, HB_Q2, HB_Q1 };   // (ui_int.h TB_*: the bottom bar, then 6 the menu, 7 the portrait)
+enum { HB_WAIT, HB_SEARCH, HB_INFO, HB_BAG, HB_Q2, HB_Q1 }; static const uint8_t HBQ[3] = { HB_Q1, HB_Q2, HB_INFO };   // (ui_int.h TB_*: the bottom bar, then 6 the menu, 7 the portrait)
 static void hl_rank(int hk) {                          // 0.54 (owner): Back walks the bottom bar in the bot's order, best first
   Hero *h = &G.hero; int hp = h->pos, sc[8]; bool seen = false, foe2 = false;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & MD_NPC)) continue; seen = true;
@@ -751,7 +750,7 @@ static void hl_rank(int hk) {                          // 0.54 (owner): Back wal
   sc[HB_WAIT] = hk == TK_REST ? 92 : foe2 ? 90 : !seen && h->HP < h->HT ? 50 : 25;
   sc[HB_SEARCH] = s_tn > 0 && s_tc[0] == hp && s_tk[0] == TK_GO ? 80 : seen ? 10 : 35;
   sc[HB_INFO] = 15; sc[HB_BAG] = 40; sc[6] = 2; sc[7] = 3;
-  for (int q = 0; q < 2; q++) { int qk = h->quick[q], c = item_cat(qk); sc[q ? HB_Q2 : HB_Q1] = !qk || game_bag_find(qk) < 0 ? 5 : seen && (c == CAT_MISSILE || c == CAT_WAND) ? 60 : 20; }
+  for (int q = 0; q < 2; q++) { int qk = h->quick[q], c = item_cat(qk); sc[HBQ[q]] = !qk || game_bag_find(qk) < 0 ? 5 : seen && (c == CAT_MISSILE || c == CAT_WAND) ? 60 : 20; }
   if (hb >= 0) sc[hb] = 100;
   for (int i = 0; i < 8; i++) { int b = 0; for (int j = 1; j < 8; j++) if (sc[j] > sc[b]) b = j; g_hl_order[i] = b; sc[b] = -1; }
 }

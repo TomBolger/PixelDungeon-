@@ -109,9 +109,53 @@ static void face_item(void) {
   if (s_fp != 2 && s_fp != 1) { s_fp_bad = 1; back_out(); return; }
   if (j < 0 || ++s_fp_n > 20) { s_fp = 0; s_fp_bad = 1; back_out(); return; }
   s_fp = 2;
-  if (s_sel == j) { s_fp_chk = 1; s_fp_t0 = G.hero.time; APP_LOG(APP_LOG_LEVEL_INFO, "do action %d (%d presses)", s_fp_act, s_fp_n); s_fp = 0; press(BUTTON_ID_SELECT, STEP_MS * 3); } else press(BUTTON_ID_DOWN, NAV_MS);
+  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; APP_LOG(APP_LOG_LEVEL_INFO, "do action %d (%d presses)", s_fp_act, s_fp_n); s_fp = 0; press(BUTTON_ID_SELECT, STEP_MS * 3); } else press(BUTTON_ID_DOWN, NAV_MS);
 }
 
+
+// ---- the quickslots: wands and thrown weapons are used from their slot (press it, then aim), never through the backpack.
+// The bot keeps the best of them in the three slots, re-assigning through the real windows (item, "Quickslot", the slot).
+static int fq_score(int k, const Item *it) {
+  switch (k) {
+    case IK_DART: return 10; case IK_INCENDIARY_DART: return 12; case IK_CURARE_DART: return 14; case IK_SHURIKEN: return 18;
+    case IK_JAVELIN: return 20; case IK_TOMAHAWK: return 25; case IK_BOOMERANG: return 8;
+    case IK_WND_FIREBOLT: case IK_WND_LIGHTNING: case IK_WND_DISINTEGRATION: case IK_WND_MM: return 60 + it->ench;
+    case IK_WND_AVALANCHE: return 55; case IK_WND_POISON: return 45; case IK_WND_SLOW: return 40;
+    default: return 0;
+  }
+}
+static int fq_bag_score(int k) {                       // the best score in the bag for that kind (0: none, or a wand not known / empty)
+  int sl = game_bag_find(k); if (sl < 0) return 0;
+  const Item *it = game_slot(sl);
+  if (item_cat(k) == CAT_WAND && (!item_known(k) || it->ench <= 0)) return 0;
+  return fq_score(k, it);
+}
+static int fq_slot_of(int kind) { for (int q = 0; q < NQ; q++) if (kind && *qkp(&G.hero, q) == kind) return q; return -1; }
+// the next re-assignment worth making: sets s_fp_slot (bag slot) and s_fq_q; false: the slots hold the best already
+static int8_t s_fq_q; static int16_t s_fq_done = -1;   // (the last plan made: not twice)
+static bool fq_plan(void) {
+  int best = 0, bk = 0;
+  ALL_SLOTS(sl) { const Item *it = game_slot(sl); int k = it->kind, c = item_cat(k); if (c != CAT_MISSILE && c != CAT_WAND) continue;
+    int sc = fq_bag_score(k); if (sc <= 0 || fq_slot_of(k) >= 0) continue;
+    if (sc > best) { best = sc; bk = k; s_fp_slot = sl; } }
+  if (!bk) return false;
+  int q = -1, qs = best;                               // an empty slot, else the weakest one that is worth less than the newcomer
+  for (int i = 0; i < NQ; i++) { int k = *qkp(&G.hero, i); int sc = k ? fq_bag_score(k) : -1; if (sc < qs) { qs = sc; q = i; } }
+  if (q < 0) return false;
+  if ((bk << 2 | q) == s_fq_done) return false;
+  s_fq_done = bk << 2 | q; s_fq_q = q; return true;
+}
+// ---- the camera: a zoom that shows what he is up to. Close in for a fight; otherwise the target a few steps away, the zoom
+// out as far as it takes to show him and it (main.c cam_to), held for a moment so it can be read, then close in for the run.
+static uint32_t s_fc_t, s_fc_hold; static int32_t s_fc_key = -1; static bool s_fc_held;
+static bool face_cam_ok(void) {                        // asked by tg_refresh each time it would swoop the camera to the chosen target
+  uint32_t n = now_ms();
+  int e = game_nearest_enemy(); bool melee = e >= 0 && distance(e, G.hero.pos) <= 2;
+  int32_t key = s_tg < 0 ? -1 : s_tgk == TK_ENEMY ? 0x10000 | s_tgu : s_tg;
+  if (melee) { bool in = s_zoom == 2 && s_zto < 0 && !cam_free(); s_fc_key = key; if (!in) s_fc_t = n; return !in; }   // a fight: in, at once
+  if (key == s_fc_key || (int32_t)(n - s_fc_t) < 1200) return false;   // the same target, or a change not long ago: no flicker
+  s_fc_key = key; s_fc_t = n; s_fc_held = true; s_fc_hold = n + 1100; return true;
+}
 static void face_game(void) {
   { static int8_t d; if (d != G.depth) { d = G.depth; APP_LOG(APP_LOG_LEVEL_INFO, "depth %d, lvl %d, hp %d/%d, last floor %d presses, %d since news", d, G.hero.lvl, G.hero.HP, G.hero.HT, s_fb_presses, s_fb_since); } }
   if (s_fp_chk) { s_fp_chk = 0; if (G.hero.time == s_fp_t0) s_fp_bad = 1; }   // the windows' way did nothing (a throw with no clear line): the game's own way this time
@@ -123,6 +167,20 @@ static void face_game(void) {
   if (ov >= 0) { ActResult r = game_tap_cell(ov); if (s_scene != SC_GAME) { s_f_next = now_ms() + STEP_MS; return; }   // (the win: the Surface scene is up)
     if (r != ACT_NONE) { act(r); s_f_next = now_ms() + STEP_MS; return; } }
   tg_refresh(0);
+  { uint32_t n = now_ms();
+    if (s_fc_held) {                                   // the far target on show (zoomed out, the reticle on it) for a moment, then in for the run
+      if (zoom_now() == 2 && !cam_free()) s_fc_held = false;
+      else if ((int32_t)(n - s_fc_hold) < 0) { s_f_next = s_fc_hold; return; }
+      else { s_fc_held = false; cam_center(); redraw(); s_f_next = n + 450; return; }
+    } else if (cam_free() && s_tgk != TK_BAG && game_nearest_enemy() < 0) { cam_center(); redraw(); s_f_next = n + 300; return; } }
+  if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && g_ovr.ha != ACN_QUICK && (g_ovr.ha == ACN_THROW || g_ovr.ha == ACN_ZAP)) {   // a throw or a zap from a quickslot: its button, then aim
+    int q = fq_slot_of(game_slot(g_ovr.hs)->kind);
+    if (q >= 0) { s_fp_n = 0; s_walking = false; APP_LOG(APP_LOG_LEVEL_INFO, "quickslot %d: action %d", q, g_ovr.ha); quickslot(q); s_f_next = now_ms() + NAV_MS; return; }
+  }
+  if (!s_fp_bad && s_scene == SC_GAME && game_nearest_enemy() < 0 && s_fb_presses % 20 == 7 && fq_plan()) {   // rarely, with nothing about: a better wand or missile into a slot
+    s_fp = 1; s_fp_n = 0; s_fp_act = ACN_QUICK; s_walking = false;
+    APP_LOG(APP_LOG_LEVEL_INFO, "quickslot plan: bag slot %d into slot %d", s_fp_slot, s_fq_q); open_bag(-1); s_f_next = now_ms() + 500; return;
+  }
   if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && game_slot(g_ovr.hs)->kind) {   // the bot's hands: through the windows
     s_fp = 1; s_fp_n = 0; s_fp_slot = g_ovr.hs; s_fp_act = g_ovr.ha;
     APP_LOG(APP_LOG_LEVEL_INFO, "hands: slot %d action %d", s_fp_slot, s_fp_act);
@@ -139,8 +197,8 @@ static void face_think(void) {
     case SC_GAME: face_game(); break;
     case SC_BAG: face_bag(); break;
     case SC_ITEM: face_item(); break;
-    case SC_OPTIONS: s_sel = 0; press(BUTTON_ID_SELECT, NAV_MS); break;          // yes / the first choice
-    case SC_TARGET: if (++s_fp_n > 3) { s_fp_n = 0; back_out(); } else press(BUTTON_ID_SELECT, NAV_MS); break;
+    case SC_OPTIONS: s_sel = s_opt == 4 ? s_fq_q : 0; press(BUTTON_ID_SELECT, NAV_MS); break;          // yes / the first choice
+    case SC_TARGET: if (++s_fp_n > 3) { s_fp_n = 0; s_fp_bad = 1; back_out(); } else press(BUTTON_ID_SELECT, NAV_MS); break;
     case SC_AMULET:
       if (s_amulet == 2) { if (s_f_vic >= FACE_WIN_MS) face_new_game(); else s_f_next = now_ms() + 500; }
       else back_out();                                                       // the Amulet's scene: carry on
@@ -160,7 +218,7 @@ static void face_tick(bool moving) {
   face_think();
 }
 static void face_boot(void) {
-  g_assist = 3; s_zoom = s_zuser = 1; s_zto = -1;                      // Assist High, near
+  g_assist = 7; s_zoom = s_zuser = 2; s_zto = -1;                      // Assist Max (targets anywhere: the camera shows them), closest zoom
   s_has_save = game_peek_save(&s_save_depth, &s_save_lvl);
 #ifdef FACE_WINTEST                                   // test build: a new game that already holds the Amulet, on its way up from floor 1
   face_new_game(); bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET;
