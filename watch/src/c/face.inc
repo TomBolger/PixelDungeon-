@@ -10,8 +10,13 @@
 #endif
 #define FACE_WIN_MS 30000
 #define KEY_FACE_CLS 210                              // persist: the class of the next new game (they take turns)
-#define STEP_MS 140                                   // a decision after a walk or a hit
-#define NAV_MS 330                                    // one button press in a window
+#ifdef FACE_OLDPACE                                   // test build: the pacing before the owner's pacing round (to measure against)
+#define STEP_MS 140
+#define NAV_MS 330
+#else
+#define STEP_MS 100                                   // a decision after a walk or a hit
+#define NAV_MS 200                                    // one button press in a window
+#endif
 static uint32_t s_f_end, s_f_next, s_f_last, s_f_vic;
 static int32_t s_fp_t0; static uint8_t s_fp_chk; static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
 static uint32_t s_fc_t, s_fc_hold; static int32_t s_fc_key = -1; static bool s_fc_held;   // the camera (face_cam)
@@ -31,11 +36,13 @@ static void fclk_glyph(GContext *g, int d, int x, int y, int k, int grow, GColor
 #define KEY_FACE_CFG 211
 #define KEY_FACE_WX 212
 enum { FV_GAME, FV_TIME, FV_DATE, FV_TEMP, FV_HIGH, FV_LOW, FV_STEPS, FV_HR, FV_BATT, FV_WDAY, FV_MDAY, FV_SEC, FV_AMPM, FV_GOLD, FV_HPP, FV_HILO, FV_BLANK };
-typedef struct { uint8_t clk_on, clk_fmt, clk_size, clk_line, ui_clock, date_ord, unit_f, slot[FS_N]; } FaceCfg;   // clk_fmt 0 system 1 12h 2 24h; clk_size 0 big 1 small; clk_line: shadow and outline; date_ord 0 MM/DD 1 DD/MM
-static FaceCfg s_cfg = { 1, 0, 0, 1, 0, 0, 1, { 0 } };
+typedef struct { uint8_t clk_on, clk_fmt, clk_size, clk_line, res, date_ord, unit_f, slot[FS_N], vibe; } FaceCfg;   // clk_fmt 0 system 1 12h 2 24h; clk_size 0 big 1 small; clk_line: shadow and outline; res: the old "clock inside the HUD" (gone; an old save's 1 becomes the time and date slots); date_ord 0 MM/DD 1 DD/MM; vibe: game events buzz (default off)
+#define FACE_CFG_OLD 12                                // the size of a saved FaceCfg before vibe
+static FaceCfg s_cfg = { 1, 0, 0, 1, 0, 0, 1, { 0 }, 0 };
 static int16_t s_wx[3]; static uint8_t s_wx_ok;        // the weather: now, high, low, in tenths of a degree C
-static bool face_hud_dyn(void) { if (s_cfg.ui_clock) return true; for (int i = 0; i < FS_N; i++) if (s_cfg.slot[i]) return true; return false; }
-static bool face_clock_shown(void) { return s_cfg.clk_on && !s_cfg.ui_clock; }
+static bool face_vibe(void) { return s_cfg.vibe; }
+static bool face_hud_dyn(void) { for (int i = 0; i < FS_N; i++) if (s_cfg.slot[i]) return true; return false; }
+static bool face_clock_shown(void) { return s_cfg.clk_on; }
 static int face_k(void) { int k = PBL_IF_ROUND_ELSE(7, 8); return s_cfg.clk_size ? k * 3 / 4 : k; }
 static int face_clk_h(void) { return face_clock_shown() ? 5 * face_k() + 6 : 0; }
 static int face_clk_dy(void) { return PBL_IF_ROUND_ELSE(face_clock_shown() ? 12 : 0, 0); }
@@ -51,7 +58,6 @@ static bool face_h24(void) { return s_cfg.clk_fmt == 0 ? clock_is_24h_style() : 
 #endif
 static bool face_slot(int s, char *b, int n) {         // the slot's text; false: it shows the game's number (b NULL: only asks)
   int k = s_cfg.slot[s];
-  if (!k && s_cfg.ui_clock) k = s == FS_LVL ? FV_TIME : s == FS_HP ? FV_DATE : 0;
   if (!k) return false;
   if (!b) return true;
   time_t t = time(NULL); struct tm *tm = localtime(&t); int v = -1; bool wx = false;
@@ -92,8 +98,13 @@ static bool face_slot(int s, char *b, int n) {         // the slot's text; false
   if (!b[0]) snprintf(b, n, "--");
   return true;
 }
+static void face_cfg_fix(void) {                       // after a load: an old save's "clock inside the HUD" is the time and date slots (and no big clock), as it was; unknown choices are the game's number
+  if (s_cfg.res) { if (!s_cfg.slot[FS_LVL]) s_cfg.slot[FS_LVL] = FV_TIME; if (!s_cfg.slot[FS_HP]) s_cfg.slot[FS_HP] = FV_DATE; s_cfg.clk_on = 0; s_cfg.res = 0; }
+  for (int i = 0; i < FS_N; i++) if (s_cfg.slot[i] > FV_BLANK) s_cfg.slot[i] = 0;
+  s_cfg.vibe &= 1; s_cfg.date_ord &= 1;
+}
 static void face_cfg_load(void) {
-  if (persist_exists(KEY_FACE_CFG) && persist_get_size(KEY_FACE_CFG) == (int)sizeof s_cfg) persist_read_data(KEY_FACE_CFG, &s_cfg, sizeof s_cfg);
+  if (persist_exists(KEY_FACE_CFG)) { int n = persist_get_size(KEY_FACE_CFG); if (n == (int)sizeof s_cfg || n == FACE_CFG_OLD) { persist_read_data(KEY_FACE_CFG, &s_cfg, n); face_cfg_fix(); } }
   if (persist_exists(KEY_FACE_WX) && persist_get_size(KEY_FACE_WX) == (int)sizeof s_wx) { persist_read_data(KEY_FACE_WX, s_wx, sizeof s_wx); s_wx_ok = 1; }
 #ifdef FACE_FAKE
   s_wx[0] = 215; s_wx[1] = 262; s_wx[2] = 118; s_wx_ok = 1;      // 21.5 C now, 26.2 high, 11.8 low
@@ -101,7 +112,7 @@ static void face_cfg_load(void) {
 }
 static void face_inbox(DictionaryIterator *it, void *ctx) {
   Tuple *t = dict_find(it, MESSAGE_KEY_CFG);
-  if (t && t->length == sizeof s_cfg) { memcpy(&s_cfg, t->value->data, sizeof s_cfg); for (int i = 0; i < FS_N; i++) if (s_cfg.slot[i] > FV_BLANK) s_cfg.slot[i] = 0; persist_write_data(KEY_FACE_CFG, &s_cfg, sizeof s_cfg); }
+  if (t && (t->length == sizeof s_cfg || t->length == FACE_CFG_OLD)) { s_cfg.vibe = 0; memcpy(&s_cfg, t->value->data, t->length); face_cfg_fix(); persist_write_data(KEY_FACE_CFG, &s_cfg, sizeof s_cfg); }
   t = dict_find(it, MESSAGE_KEY_WX);
   if (t && t->length == sizeof s_wx) { memcpy(s_wx, t->value->data, sizeof s_wx); s_wx_ok = 1; persist_write_data(KEY_FACE_WX, s_wx, sizeof s_wx); }
   face_clk_changed();
@@ -116,7 +127,6 @@ static void clock_proc(Layer *l, GContext *ctx) {
   int dg[5] = { h / 10, h % 10, 10, m / 10, m % 10 };
   bool lead = face_h24() || h >= 10;
   bool hud = s_scene == SC_GAME || s_scene == SC_TARGET || s_scene == SC_INSPECT;   // the HUD is up: the clock sits just under it
-  if (hud && !face_clock_shown()) return;                                     // (the time is in the level badge)
   bool win = !hud && s_scene != SC_DEAD && s_scene != SC_AMULET && s_scene != SC_TITLE && s_scene != SC_SELECT;   // a window (the backpack...): the clock small at the top, clear of its numbers
   int k = win ? 3 : face_k(), adv = 4 * k;
   int first = lead ? 0 : 1;
@@ -135,6 +145,9 @@ static void minute_tick(struct tm *tm, TimeUnits u) { if (s_clock_layer) layer_m
 // ---- bursts
 static void face_pause(void) {
   if (!s_f_on) return;
+#ifdef FACE_ACTLOG
+  app_log(APP_LOG_LEVEL_INFO, "face", 0, "P");
+#endif
   s_f_on = false;
   if (g_game && G.hero.HP > 0 && s_scene == SC_GAME && s_fp == 0) { ui_win_free(); game_save(); }   // where it stands, saved (no timer runs from here)
   if (s_timer) app_timer_cancel(s_timer);
@@ -148,12 +161,38 @@ static void face_pause(void) {
 }
 static void face_burst(void) {
   uint32_t n = now_ms();
+#ifdef FACE_ACTLOG
+  app_log(APP_LOG_LEVEL_INFO, "face", 0, "B %d", s_f_on);
+#endif
   s_f_end = n + FACE_BURST_MS; s_f_last = n; s_f_next = n + 300;
-  if (s_f_on) return;
+  if (s_f_on) { if (!s_timer) busy(); return; }   // (running: but with no timer it is stuck: kicked)
   s_f_on = true; s_last_in = n; s_timer = NULL; busy();
 }
 static void face_tap(AccelAxisType axis, int32_t dir) { face_burst(); }
-static void face_appear(Window *w) { if (g_game) face_burst(); }
+#ifdef FACE_BTNTEST
+#define EVL(a, b) app_log(APP_LOG_LEVEL_INFO, "face", 0, "EV %d", (a) + (b))   // codes: 100 appear, 200 focus (+1 in), 300 will_focus (+1), 400 disappear, 500 boot, 600 deinit, 700 click (+button), 800 unob
+#endif
+static void face_appear(Window *w) {
+#ifdef FACE_BTNTEST
+  EVL(100, 0);
+#endif
+  if (g_game) face_burst();
+}
+static void face_unob(void *c) {                       // the timeline's quick view came or went over the face
+#ifdef FACE_BTNTEST
+  EVL(800, 0);
+#endif
+  if (g_game) face_burst();
+}
+static void face_focus(bool in_focus) {                // the face got the screen back (a notification or menu that covered it has gone)
+#ifdef FACE_BTNTEST
+  EVL(200, in_focus);
+#endif
+  if (in_focus && g_game) face_burst();
+}
+#ifdef FACE_BTNTEST                                    // test build: does anything reach the face when Back (or any button) is pressed?
+static void bt_disappear(Window *w) { EVL(400, 0); }
+#endif
 
 static void face_new_game(void) {
   int c = persist_exists(KEY_FACE_CLS) ? persist_read_int(KEY_FACE_CLS) & 3 : 0;
@@ -255,6 +294,13 @@ static bool fq_plan(void) {
 }
 // ---- the camera: a zoom that shows what he is up to. Close in for a fight; otherwise the target a few steps away, the zoom
 // out as far as it takes to show him and it (main.c cam_to), held for a moment so it can be read, then close in for the run.
+#ifdef FACE_OLDPACE
+#define FC_HOLD_MS 1100
+#define FC_GAP_MS 1200
+#else
+#define FC_HOLD_MS 650                                 // a glance: the swoop out (300 ms) and a moment to read
+#define FC_GAP_MS 3000
+#endif
 static bool face_cam_ok(void) { return false; }        // (main.c's tg_refresh asks it only with Assist Max; the face is on High: face_cam below does the camera)
 static bool face_far(int c) {                          // the target is out of the closest zoom's reach (cam_to would zoom out)
   int h = G.hero.pos, dx = (c & 31) - (h & 31), dy = (c >> 5) - (h >> 5);
@@ -266,7 +312,11 @@ static bool face_cam_hold(void) {                      // a far place on show (z
   uint32_t n = now_ms();
   if (s_walking || face_melee() || (zoom_now() == 2 && !cam_free())) { s_fc_held = false; return false; }   // a fight or a walk cuts it short
   if ((int32_t)(n - s_fc_hold) < 0) { s_f_next = s_fc_hold; return true; }
+#ifdef FACE_OLDPACE
   s_fc_held = false; cam_center(); redraw(); s_f_next = n + 450; return true;
+#else
+  s_fc_held = false; cam_center(); redraw(); return false;     // (in again while the walk starts: no wait for the camera)
+#endif
 }
 // c: where he is going (the walk's destination or the Assist's target), -1 none. Fight: in at once. A target the closest zoom
 // shows: stay in (centred). A far one, new and not too soon after the last change: zoomed out to show both, held ~1.1 s (face_cam_hold).
@@ -276,9 +326,9 @@ static bool face_cam(int c) {
   if (c < 0) return false;
   int32_t key = s_tgk == TK_ENEMY && c == s_tg ? 0x10000 | s_tgu : c;
   if (!face_far(c)) { if (cam_free() || zoom_now() != 2) { cam_center(); redraw(); } return false; }
-  if (key == s_fc_key || (int32_t)(n - s_fc_t) < 1200) return false;      // the same place, or a change not long ago: no flicker
+  if (key == s_fc_key || (int32_t)(n - s_fc_t) < FC_GAP_MS) return false;      // the same place, or a change not long ago: no flicker
   s_fc_key = key; s_fc_t = n; cam_to(c);
-  s_fc_held = true; s_fc_hold = n + 1100; redraw(); s_f_next = s_fc_hold; return true;
+  s_fc_held = true; s_fc_hold = n + FC_HOLD_MS; redraw(); s_f_next = s_fc_hold; return true;
 }
 static void face_game(void) {
   { static int8_t d; if (d != G.depth) { d = G.depth; APP_LOG(APP_LOG_LEVEL_INFO, "depth %d, lvl %d, hp %d/%d, last floor %d presses, %d since news", d, G.hero.lvl, G.hero.HP, G.hero.HT, s_fb_presses, s_fb_since); } }
@@ -333,6 +383,11 @@ static void face_think(void) {
     default: back_out();
   }
 }
+#ifdef FACE_OLDPACE
+static uint32_t face_wake(uint32_t ms) { return ms; }
+#else
+static uint32_t face_wake(uint32_t ms) { int32_t d = (int32_t)(s_f_next - now_ms()); return d > 0 && (uint32_t)d < ms ? (d < 12 ? 12 : (uint32_t)d) : ms; }
+#endif
 static void face_tick(bool moving) {
   if (!s_f_on) return;
   { int f = (int)heap_bytes_free(); if (f < g_heap_min) g_heap_min = f;
@@ -343,7 +398,13 @@ static void face_tick(bool moving) {
 #ifdef FACE_LOGS
   { int f = (int)heap_bytes_free(); if (f < s_f_min) { s_f_min = f; } }
 #endif
+#ifdef FACE_ACTLOG                                     // test build: one line per game turn and per camera/think event, with the ms since the last
+  { static int32_t ln = -1; static uint32_t lt; if (G.now != ln) { ln = G.now; app_log(APP_LOG_LEVEL_INFO, "face", 0, "A %u %u %d%d%d", (unsigned)(n - s_f_end + FACE_BURST_MS), (unsigned)(n - lt), s_scene, s_walking, s_fc_held); lt = n; } }
+#endif
   if (s_scene == SC_AMULET && s_amulet == 2) s_f_vic += dt;            // the victory screen is counted in play time
+#ifndef FACE_OLDPACE
+  if ((int32_t)(s_f_next - n) > 700) s_f_next = n;
+#endif                   // (no wait is longer: a clock that stepped a second back made them so)
   if ((int32_t)(n - s_f_end) >= 0) { face_pause(); return; }
   if (s_scene == SC_AMULET && s_amulet == 2 && s_f_vic >= FACE_WIN_MS) { face_new_game(); s_f_next = n + 600; return; }   // 30 s of victory: the next hero
   if (moving || s_fade || s_proj.active || s_walking || (int32_t)(n - s_f_next) < 0) return;
@@ -369,6 +430,15 @@ static void face_boot(void) {
   app_message_register_inbox_received(face_inbox); app_message_open(24, 0);      // the settings and the weather, from the phone (pkjs)
   tick_timer_service_subscribe(MINUTE_UNIT, minute_tick);
   accel_tap_service_subscribe(face_tap);
+  unobstructed_area_service_subscribe((UnobstructedAreaHandlers){ .did_change = face_unob }, NULL);
+  app_focus_service_subscribe_handlers((AppFocusHandlers){ .did_focus = face_focus
+#ifdef FACE_BTNTEST
+#endif
+  });
+#ifdef FACE_BTNTEST
+  EVL(500, 0);
+
+#endif
   s_f_on = false;
 #ifdef FACE_BAGTEST                                   // test build: the backpack open and still
   open_bag(-1); redraw();

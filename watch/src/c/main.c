@@ -185,10 +185,16 @@ static int face_clk_h(void);                        // the big clock's height wh
 static int face_clk_dy(void);                       // Gabbro: how far the map's centre moves down
 static bool face_slot(int slot, char *buf, int n);  // the slot's own text (false: the game's number)
 char g_face_gold[12];                               // the backpack's gold slot (the overlay reads it; empty: the gold count)
+static bool face_vibe(void);                        // the settings page's "Vibrate for game events" (off)
+#define GAME_VIBE() face_vibe()
+#ifdef FACE_BTNTEST
+static void bt_disappear(Window *w);
+#endif
 #define FCLK_H() face_clk_h()
 #define FCLK_DY() face_clk_dy()
 #define FSLOT_SET(s) face_slot((s), NULL, 0)
 #else
+#define GAME_VIBE() true
 #define FCLK_H() 0
 #define FCLK_DY() 0
 #endif
@@ -483,7 +489,12 @@ void ui_fx(FxKind kind, int16_t cell, int who, const char *text) {
     case FX_ALERT: if (who >= 0) s_alert_until[who] = now_ms() + 1200; break;
     case FX_HEAL: add_float(cell, text, GColorGreen); break;
     case FX_GOLD: add_float(cell, text, GColorChromeYellow); break;
-    case FX_HURT: vibes_enqueue_custom_pattern((VibePattern){ .durations = (uint32_t[]){ 40 }, .num_segments = 1 }); break;
+    case FX_HURT:
+#ifdef FACE_VIBETEST
+      app_log(APP_LOG_LEVEL_INFO, "face", 0, "HURT vibe %d", GAME_VIBE());
+#endif
+      if (GAME_VIBE()) vibes_enqueue_custom_pattern((VibePattern){ .durations = (uint32_t[]){ 40 }, .num_segments = 1 });
+      break;
     case FX_DESCEND: vis_reset_all(); break;
     case FX_LEAVE: mob_sheets_free(); fx_drop(); s_fx_off = true; break;      // more room for the next floor's generator
     case FX_TELEPORT: if (v->active || who < 0) vis_snap(v, who < 0 ? G.hero.pos : cell); break;
@@ -555,12 +566,16 @@ static uint32_t s_last_in;                          // 0.55 (owner): the last bu
 #ifdef PD_FACE
 static bool s_f_on;                                 // a burst of play is running (else frozen: no timer, no redraw)
 static void face_tick(bool moving);
+static uint32_t face_wake(uint32_t ms);              // face.inc: the wait, cut short to the bot's next decision (an idle tick waited up to a second past it)
 #endif
 static void schedule(uint32_t ms) {
 #ifdef PD_FACE
   if (!s_f_on) { if (s_timer) app_timer_cancel(s_timer); s_timer = NULL; return; }
+  ms = face_wake(ms);
 #endif
+#ifndef PD_FACE                                      // (the face ends its bursts itself; this once left a burst asleep for good)
   if (ms >= 125 && now_ms() - s_last_in > 10000) { if (s_timer) app_timer_cancel(s_timer); s_timer = NULL; return; }   // (power saving: asleep till the next press)
+#endif
   if (s_timer && s_timer_ms == ms) return;
   if (s_timer) app_timer_cancel(s_timer);
   s_timer_ms = ms;
@@ -763,12 +778,16 @@ static void after_turn(ActResult r) {
     s_walking = false; s_has_save = false;
     if (game_bag_find(IK_ANKH) >= 0) { persist_delete(1); game_ankh(); return; }   // Hero.die: an Ankh offers another chance (the floors are kept)
     game_erase(); game_rank(0);                                              // Dungeon.fail
-    vibes_long_pulse();
+    if (GAME_VIBE()) vibes_long_pulse();
     s_scene = SC_DEAD; s_died_ms = now_ms();
     return;
   }
   // flash writes are slow: save on new floors and every 20 turns, not every step
+#ifdef FACE_ACTLOG
+  if (r == ACT_LEVEL || (r != ACT_NONE && G.now - s_saved_at >= 20 * TICK)) { uint32_t t0 = now_ms(); game_save(); s_saved_at = G.now; (void)t0; }
+#else
   if (r == ACT_LEVEL || (r != ACT_NONE && G.now - s_saved_at >= 20 * TICK)) { game_save(); s_saved_at = G.now; }
+#endif
 }
 static void act(ActResult r) {
   if (r != ACT_NONE) cam_center();
@@ -1993,6 +2012,9 @@ static void init(void) {
   window_set_window_handlers(s_window, (WindowHandlers){ .load = window_load, .unload = window_unload
 #ifdef PD_FACE
     , .appear = face_appear
+#ifdef FACE_BTNTEST
+    , .disappear = bt_disappear
+#endif
 #endif
   });
   window_stack_push(s_window, true);
@@ -2008,7 +2030,7 @@ static void deinit(void) {
   // leaving the app any way at all keeps the game where it is (PD saves on pause): no going back to an older autosave
   if (g_game && G.hero.HP > 0 && s_scene != SC_DEAD && (!FRONT(s_scene) || (s_scene == SC_AMULET && s_amulet != 2))) { ui_win_free(); game_art(false); game_save(); }
 #ifdef PD_FACE
-  tick_timer_service_unsubscribe(); accel_tap_service_unsubscribe();
+  tick_timer_service_unsubscribe(); accel_tap_service_unsubscribe(); app_focus_service_unsubscribe(); unobstructed_area_service_unsubscribe();
 #endif
   snd_deinit();
   if (s_timer) app_timer_cancel(s_timer);

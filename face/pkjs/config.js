@@ -19,19 +19,20 @@ module.exports = [
     { type: 'toggle', messageKey: 'CLK_LINE', label: 'Outline and shadow', defaultValue: true }
   ] },
   { type: 'section', items: [
-    { type: 'heading', defaultValue: 'Clock inside the HUD' },
-    { type: 'toggle', messageKey: 'UI_CLOCK', label: 'Time as the hero\'s level, date as his health', defaultValue: false,
-      description: 'Hides the big clock. Anything you pick below still wins over this.' },
-    { type: 'select', messageKey: 'DATE_ORD', label: 'Date order', defaultValue: '0', options: [
-      { label: 'Month / Day', value: '0' }, { label: 'Day / Month', value: '1' }, { label: 'Same as the phone', value: '2' } ] }
-  ] },
-  { type: 'section', items: [
     { type: 'heading', defaultValue: 'What each number shows' },
     slot('SL_DEPTH', 'Floor number'),
     slot('SL_KEYS', 'Keys held'),
     slot('SL_LVL', 'Hero level'),
     slot('SL_HP', 'Health'),
-    slot('SL_GOLD', 'Gold in the backpack', '0', 'Seen when the bot opens its backpack.')
+    slot('SL_GOLD', 'Gold in the backpack', '0', 'Seen when the bot opens its backpack.'),
+    { type: 'select', messageKey: 'DATE_ORD', label: 'Date order', defaultValue: '0', options: [
+      { label: 'Month / Day', value: '0' }, { label: 'Day / Month', value: '1' }, { label: 'Same as the phone', value: '2' } ],
+      description: 'For any number set to Date.' }
+  ] },
+  { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Vibration' },
+    { type: 'toggle', messageKey: 'VIBE', label: 'Vibrate for game events', defaultValue: false,
+      description: 'A buzz when the hero is hurt or dies. Off by default.' }
   ] },
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Weather' },

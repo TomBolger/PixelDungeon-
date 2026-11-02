@@ -1,7 +1,7 @@
 // Pixel Dungeon Face, phone side: the Clay settings page, and the weather (Open-Meteo, no key needed).
 var Clay = require('./clay');
 var clay = new Clay(require('./config'), null, { autoHandleEvents: false });
-var ORDER = ['CLK_ON', 'CLK_FMT', 'CLK_SIZE', 'CLK_LINE', 'UI_CLOCK', 'DATE_ORD', 'UNIT_F', 'SL_DEPTH', 'SL_KEYS', 'SL_LVL', 'SL_HP', 'SL_GOLD'];   // = FaceCfg in face.inc
+var ORDER = ['CLK_ON', 'CLK_FMT', 'CLK_SIZE', 'CLK_LINE', 'RES', 'DATE_ORD', 'UNIT_F', 'SL_DEPTH', 'SL_KEYS', 'SL_LVL', 'SL_HP', 'SL_GOLD', 'VIBE'];   // = FaceCfg in face.inc (RES: a byte the watch keeps for old saves, always 0)
 var DEF = { CLK_ON: 1, CLK_LINE: 1, UNIT_F: 1 };
 function stored() { try { return JSON.parse(localStorage.getItem('clay-settings')) || {}; } catch (e) { return {}; } }
 function num(v, key) {
