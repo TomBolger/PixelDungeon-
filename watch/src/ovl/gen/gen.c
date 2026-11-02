@@ -9,11 +9,12 @@
 #define CB(p) ((p) * 256)                              // x256: Generator halves a float each draw; 8 halvings stay exact here
 static const uint16_t CAT_BASE[10] = { CB(15), CB(10), CB(50), CB(40), CB(4), CB(2), CB(5), CB(0), CB(50), CB(5) };   // Generator.Category
 static void random_level(Item *it, bool armor) {      // Weapon.random / Armor.random
-#ifdef PD_FACE                                         // the watchface: 45% (not 40%) get a level, 60% (not 50%) of those upwards: raised from 20% to 27%, cursed from 20% to 18%
-  if (rnd_pct(45)) {
+#ifdef PD_FACE                                         // the watchface ("Better loot", on by default): 45% (not 40%) get a level, 60% (not 50%) of those upwards: raised from 20% to 27%, cursed from 20% to 18%
+  bool bl = g_fr.loot;
+  if (rnd_pct(bl ? 45 : 40)) {
     int n = 1;
     if (rnd_int(3) == 0) { n++; if (rnd_int(3) == 0) n++; }
-    if (rnd_int(5) < 3) it->lvl += n; else { it->lvl -= n; it->flags |= IF_CURSED; }
+    if (rnd_int(bl ? 5 : 2) < (bl ? 3 : 1)) it->lvl += n; else { it->lvl -= n; it->flags |= IF_CURSED; }
 #else
   if (rnd_pct(40)) {
     int n = 1;
@@ -34,7 +35,7 @@ static Item random_weapon(void) {                      // Generator.randomWeapon
   for (int j = 0; j < 2; j++) {
 #ifdef PD_FACE                                         // the watchface: melee weapons a little more often of a higher tier (tier 1: 3, tiers 2-3: 4, tiers 4-5: 5 where each had 4; the other kinds as before)
     uint16_t PF[18]; for (int i = 0; i < 18; i++) PF[i] = P[i] * 4; for (int i = 0; i < 10; i++) { int t = item_tier(K[i]); PF[i] = t <= 1 ? 3 : t <= 3 ? 4 : 5; }
-    int k = K[rnd_chances(PF, 18)];
+    int k = K[rnd_chances(g_fr.loot ? PF : P, 18)];   // (off: the original odds)
 #else
     int k = K[rnd_chances(P, 18)];
 #endif
@@ -56,7 +57,7 @@ static Item random_armor(void) {
   for (int j = 0; j < 2; j++) {
 #ifdef PD_FACE                                         // the watchface: cloth and leather a little rarer (4 4 5 5 5 in 23 instead of 1 each in 5)
     static const uint16_t PA[5] = { 4, 4, 5, 5, 5 };
-    a[j] = item_make(IK_CLOTH_ARMOR + rnd_chances(PA, 5), 1);
+    a[j] = item_make(IK_CLOTH_ARMOR + (g_fr.loot ? rnd_chances(PA, 5) : rnd_int(5)), 1);
 #else
     a[j] = item_make(IK_CLOTH_ARMOR + rnd_int(5), 1);
 #endif

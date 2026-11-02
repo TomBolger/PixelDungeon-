@@ -296,7 +296,7 @@ void short_name(const Item *it, char *buf, int len) {     // Item.name(): no lev
 void item_use(Item *it) {
   if (it->lvl <= 0 || item_broken(it)) return;
 #ifdef PD_FACE
-  if (item_upgradable(it->kind) && it->dur <= 1) return;   // the watchface: gear gets worn down but never breaks (durability stops at 1, scrolls and enchanting still repair it)
+  if (g_fr.unbreak && item_upgradable(it->kind) && it->dur <= 1) return;   // the watchface: gear gets worn down but never breaks (durability stops at 1, scrolls and enchanting still repair it); a setting
 #endif
   int threshold = item_max_dur(it) / 6;
   char name[40]; short_name(it, name, sizeof name);
@@ -507,7 +507,7 @@ void hero_damage(int dmg, const char *cause_fmt) {
   if (h->b.paralysis == 0 && hero_paralysed() == false && dmg && G.action == HA_REST) G.action = HA_NONE;
   h->HP -= dmg;
 #ifdef PD_FACE
-  if (h->HP < 1) h->HP = 1;                            // the watchface hero cannot die (the dodging above is the show, this the safety net)
+  if (g_fr.god && h->HP < 1) h->HP = 1;                // the watchface's god mode (a setting): the hero cannot die; every death comes through here (hero_die has no other caller)
 #endif
   char num[12]; snprintf(num, sizeof num, "%d", dmg);
   ui_fx(FX_DAMAGE, h->pos, -1, num);
@@ -983,6 +983,7 @@ static void turn_act(void) {                           // all per-turn actors: b
   if ((G.turn_due - G.level_t0) % ((G.night || (G.dflags & DF_AMULET) ? 25 : 50) * TICK) == 0) respawn();   // twice as often at night or with the Amulet
 }
 #ifdef PD_FACE
+FaceRules g_fr = { 0, 3, 8, 1, 1, 1, 1 };               // the settings' defaults: mortal, regeneration x3, hunger x8 slower, the ever-present potion, unbreakable gear, better loot, start on floor 1
 int32_t g_face_heal_t = -1000000;                      // game time of the last Potion of Healing drunk (the cooldown below)
 uint16_t g_face_kills;                                 // creatures killed (face_brain.h: the no-progress safeguard)
 #endif
@@ -1009,7 +1010,7 @@ void process(void) {
   update_fov();
   check_visible_mobs();
 #ifdef PD_FACE
-  if (G.hero.HP > 0 && game_bag_find(IK_POT_HEALING) < 0) { Item p = item_make(IK_POT_HEALING, 1); bag_add(p); set_known(IK_POT_HEALING); }   // the watchface hero always has one Potion of Healing in the pack: drunk, thrown, dropped, stolen or sold, it is back (drinking is rationed by FACE_HEAL_CD, not by the potion)
+  if (g_fr.heal_free && G.hero.HP > 0 && game_bag_find(IK_POT_HEALING) < 0) { Item p = item_make(IK_POT_HEALING, 1); bag_add(p); set_known(IK_POT_HEALING); }   // the watchface hero always has one Potion of Healing in the pack: drunk, thrown, dropped, stolen or sold, it is back (drinking is rationed by FACE_HEAL_CD, not by the potion)
 #endif
 }
 
@@ -1467,7 +1468,7 @@ bool game_pick_ok(PickMode mode, int slot) {           // WndBag.Mode filters
   if (!it->kind) return false;
   switch (mode) {
 #ifdef PD_FACE
-    case PICK_SELL: return item_sellable(it->kind) && !(slot < 0 && (it->flags & IF_CURSED)) && !(it->kind == IK_POT_HEALING && it->qty <= 1);   // (the watchface: the one ever-present Potion of Healing is not for sale)
+    case PICK_SELL: return item_sellable(it->kind) && !(slot < 0 && (it->flags & IF_CURSED)) && !(g_fr.heal_free && it->kind == IK_POT_HEALING && it->qty <= 1);   // (the watchface: the one ever-present Potion of Healing is not for sale)
 #else
     case PICK_SELL: return item_sellable(it->kind) && !(slot < 0 && (it->flags & IF_CURSED));
 #endif

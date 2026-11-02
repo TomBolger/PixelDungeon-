@@ -200,10 +200,13 @@ int hero_op(int op, int a, int b, void *p);
 void item_use(Item *it);
 #ifdef PD_FACE                                  // the watchface's rules (not the watch app's)
 #define FACE_HEAL_CD 40                         // game turns between two drinks of the ever-present Potion of Healing (fights keep some tension)
-#ifndef FACE_HUNGER_X
-#define FACE_HUNGER_X 8                         // hunger rises this many times slower (the food in the dungeon was laid out for a slower player)
-#endif
-#define FACE_REGEN_X 3                          // passive regeneration speed-up (turn_act); tune down if HP sits pinned at full
+// The settings page's "Cheats" and "Starting stage" (face.inc copies them from the saved settings; the host tests set them directly).
+// regen_x / hunger_x are the speed-ups themselves (1 = the game's own); god: the hero's health never falls below 1; heal_free: the
+// ever-present Potion of Healing; unbreak: gear durability stops at 1; loot: gen.c's better odds; stage: the depth a new run starts at.
+typedef struct { uint8_t god, regen_x, hunger_x, heal_free, unbreak, loot, stage; } FaceRules;
+extern FaceRules g_fr;
+#define FACE_HUNGER_X (g_fr.hunger_x)           // hunger rises this many times slower (the food in the dungeon was laid out for a slower player); default 8
+#define FACE_REGEN_X (g_fr.regen_x)             // passive regeneration speed-up (turn_act); default 3; tune down if HP sits pinned at full
 extern uint16_t g_face_kills;                           // creatures killed (face_brain.h)
 extern int32_t g_face_heal_t;                   // game time (ticks) of the last Potion of Healing drunk
 #define FACE_HEAL_READY() (G.now < g_face_heal_t || G.now - g_face_heal_t >= FACE_HEAL_CD * TICK)

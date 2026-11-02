@@ -66,7 +66,7 @@ static void f_new(void) {
   if (KNOWN[cls]) set_known(KNOWN[cls]);
   set_known(IK_WND_MM); if (cls == 2) set_known(IK_RNG_SHADOWS);
 #ifdef PD_FACE
-  set_known(IK_POT_HEALING); bag_add(item_make(IK_POT_HEALING, 1));   // the watchface hero starts with an identified Potion of Healing that is never used up (game.c keeps one in the pack)
+  if (g_fr.heal_free) { set_known(IK_POT_HEALING); bag_add(item_make(IK_POT_HEALING, 1)); }   // the watchface hero starts with an identified Potion of Healing that is never used up (game.c keeps one in the pack; a setting)
 #endif
   G.now = 0; G.turn_due = 0; G.level_t0 = -TICK; g_ovr.c = -1;
   G.max_depth = 1;
