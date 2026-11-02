@@ -8,7 +8,7 @@
 #define STEP_MS 140                                   // a decision after a walk or a hit
 #define NAV_MS 330                                    // one button press in a window
 static uint32_t s_f_end, s_f_next, s_f_last, s_f_vic;
-static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
+static int32_t s_fp_t0; static uint8_t s_fp_chk; static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
 static Layer *s_clock_layer;
 
 // ---- the clock: Pixel Dungeon's own 3x5 digits (font1x.png), drawn big with an outline
@@ -62,8 +62,11 @@ static void face_appear(Window *w) { if (g_game) face_burst(); }
 static void face_new_game(void) {
   int c = persist_exists(KEY_FACE_CLS) ? persist_read_int(KEY_FACE_CLS) & 3 : 0;
   persist_write_int(KEY_FACE_CLS, (c + 1) & 3);
-  s_fp = 0; s_f_vic = 0; s_hl = -1;
+  s_fp = 0; s_f_vic = 0; s_hl = -1; s_fp_bad = 0; s_fp_chk = 0; s_fb_depth = -1;
+  g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; memset(g_drop, 0xFF, sizeof g_drop); g_goal = g_from = -1;   // nothing of the last hero's plans carries over
+  sheet_free(&s_gameover); sheet_free(&s_arcs); sheet_free(&s_avatars);   // the victory screen's pictures out of the heap before a floor is built (it needs one big block)
   s_sel = c; start_game(false);
+  APP_LOG(APP_LOG_LEVEL_INFO, "new game: class %d", c);
 }
 static void press(ButtonId id, uint32_t wait) {          // a button, as main.c's button() / click_back() would route it (without the real handlers: they cost app size)
   s_f_next = now_ms() + wait;
@@ -106,20 +109,28 @@ static void face_item(void) {
   if (s_fp != 2 && s_fp != 1) { s_fp_bad = 1; back_out(); return; }
   if (j < 0 || ++s_fp_n > 20) { s_fp = 0; s_fp_bad = 1; back_out(); return; }
   s_fp = 2;
-  if (s_sel == j) { s_fp = 0; press(BUTTON_ID_SELECT, STEP_MS * 3); } else press(BUTTON_ID_DOWN, NAV_MS);
+  if (s_sel == j) { s_fp_chk = 1; s_fp_t0 = G.hero.time; APP_LOG(APP_LOG_LEVEL_INFO, "do action %d (%d presses)", s_fp_act, s_fp_n); s_fp = 0; press(BUTTON_ID_SELECT, STEP_MS * 3); } else press(BUTTON_ID_DOWN, NAV_MS);
 }
 
 static void face_game(void) {
+  { static int8_t d; if (d != G.depth) { d = G.depth; APP_LOG(APP_LOG_LEVEL_INFO, "depth %d, lvl %d, hp %d/%d, last floor %d presses, %d since news", d, G.hero.lvl, G.hero.HP, G.hero.HT, s_fb_presses, s_fb_since); } }
+  if (s_fp_chk) { s_fp_chk = 0; if (G.hero.time == s_fp_t0) s_fp_bad = 1; }   // the windows' way did nothing (a throw with no clear line): the game's own way this time
   if (s_hl >= 0) { s_hl = -1; redraw(); }
   int ov = fb_override();
+  if (ov != -1) APP_LOG(APP_LOG_LEVEL_INFO, "override %d: exit %d entrance %d amulet %d since %d presses %d", ov, G.exit, G.entrance, game_bag_find(IK_AMULET), s_fb_since, s_fb_presses);
   if (ov == FB_LEVEL) { act(ACT_LEVEL); s_f_next = now_ms() + 400; return; }
-  if (ov >= 0) { ActResult r = game_tap_cell(ov); if (r != ACT_NONE) { act(r); s_f_next = now_ms() + STEP_MS; return; } }
+  if (ov >= 0) { ActResult r = game_tap_cell(ov); if (s_scene != SC_GAME) { s_f_next = now_ms() + STEP_MS; return; }   // (the win: the Surface scene is up)
+    if (r != ACT_NONE) { act(r); s_f_next = now_ms() + STEP_MS; return; } }
   tg_refresh(0);
   if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && game_slot(g_ovr.hs)->kind) {   // the bot's hands: through the windows
     s_fp = 1; s_fp_n = 0; s_fp_slot = g_ovr.hs; s_fp_act = g_ovr.ha;
+    APP_LOG(APP_LOG_LEVEL_INFO, "hands: slot %d action %d", s_fp_slot, s_fp_act);
     s_walking = false; open_bag(-1); s_f_next = now_ms() + 500; return;
   }
   s_fp_bad = 0;
+#ifdef FACE_LOGP
+  APP_LOG(APP_LOG_LEVEL_INFO, "press d%d: kind %d cell %d hero %d exit %d n %d vis %d", G.depth, s_tgk, s_tg, G.hero.pos, G.exit, s_tgn, fb_seen());
+#endif
   press(BUTTON_ID_SELECT, STEP_MS);
 }
 static void face_think(void) {
@@ -139,17 +150,24 @@ static void face_think(void) {
 }
 static void face_tick(bool moving) {
   if (!s_f_on) return;
-  uint32_t n = now_ms(), dt = n - s_f_last; s_f_last = n; if (dt > 300) dt = 33;
+  uint32_t n = now_ms(), dt = n - s_f_last; s_f_last = n; if (dt > 1500) dt = 33;
   s_last_in = n;
   if (s_scene == SC_AMULET && s_amulet == 2) s_f_vic += dt;            // the victory screen is counted in play time
   if ((int32_t)(n - s_f_end) >= 0) { face_pause(); return; }
+  if (s_scene == SC_AMULET && s_amulet == 2 && s_f_vic >= FACE_WIN_MS) { face_new_game(); s_f_next = n + 600; return; }   // 30 s of victory: the next hero
   if (moving || s_fade || s_proj.active || s_walking || (int32_t)(n - s_f_next) < 0) return;
   face_think();
 }
 static void face_boot(void) {
   g_assist = 3; s_zoom = s_zuser = 1; s_zto = -1;                      // Assist High, near
   s_has_save = game_peek_save(&s_save_depth, &s_save_lvl);
+#ifdef FACE_WINTEST                                   // test build: a new game that already holds the Amulet, on its way up from floor 1
+  face_new_game(); bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET;
+#elif defined(FACE_NEWGAME)
+  face_new_game();
+#else
   if (s_has_save) { s_sel = 0; start_game(true); } else face_new_game();
+#endif
   tick_timer_service_subscribe(MINUTE_UNIT, minute_tick);
   accel_tap_service_subscribe(face_tap);
   s_f_on = false; face_burst();

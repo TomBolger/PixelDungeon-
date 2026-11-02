@@ -31,16 +31,16 @@ int main(int argc, char **argv) {
   if (!game_init()) return 1;
   int N = argc > 1 ? atoi(argv[1]) : 8, maxsteps = getenv("STEPS") ? atoi(getenv("STEPS")) : 60000;
   static const uint8_t VIEW1[4] = { 6, 4, 4, 4 };
-  int floods = 0, wins = 0, deaths = 0, nofood = 0, stuckf = 0, floors = 0; long steps_total = 0;
+  int stuck_up = 0, floods = 0, wins = 0, deaths = 0, nofood = 0, stuckf = 0, floors = 0; long steps_total = 0;
   g_assist = 3;
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
     cur_game = g; srand(g + 1); memset(g_keys, 0, sizeof g_keys);
-    g_new_class = g % 4; game_new(); s_won = 0; s_amu = 0; s_fb_depth = -1;
+    g_new_class = g % 4; game_new(); if (getenv("AMU")) { bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET; } s_won = 0; s_amu = 0; s_fb_depth = -1;
     int steps, maxd = 1, lastd = 1, fl_steps = 0, fl_max = 0, bagacts = 0;
     for (steps = 0; steps < maxsteps && G.hero.HP > 0 && !s_won; steps++) {
       cur_step = steps; alarm(5);
       game_level_commit();
-      if (G.depth != lastd) { floors++; if (fl_steps > 500) stuckf++; if (fl_steps > fl_max) fl_max = fl_steps; fl_steps = 0; lastd = G.depth; } fl_steps++;
+      if (G.depth != lastd) { if (getenv("FS") && g < 4) printf("g%d d%d->%d after %d steps lvl %d\n", g, lastd, G.depth, fl_steps, G.hero.lvl); if (getenv("DS") && steps > atoi(getenv("DS")) && steps < atoi(getenv("DS")) + 400) printf("  depth %d->%d at step %d hero %d,%d exit %d,%d entr %d,%d vis exit %d\n", lastd, G.depth, steps, cx(G.hero.pos), cy(G.hero.pos), cx(G.exit), cy(G.exit), cx(G.entrance), cy(G.entrance), BIT_GET(G.visited, G.exit)); floors++; if (fl_steps > 500) { stuckf++; if (game_bag_find(IK_AMULET) >= 0) stuck_up++; if (getenv("FL")) printf("  slow floor g%d d%d->%d: %d steps, amulet %d\n", g, lastd, G.depth, fl_steps, game_bag_find(IK_AMULET) >= 0); } if (fl_steps > fl_max) fl_max = fl_steps; fl_steps = 0; lastd = G.depth; } fl_steps++;
       if (G.depth > maxd) maxd = G.depth;
       if (game_bag_find(IK_RATION) < 0 && game_bag_find(IK_PASTY) < 0) nofood++;
       if (s_pick >= 0) { int p = s_pick; s_pick = -1; int ch = -1000, k = G.tgm.pk - 8;
@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
       if (s_wnd) { s_wnd = 0; walk(game_wnd_choice(0)); continue; }
       int ov = fb_override();
       if (ov == FB_LEVEL) { floods++; continue; }
-      if (ov >= 0) { int32_t t = G.hero.time; ActResult r = game_tap_cell(ov); if (r != ACT_NONE || G.hero.time != t) { walk(r); continue; } }
+      if (ov >= 0) { int32_t t = G.hero.time; ActResult r = game_tap_cell(ov); if (getenv("UPD") && game_bag_find(IK_AMULET) >= 0 && fl_steps < 40) printf("up g%d d%d step %d hero %d,%d -> %d,%d r=%d moved=%d vis=%d foe=%d\n", g, G.depth, fl_steps, cx(G.hero.pos), cy(G.hero.pos), cx(ov), cy(ov), r, G.hero.time != t, BIT_GET(G.visited, ov), fb_foe()); if (r != ACT_NONE || G.hero.time != t) { walk(r); continue; } }
       memcpy(g_view, VIEW1, 4);
       int16_t cell[TARGETS_MAX]; uint8_t kind[TARGETS_MAX]; int n = game_targets(cell, kind);
       if (n <= 0) { walk(G.hero.pos == G.exit || heap_at(G.hero.pos) >= 0 ? game_tap_cell(G.hero.pos) : game_search()); continue; }
@@ -75,5 +75,6 @@ int main(int argc, char **argv) {
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d amulet %s worst floor %d steps\n", g, g % 4, s_won ? "WON" : G.hero.HP <= 0 ? "DIED" : "limit", G.depth, maxd, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, (G.dflags & DF_AMULET) ? "yes" : "no", fl_max);
   }
   if (getenv("H")) for (int k = 0; k < 16; k++) if (hist[k][0] + hist[k][1]) printf("kind %d: entry0 %ld other %ld\n", k, hist[k][0], hist[k][1]);
+  printf("slow floors while carrying the Amulet: %d\n", stuck_up);
   printf("== %d games (hidden stairs used %d): won %d, died %d, steps with no food %d, floors %d, floors over 500 steps %d, avg steps %ld\n", N, floods, wins, deaths, nofood, floors, stuckf, steps_total / (N ? N : 1));
 }

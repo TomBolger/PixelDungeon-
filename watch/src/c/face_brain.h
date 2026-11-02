@@ -21,6 +21,8 @@ static int fb_override(void) {
     if (up) { if (G.depth == 1) { ui_amulet(2); return FB_LEVEL; } switch_level(G.depth - 1, ARRIVE_EXIT); return FB_LEVEL; }
     if (G.depth < LAST_DEPTH) { switch_level(G.depth + 1, ARRIVE_ENTRANCE); return FB_LEVEL; }
   }
+  if (up && G.map[G.entrance] == T_ENTRANCE && !BIT_GET(G.visited, G.entrance)) memset(G.visited, 0xFF, sizeof G.visited);   // (a floor remembered from the way down is not kept: the cheat knows the way)
+  if (!up && s_fb_since > 120 && G.depth < LAST_DEPTH && G.exit >= 0 && !BIT_GET(G.visited, G.exit)) memset(G.visited, 0xFF, sizeof G.visited);   // lost on a floor: the map shows itself
   if (s_fb_since > 150 && G.exit >= 0 && !up && G.depth < LAST_DEPTH && BIT_GET(G.visited, G.exit)) return G.exit;   // the way down is known and the floor has gone on: go, fight or not
   if (up && G.map[G.entrance] == T_ENTRANCE) return G.entrance;      // the Amulet: straight home, floor by floor (foes or not: he cannot die, and dodges more the more he is hurt)
   if (fb_foe()) return -1;                                           // a fight: the Assist's
