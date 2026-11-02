@@ -10,6 +10,9 @@
 #include "ui_int.h"
 #include "ui_tabs.h"
 #include "item_sp.h"
+#ifdef PD_FACE
+extern char g_face_gold[12];
+#endif
 
 // Keyring: each key held, floor by floor (iron keys, golden keys, the skeleton key); its sprite and depth
 static int key_at(int k, int *depth) {
@@ -196,7 +199,11 @@ static void draw_bag(GContext *ctx) {
     GRect q = bag_cell(i);
     #define TL(...) do { snprintf(buf, sizeof buf, __VA_ARGS__); text_outlined(ctx, buf, s_font_hud, GColorWhite, q.origin.x + 2, q.origin.y - 4, CW - 2, GTextAlignmentLeft); } while (0)   // (0.69: Gothic 14 bold, was 9)
     int kd;
+#ifdef PD_FACE
+    if (sl == SL_GOLD) { if (g_face_gold[0]) TL("%s", g_face_gold); else TL("%d", G.hero.gold); }   // the watchface's gold slot: steps, say
+#else
     if (sl == SL_GOLD) TL("%d", G.hero.gold);
+#endif
     if (sl == SL_KEY && key_at(i, &kd) >= 0) TL("%d", kd);                       // Key.status: the depth it opens
     if (!it || !it->kind) continue;
     ItemCat cat = item_cat(it->kind);

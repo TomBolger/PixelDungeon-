@@ -18,13 +18,25 @@ p["name"] = "pixel-dungeon-face"
 p["pebble"]["displayName"] = "Pixel Dungeon Face"
 p["pebble"]["uuid"] = "37f0622a-65c2-4eb6-b4ad-92181e5a899c"
 p["pebble"]["watchapp"]["watchface"] = True
+p["pebble"]["messageKeys"] = ["CFG", "WX", "CLK_ON", "CLK_FMT", "CLK_SIZE", "CLK_LINE", "UI_CLOCK", "DATE_ORD", "UNIT_F", "SL_DEPTH", "SL_KEYS", "SL_LVL", "SL_HP", "SL_GOLD"]
+p["pebble"]["enableMultiJS"] = True
+p["pebble"]["capabilities"] = ["location", "configurable", "health"]
 json.dump(p, open(w + "/package.json", "w"), indent=2)
 s = open(w + "/wscript").read()
+if "js_entry_file" not in s:                              # the face carries the phone-side JS (src/pkjs); the app's own bundle has none
+    s = s.replace("ctx.pbl_bundle(binaries=binaries)", "ctx.pbl_bundle(binaries=binaries, js=ctx.path.ant_glob(['src/pkjs/**/*.js', 'src/pkjs/**/*.json']), js_entry_file='src/pkjs/index.js')")
 if "PD_FACE" not in s:
     s = s.replace("    ctx.load('pebble_sdk')\n\ndef build", "    ctx.load('pebble_sdk')\n    for e in ctx.all_envs.values(): e.append_value('DEFINES', ['PD_FACE'] + os.environ.get('FACE_DEFINES', '').split())\n\ndef build", 1)
     open(w + "/wscript", "w").write(s)
 PY
+mkdir -p "$W/src/pkjs" && cp "$FACE"/pkjs/*.js "$W/src/pkjs/"
 cd "$W"
+# The settings page is the pebble-clay package (phone-side JS only). It is not declared as a Pebble package (its manifest lacks
+# gabbro, and it carries no watch code anyway): its ready-made script is fetched from npm and bundled as src/pkjs/clay.js.
+CL="$FACE/work-clay"; [ -f "$CL/node_modules/pebble-clay/dist.zip" ] || { mkdir -p "$CL"; (cd "$CL" && npm init -y >/dev/null && npm install --no-audit --no-fund pebble-clay@1.0.4 >/dev/null); }
+[ -f "$CL/node_modules/pebble-clay/dist/js/index.js" ] || (cd "$CL/node_modules/pebble-clay" && python3 -c "import zipfile; zipfile.ZipFile('dist.zip').extractall('dist')")
+cp "$CL/node_modules/pebble-clay/dist/js/index.js" "$W/src/pkjs/clay.js"
+grep -q MESSAGE_KEY_CFG build/include/message_keys.auto.h 2>/dev/null || rm -rf build/include build/js   # (a stale key header from before the settings existed)
 rm -rf build/.conf_check* 2>/dev/null || true
 # (the defines live in the configure cache: a new FACE_DEFINES means a new configure)
 STAMP="PD_FACE ${FACE_DEFINES:-}"; [ "$(cat build/.defs 2>/dev/null)" = "$STAMP" ] || { rm -rf build/c4che build/config.log; mkdir -p build; echo "$STAMP" > build/.defs; }

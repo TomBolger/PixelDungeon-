@@ -179,6 +179,19 @@ static bool s_long_press;                          // the tap being handled was 
 int s_sheet_tab;                            // WndHero: 0 stats, 1 buffs
 static AppTimer *s_timer; static uint32_t s_timer_ms;
 int s_w, s_h;
+#ifdef PD_FACE                                      // the watchface's settings and slots (face.inc, below)
+enum { FS_DEPTH, FS_KEYS, FS_LVL, FS_HP, FS_GOLD, FS_N };
+static int face_clk_h(void);                        // the big clock's height when it sits between the HUD and the hero (else 0)
+static int face_clk_dy(void);                       // Gabbro: how far the map's centre moves down
+static bool face_slot(int slot, char *buf, int n);  // the slot's own text (false: the game's number)
+char g_face_gold[12];                               // the backpack's gold slot (the overlay reads it; empty: the gold count)
+#define FCLK_H() face_clk_h()
+#define FCLK_DY() face_clk_dy()
+#define FSLOT_SET(s) face_slot((s), NULL, 0)
+#else
+#define FCLK_H() 0
+#define FCLK_DY() 0
+#endif
 static int s_zoom = 1, s_zuser = 1;       // 0: 8px tiles, 1: 16px, 2: 32px (0.93: s_zoom is what's drawn; s_zuser the player's choice, Max may zoom out from it)
 int s_pick = -1, s_pick_pending = -1;      // PickMode while the bag is an item selector
 int s_opt;                                  // WndOptions: 0 chasm jump, 1 harmful drink, 2 beneficial throw
@@ -298,7 +311,7 @@ static int tb_in(int x, int y) { for (int i = 0; i < TB_N; i++) { int dx = x - T
 static int status_y(void) { return 0; }
 static int status_w(void) { return s_w; }
 static int status_x(void) { return (s_w - status_w()) / 2; }
-static int status_bottom(void) { return status_y() + SC(33); }
+static int status_bottom(void) { return status_y() + SC(33) + FCLK_H(); }
 static int tb_w(void) { return 32; }
 static int tb_gap(void) { return 8; }
 static int toolbar_y(void) { return s_h - TB_H; }
@@ -330,6 +343,12 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   s_now = G.now; s_pos = G.hero.pos; s_z = s_zuser + 4 * g_zlock;   // (0.93: the player's zoom, not Max's)
   if (s_walking && !dir) { s_now = -1; return; }     // 0.43 (audio): not on every step of a walk (Select/taps stop it first): when it ends
   memcpy(g_view, VIEW[s_zoom], 4);                   // 0.36: only what's on screen
+#ifdef PD_FACE
+  if (FCLK_H() || FCLK_DY()) {                       // the clock covers the top of the map: only the cells below it count as seen
+    int T = tile_px(), av = map_center_y() - (PBL_IF_ROUND_ELSE(76 + 46, status_bottom())) , up = av > 0 ? (av + T / 2 - 1) / T : 0;
+    if (up < g_view[1]) g_view[1] = up;
+  }
+#endif
   if (AS_OFFCAM) memset(g_view, 0, 4);              // 0.75: Max (0.80: off-screen targets): anywhere
   int16_t c[TARGETS_MAX]; uint8_t k[TARGETS_MAX];
   int n = G.hero.HP > 0 ? game_targets(c, k) : 0, cur = -1;
@@ -392,7 +411,7 @@ static GRect tag_rect(int which) {
   return GRect(PBL_IF_ROUND_ELSE(0, -4), y, 40, which == 1 ? 36 : 30);
 }
 static GRect menu_button_rect(void) { return PBL_IF_ROUND_ELSE(BUB(208, 49, 20), GRect(s_w - 27, 2, 27, 30)); }   // 0.20, Emery: bigger, drawn over the pane's
-int map_center_y(void) { return PBL_IF_ROUND_ELSE(s_h / 2, (status_bottom() + toolbar_y()) / 2); }
+int map_center_y(void) { return PBL_IF_ROUND_ELSE(s_h / 2 + FCLK_DY(), (status_bottom() + toolbar_y()) / 2); }
 // 0.42 gloves on: Back walks a highlight round the screen's buttons: the toolbar left to right (0-5), the menu button (6),
 // the portrait (7), then none (Pebble keeps a long Back for leaving the app). Select presses the highlighted one as a tap
 // would (long Select: a held tap), Up goes back one, Down drops it
@@ -1474,16 +1493,28 @@ static void draw_hud_art(void) {
     for (int r = 119; r < 125; r++) arc(r, r + 1, -166, tg(f + (r - 119) * 5), HC[r < 120 ? 0 : r < 124 ? 1 : 2]);
   }
   if (h->exp > 0) arc(113, 115, -166, tg(HB0 + (HSE - HB0) * h->exp / hero_max_exp()), ARGB(GColorIcterine));   // experience, under it
+#ifdef PD_FACE
+  if (!FSLOT_SET(FS_DEPTH)) blit_scaled(&s_status, 87, 5, 8, 8, 158, 24, 12, 12);   // (a slot that shows something else has no icon)
+  if (!FSLOT_SET(FS_KEYS)) blit_scaled(&s_status, 103, 5, 7, 8, 177, 32, 11, 12);
+#else
   blit_scaled(&s_status, 87, 5, 8, 8, 158, 24, 12, 12);   // the stairs and the key, after the shelf (1.5x, as on Emery; bearings 18.5, 29.5 at 106)
   blit_scaled(&s_status, 103, 5, 7, 8, 177, 32, 11, 12);
+#endif
   uint8_t b[BI_COUNT]; int nb = hero_buffs(b);           // the buffs (0.83, owner): from the portrait's edge down the left rim, a second row inside it
   static const uint8_t BX[6] = { 29, 24, 20, 45, 39, 36 }, BY[6] = { 83, 98, 113, 88, 102, 117 };   // bearings 295, 287, 279 at 111; 296, 287, 278 at 95
   for (int i = 0; i < nb && i < 6; i++) blit(&s_buffs, b[i] * 7, 0, 7, 7, BX[i] - 7, BY[i] - 7, 2);
   { GRect pb = bubble(hl_rect(7), ARGB(GColorDarkGray), ARGB(GColorLightGray));   // the portrait, the level under it
     blit(&s_hero, 0, 0, HERO_ART.fw, HERO_ART.fh, BPIC(pb, 2 * HERO_ART.fw, 2 * HERO_ART.fh), 2); }
+#ifdef PD_FACE
+  if (FSLOT_SET(FS_LVL)) {                                // the level bubble stretched to the left to hold a time or a number
+    disc(56, 71, 11, ARGB(GColorLightGray)); disc(78, 71, 11, ARGB(GColorLightGray)); blit_fill(56, 60, 22, 23, ARGB(GColorLightGray));
+    disc(56, 71, 9, ARGB(GColorDarkGray)); disc(78, 71, 9, ARGB(GColorDarkGray)); blit_fill(56, 62, 22, 19, ARGB(GColorDarkGray));
+  } else bubble(BUB(72, 70, 9), ARGB(GColorDarkGray), ARGB(GColorLightGray));
+#else
   bubble(BUB(72, 70, 9), ARGB(GColorDarkGray), ARGB(GColorLightGray));
   { GRect mb = bubble(menu_button_rect(), ARGB(GColorDarkCandyAppleRed), ARGB(GColorOrange));
     for (int i = 0; i < 3; i++) blit_fill(mb.origin.x + 10, mb.origin.y + 12 + i * 6, 20, 3, ARGB(GColorWhite)); }
+#endif
   int bw = tb_w();
   if (toolbar_hidden()) goto after_toolbar;
   GRect tc[TB_N];                                         // (the bubbles' pictures' places)
@@ -1501,10 +1532,19 @@ static void draw_hud_art(void) {
   // Emery: PD StatusPane at 1.5x, whole: left 80 px and right 48 px of status_pane.png, column 80 repeated between
   blit_scaled(&s_status, 0, 0, 80, SP_H, x, y, SC(80), H);
   if (w > SC(128)) blit_scaled(&s_status, 80, 0, 1, SP_H, x + SC(80), y, w - SC(128), H);
+#ifdef PD_FACE                                       // no menu button (a watchface has no menu); the stairs and key icons only where the slots show the game's numbers
+  (void)w;
+  if (!FSLOT_SET(FS_DEPTH)) blit_scaled(&s_status, 86, 4, 10, 10, x + w - SC(42), y + SC(4), SC(10), SC(10));
+  if (!FSLOT_SET(FS_KEYS)) blit_scaled(&s_status, 102, 4, 8, 10, x + w - SC(26), y + SC(4), SC(8), SC(10));
+  if (FSLOT_SET(FS_LVL)) {                             // the level frame, stretched to the left
+    blit_fill(x + 5, y + SC(22), SC(30) - 4, SC(13), ARGB(GColorBlack)); blit_fill(x + 6, y + SC(22) + 1, SC(30) - 6, SC(13) - 2, ARGB(GColorLightGray)); blit_fill(x + 8, y + SC(22) + 3, SC(30) - 10, SC(13) - 6, ARGB(GColorDarkGray));
+  }
+#else
   blit_scaled(&s_status, 80, 0, 48, SP_H, x + w - SC(48), y, SC(48), H);
   { GRect mb = menu_button_rect();                     // 0.20: the menu button, bigger than the pane's own
     red_button(mb, false);
     for (int i = 0; i < 3; i++) blit_fill(mb.origin.x + 7, mb.origin.y + 8 + i * 6, mb.size.w - 14, 3, ARGB(GColorWhite)); }
+#endif
   blit(&s_hero, 0, 0, HERO_ART.fw, HERO_ART.fh, x + SC(15) - HERO_ART.fw, y + SC(16) - HERO_ART.fh, 2);   // avatar
   int hp = h->HP > 0 ? h->HP : 0, hpw = SC(64) * hp / h->HT;            // hp_bar.png squeezed to health (PD hp.scale.x)
   if (hpw > 0) blit_scaled(&s_hpbar, 0, 0, 64, 4, HUD_HPX, HUD_HPY, hpw, SC(4));
@@ -1558,6 +1598,7 @@ after_toolbar:;
     a = tag_bg(a, &s_tag_blue);
     ITEM_SPR(sp, a.origin.x + (a.size.w - 32) / 2 + 2, a.origin.y + (a.size.h - 32) / 2, 2);
   }
+#ifndef PD_FACE                                   // (the face shows no button tags: a watchface has no buttons)
   if (combat()) {                                   // the buttons' tags (0.24: slim, pictures at 1x), beside the buttons that work them
     GRect a = ctag(0);                                // zoom: the search glass and a pip per level
     a = tag_bg(a, &s_tag);
@@ -1568,10 +1609,15 @@ after_toolbar:;
     } else blit(&s_tag, 16, 1, 12, 12, lx, ly, 1);   // 0.60: the glass without the button face (tag_red.png)
     for (int i = 0; i <= s_zoom; i++) blit_fill(a.origin.x + 17, a.origin.y + 17 - i * 5, 3, 3, ARGB(GColorIcterine));
   }
+#endif
   #define AT1(a, s) AT1X(a, s), (a).origin.y + ((a).size.h - (s)) / 2   // a picture s px wide, centred
   #define AT1X(a, s) ((a).origin.x + PBL_IF_ROUND_ELSE(0, 2) + ((a).size.w - (s)) / 2)
   #define AT1Y(a, s) ((a).origin.y + ((a).size.h - (s)) / 2)
   int at = combat_target();
+#ifdef PD_FACE
+  (void)at;
+#endif
+#ifndef PD_FACE
   if (cycle_shown()) {                              // the next target: Icons.TARGET
     GRect a = ctag(2);
     a = tag_bg(a, &s_tag);
@@ -1595,8 +1641,12 @@ after_toolbar:;
       blit(mob_sheet(G.mobs[at].type), 0, 0, art->fw, art->fh, a.origin.x + 2 + (a.size.w - art->fw) / 2, a.origin.y + (a.size.h - art->fh) / 2, 1);
     }
   }
+#endif
   int hl = s_hl;
   if (hl < 0 && s_tg >= 0) hl = s_tgk == TK_BAG ? hand_btn() : s_tgk == TK_REST ? TB_WAIT : s_tgk == TK_GO && s_tg == G.hero.pos ? (g_ovr.d & 128 ? TB_WAIT : TB_SEARCH) : -1;   // (0.61: a hold: Select waits)   // 0.48 test kit: the bot's hands: that button's reticle
+#ifdef PD_FACE
+  if (hl >= 0 && s_scene == SC_GAME) reticle(hl_rect(hl));   // (the face: the highlighted button only, no tag beside the buttons)
+#else
   if (hl >= 0 && s_scene == SC_GAME) {             // 0.42: the highlighted button, and a half-size copy of it on the middle tag
     GRect a = ctag(1), r = hl_rect(hl);
     a = tag_bg(a, &s_tag_white);
@@ -1608,6 +1658,7 @@ after_toolbar:;
     } else { s_hand_key = -1; blit_shrink(r, a.origin.x + 2 + (a.size.w - r.size.w / 2) / 2, a.origin.y + (a.size.h - r.size.h / 2) / 2); }
     reticle(r);
   }
+#endif
   #undef AT1
 }
 #ifndef PBL_ROUND
@@ -1634,29 +1685,38 @@ void text_outlined_rect(GContext *ctx, const char *s, GFont f, GColor c, GRect r
   graphics_context_set_text_color(ctx, c);
   graphics_draw_text(ctx, s, f, r, GTextOverflowModeTrailingEllipsis, a, NULL);
 }
+#ifdef PD_FACE
+static bool hud_slot(GContext *ctx, int slot, GColor c, int x, int y, int w, GTextAlignment a) {   // a slot that shows its own text: drawn here
+  char fb[12]; if (!face_slot(slot, fb, sizeof fb)) return false;
+  text_outlined(ctx, fb, s_font_hud, c, x, y, w, a); return true;
+}
+#define FHT(...) hud_slot(ctx, __VA_ARGS__)
+#else
+#define FHT(...) false
+#endif
 static void draw_hud_text(GContext *ctx) {
   Hero *h = &G.hero;
   int x = status_x(), y = status_y(), w = status_w();
   char buf[16];
   snprintf(buf, sizeof buf, "%d", h->lvl);                                // level box under the portrait
 #ifdef PBL_ROUND                                    // 0.83: in the level bubble; health at the top of the band; depth and keys after their icons
-  text_outlined(ctx, buf, s_font_hud, GColorWhite, 62, 60, 20, GTextAlignmentCenter);
+  if (!FHT(FS_LVL, GColorWhite, 45, 60, 42, GTextAlignmentCenter)) text_outlined(ctx, buf, s_font_hud, GColorWhite, 62, 60, 20, GTextAlignmentCenter);
   snprintf(buf, sizeof buf, "%d/%d", h->HP > 0 ? h->HP : 0, h->HT);   // under the shelf's start
-  text_outlined(ctx, buf, s_font_hud, GColorWhite, 86, 24, 50, GTextAlignmentLeft);
+  if (!FHT(FS_HP, GColorWhite, 90, 24, 56, GTextAlignmentLeft)) text_outlined(ctx, buf, s_font_hud, GColorWhite, 86, 24, 50, GTextAlignmentLeft);
   snprintf(buf, sizeof buf, "%d", G.depth);                            // before the stairs and the key
-  text_outlined(ctx, buf, s_font_hud, GColorLightGray, 133, 18, 24, GTextAlignmentRight);
+  if (!FHT(FS_DEPTH, GColorLightGray, 117, 18, 42, GTextAlignmentRight)) text_outlined(ctx, buf, s_font_hud, GColorLightGray, 133, 18, 24, GTextAlignmentRight);
   snprintf(buf, sizeof buf, "%d", G.keys[G.depth] & 15);
-  text_outlined(ctx, buf, s_font_hud, GColorLightGray, 152, 27, 24, GTextAlignmentRight);
+  if (!FHT(FS_KEYS, GColorLightGray, 148, 27, 48, GTextAlignmentRight)) text_outlined(ctx, buf, s_font_hud, GColorLightGray, 152, 27, 24, GTextAlignmentRight);
   (void)x; (void)y; (void)w;
 #else
-  text_outlined(ctx, buf, s_font_hud, GColorWhite, x + SC(22) - 2, y + SC(21), SC(12) + 4, GTextAlignmentCenter);
+  if (!FHT(FS_LVL, GColorWhite, x + 6, y + SC(21), SC(30) - 4, GTextAlignmentCenter)) text_outlined(ctx, buf, s_font_hud, GColorWhite, x + SC(22) - 2, y + SC(21), SC(12) + 4, GTextAlignmentCenter);
   snprintf(buf, sizeof buf, "%d/%d", h->HP > 0 ? h->HP : 0, h->HT);
-  text_outlined(ctx, buf, s_font_hud, GColorWhite, x + SC(31), y + SC(7), 60, GTextAlignmentLeft);
+  if (!FHT(FS_HP, GColorWhite, x + SC(31), y + SC(7), 60, GTextAlignmentLeft)) text_outlined(ctx, buf, s_font_hud, GColorWhite, x + SC(31), y + SC(7), 60, GTextAlignmentLeft);
   // StatusPane: depth beside the stairs icon, iron keys beside the key icon, light grey with a black edge
   snprintf(buf, sizeof buf, "%d", G.depth);
-  text_outlined(ctx, buf, s_font_hud, GColorLightGray, HUD_DKX - SC(42) - 24, HUD_DKY - 1, 24, GTextAlignmentRight);
+  if (!FHT(FS_DEPTH, GColorLightGray, HUD_DKX - SC(42) - 48, HUD_DKY - 1, 48, GTextAlignmentRight)) text_outlined(ctx, buf, s_font_hud, GColorLightGray, HUD_DKX - SC(42) - 24, HUD_DKY - 1, 24, GTextAlignmentRight);
   snprintf(buf, sizeof buf, "%d", G.keys[G.depth] & 15);              // IronKey.curDepthQuantity
-  text_outlined(ctx, buf, s_font_hud, GColorLightGray, HUD_DKX - SC(26) - 24, HUD_DKY - 1, 24, GTextAlignmentRight);
+  if (!FHT(FS_KEYS, GColorLightGray, HUD_DKX - 58, HUD_DKY - 1, 56, GTextAlignmentRight)) text_outlined(ctx, buf, s_font_hud, GColorLightGray, HUD_DKX - SC(26) - 24, HUD_DKY - 1, 24, GTextAlignmentRight);
 #endif
   for (int q = 0; q < 2 && !toolbar_hidden(); q++) {
     int slot = game_bag_find(h->quick[q]);
@@ -1838,7 +1898,11 @@ static void update_proc(Layer *layer, GContext *ctx) {
   blit_end(ctx);
   PT(9, draw_hud_text(ctx));
   if (s_scene == SC_GAME || s_scene == SC_TARGET || s_scene == SC_INSPECT) ui_win_free();   // windows' code only while one is up
+#ifdef PD_FACE
+  else { if (!face_slot(FS_GOLD, g_face_gold, sizeof g_face_gold)) g_face_gold[0] = 0; ui_win(s_scene, ctx); }
+#else
   else ui_win(s_scene, ctx);
+#endif
   if (s_fade) {
     int el = (int)(now_ms() - s_fade_t0), lv = el * 16 / FADE_MS;
     if (lv > 16) lv = 16;
