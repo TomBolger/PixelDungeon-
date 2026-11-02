@@ -13,27 +13,28 @@ cd "$(dirname "$0")"
 BOT=$(pwd)
 WATCH=$(cd ../watch && pwd)
 B=$BOT/build
-EXTRA=""; case " $* " in *" -DPD_FACE "*) B=$BOT/build/face; EXTRA="-DPD_FACE";; esac   # the watchface build: the overlays too are compiled with PD_FACE, in their own directory (build/face/facetest)
+EXTRA=""; FACEOVL=""; case " $* " in *" -DPD_FACE "*) B=$BOT/build/face; EXTRA="-DPD_FACE"; FACEOVL=$(cd "$BOT/../face/ovl" && ls);; esac   # (the face's own overlays, face/ovl, only in its build)
+ovdir() { if [ -d "$WATCH/src/ovl/$1" ]; then echo "$WATCH/src/ovl/$1"; else echo "$BOT/../face/ovl/$1"; fi; }   # the watchface build: the overlays too are compiled with PD_FACE, in their own directory (build/face/facetest)
 mkdir -p "$B"
 CFLAGS="-std=c99 -O2 -DOVL_HOST -D_DEFAULT_SOURCE -DPD_DATA_DIR=\"$WATCH/resources/data\" -I$BOT/src -I$B -I$WATCH/src/c -Wall -Wno-unused-function -Wno-unused-parameter -Wno-format-truncation -Wno-misleading-indentation -Wno-unused-variable -Wno-unused-but-set-variable -Wno-parentheses $EXTRA"
 
 # 1. RESOURCE_ID_* numbers in package.json order (rewritten only when they change: overlays depend on it)
-python3 - "$WATCH/package.json" "$B/res_ids.h" <<'PY'
+python3 - "$WATCH/package.json" "$B/res_ids.h" $FACEOVL <<'PY'
 import json, os, sys
 m = json.load(open(sys.argv[1]))["pebble"]["resources"]["media"]
-names = ["TEXT"] + [x["name"] for x in m if x["name"] != "TEXT"]
+names = ["TEXT"] + [x["name"] for x in m if x["name"] != "TEXT"] + (["OVL_FSTAGE"] if len(sys.argv) > 3 else [])
 t = "#pragma once\nenum { " + ", ".join(f"RESOURCE_ID_{n} = {i + 1}" for i, n in enumerate(names)) + " };\n"
 if not os.path.exists(sys.argv[2]) or open(sys.argv[2]).read() != t: open(sys.argv[2], "w").write(t)
 PY
 
 # 2. One shared library per game overlay (UI-only overlays are not needed off the watch), rebuilt when a source changes
 OV=""
-for d in $(ls "$WATCH/src/ovl"); do
+for d in $(ls "$WATCH/src/ovl") $FACEOVL; do
   case $d in snd|ui|uiw|bag|sheet|fx) continue;; esac
   OV="$OV $d"
-  so="$B/libovl_$d.so"; srcs=$(ls "$WATCH/src/ovl/$d"/*.c)
+  so="$B/libovl_$d.so"; OD=$(ovdir $d); srcs=$(ls "$OD"/*.c)
   need=0; [ -f "$so" ] || need=1
-  for f in "$WATCH/src/ovl/$d"/*.c "$WATCH"/src/ovl/*/*.c "$WATCH"/src/c/*.h "$WATCH"/src/c/*.inc "$B/res_ids.h" "$BOT/src/pebble.h"; do [ "$f" -nt "$so" ] && need=1; done
+  for f in "$OD"/*.c "$WATCH"/src/ovl/*/*.c "$WATCH"/src/c/*.h "$WATCH"/src/c/*.inc "$B/res_ids.h" "$BOT/src/pebble.h"; do [ "$f" -nt "$so" ] && need=1; done
   if [ $need = 1 ]; then
     gcc $CFLAGS -fPIC -shared -Wno-format-security -Wno-format-truncation -o "$so" $srcs
   fi

@@ -67,10 +67,14 @@ static void f_new(void) {
   set_known(IK_WND_MM); if (cls == 2) set_known(IK_RNG_SHADOWS);
 #ifdef PD_FACE
   if (g_fr.heal_free) { set_known(IK_POT_HEALING); bag_add(item_make(IK_POT_HEALING, 1)); }   // the watchface hero starts with an identified Potion of Healing that is never used up (game.c keeps one in the pack; a setting)
+  int sd = 1;                                      // the starting stage (settings): the fstage overlay (face/ovl) gives the hero what a player arriving there has; it is gone again before the floor is built
+  if (g_fr.stage > 1) { const OvlHeader *o = ovl_load(RESOURCE_ID_OVL_FSTAGE); if (o) { ((void (*)(int))o->fn[0])(g_fr.stage); ovl_free(o); sd = g_fr.stage; } }
+#else
+  enum { sd = 1 };
 #endif
   G.now = 0; G.turn_due = 0; G.level_t0 = -TICK; g_ovr.c = -1;
-  G.max_depth = 1;
-  floor_op(FO_BUILD, 1, (void *)1);
+  G.max_depth = sd;
+  floor_op(FO_BUILD, sd, (void *)1);
   rnd_reseed_runtime();
 #ifdef TEST_BUILD                                 // test kit (0.17): a level-30 hero and a first floor laid out with one of everything
   test_floor();
