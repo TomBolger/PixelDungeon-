@@ -363,6 +363,9 @@ enum { SOUND_MUSIC = 1, SOUND_FX = 2 };            // 0.40: SOUND_FX = sound on 
 #define SOUND_VOL(m) (((m) >> 2) & 3)
 void snd_cycle(void);                               // Loud -> Medium -> Quiet -> Off -> Loud
 extern uint8_t g_sound;
+#ifdef PD_FACE
+extern uint8_t g_face_nothrow;                 // face_brain.h: throws onto traps do not land on this floor (two failed): the Assist plans the way over the traps instead
+#endif
 extern uint8_t g_assist;                    // 0.80 (owner): one Assist with switches: bit 0 on (else Off: taps move, Down the enemies, else the
 #if defined(PD_FACE) && !defined(PD_AS_DYN)   // the watchface always plays on "High" (g_assist 3, set in face_boot): fixed, so the other modes' code is not built (the tgt overlays keep the variable: their size is tuned to the arena)
 #define AS_ON 1                             // buttons), bit 1 use items (the bot's hands), bit 2 off-screen targets (the camera swoops to them)

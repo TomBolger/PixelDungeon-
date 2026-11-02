@@ -6,6 +6,22 @@
 static int s_fb_depth = -1, s_fb_presses, s_fb_best, s_fb_since;   // presses on this floor; the most cells seen so far and the presses since that grew
 static int fb_seen(void) { int n = 0; for (int i = 0; i < MAP_LEN / 8; i++) n += __builtin_popcount(G.visited[i]); return n; }
 static bool fb_foe(void) { return game_nearest_enemy() >= 0; }
+// day-WJ: the presses made in the window now up (the backpack, the item, the aim screen) are counted for that window alone. They were
+// counted together: after the dozen presses it takes to walk to an item in the backpack and its Throw option, the aim screen's own
+// limit (3) was already passed and it backed out at once, every time: a thrown thing (a spare weapon onto a trap...) was never thrown.
+static int s_fb_sc = -1;
+static void fb_scene(int scene, uint8_t *n) { if (scene != s_fb_sc) { s_fb_sc = scene; *n = 0; } }
+// day-WJ: a throw ordered onto a known trap (the Assist: shut in by traps, or a traps room's prize) that has been ordered at the same
+// cell for the third time in a row did not land twice: no more throws onto traps on this floor (g_face_nothrow: the Assist's tgt4
+// then plans the cheapest way over the traps itself). A false return: do not carry the order out. Throws at foes are not counted.
+uint8_t g_face_nothrow;
+static int s_fb_thc = -1, s_fb_thn;
+static bool fb_throw(int cell) {
+  if (cell < 0 || mob_at(cell) >= 0) return true;                // (a throw at a foe is not counted: only at a cell, a trap or a barricade)
+  if (cell == s_fb_thc) s_fb_thn++; else { s_fb_thc = cell; s_fb_thn = 0; }
+  if (s_fb_thn < 2) return true;
+  g_face_nothrow = 1; return false;
+}
 // Called before each decision. Returns a cell to walk to (the way up with the Amulet, or the way down when the floor has
 // gone on too long), -1: press the Assist's first suggestion as usual, or FB_LEVEL: the floor was changed here (the stuck-
 // breaker's last resort: a hidden stair; the caller treats it as a walk that ended on stairs).
@@ -46,7 +62,7 @@ static void fb_stuck(void) {
 #endif
 }
 static int fb_override(void) {
-  if (G.depth != s_fb_depth) { s_fb_depth = G.depth; s_fb_presses = 0; s_fb_best = 0; s_fb_since = 0; }
+  if (G.depth != s_fb_depth) { s_fb_depth = G.depth; s_fb_presses = 0; s_fb_best = 0; s_fb_since = 0; g_face_nothrow = 0; s_fb_thc = -1; }
   fb_stuck();
   s_fb_presses++;
   int seen = fb_seen();

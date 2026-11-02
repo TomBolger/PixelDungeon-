@@ -516,7 +516,8 @@ static int s_nt;                                        // how many throws the b
 static void thrower(void) {                            // s_thr: the bag slot to throw onto a trap (the face only: the buttons cannot aim at a cell); s_nt
   s_thr = -1; s_nt = 0;
 #ifdef PD_FACE
-  Hero *h = &G.hero; int bs = 0; for (int i = 0; i < BAG_SIZE; i++) { Item *it = &h->bag[i]; int k = it->kind, ct = item_cat(k);   // junk, then a stack of missiles, a spare weapon or armour, a last missile
+  Hero *h = &G.hero; int bs = 0; for (int i = 0; i < BAG_SIZE && !g_face_nothrow; i++) {   // (day-WJ: not once two throws have failed on this floor, see face_brain.h fb_throw)
+    Item *it = &h->bag[i]; int k = it->kind, ct = item_cat(k);   // junk, then a stack of missiles, a spare weapon or armour, a last missile
     if (!k || k == IK_PICKAXE || k == IK_BOOMERANG || (ct != CAT_WEAPON && ct != CAT_ARMOR && ct != CAT_MISSILE)) continue;
     int sc = junk(it) ? 4 : ct == CAT_MISSILE ? (it->qty > 1 ? 3 : 1) : 2; s_nt += ct == CAT_MISSILE ? it->qty : 1; if (sc > bs) { bs = sc; s_thr = i; } }
 #endif

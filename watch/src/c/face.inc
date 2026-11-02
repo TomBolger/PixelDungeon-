@@ -215,8 +215,8 @@ static void press(ButtonId id, uint32_t wait) {          // a button, as main.c'
     else act(G.hero.pos == G.exit || heap_at(G.hero.pos) >= 0 ? game_tap_cell(G.hero.pos) : game_search());
   }
   else if (s_scene == SC_TARGET && id == BUTTON_ID_SELECT) {
-    int t = s_aim_mob >= 0 && G.mobs[s_aim_mob].HP > 0 ? G.mobs[s_aim_mob].pos : game_nearest_enemy();
-    if (t < 0 && s_tgk == TK_BAG) t = s_tg;   // day-WI: a thing thrown onto a known trap (springs it): the Assist's entry cell
+    int t = s_tgk == TK_BAG && s_tg >= 0 && mob_at(s_tg) < 0 ? s_tg   // day-WI: a thing thrown onto a known trap (springs it): the Assist's entry cell (day-WJ: before any creature the aim screen has picked)
+      : s_aim_mob >= 0 && G.mobs[s_aim_mob].HP > 0 ? G.mobs[s_aim_mob].pos : game_nearest_enemy();
     if (t >= 0) throw_at(t); else { s_scene = SC_GAME; s_aim_q = s_aim_mob = -1; redraw(); }
   }
   else if (s_scene != SC_GAME) { ui_win_free(); s_scene = G.hero.HP > 0 ? SC_GAME : SC_DEAD; s_aim_q = s_aim_mob = -1; redraw(); }   // info, target...: closed (its window's code out of the arena first: the target overlay needs all of it, else it takes 8 KB of the heap)
@@ -348,6 +348,7 @@ static void face_game(void) {
     if (r != ACT_NONE) { act(r); s_f_next = now_ms() + STEP_MS; return; } }
   tg_refresh(0);
   if (s_scene == SC_GAME && face_cam(s_tg >= 0 && s_tgk != TK_BAG ? s_tg : -1)) return;
+  if (s_tg >= 0 && s_tgk == TK_BAG && g_ovr.ha == ACN_THROW && !fb_throw(s_tg)) s_fp_bad = 1;   // day-WJ: a throw onto a trap that has not landed twice: not again (the Assist plans the way over the traps)
   if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && g_ovr.ha != ACN_QUICK && (g_ovr.ha == ACN_THROW || g_ovr.ha == ACN_ZAP)) {   // a throw or a zap from a quickslot: its button, then aim
     int q = fq_slot_of(game_slot(g_ovr.hs)->kind);
     if (q >= 0) { s_fp_n = 0; s_walking = false; APP_LOG(APP_LOG_LEVEL_INFO, "quickslot %d: action %d", q, g_ovr.ha); quickslot(q); s_f_next = now_ms() + NAV_MS; return; }
@@ -368,6 +369,7 @@ static void face_game(void) {
   press(BUTTON_ID_SELECT, STEP_MS);
 }
 static void face_think(void) {
+  fb_scene(s_scene, &s_fp_n);                                              // (each window counts its own presses)
   if (s_scene == SC_GAME) { s_fp_abort = false; s_fp_age = 0; }
   else if (!s_fp_abort && (s_fp || s_scene == SC_OPTIONS) && OWN_INPUT(s_scene) && s_fp_age > FP_MS) {   // a plan taking too long
     FL("dropped %d %d %d", s_scene, s_fp, s_fp_n);
