@@ -22,7 +22,7 @@ int g_ovl_need, g_ovl_big;                               // the last overlay tha
 // 0.20: the overlay arena. Overlays that come and go (actions, windows, the save) are stacked in one block taken at
 // start-up, so they never leave holes between the pictures; the resident ones (creatures, sound) use the heap.
 // One that doesn't fit falls back to the heap.
-#define ARENA_SIZE 8192
+#define ARENA_SIZE 8224
 #define ARENA_N 6
 static uint8_t *s_arena;
 static uint16_t s_a_off[ARENA_N], s_a_top; static uint8_t s_a_n, s_a_dead;   // live blocks' offsets; dead: a bit per freed block

@@ -159,12 +159,6 @@ int hero_max_exp(void) { return 5 + G.hero.lvl * 5; }
 int hero_tier(void) { return G.hero.armor.kind ? item_tier(G.hero.armor.kind) : 0; }
 static bool hero_paralysed(void) { return G.hero.b.paralysis || G.hero.b.frost; }
 bool hero_flying(void) { return G.hero.b.levitation > 0; }
-void tgt_pass(void) {   // the Assist's walkable cells: known floor without traps, and the traps too while the float has turns left (a traps room's chest is walked to)
-  for (int c = 0; c < MAP_LEN; c++) {
-    int t = G.map[c]; bool ok = (PASSABLE(t) && !(TFLAGS(t) & F_AVOID)) || (G.hero.b.levitation >= 3 && (TFLAGS(t) & (F_AVOID | F_PIT | F_SOLID)) == F_AVOID);
-    if (ok && (BIT_GET(G.visited, c) || BIT_GET(G.fov, c))) BIT_SET(s_pass, c); else BIT_CLR(s_pass, c);
-  }
-}
 #define HUNTRESS (G.hero.hclass == 3)
 int hero_str(void) { return G.hero.weakness ? G.hero.STR - 2 : G.hero.STR; }   // Hero.STR: Weakness takes 2
 static int armor_enc(void) { return G.hero.armor.kind ? item_str(&G.hero.armor) - hero_str() : 0; }

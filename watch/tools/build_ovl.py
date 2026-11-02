@@ -134,8 +134,8 @@ def build(name, plat):
     print(f"ovl {name:8s} {plat:7s} image {len(img)} B, bss {end - img_end} B, relocs {len(rel_ovl)}+{len(rel_app)}"
           + ("" if old != data else " (unchanged)"))
     need = len(img) + end - img_end                    # 0.30: a transient overlay must fit the 8 KB arena (src/c/ovl.c ARENA_SIZE),
-    if name not in ("level",) and need > 8192:          # else it needs that much free heap, which the watch doesn't have
-        sys.exit(f"ovl {name}/{plat}: {need} B is over the 8192 B overlay arena: split it")
+    if name not in ("level",) and need > 8224:          # else it needs that much free heap, which the watch doesn't have
+        sys.exit(f"ovl {name}/{plat}: {need} B is over the 8224 B overlay arena: split it")
     if name not in ("level",) and need > 7900: print(f"WARNING: ovl {name}/{plat} {need} B is close to the 8192 B arena")
     return old != data
 

@@ -695,7 +695,8 @@ static int targets(int16_t *cell, uint8_t *kind) {
   int hp = G.hero.pos;
   s_tn = 0; s_tc = cell; s_tk = kind;
   { int f = g_from, dx = (hp & 31) - (f & 31), dy = (hp >> 5) - (f >> 5); s_head = f >= 0 && (dx || dy) && abs(dx) <= 8 && abs(dy) <= 8 ? pang(dx, dy) : -1; }
-  tgt_pass();                                          // 0.25: distances are walks through what's known (the pathfinder's; game.c)
+  for (int c = 0; c < MAP_LEN; c++)                    // 0.25: distances are walks through what's known (the pathfinder's)
+    if ((open_cell(c) || (G.hero.b.levitation >= 3 && (TFLAGS(G.map[c]) & (F_AVOID | F_PIT | F_SOLID)) == F_AVOID)) && (BIT_GET(G.visited, c) || BIT_GET(G.fov, c))) BIT_SET(s_pass, c); else BIT_CLR(s_pass, c);   // (floating, with a few turns left: the traps are floor too: the traps room's chest is walked to, not left)
   mark_chars(true);                                    // Hero.getCloser: those in sight block the way
   for (int i = 0; i < G.n_mobs; i++) {                 // 0.43: and the quest people seen before (they stay put: a way only open
     Mob *m = &G.mobs[i];                               // while one was out of sight sent the hero to and fro)

@@ -611,8 +611,13 @@ static bool step_vis(Vis *v, int16_t cell, const CharArt *art, bool hero) {
 }
 
 #define HAND_MS 700
-static const uint8_t TBQ[3] = { TB_Q1, TB_Q2, TB_INFO };   // (the face: the "?" button's place is quickslot 3)
-static int hand_btn(void) { int k = game_slot(g_ovr.hs)->kind; for (int q = 0; q < NQ; q++) if (k && k == *qkp(&G.hero, q)) return TBQ[q]; return TB_BAG; }   // 0.54: a quickslot item flies from its slot
+#ifdef PD_FACE
+static const uint8_t TBQA[3] = { TB_Q1, TB_Q2, TB_INFO };   // (the face: the "?" button's place is quickslot 3)
+#define TBQ(q) TBQA[q]
+#else
+#define TBQ(q) (5 - (q))                           // (TB_Q1 5, TB_Q2 4)
+#endif
+static int hand_btn(void) { int k = game_slot(g_ovr.hs)->kind; for (int q = 0; q < NQ; q++) if (k && k == *qkp(&G.hero, q)) return TBQ(q); return TB_BAG; }   // 0.54: a quickslot item flies from its slot
 static uint32_t s_hand_t0; static int s_hand_key = -1;   // 0.51: the hands' item flying from the backpack to the middle tag
 static __attribute__((noinline)) void until(uint32_t *w, uint32_t t) { uint32_t n = now_ms(); if (t > n && t - n + 1 < *w) *w = t - n + 1; }
 // 0.35: ms until the picture changes (frames that would look the same are not drawn: they cost the speaker too)
@@ -856,11 +861,16 @@ static void item_do_confirmed(ItemAction a) {
   s_scene = SC_GAME;
   act(game_item_do(s_item_slot, a));
 }
+#ifdef PD_FACE
+#define QSEL() ({ int _s = 0; for (int q = NQ - 1; q >= 0; q--) if (*qkp(&G.hero, q) == IK_NONE) _s = q; _s; })
+#else
+#define QSEL() (G.hero.quick[0] == IK_NONE || G.hero.quick[1] != IK_NONE ? 0 : 1)
+#endif
 static void item_do(int a) {
   ItemAction ac = (ItemAction)s_acts[a];
   ui_win_free();
   ui_sound(SND_CLICK);
-  if (ac == ACN_QUICK) { s_opt = 4; s_sel = 0; for (int q = NQ - 1; q >= 0; q--) if (*qkp(&G.hero, q) == IK_NONE) s_sel = q; s_scene = SC_OPTIONS; redraw(); return; }   // which slot?
+  if (ac == ACN_QUICK) { s_opt = 4; s_sel = QSEL(); s_scene = SC_OPTIONS; redraw(); return; }   // which slot?
   int c = game_confirm_needed(s_item_slot, ac);
   if (c) { s_opt = c; s_sel = 1; s_scene = SC_OPTIONS; redraw(); return; }
   item_do_confirmed(ac);
@@ -896,8 +906,13 @@ static void assign_quickslot(int q, int kind) {
 #ifdef DEBUG_TOOLS
   APP_LOG(APP_LOG_LEVEL_DEBUG, "assign q%d kind %d", q, kind);
 #endif
+#ifdef PD_FACE
   for (int o = 0; o < NQ; o++) if (o != q && *qkp(h, o) == kind) *qkp(h, o) = IK_NONE;   // one slot per kind
   *qkp(h, q) = kind;
+#else
+  if (h->quick[1 - q] == kind) h->quick[1 - q] = IK_NONE;   // one slot per kind
+  h->quick[q] = kind;
+#endif
 }
 
 // ---------------- input ----------------
@@ -1003,7 +1018,7 @@ static void on_tap(int x, int y) {
       if (combat_target() >= 0 && in_rect(ctag(1), x, y)) { throw_at(G.mobs[s_aim_mob].pos); return; }   // the attack tag: fire at the target
       if (TB_ROW(x, y)) {
         int b = TB_HIT(x, y);
-        if (b >= 0 && s_aim_q >= 0 && b == TBQ[s_aim_q]) { quickslot(s_aim_q); return; }
+        if (b >= 0 && s_aim_q >= 0 && b == TBQ(s_aim_q)) { quickslot(s_aim_q); return; }
         s_scene = SC_GAME; s_aim_q = s_aim_mob = -1; redraw(); return;           // GameScene.cancel
       }
       int16_t c = screen_to_cell(x, y);
@@ -1502,7 +1517,7 @@ static void draw_hud_art(void) {
   { static const uint8_t I[4][4] = { { 5, 8, 10, 10 }, { 24, 7, 12, 12 }, { 46, 7, 8, 12 }, { 65, 5, 14, 15 } };   // wait, search, inspect, backpack
     for (int i = 0; i < 4; i++) { if (PD_FACE_ON && i == 2) continue; GRect c = tc[i]; blit(&s_toolbar, I[i][0], I[i][1], I[i][2], I[i][3], BPIC(c, 2 * I[i][2], 2 * I[i][3]), 2); } }
   for (int q = 0; q < NQ; q++) {
-    int kind = *qkp(h, q); GRect c = tc[TBQ[q]];
+    int kind = *qkp(h, q); GRect c = tc[TBQ(q)];
     if (kind == IK_NONE) continue;
     int px = c.origin.x + (c.size.w - 32) / 2, py = c.origin.y + (c.size.h - 32) / 2;
     ITEM_SPR(item_sprite(kind), px, py, 2);
@@ -1535,9 +1550,9 @@ static void draw_hud_art(void) {
   for (int q = 0; q < NQ; q++) {
     int kind = *qkp(h, q);
     if (kind == IK_NONE) continue;
-    int sp = item_sprite(kind), bx = tb_x(TBQ[q]);
-    ITEM_SPR(sp, bx + (bw - 32) / 2, TB_Y(TBQ[q]) + 3, 2);
-    if (game_bag_find(kind) < 0) blit_fog(bx + (bw - 32) / 2, TB_Y(TBQ[q]) + 3, 32);
+    int sp = item_sprite(kind), bx = tb_x(TBQ(q));
+    ITEM_SPR(sp, bx + (bw - 32) / 2, TB_Y(TBQ(q)) + 3, 2);
+    if (game_bag_find(kind) < 0) blit_fog(bx + (bw - 32) / 2, TB_Y(TBQ(q)) + 3, 32);
   }
 #endif
 after_toolbar:;
@@ -1551,10 +1566,10 @@ after_toolbar:;
   }
   if (s_scene == SC_TARGET && s_aim_q >= 0 && s_aim_mob >= 0) {   // QuickSlot crossB over the aiming slot
 #ifdef PBL_ROUND
-    GRect c = tc[TBQ[s_aim_q]]; blit(&s_icons, 67, 0, 16, 16, BPIC(c, 32, 32), 2);
+    GRect c = tc[TBQ(s_aim_q)]; blit(&s_icons, 67, 0, 16, 16, BPIC(c, 32, 32), 2);
 #else
-    int bx = tb_x(TBQ[s_aim_q]);
-    blit(&s_icons, 67, 0, 16, 16, bx + (bw - 32) / 2, TB_Y(TBQ[s_aim_q]) + 3, 2);
+    int bx = tb_x(TBQ(s_aim_q));
+    blit(&s_icons, 67, 0, 16, 16, bx + (bw - 32) / 2, TB_Y(TBQ(s_aim_q)) + 3, 2);
 #endif
   }
   if (resume_shown()) {                             // PD ResumeButton
@@ -1675,12 +1690,12 @@ static void draw_hud_text(GContext *ctx) {
     const Item *qi = game_slot(slot);
     if (item_cat(qi->kind) == CAT_WAND && (qi->flags & IF_LEVEL_KNOWN)) {   // ItemSlot status: charges, top left
       if (qi->flags & IF_CHARGE_KNOWN) snprintf(buf, sizeof buf, "%d/%d", qi->ench, wand_max(qi)); else snprintf(buf, sizeof buf, "?/%d", wand_max(qi));
-      text_outlined(ctx, buf, s_font_hud, GColorWhite, tb_x(TBQ[q]) + 3, PBL_IF_ROUND_ELSE(TB_Y(TBQ[q]), toolbar_y()) - 1, tb_w() - 4, GTextAlignmentLeft);
+      text_outlined(ctx, buf, s_font_hud, GColorWhite, tb_x(TBQ(q)) + 3, PBL_IF_ROUND_ELSE(TB_Y(TBQ(q)), toolbar_y()) - 1, tb_w() - 4, GTextAlignmentLeft);
       continue;
     }
     if (qi->qty < 2) continue;
     snprintf(buf, sizeof buf, "%d", qi->qty);
-    text_outlined(ctx, buf, s_font_hud, GColorWhite, tb_x(TBQ[q]), PBL_IF_ROUND_ELSE(TB_Y(TBQ[q]) + 2 * TB_R - 16, toolbar_y() + TB_H - 18), tb_w() - 4, GTextAlignmentRight);
+    text_outlined(ctx, buf, s_font_hud, GColorWhite, tb_x(TBQ(q)), PBL_IF_ROUND_ELSE(TB_Y(TBQ(q)) + 2 * TB_R - 16, toolbar_y() + TB_H - 18), tb_w() - 4, GTextAlignmentRight);
   }
   for (int i = 0; i < s_n_float; i++) {
     Floater *f = &s_float[i];
