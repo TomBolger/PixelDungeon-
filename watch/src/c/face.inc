@@ -9,7 +9,7 @@
 #define NAV_MS 330                                    // one button press in a window
 static uint32_t s_f_end, s_f_next, s_f_last, s_f_vic;
 static int32_t s_fp_t0; static uint8_t s_fp_chk; static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
-static Layer *s_clock_layer;
+static Layer *s_clock_layer; static int s_f_tlow = 0x7FFFFFFF, s_f_tsc;
 
 // ---- the clock: Pixel Dungeon's own 3x5 digits (font1x.png), drawn big with an outline
 static const uint8_t FD[10][5] = { {3,5,5,5,6}, {2,6,2,2,2}, {6,1,2,4,7}, {6,1,2,1,6}, {5,5,7,1,1}, {7,4,6,1,6}, {3,4,7,5,7}, {7,1,2,4,4}, {7,5,2,5,7}, {7,5,7,1,6} };
@@ -47,7 +47,7 @@ static void face_pause(void) {
   if (g_game && G.hero.HP > 0 && s_scene == SC_GAME && s_fp == 0) { ui_win_free(); game_save(); }   // where it stands, saved (no timer runs from here)
   if (s_timer) app_timer_cancel(s_timer);
   s_timer = NULL;
-  APP_LOG(APP_LOG_LEVEL_INFO, "paused: depth %d heap free %d, lowest this burst %d", G.depth, (int)heap_bytes_free(), g_heap_min); g_heap_min = 0x7FFFFFFF;
+  APP_LOG(APP_LOG_LEVEL_INFO, "paused: depth %d heap free %d, lowest this burst %d (loading resource %d; at a frame %d in scene %d)", G.depth, (int)heap_bytes_free(), g_heap_min, g_heap_id, s_f_tlow, s_f_tsc); g_heap_min = s_f_tlow = 0x7FFFFFFF;
   redraw();
 }
 static void face_burst(void) {
@@ -209,7 +209,7 @@ static void face_think(void) {
 }
 static void face_tick(bool moving) {
   if (!s_f_on) return;
-  { int f = (int)heap_bytes_free(); if (f < g_heap_min) g_heap_min = f; }
+  { int f = (int)heap_bytes_free(); if (f < g_heap_min) g_heap_min = f; if (f < s_f_tlow) { s_f_tlow = f; s_f_tsc = s_scene; } }
   uint32_t n = now_ms(), dt = n - s_f_last; s_f_last = n; if (dt > 1500) dt = 33;
   s_last_in = n;
   if (s_scene == SC_AMULET && s_amulet == 2) s_f_vic += dt;            // the victory screen is counted in play time

@@ -4,7 +4,7 @@
  * image and records which words must be moved by the overlay's base or by the app's base.
  */
 #pragma once
-extern int g_ovl_need, g_ovl_big, g_heap_min;                 // the last overlay that found no room: its size, the largest free block
+extern int g_ovl_need, g_ovl_big, g_heap_min, g_heap_id;                 // the last overlay that found no room: its size, the largest free block
 #include <pebble.h>
 
 #define OVL_MAGIC 0x4C564F50u                     // "POVL": first word of a loaded overlay image

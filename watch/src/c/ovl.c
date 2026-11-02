@@ -18,7 +18,7 @@ static void relocate(ResHandle h, int off, int n, uint8_t *img, int img_size, ui
   }
 }
 
-int g_ovl_need, g_ovl_big, g_heap_min = 0x7FFFFFFF;                               // the last overlay that found no room: its size, the largest free block
+int g_ovl_need, g_ovl_big, g_heap_min = 0x7FFFFFFF, g_heap_id;                               // the last overlay that found no room: its size, the largest free block
 // 0.20: the overlay arena. Overlays that come and go (actions, windows, the save) are stacked in one block taken at
 // start-up, so they never leave holes between the pictures; the resident ones (creatures, sound) use the heap.
 // One that doesn't fit falls back to the heap.
@@ -68,7 +68,7 @@ static const OvlHeader *ovl_load_in(uint32_t res_id, bool keep) {
     return NULL;
   }
 #ifdef PD_FACE
-  { int f = (int)heap_bytes_free(); if (f < g_heap_min) g_heap_min = f; }   // (the watchface's worst moment, logged at each pause)
+  { int f = (int)heap_bytes_free(); if (f < g_heap_min) { g_heap_min = f; g_heap_id = (int)res_id; } }   // (the watchface's worst moment, logged at each pause)
 #endif
   int off = sizeof fh;
   resource_load_byte_range(h, off, img, fh.img_size); off += fh.img_size;
