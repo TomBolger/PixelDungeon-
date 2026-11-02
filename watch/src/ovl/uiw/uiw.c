@@ -11,6 +11,7 @@
 #include "ui_tabs.h"
 
 static const char *OPT_TITLE[7] = { "Chasm", "Harmful potion!", "Beneficial potion", "Unequip one ring", "Quickslot", "", "Missile weapon" };
+#ifndef PD_FACE
 #ifdef PBL_ROUND
 // 0.35 Gabbro: as wide as the screen (the circle trims it), as tall as its text flowed along the curve
 static const char *r_desc(void) { return s_text_buf[0] ? s_text_buf : "Nothing special."; }
@@ -47,6 +48,8 @@ static void draw_info(GContext *ctx) {            // PD WndInfoCell / WndInfoMob
   blit_end(ctx);
   if (titled) text(ctx, s_info_title, s_font_hud, GColorPastelYellow, tx, r.origin.y - 2, r.origin.x + w - tx, PBL_IF_ROUND_ELSE(s_info_mob >= 0 ? GTextAlignmentLeft : GTextAlignmentCenter, GTextAlignmentLeft));
 }
+
+#endif
 
 // ---------------- PD WndOptions (Chasm.heroJump, the potion warnings, rings, quickslots, quests): big buttons ----------------
 #define O_BTN 34
@@ -112,6 +115,7 @@ static int jump_input(int ev, int x, int y) {
   s_scene = SC_GAME; redraw(); return 0;           // Back, or a tap outside: close
 }
 
+#ifndef PD_FACE
 // ---------------- the game menu (PD WndGame, with WndSettings' switches): tabbed pages of big picture buttons ----------------
 #define M_HEAD 16
 #define M_BODY 130                                 // two rows of 64 px buttons
@@ -196,6 +200,7 @@ static int menu_input(int ev, int x, int y) {
   }
   s_scene = dead() ? SC_DEAD : SC_GAME; redraw(); return 0;   // Back, or a tap outside: close
 }
+#endif
 static void draw_dead(GContext *ctx) {            // GameScene.gameOver: the GAME OVER banner over the revealed floor
   blit_begin(ctx);
   blit(&s_gameover, 0, 0, 128, 35, (s_w - 128) / 2, map_center_y() - 50, 1);
@@ -204,6 +209,7 @@ static void draw_dead(GContext *ctx) {            // GameScene.gameOver: the GAM
   text_outlined_rect(ctx, G.death, s_font_hud, GColorSunsetOrange, r, GTextAlignmentCenter);
 }
 
+#ifndef PD_FACE
 static void ui_draw(int sc, GContext *ctx) {
   switch (sc) {
     case SC_MENU: draw_menu(ctx); break;
@@ -213,5 +219,15 @@ static void ui_draw(int sc, GContext *ctx) {
   }
 }
 static int ui_input(int ev, int x, int y) { return s_scene == SC_MENU ? menu_input(ev, x, y) : s_scene == SC_OPTIONS ? jump_input(ev, x, y) : 0; }
+
+#else
+static void ui_draw(int sc, GContext *ctx) {
+  switch (sc) {
+    case SC_DEAD: draw_dead(ctx); break;
+    case SC_OPTIONS: draw_jump(ctx); break;
+  }
+}
+static int ui_input(int ev, int x, int y) { return s_scene == SC_OPTIONS ? jump_input(ev, x, y) : 0; }   // (the face has no game menu)
+#endif
 
 OVL_ENTRY(uiw, (void *)ui_draw, (void *)ui_input);

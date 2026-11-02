@@ -39,13 +39,13 @@ static bool sees(int i, int enemy) {
   return tr[ballistica_cast(c, e, false, false, tr) - 1] == (int)e;
 }
 // ---------------- the floor's features, once a turn: garden light, sacrificial fire ----------------
+#ifndef PD_FACE                                      // (the face has no journal window: its records are not kept)
 // Journal.add / remove: a feature in sight goes in for this depth; one that is used up (or gone) comes out
 static void journal(int f, int on, int cell) {
   uint32_t bit = 1u << G.depth;
   if (!on) G.journal[f] &= ~bit;
   else if (cell >= 0 && seen(cell)) G.journal[f] |= bit;
 }
-_Static_assert(offsetof(Quests, wand) == 4 && offsetof(Quests, smith) == 8 && offsetof(Quests, imp) == 12, "Quests stages");
 static void journal_turn(void) {
   if (G.well_pos >= 0) for (int k = 0; k < 3; k++)    // WellWater: awareness, health, transmutation (well_kind order)
     journal("\1\0\2"[k], k == G.well_kind && G.map[G.well_pos] == T_WELL, G.well_pos);
@@ -65,10 +65,14 @@ static void journal_turn(void) {
     if (k != 1) journal(J_STATUE + k, at >= 0 && (!k || stage == QS_GIVEN || stage == QS_DONE), at);   // NPCs: from the quest given (Journal.add in interact) until the reward is taken (the Ghost: in the sewers' overlay)
   }
 }
+#endif
+_Static_assert(offsetof(Quests, wand) == 4 && offsetof(Quests, smith) == 8 && offsetof(Quests, imp) == 12, "Quests stages");
 static void floor_turn(void) {
   Hero *h = &G.hero;
   int sh = h->H_SHADOWS && !G.seen_mobs ? h->H_SHADOWS - 1 : 0;   // Shadows.act: it wears off, or goes once enemies are in sight
+#ifndef PD_FACE
   journal_turn();
+#endif
   for (int r = 0; r < G.n_rooms; r++) {                // Foliage: shafts of light in a garden hide you; embers grow back
     Room *R = &G.rooms[r];
     if (R->type != RT_GARDEN) continue;

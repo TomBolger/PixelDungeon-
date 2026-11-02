@@ -9,6 +9,7 @@
 static void draw_arcs(void);
 #include "item_sp.h"
 
+#ifndef PD_FACE
 // title: PD DashboardItem Play / Rankings; hero select: PD StartScene 2x2 class grid
 static GRect mute_rect(void) { return PBL_IF_ROUND_ELSE(GRect(14, s_h / 2 - 15, 30, 30), GRect(2, 2, 30, 30)); }
 static GRect title_rect(int i) { return GRect(s_w / 2 - 74 + i * 84, PBL_IF_ROUND_ELSE(108, 104), 64, 84); }   // TitleScene: Play, Rankings
@@ -57,9 +58,11 @@ static void draw_title(GContext *ctx) {                // TitleScene: the dashbo
 }
 
 // RankingsScene: the top six games (Rankings.Record rows: a tomb or the amulet with the place, the result, the hero)
+#endif
 static void draw_arcs(void) {
   for (int y = 0; y < s_h; y += 64) for (int x = 0; x < s_w; x += 64) blit(&s_arcs, 0, 0, 64, 64, x, y, 1);
 }
+#ifndef PD_FACE
 static void draw_rankings(GContext *ctx) {
   Ranks k; memset(&k, 0, sizeof k);
   if (persist_read_data(KEY_RANKS, &k, 256) == 256) persist_read_data(KEY_RANKS + 1, (uint8_t *)&k + 256, sizeof k - 256);
@@ -162,6 +165,7 @@ static void draw_confirm(GContext *ctx) {
   text(ctx, "Cancel", s_font_hud, GColorWhite, r.origin.x + 84, r.origin.y + 46, 70, GTextAlignmentCenter);
 }
 
+#endif
 static void ending_button(GContext *ctx, int b, int x, int y, int w, int h, const char *t) {
   s_btn_rect[b] = GRect(x, y, w, h);
   red_button(s_btn_rect[b], s_amulet != 2 && s_sel == b);
@@ -224,6 +228,7 @@ static void draw_surface(GContext *ctx) {              // SurfaceScene: home, un
   text(ctx, "Game Over", s_font_hud, GColorWhite, vx + 4, vy - 9 + 125 + 5, SKY_W - 8, GTextAlignmentCenter);
 }
 
+#ifndef PD_FACE
 static void ui_draw(int sc, GContext *ctx) {
   switch (sc) {
     case SC_TITLE: draw_title(ctx); break;
@@ -299,5 +304,10 @@ static int ui_input(int ev, int x, int y) {          // ev: a ButtonId, or -1 a 
     default: return 0;
   }
 }
+
+#else                                              // the watchface: only the two endings are ever shown (a viewer cannot press anything)
+static void ui_draw(int sc, GContext *ctx) { if (sc == SC_AMULET) { if (s_amulet == 2) draw_surface(ctx); else draw_amulet(ctx); } }
+static int ui_input(int ev, int x, int y) { if (s_scene == SC_AMULET && s_amulet != 2 && ev == BUTTON_ID_BACK) { s_scene = SC_GAME; redraw(); } return 0; }   // (the face only ever backs out of the Amulet scene)
+#endif
 
 OVL_ENTRY(ui, (void *)ui_draw, (void *)ui_input);

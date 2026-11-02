@@ -8,6 +8,7 @@
 #include "pd.h"
 #include "ovl.h"
 #include "snd.h"
+#ifndef PD_FACE                                  // (the watchface is silent: sfx.c never loads this engine, and face/build.sh leaves its music and sound data out)
 
 #define RATE 8000
 #define BLOCK 32                                  // samples per envelope / sequencer step (4 ms)
@@ -283,3 +284,6 @@ static void snd_cmd(int cmd, int arg) {
 }
 
 OVL_ENTRY(snd, (void *)snd_cmd, (void *)snd_pump, (void *)snd_stats);
+#else
+OVL_ENTRY(snd, 0, 0, 0);
+#endif

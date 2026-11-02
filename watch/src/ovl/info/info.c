@@ -8,6 +8,7 @@
 #include "game_int.h"
 #include "ovl.h"
 
+#ifndef PD_FACE                                      // (the watchface never inspects a cell: terrain names and descriptions are only for that)
 static const char *tile_name(int t) {                  // Level.tileName and each region's own (SewerLevel ... HallsLevel)
   int rg = region_of(G.depth);
   static const char *const WATER[5] = { "Murky water", "Dark cold water.", "Freezing cold water.", "Suspiciously colored water", "Cold lava" };
@@ -97,6 +98,7 @@ static const char *tile_desc(int t) {                  // Level.tileDesc and the
       return "";
   }
 }
+#endif
 #define ADD(...) do { int _n = snprintf(buf + n, len > n ? len - n : 0, __VA_ARGS__); if (_n > 0) n += _n; } while (0)
 static bool equipped(const Item *it) { return it == &G.hero.weapon || it == &G.hero.armor || it == &G.hero.ring[0] || it == &G.hero.ring[1]; }
 // Belongings.backpack.items.contains: in the pack (also the copy a sell window describes), not on the floor or worn
@@ -180,6 +182,7 @@ static void info_item(const Item *it, char *buf, int len) {
   }
 }
 
+#ifndef PD_FACE
 static void info_inspect(int16_t c, char *title, int tlen, char *desc, int dlen) {
   desc[0] = 0;
   if (!BIT_GET(G.visited, c)) { snprintf(title, tlen, "Unexplored"); snprintf(desc, dlen, "%s", txt(TX_I_T21)); return; }
@@ -251,4 +254,9 @@ cell:;
   if (!n) snprintf(desc, dlen, "There is nothing here.");
 }
 
+#endif
+#ifndef PD_FACE
 OVL_ENTRY(info, (void *)info_inspect, (void *)info_item);
+#else
+OVL_ENTRY(info, 0, (void *)info_item);          // the watchface never inspects a cell
+#endif

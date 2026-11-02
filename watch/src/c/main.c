@@ -514,18 +514,26 @@ char s_info_title[40]; static const char *s_info_desc; int s_info_mob = -1;
 // long texts (item info, descriptions) sit in their own clipping layer and scroll by drag or tap
 static Layer *s_text_layer;
 char *s_text_buf; int s_text_scroll, s_text_h, s_item_text_h, s_item_head = 22;   // head: title height (long names wrap)
+#ifdef PD_FACE
+void ui_message(const char *title, const char *text) { (void)title; (void)text; }   // the watchface shows no message windows (signs, stories: nothing a viewer could read in a moment; the game goes on as if they were closed)
+#else
 void ui_message(const char *title, const char *text) {      // PD WndMessage (signs, "One does not simply leave...")
   snprintf(s_info_title, sizeof s_info_title, "%s", title ? title : "");
   snprintf(s_text_buf, TEXT_BUF, "%s", text ? text : ""); s_info_desc = s_text_buf; s_info_mob = -1;   // texts from txt() rotate: keep a copy
   s_scene = SC_INFO; s_text_scroll = 0;
 }
+#endif
 void ui_confirm_jump(void) { s_scene = SC_OPTIONS; s_opt = 0; s_sel = 1; }
 char s_wnd_title[48], s_wnd_b[2][36];   // 0.30: the quest window's text shares s_text_buf (never shown with an info window)
 const char *g_wnd_title;
 void ui_wnd_info(const Item *it) { int n = strlen(s_wnd_text); if (n < TEXT_BUF - 1) item_info(it, s_wnd_text + n, TEXT_BUF - n); }
 void ui_wnd(int mob, const char *text, const char *b1, const char *b2) {   // PD WndQuest: a creature speaks, maybe with two choices
   const char *name = mob >= 0 ? mob_name(G.mobs[mob].type) : g_wnd_title ? g_wnd_title : "";
+#ifdef PD_FACE
+  if (!b1) return;                                                          // (a quest creature's plain words: not shown in the face)
+#else
   if (!b1) { ui_message(name, text); s_info_mob = mob; cap_first(s_info_title); return; }
+#endif
   snprintf(s_wnd_title, sizeof s_wnd_title, "%s", name); cap_first(s_wnd_title);
   if (text != s_wnd_text) snprintf(s_wnd_text, TEXT_BUF, "%s", text);
   snprintf(s_wnd_b[0], sizeof s_wnd_b[0], "%s", b1); snprintf(s_wnd_b[1], sizeof s_wnd_b[1], "%s", b2 ? b2 : "");
@@ -1809,7 +1817,9 @@ static void draw_hud_text(GContext *ctx) {
   text_outlined_rect(ctx, l1, s_font_log, hint ? GColorPastelYellow : s_msg_color[1], GRect(mx, y1, mw, h1 + 4), GTextAlignmentLeft);
 }
 
+#ifndef PD_FACE                                      // (the face has no info window: SC_INFO is never up)
 static const char *info_desc(void) { return s_info_desc && s_info_desc[0] ? s_info_desc : "Nothing special."; }
+#endif
 #ifdef PBL_ROUND
 // 0.35 Gabbro: long texts flow along the round screen's edge, a page at a time (Pebble's text flow and paging). The
 // windows' overlays lay their text out (s_text_r: where, s_text_h: how tall); the layer here only shows and scrolls it
@@ -1824,7 +1834,7 @@ int flow_h(const char *t, GRect f) {                 // the height of t flowed i
   if (!flow_set(f)) return 600;
   return graphics_text_layout_get_content_size_with_attributes(t, s_font_log, GRect(f.origin.x, f.origin.y, f.size.w, 2000), GTextOverflowModeWordWrap, GTextAlignmentLeft, s_flow).h;
 }
-#else
+#elif !defined(PD_FACE)
 static int info_head(void) { return s_info_mob >= 0 ? 38 : s_info_title[0] ? 20 : 0; }
 GRect info_rect(void) {
   int w = 186;
@@ -1836,14 +1846,22 @@ GRect info_rect(void) {
 #endif
 
 // ---- the scrolling text layer ----
+#ifdef PD_FACE
+static const char *text_now(void) { return s_scene == SC_ITEM ? s_text_buf : NULL; }
+#else
 static const char *text_now(void) { return s_scene == SC_ITEM ? s_text_buf : s_scene == SC_INFO ? info_desc() : NULL; }
+#endif
 static GRect text_frame(void) {
 #ifdef PBL_ROUND
   return s_text_r;
 #else
   if (s_scene == SC_ITEM) { GRect r = item_rect(); return GRect(r.origin.x + 5, r.origin.y + s_item_head, r.size.w - 10, s_item_text_h); }
+#ifdef PD_FACE
+  return GRect(0, 0, 0, 0);
+#else
   GRect r = info_rect(); int hd = info_head();
   return GRect(r.origin.x, r.origin.y + hd - 2, r.size.w, r.size.h - hd + 2);
+#endif
 #endif
 }
 #ifdef PBL_ROUND
@@ -1912,7 +1930,9 @@ static void ui_input(int ev, int x, int y) {               // ev: a ButtonId, or
     case C_ITEM: open_item(a); break;
     case C_BAG_CLOSE: bag_close(); break;
     case C_DO: item_do(a); break;
+#ifndef PD_FACE
     case C_PAGE: text_page(1); break;
+#endif
 #ifndef PD_FACE                                    // (the watchface has no game menu: nothing a viewer can press opens it)
     case C_MENU: menu_select(a); break;
 #endif
@@ -1921,10 +1941,12 @@ static void ui_input(int ev, int x, int y) {               // ev: a ButtonId, or
 }
 static void ui_win(int what, GContext *ctx) {                // what: a Scene
   if (ui_ovl(what)) ((void (*)(int, GContext *))s_ui->fn[0])(what, ctx);
+#ifndef PD_FACE
   else if (ctx) {                                            // no room for the window's code: say so rather than show nothing
     char t[64]; snprintf(t, sizeof t, "Out of memory for this window (%d of %d B). Press Back.", g_ovl_big, g_ovl_need);
     text_outlined_rect(ctx, t, s_font_log, GColorSunsetOrange, GRect(8, s_h / 2 - 30, s_w - 16, 60), GTextAlignmentCenter);
   }
+#endif
 }
 #ifdef PERF_PROBE
 static void update_body(Layer *layer, GContext *ctx);
@@ -2012,7 +2034,9 @@ static void init(void) {
 #ifdef WHATIF
   int floor_op(int, int, void *); if (!persist_exists(1)) floor_op(9, 0, NULL);   // FO_WHATIF (game_int.h)   // 0.51 what-if build: no save: the frozen bot game (0.70: in the save overlay)
 #endif
+#ifndef PD_FACE                                      // (the face sets its zoom and Assist mode itself, face_boot)
   if (persist_exists(KEY_ZOOM)) { int v = persist_read_int(KEY_ZOOM); s_zoom = v & 15; int a = (v >> 4) & 15, o = (a & 7) ^ ASSIST_DEF; g_assist = (a & 8) ? a & 7 : o == 4 ? 0 : o == 3 ? 7 : o == 2 ? 3 : 1; if (s_zoom > 2) s_zoom = 1; s_zuser = s_zoom; }   // (0.80: an old level: Low, Medium: on; High: + items; Max: + off-screen; Off)
+#endif
   sheet_load(&s_chrome, RESOURCE_ID_IMAGE_CHROME);
   s_font_tiny = fonts_get_system_font(FONT_KEY_GOTHIC_09);
   s_font_hud = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);

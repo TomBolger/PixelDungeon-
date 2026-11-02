@@ -21,6 +21,8 @@ p["pebble"]["watchapp"]["watchface"] = True
 p["pebble"]["messageKeys"] = ["CFG", "WX", "CLK_ON", "CLK_FMT", "CLK_SIZE", "CLK_LINE", "DATE_ORD", "UNIT_F", "SL_DEPTH", "SL_KEYS", "SL_LVL", "SL_HP", "SL_GOLD", "VIBE"]
 p["pebble"]["enableMultiJS"] = True
 p["pebble"]["capabilities"] = ["location", "configurable", "health"]
+# the face is silent (sfx.c): its music and sound data (about 125 KB) are replaced by one byte each (the resource names stay: the host tools list them)
+for n in ("music_theme", "music_game", "sfx"): open(w + "/resources/data/" + n + ".bin", "wb").write(b"\0")
 json.dump(p, open(w + "/package.json", "w"), indent=2)
 s = open(w + "/wscript").read()
 if "js_entry_file" not in s:                              # the face carries the phone-side JS (src/pkjs); the app's own bundle has none

@@ -5,6 +5,7 @@
 #ifndef TGT_PART
 #define TGT_PART 0                                     // 0.48: overlays from one source: 0 "tgt" (plan A), 1 "tgt2" (plans B, C...), (0.63) 2 "tgt3" (the hands)
 #endif
+#define PD_AS_DYN                                      // (PD_FACE: pd.h fixes the Assist mode for the app; this overlay is sized to the arena as it was)
 #include "pd.h"
 #define CELLS_POS
 #include "game_int.h"

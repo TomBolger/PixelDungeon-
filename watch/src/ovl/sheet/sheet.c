@@ -3,6 +3,7 @@
  * 0.14: the in-game windows are three overlays (uiw, bag, sheet) so each fits a fragmented heap.
  * Their layout helpers and most input handling stay in main.c (shared through ui_int.h).
  */
+#ifndef PD_FACE
 #include "pd.h"
 #include "ovl.h"
 #include "sheets.auto.h"
@@ -172,3 +173,8 @@ static int ui_input(int ev, int x, int y) {         // the catalogue's taps (ev 
 static void ui_draw(int sc, GContext *ctx) { if (sc == SC_SHEET) draw_sheet(ctx); else draw_catalog(ctx); }
 
 OVL_ENTRY(sheet, (void *)ui_draw, (void *)ui_input);
+#else
+#include "pd.h"
+#include "ovl.h"
+OVL_ENTRY(sheet, 0, 0);                              // the watchface never opens the character sheet or the catalogue
+#endif
