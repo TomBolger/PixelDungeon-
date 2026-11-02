@@ -956,7 +956,7 @@ static void turn_act(void) {                           // all per-turn actors: b
   int t = G.turn_due / TICK;
   Hero *h = &G.hero;
 #ifdef PD_FACE
-  if (h->HP > 0 && t % ((h->hclass == 2 ? 12 : 10) * FACE_HUNGER_X) == 0) hunger_act();   // Hunger.STEP (a rogue: x1.2); the watchface: x3 slower (without the long rests the hero plays ~5x faster than the food is laid out for)
+  if (h->HP > 0 && t % ((h->hclass == 2 ? 12 : 10) * FACE_HUNGER_X) == 0) hunger_act();   // Hunger.STEP (a rogue: x1.2); the watchface: FACE_HUNGER_X times slower (without the long rests the hero plays ~5x faster than the food is laid out for)
 #else
   if (h->HP > 0 && t % (h->hclass == 2 ? 12 : 10) == 0) hunger_act();   // Hunger.STEP (a rogue: x1.2)
 #endif
