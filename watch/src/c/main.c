@@ -335,7 +335,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   s_t0 = G.level_t0;
   s_now = G.now; s_pos = G.hero.pos; s_z = s_zuser + 4 * g_zlock;   // (0.93: the player's zoom, not Max's)
   if (s_walking && !dir) { s_now = -1; return; }     // 0.43 (audio): not on every step of a walk (Select/taps stop it first): when it ends
-  memcpy(g_view, VIEW[s_zoom], 4);                   // 0.36: only what's on screen
+  memcpy(g_view, VIEW[PD_FACE_ON ? 1 : s_zoom], 4);   // 0.36: only what's on screen (the face: always the middle zoom's view, as in round 1, whatever the camera shows: a wider view made the Assist stall in the host test)
   if (AS_OFFCAM) memset(g_view, 0, 4);              // 0.75: Max (0.80: off-screen targets): anywhere
   int16_t c[TARGETS_MAX]; uint8_t k[TARGETS_MAX];
   int n = G.hero.HP > 0 ? game_targets(c, k) : 0, cur = -1;

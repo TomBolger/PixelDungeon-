@@ -168,6 +168,7 @@ static void face_game(void) {
   if (ov >= 0) { ActResult r = game_tap_cell(ov); if (s_scene != SC_GAME) { s_f_next = now_ms() + STEP_MS; return; }   // (the win: the Surface scene is up)
     if (r != ACT_NONE) { act(r); s_f_next = now_ms() + STEP_MS; return; } }
   tg_refresh(0);
+  if (face_cam_ok()) cam_to(s_tg);                       // (the camera's swoop to a new target, gated: see face_cam_ok)
   { uint32_t n = now_ms();
     if (s_fc_held) {                                   // the far target on show (zoomed out, the reticle on it) for a moment, then in for the run
       if (zoom_now() == 2 && !cam_free()) s_fc_held = false;
@@ -220,7 +221,7 @@ static void face_tick(bool moving) {
   face_think();
 }
 static void face_boot(void) {
-  g_assist = 7; s_zoom = s_zuser = 2; s_zto = -1;                      // Assist Max (targets anywhere: the camera shows them), closest zoom
+  g_assist = 3; s_zoom = s_zuser = 2; s_zto = -1;                      // Assist High; the closest zoom (face_game's camera moves out to a far target and back)
   s_has_save = game_peek_save(&s_save_depth, &s_save_lvl);
 #ifdef FACE_WINTEST                                   // test build: a new game that already holds the Amulet, on its way up from floor 1
   face_new_game(); bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET;

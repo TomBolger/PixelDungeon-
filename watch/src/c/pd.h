@@ -224,11 +224,7 @@ typedef struct {
   Buffs b;
   Item weapon, armor;
   Item bag[BAG_CAP];
-#ifdef PD_FACE
-  uint8_t quick[3];                     // quickslot item kinds (PD QuickSlot); the face has a third, where the "?" button was
-#else
-  uint8_t quick[2];                     // quickslot item kinds (PD QuickSlot)
-#endif
+  uint8_t quick[2];                     // quickslot item kinds (PD QuickSlot; the face has a third: G.q.spare[0], see qkp)
   uint8_t mirror_att, mirror_dmg;       // last attack numbers (MirrorImage.duplicate)
   Item ring[2];                         // Belongings.ring1 / ring2 (0.7; saves before v8 end before this)
   // v9 (0.8): more buffs, class and subclass, room to grow
@@ -419,12 +415,13 @@ typedef struct { int32_t t; int16_t c; uint8_t d, on; int8_t ms; uint8_t gk; int
 extern uint8_t g_hl_order[8];                        // 0.54: the bottom bar, the bot's best first (Assist High: Back walks it)
 #ifdef PD_FACE
 #define PD_FACE_ON 1
+#define qkp(h, q) ((q) < 2 ? &(h)->quick[q] : &G.q.spare[0])   // (a third slot in the saved quest block's spare byte: the Hero struct keeps its size)
 #define NQ 3                                                // the face has three quickslots (the "?" button's place holds the third)
 #else
 #define PD_FACE_ON 0
+#define qkp(h, q) (&(h)->quick[q])
 #define NQ 2
 #endif
-#define qkp(h, q) (&(h)->quick[q])
 extern Ovr g_ovr;                                  // the floor (t: level_t0; just chosen: the hero's cell - 65536), its heading (d; bit 7: Select waits), on (1: one was on before, 2: entry 0 is grass,
                                                    // 4: grass skipped at kill count gk), ms: the pickaxe's slot (TK_MINE), gk: hero exp + lvl * 101 then   // 0.40: g_drop: where the player last dropped things (not offered back)   // 0.39: g_from: where the hero last moved from (the heading)                     // 0.36: the cells on screen around the hero (across, up, down, radius squared)
 int game_targets(int16_t *cell, uint8_t *kind);    // 0.23: the button target cycle (TARGETS_MAX), best first        // mob index for PD's attack indicator, or -1

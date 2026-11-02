@@ -9,7 +9,7 @@ A watchface that plays Pixel Dungeon by itself. Same game code as `watch/` (noth
 
 Round 2 (bot behaviour, toolbar, memory):
 - Toolbar: the "?" button is a third quickslot (`Hero.quick[3]` in the face; face saves have their own magic). Wands and thrown weapons are used from their slot (press it, then aim); only consumables go through the backpack. The bot keeps its best wands/missiles in the slots (`fq_plan` in face.inc), re-assigning through item window > Quickslot > slot.
-- Camera: Assist Max with a closest zoom. `face_cam_ok` (face.inc) gates main.c's `cam_to`: close in for a fight; a new far target zooms out to show both, holds ~1.1 s, then closes in for the run; no change within 1.2 s of the last.
+- Camera: Assist High (targets within the middle zoom's view, as in round 1) with the closest zoom as the home zoom. `face_cam_ok` (face.inc) gates main.c's `cam_to`: close in for a fight; a new far target zooms out to show both, holds ~1.1 s, then closes in for the run; no change within 1.2 s of the last.
 - Amulet pickup with a full pack: `FB_DROP` in face_brain.h drops the least useful item first.
 - Sound is stubbed out in the face (sfx.c); a new game frees the old floor's pictures first. Each pause logs the lowest free heap and the overlay loading at the time.
-- Host: `bot/tests/levtest.c` (traps room + chest + Levitation), `FULLVIEW=1 build/facetest 12` (the face's Assist Max).
+- Host: `bot/tests/levtest.c` (traps room + chest + Levitation).

@@ -11,11 +11,7 @@
 // Main record (keys 2..15): hero, game, and the current floor. Each other visited floor has its
 // own record (keys 40 + 3 * depth, up to 3 keys); floors are rebuilt from the seed and these apply on top.
 // 0.32: gas and fire clouds (Blob) of a floor go in their own keys, KEY_GAS(d), written with the save and on leaving.
-#ifdef PD_FACE
-#define SAVE_MAGIC 0x5044001Eu     // (the face's hero has a third quickslot: round 1's saves do not fit)
-#else
 #define SAVE_MAGIC 0x5044000Eu
-#endif
 #define SAVE_MAGIC_V13 0x5044000Du // v13 (0.17): things fallen down a chasm
 #define SAVE_MAGIC_V12 0x5044000Cu // v12 (0.14): the journal
 #define SAVE_MAGIC_V11 0x5044000Bu // v11 (0.14 test builds): what the bags hold
