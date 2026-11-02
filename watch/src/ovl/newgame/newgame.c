@@ -65,6 +65,9 @@ static void f_new(void) {
   static const uint8_t KNOWN[4] = { IK_POT_STRENGTH, IK_SCR_IDENTIFY, IK_SCR_MAPPING, IK_NONE };   // the class's known potion / scroll
   if (KNOWN[cls]) set_known(KNOWN[cls]);
   set_known(IK_WND_MM); if (cls == 2) set_known(IK_RNG_SHADOWS);
+#ifdef PD_FACE
+  set_known(IK_POT_HEALING); bag_add(item_make(IK_POT_HEALING, 1));   // the watchface hero starts with an identified Potion of Healing that is never used up (game.c keeps one in the pack)
+#endif
   G.now = 0; G.turn_due = 0; G.level_t0 = -TICK; g_ovr.c = -1;
   G.max_depth = 1;
   floor_op(FO_BUILD, 1, (void *)1);

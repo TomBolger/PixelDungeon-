@@ -13,8 +13,9 @@ cd "$(dirname "$0")"
 BOT=$(pwd)
 WATCH=$(cd ../watch && pwd)
 B=$BOT/build
+EXTRA=""; case " $* " in *" -DPD_FACE "*) B=$BOT/build/face; EXTRA="-DPD_FACE";; esac   # the watchface build: the overlays too are compiled with PD_FACE, in their own directory (build/face/facetest)
 mkdir -p "$B"
-CFLAGS="-std=c99 -O2 -DOVL_HOST -D_DEFAULT_SOURCE -DPD_DATA_DIR=\"$WATCH/resources/data\" -I$BOT/src -I$B -I$WATCH/src/c -Wall -Wno-unused-function -Wno-unused-parameter -Wno-format-truncation -Wno-misleading-indentation -Wno-unused-variable -Wno-unused-but-set-variable -Wno-parentheses"
+CFLAGS="-std=c99 -O2 -DOVL_HOST -D_DEFAULT_SOURCE -DPD_DATA_DIR=\"$WATCH/resources/data\" -I$BOT/src -I$B -I$WATCH/src/c -Wall -Wno-unused-function -Wno-unused-parameter -Wno-format-truncation -Wno-misleading-indentation -Wno-unused-variable -Wno-unused-but-set-variable -Wno-parentheses $EXTRA"
 
 # 1. RESOURCE_ID_* numbers in package.json order (rewritten only when they change: overlays depend on it)
 python3 - "$WATCH/package.json" "$B/res_ids.h" <<'PY'

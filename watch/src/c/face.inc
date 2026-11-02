@@ -15,7 +15,7 @@
 #define NAV_MS 330
 #else
 #define STEP_MS 100                                   // a decision after a walk or a hit
-#define NAV_MS 260                                    // one button press in a window (items: a little slower than the walk/fight pace)
+#define NAV_MS 480                                    // one button press in a window: every item-use screen dwells about half a second (movement and fights run at STEP_MS)
 #endif
 static uint32_t s_f_end, s_f_next, s_f_last, s_f_vic;
 static int32_t s_fp_t0; static uint8_t s_fp_chk; static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
@@ -223,7 +223,7 @@ static void press(ButtonId id, uint32_t wait) {          // a button, as main.c'
 static void back_out(void) { press(BUTTON_ID_BACK, NAV_MS); }
 // A plan through the windows (the backpack, an item, its options) that has not done its thing in FP_MS is dropped: the windows are closed
 // and no plan is made for FP_COOL_MS (the game's own way meanwhile). Nothing keeps him in the backpack for a whole burst.
-#define FP_MS 12000
+#define FP_MS 18000
 #define FP_COOL_MS 40000
 static uint32_t s_fp_age, s_fp_cool; static bool s_fp_abort;   // play time (ms) since the plan began / left of the pause from plans (counted in face_tick: a burst ending mid-plan does not use it up)
 static bool fp_cool(void) { return s_fp_cool > 0; }
@@ -259,7 +259,7 @@ static void face_item(void) {
   if (s_fp != 2 && s_fp != 1) { s_fp_bad = 1; back_out(); return; }
   if (j < 0 || ++s_fp_n > 20) { s_fp = 0; s_fp_bad = 1; back_out(); return; }
   s_fp = 2;
-  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; s_fp = 0; press(BUTTON_ID_SELECT, 400); } else press(BUTTON_ID_DOWN, NAV_MS);
+  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; s_fp = 0; press(BUTTON_ID_SELECT, 500); } else press(BUTTON_ID_DOWN, NAV_MS);
 }
 
 

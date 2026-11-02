@@ -67,6 +67,9 @@ static void potion_apply(int k) {                      // Potion.apply when drun
   switch (k) {
     case IK_POT_HEALING:
       set_known(k);
+#ifdef PD_FACE
+      g_face_heal_t = G.now;                           // (the watchface: the cooldown starts)
+#endif
       h->HP = h->HT; h->b.poison = 0; h->b.cripple = 0; h->b.bleed = 0; h->weakness = 0;
       ui_log("Your wounds heal completely.", C_GOOD); ui_fx(FX_HEAL, h->pos, -1, "healed");
       break;

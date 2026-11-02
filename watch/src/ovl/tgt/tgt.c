@@ -615,7 +615,7 @@ static int hands(void) {
     if (food_k(k) && (eat || war) && (k != IK_MYSTERY_MEAT || (g_ovr.hs < 0 && !war)) && !passed) { g_ovr.hs = i; g_ovr.ha = ACN_EAT; }   // (0.63: passed over: not again this floor, 0.64: but for those two)
   }
   if (g_ovr.hs >= 0) return TK_BAG;
-  if (seen && h->HP * 4 < h->HT && pot) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
+  if (seen && h->HP * 4 < h->HT && pot && FACE_HEAL_READY()) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
   // 0.64 (the Assist alone died carrying 2.4 unknown potions, a healing one among them every other time): beside one,
   // under a quarter, no known healing: drink an unknown potion (healing is the likeliest), else read an unknown scroll
   if (adj && h->HP * 4 < h->HT && !pot && G.dew >= 3 && G.dew < 10 && (s = game_bag_find(IK_DEW_VIAL)) >= 0 && XENV("VIAL", 1)) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }   // 0.77: the dew vial (full: it revives you)
@@ -734,6 +734,9 @@ static int hands(void) {
       if (c == CAT_SEED && it->kind != IK_SEED_SUNGRASS && it->kind != IK_SEED_FIREBLOOM && it->kind != IK_SEED_SORROWMOSS && XENV("DROPSEED", 1)) worse = true;   // (and the seeds that are never planted or thrown)
       if ((junk(it) || worse) && !DECL(it->kind, ACN_DROP)) { g_ovr.hs = i; g_ovr.ha = ACN_DROP; return TK_BAG; } } }
   if (!seen && G.depth >= 22 && G.depth <= 25 && !h->light && (s = game_bag_find(IK_TORCH)) >= 0 && XENV("TORCH", 1)) { g_ovr.hs = s; g_ovr.ha = ACN_LIGHT; return TK_BAG; }   // 0.93 (audit): the halls' sight is 25 - depth; the eyes, succubi and scorpios see 4
+#ifdef PD_FACE                                         // the watchface: the ever-present Potion of Healing takes the place of a long rest (hurt under the rest line, cooldown over)
+  if (h->HP * 10 < h->HT * XENV("RESTP", 4) && FACE_HEAL_READY() && (s = game_bag_find(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING) && !DECL(IK_POT_HEALING, ACN_DRINK)) { g_ovr.hs = s; g_ovr.ha = ACN_DRINK; return TK_BAG; }
+#endif
   if (!seen && h->HP * 20 < h->HT * XENV("BOSSHP", 15) && !game_starving() && XENV("BOSSREST", 1) && boss_depth(G.depth) && G.depth < 25 && !(G.boss & (G.depth == 5 ? 1 : G.depth == 10 ? 2 : G.depth == 15 ? 8 : 16)) && !DECL(0, 255)) return rest_k(seen, true);   // 0.93 (bot): a boss floor has no respawns: rest to full before the boss
   if (!seen && !HUNGRY && h->HP < h->HT && h->HP * 10 >= h->HT * XENV("DEWHP", 9) && G.dew < 10 && has(IK_DEW_VIAL) && !DECL(0, 255) && XENV("DEWREST", 1))   // 0.78 (owner): fed and nearly
     for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW && G.heaps[i].type == HEAP_PLAIN && s_dist[G.heaps[i].pos] < 255) return rest_k(seen, true);   // full, dew about: rest first (it then fills the vial)

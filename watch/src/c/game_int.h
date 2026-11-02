@@ -198,6 +198,17 @@ extern Item g_wnd_item;                        // the item whose description a w
 void ui_wnd_info(const Item *it);              // main.c: append an item's description to the open window
 int hero_op(int op, int a, int b, void *p);
 void item_use(Item *it);
+#ifdef PD_FACE                                  // the watchface's rules (not the watch app's)
+#define FACE_HEAL_CD 40                         // game turns between two drinks of the ever-present Potion of Healing (fights keep some tension)
+#ifndef FACE_HUNGER_X
+#define FACE_HUNGER_X 8                         // hunger rises this many times slower (the food in the dungeon was laid out for a slower player)
+#endif
+#define FACE_REGEN_X 3                          // passive regeneration speed-up (turn_act); tune down if HP sits pinned at full
+extern int32_t g_face_heal_t;                   // game time (ticks) of the last Potion of Healing drunk
+#define FACE_HEAL_READY() (G.now < g_face_heal_t || G.now - g_face_heal_t >= FACE_HEAL_CD * TICK)
+#else
+#define FACE_HEAL_READY() true
+#endif
 int attack_delay(const Item *w);
 int hero_move_cost(void);                       // 1 / Hero.speed() in ticks
 int16_t ballistica(int16_t from, int16_t to, bool *hit_mob);

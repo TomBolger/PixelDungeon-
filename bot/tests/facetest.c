@@ -26,6 +26,8 @@ static volatile int cur_game, cur_step;
 static void on_alarm(int s) { printf("HANG game=%d step=%d depth=%d\n", cur_game, cur_step, G.depth); _exit(1); }
 static ActResult walk(ActResult r) { for (int n = 0; r == ACT_WALK && n < 400 && G.hero.HP > 0; n++) r = game_continue(); game_level_commit(); return r; }
 static long hist[16][2];
+extern uint32_t g_host_time; extern uint16_t g_host_ms;
+static long hp_hist[11], rest_ticks, all_ticks, drinks, heal_drinks, starve_steps, steps_all, starve_games, broken_steps, eats;   // host-only counters: HP% (tenths) per decision, game time spent resting, healing drinks, starving, broken gear
 int main(int argc, char **argv) {
   signal(SIGALRM, on_alarm); setvbuf(stdout, NULL, _IONBF, 0);
   if (!game_init()) return 1;
@@ -34,15 +36,22 @@ int main(int argc, char **argv) {
   int drops = 0, stuck_up = 0, floods = 0, wins = 0, deaths = 0, nofood = 0, stuckf = 0, floors = 0; long steps_total = 0;
   g_assist = 3;
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
-    cur_game = g; srand(g + 1); memset(g_keys, 0, sizeof g_keys);
-    g_new_class = g % 4; game_new(); if (getenv("AMU")) { bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET; } s_won = 0; s_amu = 0; s_fb_depth = -1;
-    int steps, maxd = 1, lastd = 1, fl_steps = 0, fl_max = 0, bagacts = 0;
+    cur_game = g; srand(g + 1); if (getenv("VARY")) { g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7); }   // VARY=1: a different dungeon each game (else a game per class, repeated) memset(g_keys, 0, sizeof g_keys);
+    g_new_class = g % 4; game_new(); if (getenv("AMU")) { bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET; } s_won = 0; s_amu = 0; s_fb_depth = -1; s_wnd = 0; s_jump = false; s_pick = -1; g_trade = 0;
+    int32_t pnow = 0; int steps, maxd = 1, starved = 0, lastd = 1, fl_steps = 0, fl_max = 0, bagacts = 0;
     for (steps = 0; steps < maxsteps && G.hero.HP > 0 && !s_won; steps++) {
       cur_step = steps; alarm(5);
       game_level_commit();
       if (G.depth != lastd) { if (getenv("FS") && (g < 4 || g == atoi(getenv("FS")))) printf("g%d d%d->%d after %d steps lvl %d\n", g, lastd, G.depth, fl_steps, G.hero.lvl); if (getenv("DS") && steps > atoi(getenv("DS")) && steps < atoi(getenv("DS")) + 400) printf("  depth %d->%d at step %d hero %d,%d exit %d,%d entr %d,%d vis exit %d\n", lastd, G.depth, steps, cx(G.hero.pos), cy(G.hero.pos), cx(G.exit), cy(G.exit), cx(G.entrance), cy(G.entrance), BIT_GET(G.visited, G.exit)); floors++; if (fl_steps > 500) { stuckf++; if (game_bag_find(IK_AMULET) >= 0) stuck_up++; if (getenv("FL")) printf("  slow floor g%d d%d->%d: %d steps, amulet %d\n", g, lastd, G.depth, fl_steps, game_bag_find(IK_AMULET) >= 0); } if (fl_steps > fl_max) fl_max = fl_steps; fl_steps = 0; lastd = G.depth; } fl_steps++;
       if (G.depth > maxd) maxd = G.depth;
       if (game_bag_find(IK_RATION) < 0 && game_bag_find(IK_PASTY) < 0) nofood++;
+#ifdef FACE_HEAL_CD
+      { static int32_t lht = -1000000; if (g_face_heal_t != lht) { lht = g_face_heal_t; drinks++; } }
+#endif
+      if (getenv("HG") && g == 0 && steps % 400 == 0) printf("step %d d%d turn %d hunger %d HP %d/%d\n", steps, G.depth, G.now / TICK, G.hero.hunger, G.hero.HP, G.hero.HT);
+      { static int lh; if (G.hero.hunger + 40 < lh) eats++; lh = G.hero.hunger; }
+      { int32_t dt = G.now - pnow; pnow = G.now; if (dt < 0) dt = 0; hp_hist[G.hero.HP * 10 / G.hero.HT] += dt; steps_all += dt; if (game_starving()) { starve_steps += dt; starved = 1; } }   // (time-weighted: a rest of 300 turns counts 300, not one decision)
+      { const Item *w = &G.hero.weapon, *a = &G.hero.armor; if ((w->kind && item_broken(w)) || (a->kind && item_broken(a))) broken_steps++; }
       if (s_pick >= 0) { int p = s_pick; s_pick = -1; int ch = -1000, k = G.tgm.pk - 8;
         if (G.tgm.pk && k >= -4 && k < BAG_SIZE && game_pick_ok((PickMode)p, k)) ch = k; G.tgm.pk = 0;
         if (ch == -1000) for (int sl = -4; sl < BAG_SIZE; sl++) if (game_pick_ok((PickMode)p, sl)) { ch = sl; break; }
@@ -61,23 +70,25 @@ int main(int argc, char **argv) {
       if (getenv("FT") && fl_steps > 400 && fl_steps % 40 == 0) { printf("g%d d%d fl %d hero %d,%d hp %d/%d n %d:", g, G.depth, fl_steps, cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, G.hero.HT, n); for (int i = 0; i < n && i < 4; i++) printf(" %d,%d/k%d", cx(cell[i]), cy(cell[i]), kind[i]); for (int q = 0; q < G.n_mobs; q++) if (G.mobs[q].HP > 0 && BIT_GET(G.fov, G.mobs[q].pos)) printf(" [%s hp%d st%d @%d,%d]", mob_name(G.mobs[q].type), G.mobs[q].HP, G.mobs[q].state, cx(G.mobs[q].pos), cy(G.mobs[q].pos)); printf(" exit %d,%d vis %d since %d act %d hunger %d\n", cx(G.exit), cy(G.exit), BIT_GET(G.visited, G.exit), s_fb_since, g_ovr.ha, G.hero.hunger); }
       bool done = false;
       for (int i = 0; i < n && !done; i++) {
-        int c = cell[i]; int32_t t = G.hero.time; ActResult r;
+        int c = cell[i]; int32_t t = G.hero.time; ActResult r; int isrest = 0; int32_t tn0 = G.now;
         if (i) { g_ovr.c = g_tgobj[i] | 0x4000; g_ovr.t = G.hero.pos - 65536; }
         if (kind[i] == TK_MINE) r = game_item_do(g_ovr.ms, ACN_MINE);
-        else if (kind[i] == TK_BAG) { r = game_item_do(g_ovr.hs, (ItemAction)g_ovr.ha); bagacts++; }
-        else if (kind[i] == TK_REST) r = game_rest(true);
+        else if (kind[i] == TK_BAG) { if (g_ovr.ha == ACN_DRINK && G.hero.bag[g_ovr.hs].kind == IK_POT_HEALING) heal_drinks++; r = game_item_do(g_ovr.hs, (ItemAction)g_ovr.ha); bagacts++; }
+        else if (kind[i] == TK_REST) { isrest = 1; r = game_rest(true); }
         else if (!i && (g_ovr.d & 128)) { hero_spend(TICK); process(); r = ACT_TURN; }
         else r = (G.hero.b.roots || c == G.hero.pos) && kind[i] == TK_GO ? game_search() : game_tap_cell(c);
-        if (r != ACT_NONE || G.hero.time != t) { hist[kind[i] & 15][i ? 1 : 0]++; walk(r); done = true; }
+        if (r != ACT_NONE || G.hero.time != t) { hist[kind[i] & 15][i ? 1 : 0]++; walk(r); done = true; if (isrest) rest_ticks += G.now - tn0; }
       }
-      if (!done) walk(game_rest(false));
+      if (!done) { int32_t tn0 = G.now; walk(game_rest(false)); rest_ticks += G.now - tn0; }
     }
-    steps_total += steps;
+    steps_total += steps; all_ticks += G.now; starve_games += starved;
     if (G.hero.HP <= 0) deaths++;
     if (s_won) wins++;
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d amulet %s worst floor %d steps\n", g, g % 4, s_won ? "WON" : G.hero.HP <= 0 ? "DIED" : "limit", G.depth, maxd, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, (G.dflags & DF_AMULET) ? "yes" : "no", fl_max);
   }
   if (getenv("H")) for (int k = 0; k < 16; k++) if (hist[k][0] + hist[k][1]) printf("kind %d: entry0 %ld other %ld\n", k, hist[k][0], hist[k][1]);
+  if (all_ticks) { printf("rest share of game time %.1f%%, healing drinks %ld (%.1f per game, %.2f per 1000 turns; %ld tried), starving %.1f%% of game time (in %ld games), broken-gear steps %ld, meals eaten %.1f per game\nHP share of game time by tenths 0..10 (%%):", 100.0 * rest_ticks / all_ticks, drinks, (double)drinks / (N ? N : 1), 1000.0 * drinks / (all_ticks / TICK), heal_drinks, 100.0 * starve_steps / steps_all, starve_games, broken_steps, (double)eats / (N ? N : 1));
+    for (int k = 0; k < 11; k++) printf(" %.1f", 100.0 * hp_hist[k] / steps_all); printf("\n"); }
   printf("slow floors while carrying the Amulet: %d\n", stuck_up);
   printf("amulet-clog drops: %d\n", drops); printf("== %d games (hidden stairs used %d): won %d, died %d, steps with no food %d, floors %d, floors over 500 steps %d, avg steps %ld\n", N, floods, wins, deaths, nofood, floors, stuckf, steps_total / (N ? N : 1));
 }

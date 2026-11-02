@@ -295,6 +295,9 @@ void short_name(const Item *it, char *buf, int len) {     // Item.name(): no lev
 // Item.use: wear on weapons and armor with a positive level
 void item_use(Item *it) {
   if (it->lvl <= 0 || item_broken(it)) return;
+#ifdef PD_FACE
+  if (item_upgradable(it->kind) && it->dur <= 1) return;   // the watchface: gear gets worn down but never breaks (durability stops at 1, scrolls and enchanting still repair it)
+#endif
   int threshold = item_max_dur(it) / 6;
   char name[40]; short_name(it, name, sizeof name);
   bool lk = it->flags & IF_LEVEL_KNOWN;
@@ -952,10 +955,18 @@ static void gear_tick(int t) {
 static void turn_act(void) {                           // all per-turn actors: buffs, blobs, hunger, regeneration, respawner
   int t = G.turn_due / TICK;
   Hero *h = &G.hero;
+#ifdef PD_FACE
+  if (h->HP > 0 && t % ((h->hclass == 2 ? 12 : 10) * FACE_HUNGER_X) == 0) hunger_act();   // Hunger.STEP (a rogue: x1.2); the watchface: x3 slower (without the long rests the hero plays ~5x faster than the food is laid out for)
+#else
   if (h->HP > 0 && t % (h->hclass == 2 ? 12 : 10) == 0) hunger_act();   // Hunger.STEP (a rogue: x1.2)
+#endif
   if (h->HP > 0 && (G.regen_left -= TICK) <= 0) {                        // Regeneration: every 10 turns / 1.2^Mending
     if (h->HP < h->HT && !game_starving()) h->HP++;
+#ifdef PD_FACE
+    G.regen_left += scale_pow(10 * TICK, 10, 12, ring_sum(IK_RNG_MENDING)) / FACE_REGEN_X;   // the watchface: passive regeneration x3 (FACE_REGEN_X in game_int.h; tune it down if the hero's HP sits pinned at full and the fights lose their tension)
+#else
     G.regen_left += scale_pow(10 * TICK, 10, 12, ring_sum(IK_RNG_MENDING));
+#endif
   }
   if (h->HP > 0) gear_tick(t);
   if (G.health_pos >= 0) {                                                // Sungrass.Health: HT/10 every 5 turns, standing still
@@ -968,6 +979,9 @@ static void turn_act(void) {                           // all per-turn actors: b
   blobs_act();
   if ((G.turn_due - G.level_t0) % ((G.night || (G.dflags & DF_AMULET) ? 25 : 50) * TICK) == 0) respawn();   // twice as often at night or with the Amulet
 }
+#ifdef PD_FACE
+int32_t g_face_heal_t = -1000000;                      // game time of the last Potion of Healing drunk (the cooldown below)
+#endif
 void check_visible_mobs(void) {                 // Hero.checkVisibleMobs: a new enemy interrupts
   uint16_t seen = 0;
   for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && BIT_GET(G.fov, G.mobs[i].pos)) seen |= 1u << i;
@@ -991,7 +1005,7 @@ void process(void) {
   update_fov();
   check_visible_mobs();
 #ifdef PD_FACE
-  if (G.hero.HP > 0 && game_bag_find(IK_RATION) < 0 && game_bag_find(IK_PASTY) < 0) bag_add(item_make(IK_RATION, 1));   // the watchface hero always has a meal in the bag
+  if (G.hero.HP > 0 && game_bag_find(IK_POT_HEALING) < 0) { Item p = item_make(IK_POT_HEALING, 1); bag_add(p); set_known(IK_POT_HEALING); }   // the watchface hero always has one Potion of Healing in the pack: drunk, thrown, dropped, stolen or sold, it is back (drinking is rationed by FACE_HEAL_CD, not by the potion)
 #endif
 }
 
@@ -1261,7 +1275,13 @@ static ActResult hero_act(void) {
       if (h->pos == target) {
         bool up = G.action == HA_ASCEND;
         G.action = HA_NONE;
-        if (!game_starving() && !(up && G.depth == 1) && !(!up && G.depth >= LAST_DEPTH)) { h->hunger += 36; if (h->hunger > 360) h->hunger = 360; }   // actDescend / actAscend: STARVING / 10
+        if (!game_starving() && !(up && G.depth == 1) && !(!up && G.depth >= LAST_DEPTH)) {
+#ifdef PD_FACE
+        h->hunger += 36 / FACE_HUNGER_X;   // (the watchface: hunger runs slower, the stairs cost less of it too)
+#else
+        h->hunger += 36;
+#endif
+        if (h->hunger > 360) h->hunger = 360; }   // actDescend / actAscend: STARVING / 10
         if (up) {
           if (G.depth == 1) {                          // Hero.actAscend: only with the Amulet; then home
             if (game_bag_find(IK_AMULET) < 0) { ui_message(NULL, txt(TX_ONE_DOES_NOT_SIMPLY)); return ACT_NONE; }
@@ -1442,7 +1462,11 @@ bool game_pick_ok(PickMode mode, int slot) {           // WndBag.Mode filters
   Item *it = game_slot(slot);
   if (!it->kind) return false;
   switch (mode) {
+#ifdef PD_FACE
+    case PICK_SELL: return item_sellable(it->kind) && !(slot < 0 && (it->flags & IF_CURSED)) && !(it->kind == IK_POT_HEALING && it->qty <= 1);   // (the watchface: the one ever-present Potion of Healing is not for sale)
+#else
     case PICK_SELL: return item_sellable(it->kind) && !(slot < 0 && (it->flags & IF_CURSED));
+#endif
     case PICK_SEED: return slot >= 0 && item_cat(it->kind) == CAT_SEED;
     case PICK_IDENTIFY: return !item_identified(it);
     case PICK_UPGRADE: return item_upgradable(it->kind);
