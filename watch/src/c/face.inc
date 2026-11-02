@@ -3,12 +3,18 @@
 // just the clock layer once a minute. The autoplayer is the Assist's first suggestion (ovl/tgt: the bot's targeting) plus
 // face_brain.h; items are used through the real windows, button by button, so a viewer can follow.
 #define FACE_BURST_MS 20000
+#if defined(FACE_HEAPLOG) && defined(FACE_CAMLOG)
+#define FL(...) app_log(APP_LOG_LEVEL_INFO, "face", 0, __VA_ARGS__)
+#else
+#define FL(...) ((void)0)
+#endif
 #define FACE_WIN_MS 30000
 #define KEY_FACE_CLS 210                              // persist: the class of the next new game (they take turns)
 #define STEP_MS 140                                   // a decision after a walk or a hit
 #define NAV_MS 330                                    // one button press in a window
 static uint32_t s_f_end, s_f_next, s_f_last, s_f_vic;
 static int32_t s_fp_t0; static uint8_t s_fp_chk; static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
+static uint32_t s_fc_t, s_fc_hold; static int32_t s_fc_key = -1; static bool s_fc_held;   // the camera (face_cam)
 static Layer *s_clock_layer; static int s_f_tlow = 0x7FFFFFFF, s_f_tsc;
 #ifdef FACE_LOGS
 static int s_f_min = 99999;                           // test builds: the lowest free heap seen while playing
@@ -137,6 +143,7 @@ static void face_pause(void) {
   app_log(APP_LOG_LEVEL_INFO, "face", 0, "paused: depth %d heap free %d, lowest this burst %d (loading resource %d; at a frame %d in scene %d)", G.depth, (int)heap_bytes_free(), g_heap_min, g_heap_id, s_f_tlow, s_f_tsc);
 #endif
   g_heap_min = s_f_tlow = 0x7FFFFFFF;
+  if (s_scene == SC_GAME && (s_fc_held || cam_free() || zoom_now() != s_zuser)) { s_fc_held = false; s_cam_dx = s_cam_dy = 0; s_glide_t0 = 0; s_zto = -1; s_zoom = s_zuser; }   // (frozen zoomed out in the middle of a hold: no)
   redraw();
 }
 static void face_burst(void) {
@@ -157,6 +164,9 @@ static void face_new_game(void) {
   game_art(false); mob_sheets_free(); game_free_fx(); mreg_drop();   // what the last hero's floor held (pictures, creatures' sheets, the region's creatures) out of the heap while the next floor is built: it needs one big block
   s_sel = c; start_game(false);
   APP_LOG(APP_LOG_LEVEL_INFO, "new game: class %d", c);
+#ifdef FACE_HEAPTRACE
+  app_log(APP_LOG_LEVEL_INFO, "face", 0, "new game class %d free %d", c, (int)heap_bytes_free());
+#endif
 }
 static void press(ButtonId id, uint32_t wait) {          // a button, as main.c's button() / click_back() would route it (without the real handlers: they cost app size)
   s_f_next = now_ms() + wait;
@@ -169,9 +179,16 @@ static void press(ButtonId id, uint32_t wait) {          // a button, as main.c'
     int t = s_aim_mob >= 0 && G.mobs[s_aim_mob].HP > 0 ? G.mobs[s_aim_mob].pos : game_nearest_enemy();
     if (t >= 0) throw_at(t); else { s_scene = SC_GAME; s_aim_q = s_aim_mob = -1; redraw(); }
   }
-  else if (s_scene != SC_GAME) { s_scene = G.hero.HP > 0 ? SC_GAME : SC_DEAD; s_aim_q = s_aim_mob = -1; redraw(); }   // info, target...: closed
+  else if (s_scene != SC_GAME) { ui_win_free(); s_scene = G.hero.HP > 0 ? SC_GAME : SC_DEAD; s_aim_q = s_aim_mob = -1; redraw(); }   // info, target...: closed (its window's code out of the arena first: the target overlay needs all of it, else it takes 8 KB of the heap)
 }
 static void back_out(void) { press(BUTTON_ID_BACK, NAV_MS); }
+// A plan through the windows (the backpack, an item, its options) that has not done its thing in FP_MS is dropped: the windows are closed
+// and no plan is made for FP_COOL_MS (the game's own way meanwhile). Nothing keeps him in the backpack for a whole burst.
+#define FP_MS 12000
+#define FP_COOL_MS 40000
+static uint32_t s_fp_age, s_fp_cool; static bool s_fp_abort;   // play time (ms) since the plan began / left of the pause from plans (counted in face_tick: a burst ending mid-plan does not use it up)
+static bool fp_cool(void) { return s_fp_cool > 0; }
+static void fp_begin(void) { s_fp_age = 0; s_fp_abort = false; }
 
 // ---- using an item the way a player does: open the backpack, step to it, open it, pick the action
 static bool bag_find(int slot, int *ui, int *tab) {
@@ -179,7 +196,11 @@ static bool bag_find(int slot, int *ui, int *tab) {
   for (int t = 0; t < nt && found < 0; t++) { s_bag_tab = t; for (int i = 0; i < BAG_UI_TAB0 - 1; i++) if (bag_ui_to_slot(i) == slot) { found = i; ft = t; break; } }
   s_bag_tab = save; *ui = found; *tab = ft; return found >= 0;
 }
+#ifdef PBL_ROUND                                       // Gabbro's backpack has rows of 5, 7, 7, 5 (ovl/bag/bag.c bag_cell), not 5 by 5: the row of a cell as it is drawn
+static int bag_row(int c) { return c >= BAG_UI_TAB0 ? 5 : c < 5 ? 0 : c < 12 ? 1 : c < 19 ? 2 : c < 24 ? 3 : 4; }
+#else
 static int bag_row(int c) { return c >= BAG_UI_TAB0 ? 5 : c / BAG_COLS; }
+#endif
 static void face_bag(void) {
   if (s_pick >= 0) {                                   // a selector (read an upgrade scroll: which item?): the hand's pick is under the cursor
     if (++s_fp_n > 4) { s_fp_n = 0; back_out(); return; }
@@ -199,7 +220,7 @@ static void face_item(void) {
   if (s_fp != 2 && s_fp != 1) { s_fp_bad = 1; back_out(); return; }
   if (j < 0 || ++s_fp_n > 20) { s_fp = 0; s_fp_bad = 1; back_out(); return; }
   s_fp = 2;
-  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; APP_LOG(APP_LOG_LEVEL_INFO, "do action %d (%d presses)", s_fp_act, s_fp_n); s_fp = 0; press(BUTTON_ID_SELECT, STEP_MS * 3); } else press(BUTTON_ID_DOWN, NAV_MS);
+  if (s_sel == j) { s_fp_chk = s_fp_act != ACN_QUICK; s_fp_t0 = G.hero.time; s_fp = 0; press(BUTTON_ID_SELECT, STEP_MS * 3); } else press(BUTTON_ID_DOWN, NAV_MS);
 }
 
 
@@ -237,53 +258,55 @@ static bool fq_plan(void) {
 }
 // ---- the camera: a zoom that shows what he is up to. Close in for a fight; otherwise the target a few steps away, the zoom
 // out as far as it takes to show him and it (main.c cam_to), held for a moment so it can be read, then close in for the run.
-static uint32_t s_fc_t, s_fc_hold; static int32_t s_fc_key = -1; static int16_t s_fc_ov = -1; static bool s_fc_held;
-static bool face_cam_ok(void) {                        // asked by tg_refresh each time it would swoop the camera to the chosen target
+static bool face_cam_ok(void) { return false; }        // (main.c's tg_refresh asks it only with Assist Max; the face is on High: face_cam below does the camera)
+static bool face_far(int c) {                          // the target is out of the closest zoom's reach (cam_to would zoom out)
+  int h = G.hero.pos, dx = (c & 31) - (h & 31), dy = (c >> 5) - (h >> 5);
+  return abs(dx) > FIT[2][0] || abs(dy) > FIT[2][1];
+}
+static bool face_melee(void) { int e = game_nearest_enemy(); return e >= 0 && distance(e, G.hero.pos) <= 2; }
+static bool face_cam_hold(void) {                      // a far place on show (zoomed out): held for a moment, then in for the run. true: this think is used up
+  if (!s_fc_held) return false;
   uint32_t n = now_ms();
-  int e = game_nearest_enemy(); bool melee = e >= 0 && distance(e, G.hero.pos) <= 2;
-  int32_t key = s_tg < 0 ? -1 : s_tgk == TK_ENEMY ? 0x10000 | s_tgu : s_tg;
-  if (melee) { bool in = s_zoom == 2 && s_zto < 0 && !cam_free(); s_fc_key = key; if (!in) s_fc_t = n; return !in; }   // a fight: in, at once
-  if (key == s_fc_key || (int32_t)(n - s_fc_t) < 1200) return false;   // the same target, or a change not long ago: no flicker
-  s_fc_key = key; s_fc_t = n; s_fc_held = true; s_fc_hold = n + 1100; return true;
+  if (s_walking || face_melee() || (zoom_now() == 2 && !cam_free())) { s_fc_held = false; return false; }   // a fight or a walk cuts it short
+  if ((int32_t)(n - s_fc_hold) < 0) { s_f_next = s_fc_hold; return true; }
+  s_fc_held = false; cam_center(); redraw(); s_f_next = n + 450; return true;
+}
+// c: where he is going (the walk's destination or the Assist's target), -1 none. Fight: in at once. A target the closest zoom
+// shows: stay in (centred). A far one, new and not too soon after the last change: zoomed out to show both, held ~1.1 s (face_cam_hold).
+static bool face_cam(int c) {
+  uint32_t n = now_ms();
+  if (face_melee()) { s_fc_key = -1; if (zoom_now() != 2 || cam_free()) { s_fc_t = n; cam_center(); redraw(); s_f_next = n + 150; return true; } return false; }
+  if (c < 0) return false;
+  int32_t key = s_tgk == TK_ENEMY && c == s_tg ? 0x10000 | s_tgu : c;
+  if (!face_far(c)) { if (cam_free() || zoom_now() != 2) { cam_center(); redraw(); } return false; }
+  if (key == s_fc_key || (int32_t)(n - s_fc_t) < 1200) return false;      // the same place, or a change not long ago: no flicker
+  s_fc_key = key; s_fc_t = n; cam_to(c);
+  s_fc_held = true; s_fc_hold = n + 1100; redraw(); s_f_next = s_fc_hold; return true;
 }
 static void face_game(void) {
   { static int8_t d; if (d != G.depth) { d = G.depth; APP_LOG(APP_LOG_LEVEL_INFO, "depth %d, lvl %d, hp %d/%d, last floor %d presses, %d since news", d, G.hero.lvl, G.hero.HP, G.hero.HT, s_fb_presses, s_fb_since); } }
   if (s_fp_chk) { s_fp_chk = 0; if (G.hero.time == s_fp_t0) s_fp_bad = 1; }   // the windows' way did nothing (a throw with no clear line): the game's own way this time
   if (s_hl >= 0) { s_hl = -1; redraw(); }
-  if (s_fc_held && !s_walking) {                       // a far place or target on show (zoomed out) for a moment, then back in for the run
-    uint32_t n = now_ms();
-    if (zoom_now() == 2 && !cam_free()) s_fc_held = false;
-    else if ((int32_t)(n - s_fc_hold) < 0) { s_f_next = s_fc_hold; return; }
-    else { s_fc_held = false; cam_center(); redraw(); s_f_next = n + 450; return; }
-  }
+  if (face_cam_hold()) return;
   int ov = fb_override();
-  if (ov >= 0 && ov != s_fc_ov && s_scene == SC_GAME && game_nearest_enemy() < 0) {   // a new far place to walk to (stairs, the unexplored): zoomed out to show the way first
-    s_fc_ov = ov; cam_to(ov);
-    if (zoom_now() != 2 || cam_free()) { s_fc_held = true; s_fc_hold = now_ms() + 1100; s_fc_key = -2; redraw(); s_f_next = s_fc_hold; return; }
-  }
+  if (ov >= 0 && s_scene == SC_GAME && !fb_foe() && face_cam(ov)) return;   // a far place to walk to (stairs, the unexplored): zoomed out to show the way first
   if (ov != -1) APP_LOG(APP_LOG_LEVEL_INFO, "override %d: exit %d entrance %d amulet %d since %d presses %d", ov, G.exit, G.entrance, game_bag_find(IK_AMULET), s_fb_since, s_fb_presses);
   if (ov == FB_DROP) { act(game_item_do(s_fb_slot, ACN_DROP)); s_f_next = now_ms() + STEP_MS * 2; return; }
   if (ov == FB_LEVEL) { act(ACT_LEVEL); s_f_next = now_ms() + 400; return; }
   if (ov >= 0) { ActResult r = game_tap_cell(ov); if (s_scene != SC_GAME) { s_f_next = now_ms() + STEP_MS; return; }   // (the win: the Surface scene is up)
     if (r != ACT_NONE) { act(r); s_f_next = now_ms() + STEP_MS; return; } }
   tg_refresh(0);
-  if (face_cam_ok()) cam_to(s_tg);                       // (the camera's swoop to a new target, gated: see face_cam_ok)
-  { uint32_t n = now_ms();
-    if (s_fc_held) {                                   // the far target on show (zoomed out, the reticle on it) for a moment, then in for the run
-      if (zoom_now() == 2 && !cam_free()) s_fc_held = false;
-      else if ((int32_t)(n - s_fc_hold) < 0) { s_f_next = s_fc_hold; return; }
-      else { s_fc_held = false; cam_center(); redraw(); s_f_next = n + 450; return; }
-    } else if (cam_free() && s_tgk != TK_BAG && game_nearest_enemy() < 0) { cam_center(); redraw(); s_f_next = n + 300; return; } }
+  if (s_scene == SC_GAME && face_cam(s_tg >= 0 && s_tgk != TK_BAG ? s_tg : -1)) return;
   if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && g_ovr.ha != ACN_QUICK && (g_ovr.ha == ACN_THROW || g_ovr.ha == ACN_ZAP)) {   // a throw or a zap from a quickslot: its button, then aim
     int q = fq_slot_of(game_slot(g_ovr.hs)->kind);
     if (q >= 0) { s_fp_n = 0; s_walking = false; APP_LOG(APP_LOG_LEVEL_INFO, "quickslot %d: action %d", q, g_ovr.ha); quickslot(q); s_f_next = now_ms() + NAV_MS; return; }
   }
-  if (!s_fp_bad && s_scene == SC_GAME && game_nearest_enemy() < 0 && s_fb_presses % 20 == 7 && fq_plan()) {   // rarely, with nothing about: a better wand or missile into a slot
-    s_fp = 1; s_fp_n = 0; s_fp_act = ACN_QUICK; s_walking = false;
-    APP_LOG(APP_LOG_LEVEL_INFO, "quickslot plan: bag slot %d into slot %d", s_fp_slot, s_fq_q); open_bag(-1); s_f_next = now_ms() + 500; return;
+  if (!s_fp_bad && !fp_cool() && s_scene == SC_GAME && game_nearest_enemy() < 0 && s_fb_presses % 20 == 7 && fq_plan()) {   // rarely, with nothing about: a better wand or missile into a slot
+    s_fp = 1; s_fp_n = 0; s_fp_act = ACN_QUICK; s_walking = false; fp_begin();
+    FL("qp %d %d", s_fp_slot, s_fq_q); APP_LOG(APP_LOG_LEVEL_INFO, "quickslot plan: bag slot %d into slot %d", s_fp_slot, s_fq_q); open_bag(-1); s_f_next = now_ms() + 500; return;
   }
-  if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && game_slot(g_ovr.hs)->kind) {   // the bot's hands: through the windows
-    s_fp = 1; s_fp_n = 0; s_fp_slot = g_ovr.hs; s_fp_act = g_ovr.ha;
+  if (s_tg >= 0 && s_tgk == TK_BAG && !s_fp_bad && !fp_cool() && game_slot(g_ovr.hs)->kind) {   // the bot's hands: through the windows
+    s_fp = 1; s_fp_n = 0; s_fp_slot = g_ovr.hs; s_fp_act = g_ovr.ha; fp_begin();
     APP_LOG(APP_LOG_LEVEL_INFO, "hands: slot %d action %d", s_fp_slot, s_fp_act);
     s_walking = false; open_bag(-1); s_f_next = now_ms() + 500; return;
   }
@@ -294,6 +317,11 @@ static void face_game(void) {
   press(BUTTON_ID_SELECT, STEP_MS);
 }
 static void face_think(void) {
+  if (s_scene == SC_GAME) { s_fp_abort = false; s_fp_age = 0; }
+  else if (!s_fp_abort && (s_fp || s_scene == SC_OPTIONS) && OWN_INPUT(s_scene) && s_fp_age > FP_MS) {   // a plan taking too long
+    FL("dropped %d %d %d", s_scene, s_fp, s_fp_n);
+    s_fp = 0; s_fp_bad = 1; s_fp_abort = true; s_fp_cool = FP_COOL_MS; }
+  if (s_fp_abort && (s_scene == SC_BAG || s_scene == SC_ITEM || s_scene == SC_OPTIONS || s_scene == SC_TARGET)) { s_pick = -1; back_out(); return; }
   switch (s_scene) {
     case SC_GAME: face_game(); break;
     case SC_BAG: face_bag(); break;
@@ -310,8 +338,13 @@ static void face_think(void) {
 }
 static void face_tick(bool moving) {
   if (!s_f_on) return;
-  { int f = (int)heap_bytes_free(); if (f < g_heap_min) g_heap_min = f; if (f < s_f_tlow) { s_f_tlow = f; s_f_tsc = s_scene; } }
+  { int f = (int)heap_bytes_free(); if (f < g_heap_min) g_heap_min = f;
+#ifdef FACE_HEAPTRACE
+    { static int lf; if (abs(f - lf) > 700) { lf = f; app_log(APP_LOG_LEVEL_INFO, "face", 0, "tick f %d scene %d walking %d", f, s_scene, s_walking); } }
+#endif
+    if (f < s_f_tlow) { s_f_tlow = f; s_f_tsc = s_scene; } }
   uint32_t n = now_ms(), dt = n - s_f_last; s_f_last = n; if (dt > 1500) dt = 33;
+  s_fp_age += dt; s_fp_cool = s_fp_cool > dt ? s_fp_cool - dt : 0;
   s_last_in = n;
 #ifdef FACE_LOGS
   { int f = (int)heap_bytes_free(); if (f < s_f_min) { s_f_min = f; } }
@@ -323,12 +356,18 @@ static void face_tick(bool moving) {
   face_think();
 }
 static void face_boot(void) {
+  s_fp_cool = 0; s_fp_abort = false;
+  s_fc_t = now_ms() - 5000;                                            // (now_ms() is the epoch's low 32 bits: 0 is not "long ago" as a signed difference: the camera gate never opened)
   g_assist = 3; s_zoom = s_zuser = 2; s_zto = -1;                      // Assist High; the closest zoom (face_game's camera moves out to a far target and back)
   s_has_save = game_peek_save(&s_save_depth, &s_save_lvl);
 #ifdef FACE_WINTEST                                   // test build: a new game that already holds the Amulet, on its way up from floor 1
   face_new_game(); bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET;
 #elif defined(FACE_NEWGAME)
   face_new_game();
+#ifdef FACE_QPTEST                                    // test build: javelins, a tomahawk and darts in the pack, to see the quickslot plan through the windows
+  { static const int F[] = { IK_MACE, IK_LONGSWORD, IK_GLAIVE, IK_BATTLE_AXE, IK_PLATE_ARMOR, IK_CLOTH_ARMOR, IK_DAGGER, IK_KNUCKLES, IK_POT_FROST, IK_POT_MIND }; for (unsigned i = 0; i < sizeof F / sizeof *F; i++) bag_add(item_make(F[i], 1)); }   // (fillers: the throwables land in the later rows)
+  bag_add(item_make(IK_JAVELIN, 3)); bag_add(item_make(IK_TOMAHAWK, 2)); bag_add(item_make(IK_SHURIKEN, 4)); bag_add(item_make(IK_CURARE_DART, 4));
+#endif
 #else
   if (s_has_save) { s_sel = 0; start_game(true); } else face_new_game();
 #endif

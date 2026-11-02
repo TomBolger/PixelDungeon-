@@ -68,7 +68,11 @@ static const OvlHeader *ovl_load_in(uint32_t res_id, bool keep) {
     return NULL;
   }
 #ifdef PD_FACE
-  { int f = (int)heap_bytes_free(); if (f < g_heap_min) { g_heap_min = f; g_heap_id = (int)res_id; } }   // (the watchface's worst moment, logged at each pause)
+  { int f = (int)heap_bytes_free(); 
+#ifdef FACE_HEAPTRACE
+    if (1) app_log(APP_LOG_LEVEL_INFO, "face", 0, "o%d f%d a%d n%d k%d", (int)res_id, f, ARENA_SIZE - s_a_top, s_a_n, keep);
+#endif
+    if (f < g_heap_min) { g_heap_min = f; g_heap_id = (int)res_id; } }   // (the watchface's worst moment, logged at each pause)
 #endif
   int off = sizeof fh;
   resource_load_byte_range(h, off, img, fh.img_size); off += fh.img_size;
