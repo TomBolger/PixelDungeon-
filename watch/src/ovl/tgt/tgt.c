@@ -398,6 +398,15 @@ again:
   if (s_od >= 0) { G.tgm.wo = s_od + 1; g_ovr.c = -1; s_od = -1; goto again; }   // nothing left the player's way: the plan again (0.72: tgt2 offers the way on, if there is one)
   if ((best = look(true)) >= 0) DBG_RET(best);        // the rest of the grass before the stairs (after exploring: what lies on is worth more)
   if (st == hp) *kind = TK_ITEM;                       // (on the stairs: Select takes them, not a search)
+#ifdef OVL_HOST
+  { extern int tgt_hwhy[64] __attribute__((weak));       // WG audit: why each heap was not taken (host only)
+    if (tgt_hwhy && way) for (int i = 0; i < G.n_heaps && i < 64; i++) { Heap *h = &G.heaps[i]; int c = h->pos, r = 0;
+      if (c >= MAP_LEN) r = 20; else if (XENV("RISKY", 1) && risky(h)) r = 1; else if (h->type >= HEAP_CARRIED || h->type == HEAP_FOR_SALE) r = 2; else if (!BIT_GET(G.visited, c)) r = 3; else if (TFLAGS(G.map[c]) & F_AVOID) r = 4;
+      else if (dropped(c)) r = 5; else if ((c == G.entrance || c == G.exit) && !food_k(h->item.kind)) r = 6; else if ((unsigned)(h->type - HEAP_LOCKED_CHEST) < 2 && !(G.keys[G.depth] & 0x30)) r = 7;
+      else if (h->type == HEAP_PLAIN && !room_for(&h->item)) r = 8; else if (h->type == HEAP_PLAIN && junk(&h->item)) r = 9; else if (G.map[c] == T_ALCHEMY) r = 10; else if (c != hp && char_at(c)) r = 11; else if (s_fish && IS_WATER(G.map[c])) r = 12;
+      else if (h->item.kind == IK_DEW) r = 13; else if (walk(c) >= 255) r = 14; else r = 15;
+      tgt_hwhy[i] = r; } }
+#endif
   if (way) DBG_RET(st);                                // the stairs (0.61 (owner): no more "the quest: look around a while longer first": it searched walls)
   if (G.map[st] == T_LOCKED_EXIT && !(keys & 64)) {   // the boss's key: the boss, the iron key to its arena, the key itself
     for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) DBG_RET(G.mobs[i].pos);
