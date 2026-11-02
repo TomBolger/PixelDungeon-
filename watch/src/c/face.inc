@@ -9,7 +9,10 @@
 #define NAV_MS 330                                    // one button press in a window
 static uint32_t s_f_end, s_f_next, s_f_last, s_f_vic;
 static int32_t s_fp_t0; static uint8_t s_fp_chk; static uint8_t s_fp; static int8_t s_fp_slot, s_fp_act; static uint8_t s_fp_n, s_fp_bad;   // the item plan: 0 none, 1 in the backpack, 2 in the item window
-static Layer *s_clock_layer; static int s_f_min = 99999;
+static Layer *s_clock_layer;
+#ifdef FACE_LOGS
+static int s_f_min = 99999;                           // test builds: the lowest free heap seen while playing
+#endif
 
 // ---- the clock: Pixel Dungeon's own 3x5 digits (font1x.png), drawn big with an outline
 static const uint8_t FD[10][5] = { {3,5,5,5,6}, {2,6,2,2,2}, {6,1,2,4,7}, {6,1,2,1,6}, {5,5,7,1,1}, {7,4,6,1,6}, {3,4,7,5,7}, {7,1,2,4,4}, {7,5,2,5,7}, {7,5,7,1,6} };
@@ -112,7 +115,7 @@ static void clock_proc(Layer *l, GContext *ctx) {
   int k = win ? 3 : face_k(), adv = 4 * k;
   int first = lead ? 0 : 1;
   int total = (first ? 1 : 2) * adv + 2 * k + 2 * adv - k;
-  int x = (s_w - total) / 2, y = hud ? PBL_IF_ROUND_ELSE(79, SC(35) + 4) : PBL_IF_ROUND_ELSE(win ? 24 : 22, win ? 4 : 2);
+  int x = (s_w - total) / 2, y = hud ? PBL_IF_ROUND_ELSE(79, SC(35) + 4) : PBL_IF_ROUND_ELSE(win ? 8 : 22, win ? 4 : 2);
   int xs[5], cx0 = x;
   for (int i = first; i < 5; i++) { xs[i] = cx0; cx0 += i == 2 ? 2 * k : adv; }
   for (int pass = s_cfg.clk_line ? 0 : 2; pass < 3; pass++) {
@@ -130,7 +133,10 @@ static void face_pause(void) {
   if (g_game && G.hero.HP > 0 && s_scene == SC_GAME && s_fp == 0) { ui_win_free(); game_save(); }   // where it stands, saved (no timer runs from here)
   if (s_timer) app_timer_cancel(s_timer);
   s_timer = NULL;
+  
+#ifdef FACE_LOGS
   APP_LOG(APP_LOG_LEVEL_INFO, "paused: depth %d heap free %d lowest %d", G.depth, (int)heap_bytes_free(), s_f_min);
+#endif
   redraw();
 }
 static void face_burst(void) {
@@ -235,7 +241,9 @@ static void face_tick(bool moving) {
   if (!s_f_on) return;
   uint32_t n = now_ms(), dt = n - s_f_last; s_f_last = n; if (dt > 1500) dt = 33;
   s_last_in = n;
+#ifdef FACE_LOGS
   { int f = (int)heap_bytes_free(); if (f < s_f_min) { s_f_min = f; } }
+#endif
   if (s_scene == SC_AMULET && s_amulet == 2) s_f_vic += dt;            // the victory screen is counted in play time
   if ((int32_t)(n - s_f_end) >= 0) { face_pause(); return; }
   if (s_scene == SC_AMULET && s_amulet == 2 && s_f_vic >= FACE_WIN_MS) { face_new_game(); s_f_next = n + 600; return; }   // 30 s of victory: the next hero
@@ -253,7 +261,7 @@ static void face_boot(void) {
   if (s_has_save) { s_sel = 0; start_game(true); } else face_new_game();
 #endif
   face_cfg_load();
-  app_message_register_inbox_received(face_inbox); app_message_open(40, 8);      // the settings and the weather, from the phone (pkjs)
+  app_message_register_inbox_received(face_inbox); app_message_open(24, 0);      // the settings and the weather, from the phone (pkjs)
   tick_timer_service_subscribe(MINUTE_UNIT, minute_tick);
   accel_tap_service_subscribe(face_tap);
   s_f_on = false;

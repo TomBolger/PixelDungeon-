@@ -4,6 +4,10 @@
  */
 #pragma once
 #include <pebble.h>
+#if defined(PD_FACE) && !defined(FACE_LOGS)      // the watchface: no log lines (each costs code and text in the app's RAM); a test build with FACE_LOGS has them
+#undef APP_LOG
+#define APP_LOG(level, ...) ((void)0)
+#endif
 #include "text_ids.h"
 #include "snd.h"
 #if defined(PERF_PROBE) && defined(PBL_ROUND)
