@@ -216,6 +216,7 @@ static void press(ButtonId id, uint32_t wait) {          // a button, as main.c'
   }
   else if (s_scene == SC_TARGET && id == BUTTON_ID_SELECT) {
     int t = s_aim_mob >= 0 && G.mobs[s_aim_mob].HP > 0 ? G.mobs[s_aim_mob].pos : game_nearest_enemy();
+    if (t < 0 && s_tgk == TK_BAG) t = s_tg;   // day-WI: a thing thrown onto a known trap (springs it): the Assist's entry cell
     if (t >= 0) throw_at(t); else { s_scene = SC_GAME; s_aim_q = s_aim_mob = -1; redraw(); }
   }
   else if (s_scene != SC_GAME) { ui_win_free(); s_scene = G.hero.HP > 0 ? SC_GAME : SC_DEAD; s_aim_q = s_aim_mob = -1; redraw(); }   // info, target...: closed (its window's code out of the arena first: the target overlay needs all of it, else it takes 8 KB of the heap)

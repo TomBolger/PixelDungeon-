@@ -461,6 +461,115 @@ static int escape(void) {                              // 0.64 (moved from first
     bk = 0x7FFF; }
   return -1;
 }
+// day-WI (owner, the watchface): shut in by known traps. The hero floated into a traps room and the float ran out; every
+// way out crosses a known trap and he searched his corner for ever. Three rules, one flood of "cost to the open floor":
+//  - the cost to reach the stairs or the unexplored over trap-free ground is only steps; each known trap on the way costs
+//    TB plus its harm (so the cheapest way crosses the fewest and mildest). Hidden traps are floor: they are not known.
+//  - shut in (no trap-free way to the stairs or the unknown): throw a spare thing onto the first trap on that way if one is
+//    in line and near (a thing landing on a trap springs it, Level.drop: the face only, the buttons cannot aim at a cell);
+//    else step on it, but not when it could kill: rest first (nothing in view) while hurt.
+//  - floating over the traps with the float running out (turns left <= steps back to open ground + 3): back now.
+//  - a traps room's prize: if the bag has enough to throw, spring the traps on the way from the doorway, farthest first,
+//    back off from the gas, wait it out and walk in over the dead traps (the deepbot's volley); the Levitation potion is kept.
+#define TB 400
+#define INF 0x7FFF
+static int s_thr, s_fs = -1; static bool s_clr;                                      // the bag slot to throw onto a trap, -1: none
+static bool kt(int t) { switch (t) { case T_TOXIC_TRAP: case T_FIRE_TRAP: case T_PARALYTIC_TRAP: case T_POISON_TRAP: case T_ALARM_TRAP: case T_LIGHTNING_TRAP: case T_GRIPPING_TRAP: case T_SUMMONING_TRAP: return true; } return false; }
+static int harm(int t, int *w) {                        // what stepping on a known trap costs in health: expected, and (w) at worst; secret ones aren't asked
+  int d = G.depth, hp = G.hero.HP, e = t == T_LIGHTNING_TRAP ? hp / 2 : t == T_TOXIC_TRAP || t == T_FIRE_TRAP || t == T_SUMMONING_TRAP ? 10 + d : 4 + d / 2;   // (gas, fire and the summoned: the worst; lightning takes a third to two thirds of what is left)
+  *w = t == T_LIGHTNING_TRAP ? hp * 2 / 3 + 1 : 2 * e; return e;
+}
+static int wc(int c) {                        // the cost of stepping into c: 1 on open ground, TB + harm on a known trap (1 floating), INF: no
+  int t = G.map[c];
+  if (!BIT_GET(G.visited, c) && !BIT_GET(G.fov, c)) return INF;
+  if (open_cell(c)) return 1;
+  if (!kt(t)) return INF;
+  int w; return TB + harm(t, &w);
+}
+static bool seed(int c) { return (c == G.entrance || (c == G.exit && BIT_GET(G.visited, c)) || unseen_by(c)) && BIT_GET(G.visited, c) && open_cell(c); }
+static void flood(void) {                           // s_queue: the cost from each cell to the nearest seed (s_fs: the one cell)
+  int16_t *D = s_queue;
+  for (int c = 0; c < MAP_LEN; c++) D[c] = (s_fs >= 0 ? c == s_fs : seed(c)) ? 0 : INF;
+  for (int p = 0, ch = 1; ch && p < 64; p++) { ch = 0;
+    for (int i = 0; i < MAP_LEN; i++) { int c = p & 1 ? MAP_LEN - 1 - i : i, dc = D[c]; if (dc >= INF) continue;
+      int w = wc(c); if (w >= INF) continue;
+      for (int k = 0; k < 8; k++) { int x = c + N8[k]; if (nb_ok(c, x) && D[x] > dc + w) { D[x] = dc + w; ch = 1; } } }
+  }
+}
+static int next_step(int cur) {              // the neighbour on the cheapest way to the seeds
+  int b = -1, bk = INF;
+  for (int k = 0; k < 8; k++) { int n = cur + N8[k]; if (!nb_ok(cur, n) || (n != G.hero.pos && char_at(n))) continue; int w = wc(n);
+    if (w < INF && s_queue[n] < INF && s_queue[n] + w < bk) { bk = s_queue[n] + w; b = n; } }
+  return b;
+}
+static bool shut_in(void) {                             // the hero's trap-free ground holds neither the stairs nor the unknown; leaves the open ground in s_pass
+  int qh = 0, qt = 0, hp = G.hero.pos;
+  memset(s_pass, 0, sizeof s_pass); s_queue[qt++] = hp; BIT_SET(s_pass, hp);
+  while (qh < qt) { int c = s_queue[qh++]; if (seed(c)) return false;
+    for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && !BIT_GET(s_pass, n) && (BIT_GET(G.visited, n) || BIT_GET(G.fov, n)) && open_cell(n)) { BIT_SET(s_pass, n); s_queue[qt++] = n; } } }
+  return true;
+}
+static bool foe(void) { for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && BIT_GET(G.fov, m->pos) && !(MOB_DEFS[m->type].flags & MD_NPC)) return true; } return false; }
+static int bk(int c, int door) { int d = distance(c, door); return (d >= 4 ? 0 : 500 - d * 10) + s_dist[c]; }   // where to wait out the gas: 4 off or more and near, else as far as there is
+static int s_nt;                                        // how many throws the bag holds (a stack of missiles: each one)
+static void thrower(void) {                            // s_thr: the bag slot to throw onto a trap (the face only: the buttons cannot aim at a cell); s_nt
+  s_thr = -1; s_nt = 0;
+#ifdef PD_FACE
+  Hero *h = &G.hero; int bs = 0; for (int i = 0; i < BAG_SIZE; i++) { Item *it = &h->bag[i]; int k = it->kind, ct = item_cat(k);   // junk, then a stack of missiles, a spare weapon or armour, a last missile
+    if (!k || k == IK_PICKAXE || k == IK_BOOMERANG || (ct != CAT_WEAPON && ct != CAT_ARMOR && ct != CAT_MISSILE)) continue;
+    int sc = junk(it) ? 4 : ct == CAT_MISSILE ? (it->qty > 1 ? 3 : 1) : 2; s_nt += ct == CAT_MISSILE ? it->qty : 1; if (sc > bs) { bs = sc; s_thr = i; } }
+#endif
+}
+#define INR(c) (cx(c) >= R->left && cx(c) <= R->right && cy(c) >= R->top && cy(c) <= R->bottom)
+__attribute__((noinline)) static int clearroom(int *kind) {   // a traps room with its prize still in it: the deepbot's volley (trap_task); s_clr: it can be done (or is), so no potion for it
+  Hero *h = &G.hero; int hp = h->pos, door = -1, live = 0, tr[24], nt = 0, kinds = 0; Room *R = 0; bool near = false, gassy = false; s_clr = false;
+  thrower();
+  if (h->b.levitation >= 3 || foe() || game_starving()) return -1;   // (floating: the float is used)
+  for (int r = 0; r < G.n_rooms && !R; r++) if (G.rooms[r].type == RT_TRAPS && heap_at(G.rooms[r].cell & 0x3FFF) >= 0) R = &G.rooms[r];
+  if (!R) return -1;
+  int pz = R->cell & 0x3FFF;
+  for (int y = R->top; y <= R->bottom; y++) for (int x = R->left; x <= R->right; x++) { int c = x + y * MAP_W, t = G.map[c];
+    if (foul(c)) { gassy = true; near |= distance(c, hp) <= 2; }
+    if (x != R->left && x != R->right && y != R->top && y != R->bottom) { if (BIT_GET(G.visited, c) && (t == T_SUMMONING_TRAP || t == T_CHASM)) return -1; kinds += kt(t) && BIT_GET(G.visited, c); }
+    else if ((t == T_DOOR || t == T_OPEN_DOOR) && s_dist[c] < 255 && door < 0) door = c; }
+  if (door < 0 || !kinds) return -1;
+  s_fs = door; flood(); s_fs = -1;
+  if (s_queue[pz] >= INF) return -1;
+  for (int c = pz, i = 0; c >= 0 && c != door && i < 40; i++) { if (!open_cell(c) && kt(G.map[c])) { live++; if (nt < 24) tr[nt++] = c; } c = next_step(c); }
+  if (live && live > s_nt) return -1;                  // (nothing to throw, or not enough: the potion's)
+  s_clr = true;
+  if (!(live && !near && hp == door) && (gassy || foul(door) || (live && foul(hp)))) {   // gas about: well away from it, and wait
+    if (foul(hp) || distance(hp, door) < 4 || INR(hp)) { int b = -1;
+      for (int c = 0; c < MAP_LEN; c++) if (s_dist[c] < 255 && open_cell(c) && !INR(c) && distance(c, door) > distance(hp, door) && !foul(c) && !char_at(c) && (b < 0 || bk(c, door) < bk(b, door))) b = c;
+      if (b >= 0) { *kind = TK_GO; return b; } }
+    *kind = TK_GO; return hp; }                        // (wait: a search, a turn)
+  if (!live) return -1;                                // the way is clear: the prize is picked up like anything
+  if (hp != door) { *kind = TK_GO; return door; }
+  int tg = -1; bool hit;
+  for (int i = 0; i < nt && tg < 0; i++) if (ballistica(hp, tr[i], &hit) == tr[i] && !hit) tg = tr[i];
+  if (tg < 0) { s_clr = false; return -1; }
+  if (h->HP * 10 < h->HT * 7) { g_ovr.ha = 1; *kind = TK_REST; return hp; }
+  g_ovr.hs = s_thr; g_ovr.ha = ACN_THROW; *kind = TK_BAG; return tg;
+}
+__attribute__((noinline)) static int strand(int *kind) {                         // the cell to go to (or throw at) and its kind, -1: nothing to do
+  Hero *h = &G.hero; int hp = h->pos, lev = h->b.levitation, nt = 0;
+  for (int c = 0; c < MAP_LEN; c++) nt += BIT_GET(G.visited, c) && kt(G.map[c]);
+  if (!nt) return -1;                                  // (no known trap on the floor)
+  if (foe()) return -1;                                // (a fight is the fight's)
+  thrower();
+  bool in = !shut_in();                                // (s_pass: the open ground of the hero's, s_queue gone)
+  if (in && !lev) return -1;
+  if (in) return -1;                                   // (floating on open ground: the plan goes on)
+  flood();                                        // shut in (or floating out of it): the cheapest way
+  if (s_queue[hp] >= INF) return -1;                    // (no way even across traps: the search's)
+  int n = next_step(hp), ft = -1, c = hp;
+  for (int i = 0; i < 6 && c >= 0 && ft < 0; i++) { c = next_step(c); if (c >= 0 && !open_cell(c)) ft = c; }   // the first known trap on the way
+  if (n < 0) return -1;
+  if (ft >= 0 && s_thr >= 0 && distance(hp, ft) <= 4) { bool hit; if (ballistica(hp, ft, &hit) == ft && !hit) { g_ovr.hs = s_thr; g_ovr.ha = ACN_THROW; *kind = TK_BAG; return ft; } }
+  if (!open_cell(n)) { int w; harm(G.map[n], &w);       // the step is onto a trap: not if it could be the end, while there is health to mend
+    if (w >= h->HP && h->HP < h->HT && !game_starving()) { g_ovr.ha = 1; *kind = TK_REST; return hp; } }
+  *kind = TK_GO; return n;
+}
 #endif
 #if TGT_PART == 3
 // 0.50 (the night of 10-13: the solver bot's lessons, for the feet): where to stand. -1: nothing special.
@@ -823,6 +932,13 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // 0.63: tgt3: the 
   bool vo = G.now < G.tgm.vt && XENV("VETO", 1), veto = vo && G.tgm.vs == 2;   // 0.66: the player overrode where we'd have them stand (or get out
   int esc = vo && G.tgm.vs == 4 && G.now + 10 * TICK < G.tgm.vt ? -1 : escape();   // of gas: only 5 turns): not again a while
   if (esc >= 0) { t_front(esc, TK_GO); G.tgm.src0 = 4; g_ovr.d &= ~128; }   // (0.77: out of the gas, no wait in it)   // 0.64: out of gas / fire / ooze first (Assist Low too)
+  else if (!(vo && G.tgm.vs == 4) && XENV("STRAND", 1)) { int sk, sc;
+    bool hd = s_h0 && s_tk[0] == TK_BAG && g_ovr.ha == ACN_DRINK && (game_slot(g_ovr.hs)->kind == IK_POT_LEVITATION || !item_known(game_slot(g_ovr.hs)->kind));   // (the hands: a drink of Levitation or of the unknown, at the door)
+    sc = XENV("CLEARROOM", 1) ? clearroom(&sk) : -1;
+    if (s_clr && hd) { t_del(0); s_h0 = 0; G.tgm.src0 = 1; }   // the potion is kept
+    if (sc < 0) sc = strand(&sk);
+    if (sc >= 0) { t_front(sc, sk); G.tgm.src0 = 4; g_ovr.d &= ~128; } }   // day-WI: shut in by known traps (or floating on)
+  if (esc >= 0) ;
   else if (!veto)
 #ifdef OVL_HOST
   if ((getenv("PRESS") || getenv("TACTBOT")) && !getenv("NOTACT"))   // (the solver bot keeps its own: only when it plays by the buttons; 0.78: or asks)
