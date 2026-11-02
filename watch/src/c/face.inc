@@ -65,6 +65,7 @@ static void face_new_game(void) {
   s_fp = 0; s_f_vic = 0; s_hl = -1; s_fp_bad = 0; s_fp_chk = 0; s_fb_depth = -1;
   g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; memset(g_drop, 0xFF, sizeof g_drop); g_goal = g_from = -1;   // nothing of the last hero's plans carries over
   sheet_free(&s_gameover); sheet_free(&s_arcs); sheet_free(&s_avatars);   // the victory screen's pictures out of the heap before a floor is built (it needs one big block)
+  game_art(false); mob_sheets_free(); game_free_fx(); mreg_drop();   // what the last hero's floor held (pictures, creatures' sheets, the region's creatures) out of the heap while the next floor is built: it needs one big block
   s_sel = c; start_game(false);
   APP_LOG(APP_LOG_LEVEL_INFO, "new game: class %d", c);
 }
