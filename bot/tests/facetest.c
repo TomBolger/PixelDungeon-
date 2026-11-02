@@ -1,5 +1,8 @@
 // Host test of the watchface autoplayer's decisions (face_brain.h + the Assist's first suggestion), cheats on (-DPD_FACE).
 //   OUT=facetest MAIN=tests/facetest.c ./build.sh -DPD_FACE ; build/facetest [games] ; env: STEPS, START, D=1
+//   day-WK, the settings (face/README.md): GOD (default 1: the numbers before the settings existed; GOD=0 is the mortal default of the
+//   settings page), STAGE=<depth the run starts at: 1 5 6 10 11 15 16 20 21 25>, CLS=<mask: 1 warrior 2 mage 4 rogue 8 huntress; each game
+//   picks its class as the face does, never the last one's twice>, FR_REGEN, FR_HUNGER (the speed-ups: 1..), FR_HEAL, FR_UNBREAK, FR_LOOT (0/1)
 #include "pd.h"
 #include "game_int.h"
 #include "face_brain.h"
@@ -35,10 +38,24 @@ int main(int argc, char **argv) {
   static const uint8_t VIEW1[4] = { 6, 4, 4, 4 };
   int drops = 0, stuck_up = 0, floods = 0, wins = 0, deaths = 0, nofood = 0, stuckf = 0, floors = 0; long steps_total = 0;
   g_assist = 3;
+  g_fr.god = getenv("GOD") ? atoi(getenv("GOD")) : 1;
+  if (getenv("STAGE")) g_fr.stage = atoi(getenv("STAGE"));
+  if (getenv("FR_REGEN")) g_fr.regen_x = atoi(getenv("FR_REGEN"));
+  if (getenv("FR_HUNGER")) g_fr.hunger_x = atoi(getenv("FR_HUNGER"));
+  if (getenv("FR_HEAL")) g_fr.heal_free = atoi(getenv("FR_HEAL"));
+  if (getenv("FR_UNBREAK")) g_fr.unbreak = atoi(getenv("FR_UNBREAK"));
+  if (getenv("FR_LOOT")) g_fr.loot = atoi(getenv("FR_LOOT"));
+  int clsmask = getenv("CLS") ? atoi(getenv("CLS")) : 0, lastcls = 0, cls_n[4] = { 0 }, cls_rep = 0, start_bad = 0, stage_turns = 0, full_bag = 0;
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
     cur_game = g; { extern int g_fb_game; g_fb_game = g; } srand(g + 1); if (getenv("VARY")) { g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7); }   // VARY=1: a different dungeon each game (else a game per class, repeated) memset(g_keys, 0, sizeof g_keys);
-    g_new_class = g % 4; game_new(); if (getenv("AMU")) { bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET; } s_won = 0; s_amu = 0; s_fb_depth = -1; s_wnd = 0; s_jump = false; s_pick = -1; g_trade = 0;
-    int32_t pnow = 0; int steps, maxd = 1, starved = 0, lastd = 1, fl_steps = 0, fl_max = 0, bagacts = 0;
+    g_new_class = g % 4;
+    if (clsmask) { uint32_t r = (uint32_t)(g + 1) * 2654435761u; r ^= r >> 15; r *= 2246822519u; r ^= r >> 13; g_new_class = fb_pick_class(clsmask, g > 0, lastcls, r); if (g > 0 && g_new_class == lastcls && __builtin_popcount(clsmask & 15) > 1) cls_rep++; lastcls = g_new_class; }
+    cls_n[g_new_class & 3]++;
+    game_new();
+    if (g_fr.stage > 1 && (G.depth != g_fr.stage || G.max_depth != g_fr.stage || G.hero.lvl < 5 || G.hero.HP <= 0)) { start_bad++; printf("BAD START game %d: depth %d (wanted %d) lvl %d HP %d\n", g, G.depth, g_fr.stage, G.hero.lvl, G.hero.HP); }
+    { int used = 0; for (int i = 0; i < BAG_SIZE; i++) used += G.hero.bag[i].kind != 0; if (used > BAG_SIZE - 3 && g_fr.stage > 1) full_bag++; if (getenv("START_INFO") && g < 4) { printf("start g%d cls %d depth %d lvl %d HP %d/%d STR %d armor %d+%d weapon %d+%d bag %d items; known potions/scrolls:", g, g_new_class & 3, G.depth, G.hero.lvl, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl, used); int kp = 0, ks = 0; for (int k = IK_FIRST_POTION; k < IK_FIRST_POTION + 12; k++) kp += item_known(k); for (int k = IK_FIRST_SCROLL; k < IK_FIRST_SCROLL + 12; k++) ks += item_known(k); printf(" %d/%d\n", kp, ks); } }
+    if (getenv("AMU")) { bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET; } s_won = 0; s_amu = 0; s_fb_depth = -1; s_wnd = 0; s_jump = false; s_pick = -1; g_trade = 0;
+    int32_t pnow = 0; int steps, maxd = G.depth, starved = 0, lastd = G.depth, fl_steps = 0, fl_max = 0, bagacts = 0;
     for (steps = 0; steps < maxsteps && G.hero.HP > 0 && !s_won; steps++) {
       cur_step = steps; alarm(5);
       game_level_commit();
@@ -83,12 +100,14 @@ int main(int argc, char **argv) {
     }
     steps_total += steps; all_ticks += G.now; starve_games += starved;
     if (G.hero.HP <= 0) deaths++;
+    stage_turns += G.now / TICK;
     if (s_won) wins++;
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d amulet %s worst floor %d steps\n", g, g % 4, s_won ? "WON" : G.hero.HP <= 0 ? "DIED" : "limit", G.depth, maxd, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, (G.dflags & DF_AMULET) ? "yes" : "no", fl_max);
   }
   if (getenv("H")) for (int k = 0; k < 16; k++) if (hist[k][0] + hist[k][1]) printf("kind %d: entry0 %ld other %ld\n", k, hist[k][0], hist[k][1]);
   if (all_ticks) { printf("rest share of game time %.1f%%, healing drinks %ld (%.1f per game, %.2f per 1000 turns; %ld tried), starving %.1f%% of game time (in %ld games), broken-gear steps %ld, meals eaten %.1f per game\nHP share of game time by tenths 0..10 (%%):", 100.0 * rest_ticks / all_ticks, drinks, (double)drinks / (N ? N : 1), 1000.0 * drinks / (all_ticks / TICK), heal_drinks, 100.0 * starve_steps / steps_all, starve_games, broken_steps, (double)eats / (N ? N : 1));
     for (int k = 0; k < 11; k++) printf(" %.1f", 100.0 * hp_hist[k] / steps_all); printf("\n"); }
+  printf("settings: god %d stage %d regen x%d hunger x%d heal %d unbreak %d loot %d; classes used (warrior mage rogue huntress) %d %d %d %d, same class twice in a row %d; bad starts %d, packs without 3 free places %d, game turns played %d\n", g_fr.god, g_fr.stage, g_fr.regen_x, g_fr.hunger_x, g_fr.heal_free, g_fr.unbreak, g_fr.loot, cls_n[0], cls_n[1], cls_n[2], cls_n[3], cls_rep, start_bad, full_bag, stage_turns);
   printf("slow floors while carrying the Amulet: %d\n", stuck_up);
   printf("amulet-clog drops: %d\n", drops); { extern int g_fb_tele, g_fb_tele2; printf("stuck safeguard teleports: %d by the small-area rule, %d by the no-progress rule, in %d games\n", g_fb_tele, g_fb_tele2, N); } printf("== %d games (hidden stairs used %d): won %d, died %d, steps with no food %d, floors %d, floors over 500 steps %d, avg steps %ld\n", N, floods, wins, deaths, nofood, floors, stuckf, steps_total / (N ? N : 1));
 }
