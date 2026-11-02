@@ -204,6 +204,7 @@ void item_use(Item *it);
 #define FACE_HUNGER_X 8                         // hunger rises this many times slower (the food in the dungeon was laid out for a slower player)
 #endif
 #define FACE_REGEN_X 3                          // passive regeneration speed-up (turn_act); tune down if HP sits pinned at full
+extern uint16_t g_face_kills;                           // creatures killed (face_brain.h)
 extern int32_t g_face_heal_t;                   // game time (ticks) of the last Potion of Healing drunk
 #define FACE_HEAL_READY() (G.now < g_face_heal_t || G.now - g_face_heal_t >= FACE_HEAL_CD * TICK)
 #else

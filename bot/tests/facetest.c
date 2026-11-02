@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
   int drops = 0, stuck_up = 0, floods = 0, wins = 0, deaths = 0, nofood = 0, stuckf = 0, floors = 0; long steps_total = 0;
   g_assist = 3;
   for (int g = getenv("START") ? atoi(getenv("START")) : 0; g < N; g++) {
-    cur_game = g; srand(g + 1); if (getenv("VARY")) { g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7); }   // VARY=1: a different dungeon each game (else a game per class, repeated) memset(g_keys, 0, sizeof g_keys);
+    cur_game = g; { extern int g_fb_game; g_fb_game = g; } srand(g + 1); if (getenv("VARY")) { g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7); }   // VARY=1: a different dungeon each game (else a game per class, repeated) memset(g_keys, 0, sizeof g_keys);
     g_new_class = g % 4; game_new(); if (getenv("AMU")) { bag_add(item_make(IK_AMULET, 1)); G.dflags |= DF_AMULET; } s_won = 0; s_amu = 0; s_fb_depth = -1; s_wnd = 0; s_jump = false; s_pick = -1; g_trade = 0;
     int32_t pnow = 0; int steps, maxd = 1, starved = 0, lastd = 1, fl_steps = 0, fl_max = 0, bagacts = 0;
     for (steps = 0; steps < maxsteps && G.hero.HP > 0 && !s_won; steps++) {
@@ -90,5 +90,5 @@ int main(int argc, char **argv) {
   if (all_ticks) { printf("rest share of game time %.1f%%, healing drinks %ld (%.1f per game, %.2f per 1000 turns; %ld tried), starving %.1f%% of game time (in %ld games), broken-gear steps %ld, meals eaten %.1f per game\nHP share of game time by tenths 0..10 (%%):", 100.0 * rest_ticks / all_ticks, drinks, (double)drinks / (N ? N : 1), 1000.0 * drinks / (all_ticks / TICK), heal_drinks, 100.0 * starve_steps / steps_all, starve_games, broken_steps, (double)eats / (N ? N : 1));
     for (int k = 0; k < 11; k++) printf(" %.1f", 100.0 * hp_hist[k] / steps_all); printf("\n"); }
   printf("slow floors while carrying the Amulet: %d\n", stuck_up);
-  printf("amulet-clog drops: %d\n", drops); { extern int g_fb_tele; printf("stuck safeguard teleports: %d in %d games\n", g_fb_tele, N); } printf("== %d games (hidden stairs used %d): won %d, died %d, steps with no food %d, floors %d, floors over 500 steps %d, avg steps %ld\n", N, floods, wins, deaths, nofood, floors, stuckf, steps_total / (N ? N : 1));
+  printf("amulet-clog drops: %d\n", drops); { extern int g_fb_tele, g_fb_tele2; printf("stuck safeguard teleports: %d by the small-area rule, %d by the no-progress rule, in %d games\n", g_fb_tele, g_fb_tele2, N); } printf("== %d games (hidden stairs used %d): won %d, died %d, steps with no food %d, floors %d, floors over 500 steps %d, avg steps %ld\n", N, floods, wins, deaths, nofood, floors, stuckf, steps_total / (N ? N : 1));
 }

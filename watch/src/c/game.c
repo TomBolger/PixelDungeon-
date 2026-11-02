@@ -548,6 +548,9 @@ void mob_kill(int i) {                          // Mob.die / destroy / dropLoot
   bool seen = BIT_GET(G.fov, m->pos);
   ui_fx(FX_DIE, m->pos, i, NULL);
   if (ally(i)) return;
+#ifdef PD_FACE
+  g_face_kills++;
+#endif
   if (G.hero.HP > 0) {
     int exp = G.hero.lvl <= d->max_lvl ? d->exp : 0;
     if (exp > 0) { char t[12]; snprintf(t, sizeof t, "+%dEXP", exp); ui_fx(FX_HEAL, G.hero.pos, -1, t); earn_exp(exp); }
@@ -981,6 +984,7 @@ static void turn_act(void) {                           // all per-turn actors: b
 }
 #ifdef PD_FACE
 int32_t g_face_heal_t = -1000000;                      // game time of the last Potion of Healing drunk (the cooldown below)
+uint16_t g_face_kills;                                 // creatures killed (face_brain.h: the no-progress safeguard)
 #endif
 void check_visible_mobs(void) {                 // Hero.checkVisibleMobs: a new enemy interrupts
   uint16_t seen = 0;

@@ -48,24 +48,43 @@ static bool fb_clog(void) {                                        // the Amulet
 int g_fb_tele;                                                     // host test: how often it fired
 #endif
 static int16_t s_fb_sa, s_fb_shp; static int s_fb_st;
-static void fb_stuck(void) {
+// day-WJ: the broader rule. FACE_NOPROG_TURNS game turns with none of: a cell seen for the first time, something picked up (gold or
+// anything in the pack grew), the floor changed, a creature killed (g_face_kills, game.c mob_kill), health gained while below the
+// maximum. Turns with a foe in sight do not count. (The 60-turn rule above only sees him stay put: this one catches pacing about.)
+#ifndef FACE_NOPROG_TURNS
+#define FACE_NOPROG_TURNS 150
+#endif
+#ifdef OVL_HOST
+int g_fb_tele2, g_fb_game;                                         // host test: how often the broader rule fired; the game being played
+#endif
+static int s_fb_npt, s_fb_nseen, s_fb_ntot, s_fb_nhp, s_fb_ndep = -1; static uint16_t s_fb_nkill;
+static bool fb_noprog(int seen) {
+  Hero *h = &G.hero; int tot = h->gold; for (int i = 0; i < BAG_SIZE; i++) tot += h->bag[i].kind ? h->bag[i].qty : 0;
+  bool prog = seen > s_fb_nseen || tot > s_fb_ntot || g_face_kills != s_fb_nkill || G.depth != s_fb_ndep || (h->HP > s_fb_nhp && s_fb_nhp < h->HT) || fb_foe();
+  s_fb_nseen = seen; s_fb_ntot = tot; s_fb_nkill = g_face_kills; s_fb_ndep = G.depth; s_fb_nhp = h->HP;
+  if (prog) s_fb_npt = G.now;
+  return G.now - s_fb_npt >= FACE_NOPROG_TURNS * TICK;
+}
+static void fb_stuck(int seen) {
   Hero *h = &G.hero;
   if (fb_foe() || distance(h->pos, s_fb_sa) > 2 || h->HP > s_fb_shp) { s_fb_sa = h->pos; s_fb_st = G.now; }
   s_fb_shp = h->HP;
-  if (G.now - s_fb_st < FACE_STUCK_TURNS * (h->HP < h->HT ? 3 : 1) * TICK) return;   // (hurt and resting: a third of the rate)
-  s_fb_st = G.now;
+  bool np = fb_noprog(seen);
+  if (!np && G.now - s_fb_st < FACE_STUCK_TURNS * (h->HP < h->HT ? 3 : 1) * TICK) return;   // (hurt and resting: a third of the rate)
+  s_fb_st = s_fb_npt = G.now;
   int c = random_respawn_cell();                         // (-1: no room for it, a boss floor)
   if (c < 0) return;
   h->pos = c; hero_press(c); update_fov();
 #ifdef OVL_HOST
-  g_fb_tele++; if (getenv("TELEDBG")) printf("TELE d%d pos %d,%d HP %d/%d hunger %d since %d amu %d mobs %d\n", G.depth, cx(h->pos), cy(h->pos), h->HP, h->HT, h->hunger, s_fb_since, game_bag_find(IK_AMULET) >= 0, G.n_mobs);
+  if (np) g_fb_tele2++; else g_fb_tele++;
+  if (getenv("TELEDBG")) printf("TELE%s g%d d%d pos %d,%d HP %d/%d hunger %d since %d amu %d mobs %d\n", np ? "2" : "", g_fb_game, G.depth, cx(h->pos), cy(h->pos), h->HP, h->HT, h->hunger, s_fb_since, game_bag_find(IK_AMULET) >= 0, G.n_mobs);
 #endif
 }
 static int fb_override(void) {
   if (G.depth != s_fb_depth) { s_fb_depth = G.depth; s_fb_presses = 0; s_fb_best = 0; s_fb_since = 0; g_face_nothrow = 0; s_fb_thc = -1; }
-  fb_stuck();
-  s_fb_presses++;
   int seen = fb_seen();
+  fb_stuck(seen);
+  s_fb_presses++;
   if (seen > s_fb_best) { s_fb_best = seen; s_fb_since = 0; } else s_fb_since++;
   bool up = game_bag_find(IK_AMULET) >= 0;
   if (s_fb_since > 700 || s_fb_presses > 2500) {                   // nothing new for ages: a hidden stair, any fight or not
