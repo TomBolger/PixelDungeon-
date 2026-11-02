@@ -228,7 +228,7 @@ typedef struct {
   Buffs b;
   Item weapon, armor;
   Item bag[BAG_CAP];
-  uint8_t quick[2];                     // quickslot item kinds (PD QuickSlot)
+  uint8_t quick[2];                     // quickslot item kinds (PD QuickSlot; the face has a third: G.q.spare[0], see qkp)
   uint8_t mirror_att, mirror_dmg;       // last attack numbers (MirrorImage.duplicate)
   Item ring[2];                         // Belongings.ring1 / ring2 (0.7; saves before v8 end before this)
   // v9 (0.8): more buffs, class and subclass, room to grow
@@ -417,6 +417,15 @@ extern uint8_t g_view[4], g_drop_i; extern int16_t g_from, g_drop[4], g_goal, g_
 #define g_srch_t G.srch_t   // 0.47 g_tgobj: each list entry's objective (the entry may stand in for it on screen)
 typedef struct { int32_t t; int16_t c; uint8_t d, on; int8_t ms; uint8_t gk; int8_t hs; uint8_t ha; uint8_t dk, da; int8_t dd; } Ovr;   /* 0.53: dk/da/dd: a hands suggestion the player passed over (item kind, action, floor) */   // 0.41: the player's own way (ovl/tgt): the target chosen over the first (c),
 extern uint8_t g_hl_order[8];                        // 0.54: the bottom bar, the bot's best first (Assist High: Back walks it)
+#ifdef PD_FACE
+#define PD_FACE_ON 1
+#define qkp(h, n) ((n) < 2 ? &(h)->quick[n] : &G.q.spare[0])   // (a third slot in the saved quest block's spare byte: the Hero struct keeps its size)
+#define NQ 3                                                // the face has three quickslots (the "?" button's place holds the third)
+#else
+#define PD_FACE_ON 0
+#define qkp(h, n) (&(h)->quick[n])
+#define NQ 2
+#endif
 extern Ovr g_ovr;                                  // the floor (t: level_t0; just chosen: the hero's cell - 65536), its heading (d; bit 7: Select waits), on (1: one was on before, 2: entry 0 is grass,
                                                    // 4: grass skipped at kill count gk), ms: the pickaxe's slot (TK_MINE), gk: hero exp + lvl * 101 then   // 0.40: g_drop: where the player last dropped things (not offered back)   // 0.39: g_from: where the hero last moved from (the heading)                     // 0.36: the cells on screen around the hero (across, up, down, radius squared)
 int game_targets(int16_t *cell, uint8_t *kind);    // 0.23: the button target cycle (TARGETS_MAX), best first        // mob index for PD's attack indicator, or -1

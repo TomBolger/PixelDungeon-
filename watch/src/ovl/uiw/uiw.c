@@ -51,7 +51,7 @@ static void draw_info(GContext *ctx) {            // PD WndInfoCell / WndInfoMob
 // ---------------- PD WndOptions (Chasm.heroJump, the potion warnings, rings, quickslots, quests): big buttons ----------------
 #define O_BTN 34
 static const char *opt_text(void) { return s_opt == 5 ? s_wnd_text : txt(TX_OPT_CHASM + s_opt); }
-static int o_n(void) { return s_opt == 5 && !s_wnd_b[1][0] ? 1 : 2; }   // a quest window may have one button
+static int o_n(void) { return s_opt == 5 && !s_wnd_b[1][0] ? 1 : s_opt == 4 ? NQ : 2; }   // a quest window may have one button
 // the title, the text, then the buttons stacked (side by side when the text is long); *th: the text's height
 static GRect o_win(int *th, bool *row) {
   int n = o_n(), stack = n * (O_BTN + 2) - 2, room = s_h - 16 - 18 - 4;
@@ -93,7 +93,7 @@ static void draw_jump(GContext *ctx) {
     const char *label = opt[i];
     if (s_opt == 3) { item_name(&G.hero.ring[i], rn, sizeof rn); cap_first(rn); label = rn; }   // the two rings worn
     if (s_opt == 4) {                              // the quickslots, with what each holds now
-      int k = G.hero.quick[i];
+      int k = *qkp(&G.hero, i);
       if (k) { Item it = item_make(k, 1); char n[40]; item_name(&it, n, sizeof n); snprintf(rn, sizeof rn, "%d: %s", i + 1, n); }
       else snprintf(rn, sizeof rn, "%d: (empty)", i + 1);
       label = rn;

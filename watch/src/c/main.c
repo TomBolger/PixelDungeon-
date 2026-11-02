@@ -334,6 +334,12 @@ static const uint8_t VIEW[3][4] = { { 15, 11, 8, 240 }, { 7, 5, 4, 60 }, { 3, 2,
 static const uint8_t VIEW[3][4] = { { 12, 8, 8, 9 }, { 6, 4, 4, 4 }, { 3, 2, 2, 2 } };   // and the toolbar, y 190; the tags from x 178)
 #endif
 static int16_t s_tg = -1, s_tg0 = -1; static uint8_t s_tgk, s_tgu, s_tgn, s_tgi, s_tgk0;   // the chosen target's cell and kind (an enemy: its uid)
+#ifdef PD_FACE
+static bool face_cam_ok(void);                     // face.inc: when the camera may swoop to the target (no flicker)
+#define FACE_CAM_OK() face_cam_ok()
+#else
+#define FACE_CAM_OK() true
+#endif
 static void tg_refresh(int dir) {                 // keep the chosen target while it's in the list, else the best; dir: +1 next, -1 back
   static int32_t s_now = -1, s_t0; static int16_t s_pos; static int8_t s_z;   // the list only changes when time passes, the hero moves or the zoom changes
   if (!dir && G.now == s_now && G.hero.pos == s_pos && (s_z == s_zuser + 4 * g_zlock || (AS_OFFCAM && s_z < 4))) return;   // (0.99: Max: a zoom keeps the target; 1.0: a lock or unlock: afresh)
@@ -342,7 +348,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   s_t0 = G.level_t0;
   s_now = G.now; s_pos = G.hero.pos; s_z = s_zuser + 4 * g_zlock;   // (0.93: the player's zoom, not Max's)
   if (s_walking && !dir) { s_now = -1; return; }     // 0.43 (audio): not on every step of a walk (Select/taps stop it first): when it ends
-  memcpy(g_view, VIEW[s_zoom], 4);                   // 0.36: only what's on screen
+  memcpy(g_view, VIEW[PD_FACE_ON ? 1 : s_zoom], 4);   // 0.36: only what's on screen (the face: always the middle zoom's view, as in round 1, whatever the camera shows: a wider view made the Assist stall in the host test)
 #ifdef PD_FACE
   if (FCLK_H() || FCLK_DY()) {                       // the clock covers the top of the map: only the cells below it count as seen
     int T = tile_px(), av = map_center_y() - (PBL_IF_ROUND_ELSE(76 + 46, status_bottom())) , up = av > 0 ? (av + T / 2 - 1) / T : 0;
@@ -364,7 +370,7 @@ static void tg_refresh(int dir) {                 // keep the chosen target whil
   s_tgn = n; s_tgi = i; s_tg = n ? c[i] : -1; s_tgk = n ? k[i] : 0; s_tgk0 = n ? k[0] : 0; s_tg0 = n ? c[0] : -1;
   if (n && s_tgk == TK_ENEMY) { s_tgu = G.mobs[mob_at(s_tg)].uid; G.last_target = s_tg; }
   s_zman = false;                                   // 0.99: a turn or another target: Max picks the zoom again
-  if (AS_OFFCAM) cam_to(s_tg);              // 0.76: Max: the camera on whatever is chosen, cycled to or not
+  if (AS_OFFCAM && FACE_CAM_OK()) cam_to(s_tg);              // 0.76: Max: the camera on whatever is chosen, cycled to or not
 }
 void hero_spend(int t); void process(void);
 static void pass_hands(int c) {                   // the player chose otherwise than plan A (c: where): the hands' suggestion passed over (0.53; 0.93: in ovl/tgt4, room)
@@ -624,7 +630,13 @@ static bool step_vis(Vis *v, int16_t cell, const CharArt *art, bool hero) {
 }
 
 #define HAND_MS 700
-static int hand_btn(void) { int k = game_slot(g_ovr.hs)->kind; return k && k == G.hero.quick[0] ? TB_Q1 : k && k == G.hero.quick[1] ? TB_Q2 : TB_BAG; }   // 0.54: a quickslot item flies from its slot
+#ifdef PD_FACE
+static const uint8_t TBQA[3] = { TB_Q1, TB_Q2, TB_INFO };   // (the face: the "?" button's place is quickslot 3)
+#define TBQ(q) TBQA[q]
+#else
+#define TBQ(q) (5 - (q))                           // (TB_Q1 5, TB_Q2 4)
+#endif
+static int hand_btn(void) { int k = game_slot(g_ovr.hs)->kind; for (int q = 0; q < NQ; q++) if (k && k == *qkp(&G.hero, q)) return TBQ(q); return TB_BAG; }   // 0.54: a quickslot item flies from its slot
 static uint32_t s_hand_t0; static int s_hand_key = -1;   // 0.51: the hands' item flying from the backpack to the middle tag
 static __attribute__((noinline)) void until(uint32_t *w, uint32_t t) { uint32_t n = now_ms(); if (t > n && t - n + 1 < *w) *w = t - n + 1; }
 // 0.35: ms until the picture changes (frames that would look the same are not drawn: they cost the speaker too)
@@ -868,11 +880,16 @@ static void item_do_confirmed(ItemAction a) {
   s_scene = SC_GAME;
   act(game_item_do(s_item_slot, a));
 }
+#ifdef PD_FACE
+#define QSEL() ({ int _s = 0; for (int q = NQ - 1; q >= 0; q--) if (*qkp(&G.hero, q) == IK_NONE) _s = q; _s; })
+#else
+#define QSEL() (G.hero.quick[0] == IK_NONE || G.hero.quick[1] != IK_NONE ? 0 : 1)
+#endif
 static void item_do(int a) {
   ItemAction ac = (ItemAction)s_acts[a];
   ui_win_free();
   ui_sound(SND_CLICK);
-  if (ac == ACN_QUICK) { s_opt = 4; s_sel = G.hero.quick[0] == IK_NONE || G.hero.quick[1] != IK_NONE ? 0 : 1; s_scene = SC_OPTIONS; redraw(); return; }   // which slot?
+  if (ac == ACN_QUICK) { s_opt = 4; s_sel = QSEL(); s_scene = SC_OPTIONS; redraw(); return; }   // which slot?
   int c = game_confirm_needed(s_item_slot, ac);
   if (c) { s_opt = c; s_sel = 1; s_scene = SC_OPTIONS; redraw(); return; }
   item_do_confirmed(ac);
@@ -883,7 +900,7 @@ static void throw_at(int16_t cell) {               // also zaps, when aiming a w
 }
 // PD QuickSlot: use the item of that kind (throwables aim at the nearest enemy)
 static void quickslot(int q) {
-  int kind = G.hero.quick[q];
+  int kind = *qkp(&G.hero, q);
 #ifdef DEBUG_TOOLS
   APP_LOG(APP_LOG_LEVEL_DEBUG, "quickslot q%d kind %d long %d", q, kind, s_long_press);
 #endif
@@ -908,8 +925,13 @@ static void assign_quickslot(int q, int kind) {
 #ifdef DEBUG_TOOLS
   APP_LOG(APP_LOG_LEVEL_DEBUG, "assign q%d kind %d", q, kind);
 #endif
+#ifdef PD_FACE
+  for (int o = 0; o < NQ; o++) if (o != q && *qkp(h, o) == kind) *qkp(h, o) = IK_NONE;   // one slot per kind
+  *qkp(h, q) = kind;
+#else
   if (h->quick[1 - q] == kind) h->quick[1 - q] = IK_NONE;   // one slot per kind
   h->quick[q] = kind;
+#endif
 }
 
 // ---------------- input ----------------
@@ -1015,7 +1037,7 @@ static void on_tap(int x, int y) {
       if (combat_target() >= 0 && in_rect(ctag(1), x, y)) { throw_at(G.mobs[s_aim_mob].pos); return; }   // the attack tag: fire at the target
       if (TB_ROW(x, y)) {
         int b = TB_HIT(x, y);
-        if ((b == TB_Q1 || b == TB_Q2) && (b == TB_Q1 ? 0 : 1) == s_aim_q) { quickslot(s_aim_q); return; }
+        if (b >= 0 && s_aim_q >= 0 && b == TBQ(s_aim_q)) { quickslot(s_aim_q); return; }
         s_scene = SC_GAME; s_aim_q = s_aim_mob = -1; redraw(); return;           // GameScene.cancel
       }
       int16_t c = screen_to_cell(x, y);
@@ -1044,7 +1066,11 @@ static void on_tap(int x, int y) {
     switch (TB_HIT(x, y)) {
       case TB_WAIT: act(game_rest(s_long_press)); return;      // long press: rest until healed
       case TB_SEARCH: act(game_search()); return;
+#ifndef PD_FACE
       case TB_INFO: s_scene = SC_INSPECT; redraw(); return;
+#else
+      case TB_INFO: if (s_long_press) { s_quick_q = 2; open_bag(PICK_QUICK); } else quickslot(2); return;
+#endif
       case TB_BAG: if (s_long_press) { s_scene = SC_CATALOG; s_sheet_tab = 0; s_sel = 0; redraw(); } else open_bag(-1); return;   // long press: WndCatalogus
       case TB_Q2: case TB_Q1: {
         int q = TB_HIT(x, y) == TB_Q1 ? 0 : 1;
@@ -1520,9 +1546,9 @@ static void draw_hud_art(void) {
   GRect tc[TB_N];                                         // (the bubbles' pictures' places)
   for (int i = 0; i < TB_N; i++) tc[i] = bubble(hl_rect(i), ARGB(GColorDarkGray), ARGB(GColorLightGray));
   { static const uint8_t I[4][4] = { { 5, 8, 10, 10 }, { 24, 7, 12, 12 }, { 46, 7, 8, 12 }, { 65, 5, 14, 15 } };   // wait, search, inspect, backpack
-    for (int i = 0; i < 4; i++) { GRect c = tc[i]; blit(&s_toolbar, I[i][0], I[i][1], I[i][2], I[i][3], BPIC(c, 2 * I[i][2], 2 * I[i][3]), 2); } }
-  for (int q = 0; q < 2; q++) {
-    int kind = h->quick[q]; GRect c = tc[q == 0 ? TB_Q1 : TB_Q2];
+    for (int i = 0; i < 4; i++) { if (PD_FACE_ON && i == 2) continue; GRect c = tc[i]; blit(&s_toolbar, I[i][0], I[i][1], I[i][2], I[i][3], BPIC(c, 2 * I[i][2], 2 * I[i][3]), 2); } }
+  for (int q = 0; q < NQ; q++) {
+    int kind = *qkp(h, q); GRect c = tc[TBQ(q)];
     if (kind == IK_NONE) continue;
     int px = c.origin.x + (c.size.w - 32) / 2, py = c.origin.y + (c.size.h - 32) / 2;
     ITEM_SPR(item_sprite(kind), px, py, 2);
@@ -1559,14 +1585,14 @@ static void draw_hud_art(void) {
   for (int i = 0; i < TB_N; i++) blit_nine(&s_toolbar, 83, 0, 23, 25, 4, tb_x(i), TB_Y(i), bw, TB_H);
   blit(&s_toolbar, 5, 8, 10, 10, tb_x(TB_WAIT) + (bw - 20) / 2, TB_Y(TB_WAIT) + (TB_H - 20) / 2, 2);
   blit(&s_toolbar, 24, 7, 12, 12, tb_x(TB_SEARCH) + (bw - 24) / 2, TB_Y(TB_SEARCH) + (TB_H - 24) / 2, 2);
-  blit(&s_toolbar, 46, 7, 8, 12, tb_x(TB_INFO) + (bw - 16) / 2, TB_Y(TB_INFO) + (TB_H - 24) / 2, 2);
+  if (!PD_FACE_ON) blit(&s_toolbar, 46, 7, 8, 12, tb_x(TB_INFO) + (bw - 16) / 2, TB_Y(TB_INFO) + (TB_H - 24) / 2, 2);
   blit(&s_toolbar, 65, 5, 14, 15, tb_x(TB_BAG) + (bw - 28) / 2, TB_Y(TB_BAG) + (TB_H - 30) / 2, 2);
-  for (int q = 0; q < 2; q++) {
-    int kind = h->quick[q];
+  for (int q = 0; q < NQ; q++) {
+    int kind = *qkp(h, q);
     if (kind == IK_NONE) continue;
-    int sp = item_sprite(kind), bx = tb_x(q == 0 ? TB_Q1 : TB_Q2);
-    ITEM_SPR(sp, bx + (bw - 32) / 2, TB_Y(5 - q) + 3, 2);
-    if (game_bag_find(kind) < 0) blit_fog(bx + (bw - 32) / 2, TB_Y(5 - q) + 3, 32);
+    int sp = item_sprite(kind), bx = tb_x(TBQ(q));
+    ITEM_SPR(sp, bx + (bw - 32) / 2, TB_Y(TBQ(q)) + 3, 2);
+    if (game_bag_find(kind) < 0) blit_fog(bx + (bw - 32) / 2, TB_Y(TBQ(q)) + 3, 32);
   }
 #endif
 after_toolbar:;
@@ -1580,10 +1606,10 @@ after_toolbar:;
   }
   if (s_scene == SC_TARGET && s_aim_q >= 0 && s_aim_mob >= 0) {   // QuickSlot crossB over the aiming slot
 #ifdef PBL_ROUND
-    GRect c = tc[s_aim_q == 0 ? TB_Q1 : TB_Q2]; blit(&s_icons, 67, 0, 16, 16, BPIC(c, 32, 32), 2);
+    GRect c = tc[TBQ(s_aim_q)]; blit(&s_icons, 67, 0, 16, 16, BPIC(c, 32, 32), 2);
 #else
-    int bx = tb_x(s_aim_q == 0 ? TB_Q1 : TB_Q2);
-    blit(&s_icons, 67, 0, 16, 16, bx + (bw - 32) / 2, TB_Y(5 - s_aim_q) + 3, 2);
+    int bx = tb_x(TBQ(s_aim_q));
+    blit(&s_icons, 67, 0, 16, 16, bx + (bw - 32) / 2, TB_Y(TBQ(s_aim_q)) + 3, 2);
 #endif
   }
   if (resume_shown()) {                             // PD ResumeButton
@@ -1718,18 +1744,18 @@ static void draw_hud_text(GContext *ctx) {
   snprintf(buf, sizeof buf, "%d", G.keys[G.depth] & 15);              // IronKey.curDepthQuantity
   if (!FHT(FS_KEYS, GColorLightGray, HUD_DKX - 58, HUD_DKY - 1, 56, GTextAlignmentRight)) text_outlined(ctx, buf, s_font_hud, GColorLightGray, HUD_DKX - SC(26) - 24, HUD_DKY - 1, 24, GTextAlignmentRight);
 #endif
-  for (int q = 0; q < 2 && !toolbar_hidden(); q++) {
-    int slot = game_bag_find(h->quick[q]);
+  for (int q = 0; q < NQ && !toolbar_hidden(); q++) {
+    int slot = game_bag_find(*qkp(h, q));
     if (slot < 0) continue;
     const Item *qi = game_slot(slot);
     if (item_cat(qi->kind) == CAT_WAND && (qi->flags & IF_LEVEL_KNOWN)) {   // ItemSlot status: charges, top left
       if (qi->flags & IF_CHARGE_KNOWN) snprintf(buf, sizeof buf, "%d/%d", qi->ench, wand_max(qi)); else snprintf(buf, sizeof buf, "?/%d", wand_max(qi));
-      text_outlined(ctx, buf, s_font_hud, GColorWhite, tb_x(q == 0 ? TB_Q1 : TB_Q2) + 3, PBL_IF_ROUND_ELSE(TB_Y(5 - q), toolbar_y()) - 1, tb_w() - 4, GTextAlignmentLeft);
+      text_outlined(ctx, buf, s_font_hud, GColorWhite, tb_x(TBQ(q)) + 3, PBL_IF_ROUND_ELSE(TB_Y(TBQ(q)), toolbar_y()) - 1, tb_w() - 4, GTextAlignmentLeft);
       continue;
     }
     if (qi->qty < 2) continue;
     snprintf(buf, sizeof buf, "%d", qi->qty);
-    text_outlined(ctx, buf, s_font_hud, GColorWhite, tb_x(q == 0 ? TB_Q1 : TB_Q2), PBL_IF_ROUND_ELSE(TB_Y(5 - q) + 2 * TB_R - 16, toolbar_y() + TB_H - 18), tb_w() - 4, GTextAlignmentRight);
+    text_outlined(ctx, buf, s_font_hud, GColorWhite, tb_x(TBQ(q)), PBL_IF_ROUND_ELSE(TB_Y(TBQ(q)) + 2 * TB_R - 16, toolbar_y() + TB_H - 18), tb_w() - 4, GTextAlignmentRight);
   }
   for (int i = 0; i < s_n_float; i++) {
     Floater *f = &s_float[i];
@@ -1854,7 +1880,9 @@ static void ui_input(int ev, int x, int y) {               // ev: a ButtonId, or
     case C_BAG_CLOSE: bag_close(); break;
     case C_DO: item_do(a); break;
     case C_PAGE: text_page(1); break;
+#ifndef PD_FACE                                    // (the watchface has no game menu: nothing a viewer can press opens it)
     case C_MENU: menu_select(a); break;
+#endif
     case C_JUMP: jump_choose(a); break;
   }
 }
