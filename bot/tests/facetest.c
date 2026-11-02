@@ -90,5 +90,5 @@ int main(int argc, char **argv) {
   if (all_ticks) { printf("rest share of game time %.1f%%, healing drinks %ld (%.1f per game, %.2f per 1000 turns; %ld tried), starving %.1f%% of game time (in %ld games), broken-gear steps %ld, meals eaten %.1f per game\nHP share of game time by tenths 0..10 (%%):", 100.0 * rest_ticks / all_ticks, drinks, (double)drinks / (N ? N : 1), 1000.0 * drinks / (all_ticks / TICK), heal_drinks, 100.0 * starve_steps / steps_all, starve_games, broken_steps, (double)eats / (N ? N : 1));
     for (int k = 0; k < 11; k++) printf(" %.1f", 100.0 * hp_hist[k] / steps_all); printf("\n"); }
   printf("slow floors while carrying the Amulet: %d\n", stuck_up);
-  printf("amulet-clog drops: %d\n", drops); printf("== %d games (hidden stairs used %d): won %d, died %d, steps with no food %d, floors %d, floors over 500 steps %d, avg steps %ld\n", N, floods, wins, deaths, nofood, floors, stuckf, steps_total / (N ? N : 1));
+  printf("amulet-clog drops: %d\n", drops); { extern int g_fb_tele; printf("stuck safeguard teleports: %d in %d games\n", g_fb_tele, N); } printf("== %d games (hidden stairs used %d): won %d, died %d, steps with no food %d, floors %d, floors over 500 steps %d, avg steps %ld\n", N, floods, wins, deaths, nofood, floors, stuckf, steps_total / (N ? N : 1));
 }

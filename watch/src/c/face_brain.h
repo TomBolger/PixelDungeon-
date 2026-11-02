@@ -22,8 +22,32 @@ static bool fb_clog(void) {                                        // the Amulet
   for (unsigned o = 0; o < sizeof ORDER; o++) for (int i = BAG_SIZE - 1; i >= 0; i--) if (G.hero.bag[i].kind && item_cat(G.hero.bag[i].kind) == ORDER[o]) { s_fb_slot = i; return true; }
   return false;
 }
+// TEMPORARY entertainment safeguard (day-WI): no progress for FACE_STUCK_TURNS game turns (the hero within 2 cells of where
+// the count began, no foe in sight, health not rising) and he is teleported at random like a Scroll of Teleportation (not
+// where that has no room to do it: a boss floor). A healing rest keeps the count at zero; a rest or a search at full health does not.
+#ifndef FACE_STUCK_TURNS
+#define FACE_STUCK_TURNS 60
+#endif
+#ifdef OVL_HOST
+int g_fb_tele;                                                     // host test: how often it fired
+#endif
+static int16_t s_fb_sa, s_fb_shp; static int s_fb_st;
+static void fb_stuck(void) {
+  Hero *h = &G.hero;
+  if (fb_foe() || distance(h->pos, s_fb_sa) > 2 || h->HP > s_fb_shp) { s_fb_sa = h->pos; s_fb_st = G.now; }
+  s_fb_shp = h->HP;
+  if (G.now - s_fb_st < FACE_STUCK_TURNS * (h->HP < h->HT ? 3 : 1) * TICK) return;   // (hurt and resting: a third of the rate)
+  s_fb_st = G.now;
+  int c = random_respawn_cell();                         // (-1: no room for it, a boss floor)
+  if (c < 0) return;
+  h->pos = c; hero_press(c); update_fov();
+#ifdef OVL_HOST
+  g_fb_tele++; if (getenv("TELEDBG")) printf("TELE d%d pos %d,%d HP %d/%d hunger %d since %d amu %d mobs %d\n", G.depth, cx(h->pos), cy(h->pos), h->HP, h->HT, h->hunger, s_fb_since, game_bag_find(IK_AMULET) >= 0, G.n_mobs);
+#endif
+}
 static int fb_override(void) {
   if (G.depth != s_fb_depth) { s_fb_depth = G.depth; s_fb_presses = 0; s_fb_best = 0; s_fb_since = 0; }
+  fb_stuck();
   s_fb_presses++;
   int seen = fb_seen();
   if (seen > s_fb_best) { s_fb_best = seen; s_fb_since = 0; } else s_fb_since++;
