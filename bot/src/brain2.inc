@@ -129,7 +129,9 @@ static int b2_route(void) {
   static int fc[MAP_LEN]; static uint8_t fu[MAP_LEN]; int nfc = 0; double su = 0;
   for (int c = 0; c < MAP_LEN; c++) if (frontier(c) && s_b2dh[c] < 0x7FFF) { int u = 0; for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) { int x = cx(c) + dx, y = cy(c) + dy; if (x >= 0 && y >= 0 && x < MAP_W && y < MAP_H && !BIT_GET(G.visited, y * MAP_W + x)) u++; } if (u) { fc[nfc] = c; fu[nfc++] = u; su += u; } }
   double pool = s_b2loot * left + (stairs ? 0 : s_b2stair) + (!s_ev_food && !boss_depth(G.depth) ? 260 * (left > 0.3 ? 1 : left / 0.3) : 0);   // (a normal floor has its ration: not found yet, it's out there)
-  for (int i = 0; i < nfc; i++) B2T(fc[i], pool * fu[i] / su * (nfc > 1 ? 2.0 : 1.0), "explore");   // (x2: the share is a guess spread thin; a near frontier usually opens onto more)
+  if (!getenv("B2SHARE")) { int nb = -1; double nd = 1e9; for (int i = 0; i < nfc; i++) { double d = s_b2dh[fc[i]] - fu[i] * 0.2 - (fc[i] == s_goal_cell2 ? 3 : 0); if (d < nd) { nd = d; nb = fc[i]; } }   // the nearest edge of the unknown carries the whole worth of exploring on: steady, and the shortest tour
+    if (nb >= 0) B2T(nb, pool, "explore"); }
+  else for (int i = 0; i < nfc; i++) B2T(fc[i], pool * fu[i] / su * (nfc > 1 ? 2.0 : 1.0), "explore");   // (B2SHARE: the old spread)
   #undef B2T
   if (best >= 0) {
     s_goal_cell2 = best; int st = b2_first_step(best); if (st < 0) { s_black[best] = s_bot_steps + 50; return -1; }
