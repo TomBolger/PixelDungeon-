@@ -39,6 +39,7 @@ static bool transmutes(int k) { return k == IK_KNUCKLES || k == IK_DAGGER || k =
 static int V, cur_game, cur_step, stop_game = -1, stop_step = -1;
 static char s_last_log[8][120]; static int s_nlog;
 static char s_did[200];
+static char st_tk[200][32]; static long st_tt[200]; static int st_tn;   // TURNSAGG: turns by action label over all games
 #define DID(...) do { if (!s_did[0]) snprintf(s_did, sizeof s_did, __VA_ARGS__); } while (0)
 void ui_log(const char *m, MsgColor c) { snprintf(s_last_log[s_nlog++ & 7], 120, "%s", m); if (V) printf("  [d%d s%d] log: %s\n", G.depth, cur_step, m); }
 void ui_fx(FxKind k, int16_t c, int w, const char *t) {}
@@ -3344,6 +3345,10 @@ static bool decide(void) {
       && food_budget() < (getenv("PACEB") ? atoi(getenv("PACEB")) : 300) && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; })) {   // 0.93 test (deep runs arrive starving: ~346 turns a floor against ~260 of food): the floor's food found, nothing seen left to take: down, the rest unexplored
     bool want = false; for (int i = 0; i < G.n_heaps && !want; i++) if (heap_wanted(i) && G.heaps[i].item.kind != IK_DEW && b_dist[G.heaps[i].pos] < 0x7FFF) want = true;
     if (!want) { choice = G.exit; why = "pace: food short, this floor's food found: down"; st_pace++; } }
+  if (choice < 0 && getenv("PACET") && s_pztest && G.depth >= (getenv("PACED") ? atoi(getenv("PACED")) : 3) && !boss_depth(G.depth) && !boss_depth(G.depth + 1) && G.now - s_floor_turn0 > atoi(getenv("PACET")) * TICK && s_ev_food && G.exit >= 0 && BIT_GET(G.visited, G.exit) && threat_count() == 0 && !quest_on_floor() && !shop_hunt_ok()
+      && food_budget() < (getenv("PACEB") ? atoi(getenv("PACEB")) : 300) && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; })) {   // seedlog 2 test: food is the clock (about 260 turns a floor): once a floor has taken its share and its food is found, down, whatever is left unexplored
+    bool want = false; for (int i = 0; i < G.n_heaps && !want; i++) if (heap_wanted(i) && G.heaps[i].item.kind != IK_DEW && G.heaps[i].item.kind != IK_GOLD && b_dist[G.heaps[i].pos] < 0x7FFF && b_dist[G.heaps[i].pos] <= (getenv("PACEW") ? atoi(getenv("PACEW")) : 12)) want = true;
+    if (!want) { choice = G.exit; why = "pace: this floor has had its share of the food: down"; st_pace++; } }
   bool famished = game_hungry() && !({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; });
   if (choice < 0 && famished && PRM[P_HUNGRYDOWN] && !food_ev_ok() && !shop_hunt_ok() && BIT_GET(G.visited, G.exit) && s_goal > G.depth && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; }) &&   /* (0.52: a way there: seen across a chasm or a trap field isn't one) */ (getenv("OLDHERO") || (s_ev_food && (getenv("OLDHUNGRY") || game_starving())) || !floor_left() || boss_depth(G.depth) || G.depth == 21 || (game_starving() && h->HP * 100 < h->HT * s_starve_leave && !(s_pztest && boss_depth(G.depth + 1) && floor_left() && !s_ev_food))) &&   /* (0.92 seed 84: down to the Goo at 12/40 starving, the floor's ration unfound: before a boss, find it) */   /* (owner: look for it even starving; under 30% health, just go) */   /* 0.52 (audit): every floor but the bosses' has a ration somewhere: find it first */ (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // bot3: no food, hungry: on down
     bool food_here = false; for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && is_food(G.heaps[i].item.kind)) food_here = true;
@@ -4675,20 +4680,26 @@ static int run_explab(void) {
 
 // Determinism: every game starts from the program's pristine variables (the bot's many per-game statics, in functions too, used to leak from
 // one game into the next, so a game played alone differed from the same game inside a batch). The tallies (st_, lg_, tt_) are kept.
+static bool keep_name(const char *n) {   // tallies for the run summary only (nothing a decision reads); the other st_ variables ARE read by decisions and must start every game fresh
+  static const char *const K[] = { "st_games", "st_wins", "st_deaths", "st_maxd", "st_turns", "st_boss_kill", "st_boss_seen", "st_stuck", "st_amulet", "st_rt", "st_fork", "st_deathmsg", "st_la_points", "st_la_changed", "st_la_forks", "st_sla_points", "total_viol", "s_walk_max", "st_tk", "st_tt", "st_tn", NULL };
+  for (int i = 0; K[i]; i++) if (!strcmp(n, K[i])) return true; return false; }
 static char *s_pristine; static size_t s_pristine_n;
 static struct { char *p; size_t n; char *save; } s_keep_rng[400]; static int s_keep_n;
 static void pristine_take(void) {
   extern char __data_start[], _end[]; s_pristine_n = (size_t)(_end - __data_start); s_pristine = malloc(s_pristine_n); memcpy(s_pristine, __data_start, s_pristine_n);
-  FILE *f = popen("nm -S --defined-only /proc/self/exe 2>/dev/null", "r"); char ln[300];
-  while (f && fgets(ln, sizeof ln, f)) { unsigned long a, z; char ty, nm[200]; if (sscanf(ln, "%lx %lx %c %199s", &a, &z, &ty, nm) != 4) continue; if (!strchr("bBdD", ty)) continue;
-    if ((strncmp(nm, "st_", 3) && strncmp(nm, "lg_", 3) && strncmp(nm, "tt_", 3) && strncmp(nm, "stdout", 6) && strncmp(nm, "stderr", 6) && strncmp(nm, "s_pristine", 10) && strncmp(nm, "s_keep_rng", 10) && strncmp(nm, "s_keep_n", 8)) || s_keep_n >= 400) continue;
-    char *q = (char *)(uintptr_t)a; if (q < __data_start || q + z > _end) continue; s_keep_rng[s_keep_n].p = q; s_keep_rng[s_keep_n].n = z; s_keep_rng[s_keep_n].save = malloc(z ? z : 1); s_keep_n++; }
-  if (f) pclose(f); }
+  char exe[400] = "", cmd[500]; { ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1); if (n > 0) exe[n] = 0; } snprintf(cmd, sizeof cmd, "nm -n -S --defined-only \"%s\" 2>/dev/null", exe); FILE *f = popen(cmd, "r"); char ln[300]; long off = 0; int have_off = 0;   /* (a PIE: nm prints link addresses; __data_start tells the load offset) */
+  while (f && fgets(ln, sizeof ln, f)) { unsigned long a, z; char ty, nm[200]; if (strstr(ln, " __data_start")) { if (sscanf(ln, "%lx", &a) == 1) { off = (long)((uintptr_t)__data_start - a); have_off = 1; } continue; } if (sscanf(ln, "%lx %lx %c %199s", &a, &z, &ty, nm) != 4) continue; if (!have_off || !strchr("bBdD", ty)) continue;
+    if ((!keep_name(nm) && strncmp(nm, "stdout", 6) && strncmp(nm, "stderr", 6) && strncmp(nm, "s_pristine", 10) && strncmp(nm, "s_keep_rng", 10) && strncmp(nm, "s_keep_n", 8)) || s_keep_n >= 400) continue;
+    char *q = (char *)(uintptr_t)(a + off); if (q < __data_start || q + z > _end) continue; s_keep_rng[s_keep_n].p = q; s_keep_rng[s_keep_n].n = z; s_keep_rng[s_keep_n].save = malloc(z ? z : 1); if (getenv("PRISTDBG")) printf("  keep %s %lu\n", nm, z); s_keep_n++; }
+  if (f) pclose(f); if (getenv("PRISTDBG")) printf("pristine: %zu bytes, %d kept ranges, offset %ld\n", s_pristine_n, s_keep_n, off); }
 static void pristine_restore(void) {
   extern char __data_start[]; if (!s_pristine) return;
-  for (int i = 0; i < s_keep_n; i++) memcpy(s_keep_rng[i].save, s_keep_rng[i].p, s_keep_rng[i].n);
+  int n = s_keep_n;   // (the table lives in the data segment too: the copy t is what the restore works from)
+  struct { char *p; size_t n; char *save; } *t = malloc(sizeof s_keep_rng); memcpy(t, s_keep_rng, sizeof s_keep_rng);
+  for (int i = 0; i < n; i++) memcpy(t[i].save, t[i].p, t[i].n);
   memcpy(__data_start, s_pristine, s_pristine_n);
-  for (int i = 0; i < s_keep_n; i++) memcpy(s_keep_rng[i].p, s_keep_rng[i].save, s_keep_rng[i].n); }
+  for (int i = 0; i < n; i++) memcpy(t[i].p, t[i].save, t[i].n);
+  free(t); }
 int main(int argc, char **argv) {
   s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
   if (!getenv("NOX")) { static const char *const X[] = { "X_OOZE", "X_DODGE", "X_DODGE2", "X_NOTEST", "X_DRYGOO", "X_OPENFIX", "X_NOBOSSTRAP" }; for (unsigned i = 0; i < sizeof X / sizeof *X; i++) setenv(X[i], "1", 0); }   // 0.52e: the boss audit's Goo/Tengu fixes on (NOX=1: off)
@@ -4714,7 +4725,7 @@ int main(int argc, char **argv) {
   for (int gi = getenv("START") ? atoi(getenv("START")) : 0; gi < N; gi++) {
     if (!getenv("OLDLEAK2")) pristine_restore();
     int si = gi - (getenv("SEEDSBASE") ? atoi(getenv("SEEDSBASE")) : 0); if (s_seedn && (si < 0 || si >= s_seedn)) break; int g = s_seedn ? s_seedv[si] : gi; int seedcls = s_seedn ? s_seedc[si] : -1;
-    cur_game = g; srand(g + 1 + s_salt * 7919); st_games++; lg_maxleft = 0;
+    cur_game = g; srand(g + 1 + s_salt * 7919); st_games++; lg_maxleft = 0; if (getenv("PRISTDBG")) printf("  st_games %d total_viol %d\n", st_games, total_viol);
     if (!getenv("OLDLEAK")) { g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; g_goal = -1; g_from = -1; memset(g_drop, 0, sizeof g_drop); g_drop_i = 0; }   // 0.64: no Assist state carried from game to game (a game replays alone the same)
     extern uint32_t g_host_time; extern uint16_t g_host_ms;
     g_host_time = 1000000 + g * 3600 * 5; g_host_ms = (uint16_t)(g * 40503u + 7);   // a different dungeon each game, night or day
@@ -4888,6 +4899,7 @@ int main(int argc, char **argv) {
       int32_t tbefore = G.now;
       if (!getenv("NIGHTOK")) G.night = 0;   // 0.54 (owner): daytime only for now
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
+      int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
       sp_stat(); bool did = decide();
       if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }
         long dt = G.now - tbefore; int k = tfoe0 || enemy_count() ? 1 : G.hero.pos != tpos0 ? 0 : strstr(s_did, "search") ? 2 : 3; ts[k] += dt;
@@ -4900,6 +4912,9 @@ int main(int argc, char **argv) {
           int w = 15; for (int i = 0; i < 15; i++) if (strstr(s_did, WR[i])) { w = i; break; } wt[w] += (G.now - tbefore) / TICK;
           if (getenv("TURNS") && G.hero.HP <= 0) { printf("by reason:"); for (int i = 0; i < 16; i++) printf(" %s=%ld", i < 15 ? WR[i] : "other", wt[i]); printf("\n"); } }
         tot[k] += (G.now - tbefore) / TICK;
+        if (getenv("STARVE") && !s_is_child) { static long sv[6]; static int sg = -1; if (sg != g) { memset(sv, 0, sizeof sv); sg = g; } long dt = (G.now - tbefore) / TICK; sv[0] += dt; if (thung0 >= 360) { sv[1] += dt; if (k == 2 || !s_did[0] || strstr(s_did, "rest") || strstr(s_did, "search")) sv[2] += dt; if (G.hero.HP < thp0) sv[3] += thp0 - G.hero.HP; if (k == 0 && G.hero.pos == tpos0 && 0) sv[4]++; } if (G.hero.HP <= 0 || s_won) printf("STARVE g%d turns %ld starving %ld (rest/search while starving %ld) hp lost while starving %ld\n", g, sv[0], sv[1], sv[2], sv[3]); }
+        if (getenv("TURNSAGG") && !s_is_child && !s_rollout && G.depth <= (getenv("TURNSD") ? atoi(getenv("TURNSD")) : 99)) { char b[32]; int j = 0, words = 0; for (const char *q = s_did[0] ? s_did : "rest/wait"; *q && j < 31; q++) { if (*q == ' ' && ++words >= 3) break; if (*q == ':' || *q == '(') break; if ((*q >= '0' && *q <= '9') || *q == ',') continue; b[j++] = *q; } b[j] = 0; { const char *q2 = strstr(s_did, "["); int jj = j; while (q2 && *q2 && *q2 != ']' && *q2 != ':' && jj < 31) b[jj++] = *q2++; b[jj] = 0; }
+          int f = -1; for (int i = 0; i < st_tn; i++) if (!strcmp(st_tk[i], b)) { f = i; break; } if (f < 0 && st_tn < 200) { f = st_tn++; strcpy(st_tk[f], b); } if (f >= 0) st_tt[f] += (G.now - tbefore) / TICK; }
         if (getenv("TURNS2")) { static char key[200][32]; static long kt[200]; static int nk;
           char b[32]; int j = 0, words = 0; for (const char *q = s_did[0] ? s_did : "rest/wait"; *q && j < 31; q++) { if (*q == ' ' && ++words >= 3) break; if (*q == ':' || *q == '(' || *q == '[') break; if ((*q >= '0' && *q <= '9') || *q == ',') continue; b[j++] = *q; } b[j] = 0;
           if (strstr(s_did, "[")) { const char *q = strstr(s_did, "["); int jj = j; while (*q && *q != ']' && jj < 31) b[jj++] = *q++; b[jj] = 0; }
@@ -5035,6 +5050,7 @@ int main(int argc, char **argv) {
   if (P) printf("entry 0 off screen (no fight/item/override): %d, of them while an on-screen frontier existed: %d; tall grass trampled %d (%.1f a floor), left behind %d\n", st_offf_n, st_offf, st_tramp, st_tramp / (double)(st_floors ? st_floors : 1), st_grass_left);
   ledger_print();
   if (getenv("SNEAK") || getenv("TACTBOT") || getenv("DEWREST")) printf("owner ideas: sneak steps %d, door trick moves %d, dew rests %d\n", st_sneak, st_door, st_dewrest);
+  if (getenv("TURNSAGG")) { long sum = 0; for (int i = 0; i < st_tn; i++) sum += st_tt[i]; printf("TURNSAGG total %ld turns:\n", sum); for (int r = 0; r < 30; r++) { int bi = -1; for (int i = 0; i < st_tn; i++) if (st_tt[i] > 0 && (bi < 0 || st_tt[i] > st_tt[bi])) bi = i; if (bi < 0) break; printf("   %6ld %5.1f%% %s\n", st_tt[bi], 100.0 * st_tt[bi] / sum, st_tk[bi]); st_tt[bi] = -st_tt[bi]; } }
   printf("food: energy eaten %ld (%.1f rations), wasted %ld; warrior emergency meals %d; paced descents %d\n", st_eat_energy, st_eat_energy / 260.0, st_eat_waste, st_warreat, st_pace);
   printf("floors cleared %d (%.1f a game); decisions %d, presses %d (%.1f a floor), entry 0 off screen %d, oscillations %d\n", st_floors, st_floors / (double)(st_games ? st_games : 1), st_press_n, st_press, st_press / (double)(st_floors ? st_floors : 1), st_press_off, st_osc);
   printf("veins: mined %d, walks to one %d (did nothing %d)\n", st_mine, st_mine_walk, st_mine_none);
