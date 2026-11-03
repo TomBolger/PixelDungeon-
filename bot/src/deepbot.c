@@ -2106,7 +2106,7 @@ static double step2_eval(int hp, bool stay) {
 // charge for the chance it kills me, plus a charge for unknown ground near the cell (something can wander out of it).
 // Only what the player sees: foes in view or beside me, cells already seen.
 typedef struct { int i, pos; double hp, dpt, hd, hi; int acts; bool rng; } TFoe;
-static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
+static long s_fight_hp; static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
 static int16_t s_td[MAP_LEN], s_tq[MAP_LEN];
 static void tact_field(int from) {                    // foes' distance to a cell, over seen open cells
   for (int c = 0; c < MAP_LEN; c++) s_td[c] = 0x7FFF; int qh = 0, qt = 0; s_td[from] = 0; s_tq[qt++] = from;
@@ -2164,7 +2164,7 @@ static bool tact(void) {
     s_tact_tgt = bP; int32_t t0 = h->time; ActResult r = tap_safe(first); if (r == ACT_NONE && h->time == t0) return false;
     st_tact_steps++; s_did[0] = 0; DID("tact: fight from %d,%d (expected cost %.0f there vs %.0f here)", cx(bP), cy(bP), bs, s0); walk(r); return true; }
   s_tact_tgt = -1;
-  if (!adjf && s_tact_wait < 3) {                       // best here, none beside me yet: let it come (its step, my first blow)
+  if (!adjf && s_tact_wait < 3 && !getenv("TACTNOHOLD")) {                       // best here, none beside me yet: let it come (its step, my first blow)
     bool ranged = false; for (int k = 0; k < nf; k++) if (F[k].rng) ranged = true;
     for (int i = 0; i < BAG_SIZE && !ranged; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_MISSILE && k != IK_CURARE_DART) ranged = true; }   // (a throw while it comes beats a wait: the rules throw)
     if (hunt2() && boom_slot() >= 0) ranged = true;
@@ -5022,6 +5022,7 @@ int main(int argc, char **argv) {
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
       sp_stat(); bool did = decide();
+      if (!s_is_child && (tfoe0 || enemy_count() > 0) && G.hero.HP < thp0) s_fight_hp += thp0 - G.hero.HP;   // tact metric: HP lost while foes are about
       if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == atoi(getenv("TTRACE")) && (enemy_count() > 0 || getenv("TDALL"))) printf("TD t%d hero %d,%d hp %d did \"%s\" para %d poison %d roots %d tox %d\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did, G.hero.b.paralysis, G.hero.b.poison, G.hero.b.roots, g_blob[BLOB_TOXIC] ? g_blob[BLOB_TOXIC][G.hero.pos] : -1);
       if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }
         long dt = G.now - tbefore; int k = tfoe0 || enemy_count() ? 1 : G.hero.pos != tpos0 ? 0 : strstr(s_did, "search") ? 2 : 3; ts[k] += dt;
@@ -5135,6 +5136,7 @@ int main(int argc, char **argv) {
     if (getenv("DEATHRING") && G.depth <= 5) { printf("RING g%d d%d:\n", g, G.depth); for (int i = getenv("RINGN") ? 64 - atoi(getenv("RINGN")) : 40; i < 64; i++) { int j = (s_ring_n + i) & 63; if (s_ring[j][0]) printf("    %s\n", s_ring[j]); } }
     if (getenv("MOBSTATS") && g == 0) for (int t = 0; t < MT_COUNT; t++) { const MobDef *d = &MOB_DEFS[t]; printf("MOB %s HT %d att %d def %d dmg %d-%d dr %d exp %d maxlvl %d move %d atk %d\n", mob_name(t), d->HT, d->att, d->def, d->dmg_lo, d->dmg_hi, d->dr, d->exp, d->max_lvl, d->move_cost, d->atk_delay); }
     if (getenv("D")) { int fd = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_FOOD) fd += G.hero.bag[i].qty; printf("DEATHINFO g%d hunger %d food %d depth %d turn %d\n", g, G.hero.hunger, fd, G.depth, G.now / TICK); }
+    if (getenv("D")) printf("FIGHTHP g%d cls %d hp %ld maxd %d\n", g, g_new_class, s_fight_hp, G.max_depth); s_fight_hp = 0;
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
                            G.depth, G.max_depth, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl,
                            G.q.ghost, G.q.wand, G.q.smith, G.q.imp, G.hero.HP <= 0 ? ": " : "", G.hero.HP <= 0 ? G.death : "");
