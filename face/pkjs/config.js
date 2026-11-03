@@ -77,8 +77,8 @@ module.exports = [
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Battery saver' },
     { type: 'select', messageKey: 'BURST', label: 'Play per wake', defaultValue: '0', options: [
-      { label: 'Long (20 seconds)', value: '0' }, { label: 'Medium (10 seconds)', value: '1' }, { label: 'Short (5 seconds)', value: '2' } ],
-      description: 'How long the game plays each time you flick your wrist, tap, or the face appears. Then it freezes again.' },
+      { label: 'Long (20 seconds)', value: '0' }, { label: 'Medium (10 seconds)', value: '1' }, { label: 'Short (5 seconds)', value: '2' }, { label: 'Endless (drains the battery fast)', value: '3' } ],
+      description: 'How long the game plays each time you flick your wrist, tap, or the face appears. Then it freezes again. On the charger it always plays endlessly. Warning: Endless keeps the screen and processor busy all the time and can empty the battery in a few hours.' },
     { type: 'select', messageKey: 'FPS', label: 'Frame rate', defaultValue: '0', options: [
       { label: 'Full (about 30 a second)', value: '0' }, { label: 'Reduced (about 15 a second)', value: '1' }, { label: 'Low (about 7 a second, no zoom-out glances)', value: '2' } ],
       description: 'How often the picture is redrawn while it plays. Lower uses less battery; the game itself plays the same.' }

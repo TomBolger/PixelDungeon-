@@ -112,7 +112,6 @@ static void face_rules_apply(void) {                   // the settings' rules in
 }
 static void face_cfg_fix(void) {                       // after a load: an old save's "clock inside the HUD" is the time and date slots (and no big clock), as it was; unknown choices are the game's number
   if (s_cfg.res) { if (!s_cfg.slot[FS_LVL]) s_cfg.slot[FS_LVL] = FV_TIME; if (!s_cfg.slot[FS_HP]) s_cfg.slot[FS_HP] = FV_DATE; s_cfg.clk_on = 0; s_cfg.res = 0; }
-  for (int i = 0; i < FS_N; i++) if (s_cfg.slot[i] > FV_BLANK) s_cfg.slot[i] = 0;
   s_cfg.cls &= 15;                                     // (the other choices come from the phone's page only: 0/1, or an index masked or taken modulo where it is used)
   face_rules_apply();
 }
@@ -156,7 +155,8 @@ static void clock_proc(Layer *l, GContext *ctx) {
     for (int i = first; i < 5; i++) fclk_glyph(ctx, dg[i], xs[i] + ox, y + oy, k, grow, c);
   }
 }
-static void minute_tick(struct tm *tm, TimeUnits u) { if (s_clock_layer) layer_mark_dirty(s_clock_layer); if (face_hud_dyn() && s_layer) redraw(); }
+static bool face_endless(void) { return s_cfg.burst == 3 || battery_state_service_peek().is_plugged; }
+static void minute_tick(struct tm *tm, TimeUnits u) { if (s_clock_layer) layer_mark_dirty(s_clock_layer); if (face_hud_dyn() && s_layer) redraw(); if (!s_f_on && face_endless()) face_burst(); }   // (endless: a paused face starts again within a minute)
 
 // ---- bursts
 static void face_pause(void) {
@@ -441,6 +441,7 @@ static void face_tick(bool moving) {
 #ifndef FACE_OLDPACE
   if ((int32_t)(s_f_next - n) > (int32_t)pace(700, 0)) s_f_next = n;
 #endif                   // (no wait is longer: a clock that stepped a second back made them so)
+  if (face_endless()) s_f_end = n + 2000;               // endless play (the setting, or on the charger): the burst never runs out
   if ((int32_t)(n - s_f_end) >= 0) { face_pause(); return; }
   if (s_scene == SC_AMULET && s_amulet == 2 && s_f_vic >= FACE_WIN_MS) { face_new_game(); s_f_next = n + 600; return; }   // 30 s of victory: the next hero
   if (moving || s_fade || s_proj.active || s_walking || (int32_t)(n - s_f_next) < 0) return;
