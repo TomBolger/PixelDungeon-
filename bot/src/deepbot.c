@@ -2106,7 +2106,7 @@ static double step2_eval(int hp, bool stay) {
 // charge for the chance it kills me, plus a charge for unknown ground near the cell (something can wander out of it).
 // Only what the player sees: foes in view or beside me, cells already seen.
 typedef struct { int i, pos; double hp, dpt, hd, hi; int acts, mc, ac, tm; bool rng; } TFoe;   // mc/ac: ticks a move/an attack takes; tm: its time in hand
-static long s_fight_hp, st_tact_throws; static int s_tact_lastd = 99; static double s_te_E; static int s_cal_on, s_cal_hp0, s_cal_type, s_cal_n, s_cal_uid, s_cal_away; static double s_cal_pred; static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
+static double s_te_pd; static int s_goal_cell2 = -1; static long s_fight_hp, st_tact_throws; static int s_tact_lastd = 99; static double s_te_E; static int s_cal_on, s_cal_hp0, s_cal_type, s_cal_n, s_cal_uid, s_cal_away; static double s_cal_pred; static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
 static int16_t s_td[MAP_LEN], s_tq[MAP_LEN];
 static void tact_field(int from) {                    // foes' distance to a cell, over seen open cells
   for (int c = 0; c < MAP_LEN; c++) s_td[c] = 0x7FFF; int qh = 0, qt = 0; s_td[from] = 0; s_tq[qt++] = from;
@@ -2139,7 +2139,7 @@ static double tact_eval(TFoe *F0, int nf, int P, const int *path, int plen, doub
   E += rest_e; V += rest_e * 3;
   if (turns_out) *turns_out = t + rest_t;
   s_te_E = E;
-  double hp = h->HP, z = (hp - E) / sqrt(V + 1), pd = 0.5 * erfc(z / sqrt(2.0));
+  double hp = h->HP, z = (hp - E) / sqrt(V + 1), pd = 0.5 * erfc(z / sqrt(2.0)); s_te_pd = pd;
   int unk = 0; for (int dy = -3; dy <= 3; dy++) for (int dx = -3; dx <= 3; dx++) { int x = cx(P) + dx, y = cy(P) + dy; if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue; if (!BIT_GET(G.visited, y * MAP_W + x)) unk++; }
   if (unk > 12) unk = 12;
   static double ku = -1, kk = -1; if (ku < 0) { ku = getenv("TACTU") ? atof(getenv("TACTU")) : 0.004; kk = getenv("TACTK") ? atof(getenv("TACTK")) : 2.0; }
@@ -3265,6 +3265,25 @@ static void q_track(void) {                              // each step: the floor
   if (sou > s_q_sou0) s_q_fs = 1; if (s_q_fs < 1 && q_unknown(CAT_SCROLL) < s_q_us0) s_q_us0 = q_unknown(CAT_SCROLL);   // (read or dropped: the baseline follows)
   if (s_q_fp < 1 && q_unknown(CAT_POTION) < s_q_up0) s_q_up0 = q_unknown(CAT_POTION);
 }
+static bool eat_rule(void) {                          // when and what to eat (shared by both brains)
+  Hero *h = &G.hero;
+  bool buffrush = s_pztest && ((h->b.invis > 0 && pool_puzzle_pending()) || (h->b.levitation > 0 && trap_puzzle_pending()));   // 0.92 (seed 84: ate while floating, the ration left behind): the prize first
+  if (!(buffrush && !game_starving()) && (s_eatlate >= 0 ? eat_late() : s_oldeat ? game_hungry() : (game_starving() || (((!getenv("OLDEAT2")) || getenv("THRIFT")) && game_hungry() && ({ bool r = false; for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_RATION || h->bag[i].kind == IK_CHARGRILLED || h->bag[i].kind == IK_CARPACCIO || h->bag[i].kind == IK_OVERPRICED) r = true; r; }))) && !foe_near(3))) {   // 0.58 EATEARLY: a ration (260) at hungry (260+) wastes nothing, and a fight while starving has no healing   // 0.47n: only once starving (PD: hungry costs nothing, a ration eaten early wastes up to 100 turns), never with a foe at hand
+    int s = -1; for (int i = 0; i < BAG_SIZE && s < 0; i++) if (is_food(h->bag[i].kind) && !(((!getenv("OLDEAT2")) || getenv("THRIFT")) && !game_starving() && h->bag[i].kind == IK_PASTY)) s = i;
+    if (s < 0) s = find_kind(IK_MYSTERY_MEAT);
+    if (s < 0 && game_starving() && (!s_pztest || getenv("OLDFISH"))) s = find_kind(IK_PHANTOM_FISH) >= 0 && G.q.wand != QS_GIVEN ? find_kind(IK_PHANTOM_FISH) : -1;   /* (0.93 audit: the phantom fish feeds nothing) */
+    if (s >= 0 && h->bag[s].kind == IK_MYSTERY_MEAT && !IS_WATER(G.map[h->pos]) && !h->b.levitation && !getenv("OLDMEAT")) {   // 0.47n: 1 in 5 it sets you alight:
+      bfs(h->pos, false); int w = -1, wd = 13;           // eat it standing in water (that puts the flames out), else only when healthy
+      for (int c = 0; c < MAP_LEN; c++) if (IS_WATER(G.map[c]) && !PWATER(c) && b_dist[c] < wd && heap_at(c) < 0 && c != G.entrance && c != G.exit) { wd = b_dist[c]; w = c; }
+      if (w >= 0 && enemy_count() == 0) { DID("to the water to eat the meat"); walk(tap_safe(w)); return true; }
+      if (h->HP < 20 && h->HP < h->HT * 2 / 3 && !(game_starving() && h->HP > 8)) s = -1;
+    }
+    if (s >= 0) { st_uses[ACN_EAT]++; do_item(s, ACN_EAT); return true; }
+  }
+  if (warrior_eat()) return true;
+  return false;
+}
+static int brain2(void);
 static bool decide(void) {
   oracles();
   if (P && s_pure && !s_rollout) return press();   // 0.64: Assist alone: every move is Select on the watch's suggestion (windows still the bot's)
@@ -3282,21 +3301,9 @@ static bool decide(void) {
   Hero *h = &G.hero; const char *why = "?";
   if (s_brew_kind >= 0 && s_brew_i >= 3 && (unsigned)s_brew_pot < MAP_LEN) { int hb = heap_at(s_brew_pot); if (hb >= 0 && item_cat(G.heaps[hb].item.kind) == CAT_POTION) { int pk = G.heaps[hb].item.kind; if (!item_known(pk) && !s_pot_guess[pk]) s_pot_guess[pk] = seed_potion(s_brew_kind); s_brew_kind = -1; } }   // (the brew's colour: probably that seed's potion)
   if (V) printf("  decide: hero %d hp %d/%d hunger %d blind %d light %d vd %d\n", h->pos, h->HP, h->HT, h->hunger, h->b.blind, h->light, view_distance());
+  if (getenv("BRAIN2") && !s_rollout && !s_is_child) { int r = brain2(); if (r >= 0) return r; }   // brain2: the one-goal brain (owner 2026-11-03); -1: the old rules for this turn
   // eat
-  bool buffrush = s_pztest && ((h->b.invis > 0 && pool_puzzle_pending()) || (h->b.levitation > 0 && trap_puzzle_pending()));   // 0.92 (seed 84: ate while floating, the ration left behind): the prize first
-  if (!(buffrush && !game_starving()) && (s_eatlate >= 0 ? eat_late() : s_oldeat ? game_hungry() : (game_starving() || (((!getenv("OLDEAT2")) || getenv("THRIFT")) && game_hungry() && ({ bool r = false; for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_RATION || h->bag[i].kind == IK_CHARGRILLED || h->bag[i].kind == IK_CARPACCIO || h->bag[i].kind == IK_OVERPRICED) r = true; r; }))) && !foe_near(3))) {   // 0.58 EATEARLY: a ration (260) at hungry (260+) wastes nothing, and a fight while starving has no healing   // 0.47n: only once starving (PD: hungry costs nothing, a ration eaten early wastes up to 100 turns), never with a foe at hand
-    int s = -1; for (int i = 0; i < BAG_SIZE && s < 0; i++) if (is_food(h->bag[i].kind) && !(((!getenv("OLDEAT2")) || getenv("THRIFT")) && !game_starving() && h->bag[i].kind == IK_PASTY)) s = i;
-    if (s < 0) s = find_kind(IK_MYSTERY_MEAT);
-    if (s < 0 && game_starving() && (!s_pztest || getenv("OLDFISH"))) s = find_kind(IK_PHANTOM_FISH) >= 0 && G.q.wand != QS_GIVEN ? find_kind(IK_PHANTOM_FISH) : -1;   /* (0.93 audit: the phantom fish feeds nothing) */
-    if (s >= 0 && h->bag[s].kind == IK_MYSTERY_MEAT && !IS_WATER(G.map[h->pos]) && !h->b.levitation && !getenv("OLDMEAT")) {   // 0.47n: 1 in 5 it sets you alight:
-      bfs(h->pos, false); int w = -1, wd = 13;           // eat it standing in water (that puts the flames out), else only when healthy
-      for (int c = 0; c < MAP_LEN; c++) if (IS_WATER(G.map[c]) && !PWATER(c) && b_dist[c] < wd && heap_at(c) < 0 && c != G.entrance && c != G.exit) { wd = b_dist[c]; w = c; }
-      if (w >= 0 && enemy_count() == 0) { DID("to the water to eat the meat"); walk(tap_safe(w)); return true; }
-      if (h->HP < 20 && h->HP < h->HT * 2 / 3 && !(game_starving() && h->HP > 8)) s = -1;
-    }
-    if (s >= 0) { st_uses[ACN_EAT]++; do_item(s, ACN_EAT); return true; }
-  }
-  if (warrior_eat()) return true;
+  if (eat_rule()) return true;
   { bool any = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_PIRANHA) { any = true; if (BIT_GET(G.fov, G.mobs[i].pos)) s_piranhas = true; }
     if (!any || s_brave) s_piranhas = false; }   // (seen once, and still about; unless there's no other way)
   if (h->b.paralysis || h->b.frost) { walk(game_rest(false)); return true; }
@@ -4837,6 +4844,7 @@ static void pristine_restore(void) {
   memcpy(__data_start, s_pristine, s_pristine_n);
   for (int i = 0; i < n; i++) memcpy(t[i].p, t[i].save, t[i].n);
   free(t); }
+#include "brain2.inc"
 int main(int argc, char **argv) {
   s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
   if (!getenv("NOIDB")) setenv("IDB", "1", 0);   // seedlog 2: identification odds drive drink/read/buy decisions (200 games: +0.15)
@@ -5159,6 +5167,7 @@ int main(int argc, char **argv) {
     if (getenv("DEATHRING") && G.depth <= 5) { printf("RING g%d d%d:\n", g, G.depth); for (int i = getenv("RINGN") ? 64 - atoi(getenv("RINGN")) : 40; i < 64; i++) { int j = (s_ring_n + i) & 63; if (s_ring[j][0]) printf("    %s\n", s_ring[j]); } }
     if (getenv("MOBSTATS") && g == 0) for (int t = 0; t < MT_COUNT; t++) { const MobDef *d = &MOB_DEFS[t]; printf("MOB %s HT %d att %d def %d dmg %d-%d dr %d exp %d maxlvl %d move %d atk %d\n", mob_name(t), d->HT, d->att, d->def, d->dmg_lo, d->dmg_hi, d->dr, d->exp, d->max_lvl, d->move_cost, d->atk_delay); }
     if (getenv("D")) { int fd = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_FOOD) fd += G.hero.bag[i].qty; printf("DEATHINFO g%d hunger %d food %d depth %d turn %d\n", g, G.hero.hunger, fd, G.depth, G.now / TICK); }
+    if (getenv("BRAIN2") && getenv("D")) { printf("B2TALLY g%d engage %ld tow %ld route %ld down %ld legacy %ld items %ld eat %ld\n", g, st_b2[0], st_b2[1], st_b2[2], st_b2[3], st_b2[4], st_b2[5], st_b2[6]); memset(st_b2, 0, sizeof st_b2); }
     if (getenv("D")) printf("FIGHTHP g%d cls %d hp %ld maxd %d tact %ld holds %ld throws %ld\n", g, g_new_class, s_fight_hp, G.max_depth, st_tact_steps, st_tact_waits, st_tact_throws); st_tact_steps = st_tact_waits = st_tact_throws = 0; s_fight_hp = 0;
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
                            G.depth, G.max_depth, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl,
