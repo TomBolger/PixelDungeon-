@@ -899,6 +899,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       if (c == CAT_POTION && s_pztest && !getenv("NOHALFTEST") && h->HP * 100 > h->HT * 85 && floor_left() && !pool_puzzle_pending() && !trap_puzzle_pending()) continue;   // (0.92: nearly whole with the floor still to do: the test can wait for a scratch)
       if (c == CAT_SCROLL && getenv("SCRDBG") && !s_rollout) { static int ls = -1; if (ls != s_bot_steps) { ls = s_bot_steps; printf("SCR step %d d%d fsteps %d bag %d left %d gw %d\n", s_bot_steps, G.depth, s_floor_steps, bag_used(), floor_left(), gear_worth_upgrading()); } }
       if (c == CAT_SCROLL && !getenv("OLDHERO") && s_floor_steps > 30 && bag_used() < BAG_SIZE - 2 && !cursed_known(&h->armor) && !cursed_known(&h->weapon) && (floor_left() || s_pztest) && !boss_depth(G.depth) && !(s_pztest && G.q.ghost_depth == G.depth && G.q.ghost_alt == 2 && G.q.ghost < QS_GIVEN && gear_worth_upgrading())) continue;   // (0.92: not with the ghost's curse to fight here: an Upgrade helps now)   // 0.52 (audit): an unknown scroll waits for the next floor's start (Mapping then saves the walking)
+      if (c == CAT_SCROLL && s_pztest && getenv("LATESCR") && !item_known(IK_SCR_CHALLENGE) && floor_left() && G.depth >= 2 && h->lvl < 9 && !boss_depth(G.depth)) continue;   // seedlog 2 (game 34, d2, level 1: the first unknown scroll read at the stairs was Challenge, every gnoll on the floor came): while Challenge is still among the unknown kinds and the floor is not done, the read-test waits for the floor's end, when little is left to answer it
       if (c == CAT_SCROLL && s_scrhold && !gear_worth_upgrading() && bag_used() < BAG_SIZE - 3 && G.depth < (s_scrhold > 1 ? s_scrhold : 4) && !cursed_known(&h->armor) && !cursed_known(&h->weapon)) continue;   // 0.91 (owner): an Upgrade read now goes into the starting gear: hold them till something's worth it (or the Goo's near)
       if (c == CAT_SCROLL) { st_uses[ACN_READ]++; st_kinds[it->kind]++; do_item(sl, ACN_READ); return true; }
       if (c == CAT_POTION && getenv("HOLDPOT") && floor_left() && G.depth <= 2) continue;
@@ -2221,7 +2222,7 @@ static bool fight(void) {
   if (getenv("HOPELESS") && G.depth > 1 && G.entrance >= 0 && !h->b.roots && !boss_depth(G.depth) && !(MOB_DEFS[m->type].flags & (MD_BOSS | MD_NPC | MD_WATER)) && m->state == ST_HUNTING && hopeless_cost > h->HP * 1.5 && G.now - s_last_up > 60 * TICK) {   // seedlog 2: a duel the numbers say it loses by a mile (a gnoll brute vs a spear-1 hero: 146 damage to take, 65 HP) and nothing in the kit to change that: up the stairs while it is still 2+ away (it only follows if beside me), rest, come back
     int fd = distance(m->pos, h->pos); bfs(h->pos, false);
     if (fd >= 2 && b_dist[G.entrance] <= 14 && distance(m->pos, G.entrance) + 2 >= b_dist[G.entrance]) {
-      if (h->pos == G.entrance) { s_last_up = G.now; s_did[0] = 0; DID("hopeless duel with the %s: up the stairs", mob_name(m->type)); walk(game_tap_cell(h->pos)); return true; }
+      if (h->pos == G.entrance) { s_last_up = G.now; s_did[0] = 0; DID("hopeless duel with the %s: up the stairs", mob_name(m->type)); if (!s_rollout && !s_is_child && getenv("HOPDBG")) printf("HOPELESS g%d d%d turn %d hp %d/%d vs %s cost %.0f\n", cur_game, G.depth, (int)(G.now / TICK), h->HP, h->HT, mob_name(m->type), hopeless_cost); walk(game_tap_cell(h->pos)); return true; }
       int32_t t0 = h->time; ActResult rr = tap_safe(G.entrance); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("hopeless duel with the %s: to the stairs up", mob_name(m->type)); walk(rr); return true; } } }
   if ((MOB_DEFS[m->type].flags & MD_WATER) && s_bot_steps < s_pass_bite && h->HP > h->HT / 3 && !getenv("OLDPIRANHA")) return false;   // bot3: the only way on goes past them: keep walking
   if ((MOB_DEFS[m->type].flags & MD_WATER) && !h->b.roots && !getenv("OLDPIRANHA")) {   // bot3: piranhas: to the nearest cell out of their reach (no piranha water beside it)
@@ -2530,6 +2531,8 @@ static bool want_buy(int h) {
   if (s_pztest && getenv("SHOP2")) return want_buy2(h);
   if (G.hero.gold < 60) return false;
   if (s_pztest && !getenv("OLDAFFORD") && G.hero.gold < shop_price(it)) return false;   // 0.93: the price is on the tag
+  if (s_pztest && !getenv("OLDFOODFIRST") && !is_food(k) && food_budget() < 700) {   // seedlog 2 (game 98 d11: starving, it left the shop's ration unbought and spent the gold on other wares): the gold buys the food first
+    for (int j = 0; j < G.n_heaps; j++) if (G.heaps[j].type == HEAP_FOR_SALE && is_food(G.heaps[j].item.kind) && G.heaps[j].item.kind != IK_MYSTERY_MEAT) { int fp = shop_price(&G.heaps[j].item); if (G.hero.gold >= fp && G.hero.gold - shop_price(it) < fp) return false; break; } }
   if (getenv("IDB") && item_cat(k) == CAT_POTION && !item_known(k) && idb_p(k, IK_POT_HEALING) >= 0.5) return true;   // 0.93 IDB (owner): probably Healing, at the unknown price
   if (getenv("IDB") && item_cat(k) == CAT_SCROLL && !item_known(k) && idb_p(k, IK_SCR_UPGRADE) >= 0.5) return true;
   if (((k == IK_POT_HEALING || k == IK_SCR_UPGRADE || k == IK_POT_STRENGTH) && (!fair_on() || item_known(k))) || is_food(k) || k == IK_ANKH || k == IK_SEED_POUCH || k == IK_SCROLL_HOLDER || k == IK_WAND_HOLSTER) return true;   /* (fair: an unknown one by its odds, IDB) */
@@ -4702,6 +4705,7 @@ static void pristine_restore(void) {
   free(t); }
 int main(int argc, char **argv) {
   s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
+  if (!getenv("NOIDB")) setenv("IDB", "1", 0);   // seedlog 2: identification odds drive drink/read/buy decisions (200 games: +0.15)
   if (!getenv("NOX")) { static const char *const X[] = { "X_OOZE", "X_DODGE", "X_DODGE2", "X_NOTEST", "X_DRYGOO", "X_OPENFIX", "X_NOBOSSTRAP" }; for (unsigned i = 0; i < sizeof X / sizeof *X; i++) setenv(X[i], "1", 0); }   // 0.52e: the boss audit's Goo/Tengu fixes on (NOX=1: off)
   signal(SIGALRM, on_alarm); signal(SIGVTALRM, on_alarm); setvbuf(stdout, NULL, _IONBF, 0);
   if (!game_init()) return 1;
