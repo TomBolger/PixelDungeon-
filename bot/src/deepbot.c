@@ -2148,6 +2148,7 @@ static bool fight(void) {
   }
   Mob *m = &G.mobs[best];
   if (V) printf("  fight: %s at %d (st %d, hp %d) dist %d\n", mob_name(m->type), m->pos, m->state, m->HP, distance(m->pos, h->pos));
+  if (getenv("TTRACE") && !s_rollout && !s_is_child && m->type == MT_TENGU) printf("TT t%d hero %d,%d hp %d tengu %d,%d hp %d dist %d aux %d vis %d\n", (int)(G.now / TICK), cx(h->pos), cy(h->pos), h->HP, cx(m->pos), cy(m->pos), m->HP, distance(m->pos, h->pos), m->aux, ({ bool hit; ballistica(m->pos, h->pos, &hit) == h->pos; }));
   DID("fight %s (its HP %d/%d, %s) %d away", mob_name(m->type), m->HP, m->HT, m->state == ST_HUNTING ? "hunting me" : m->state == ST_SLEEPING ? "asleep" : "wandering", distance(m->pos, h->pos));
   if (emergency()) return true;
   if (getenv("SNEAK") && m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !h->b.roots) {
@@ -4154,6 +4155,7 @@ static bool lookahead(void) {
         for (int k = 0; k < G.n_mobs; k++) { Mob *o = &G.mobs[k]; if (o->HP <= 0 || ally(k) || !BIT_GET(G.fov, o->pos) || o->state != ST_HUNTING) continue; int d = distance(o->pos, q); if (d <= 1) near++; if (d <= 2) reach++; if (d < mind) mind = d; sumd += d; }
         printf("LCC %d step=%d dist=%d open=%d near=%d reach=%d mind=%d sumd=%d water=%d door=%d stairs=%d score=%ld\n", dec, distance(q, h->pos), b_dist[q], open, near, reach, mind, sumd, IS_WATER(G.map[q]) ? 1 : 0, (G.map[q] == T_DOOR || G.map[q] == T_OPEN_DOOR) ? 1 : 0, (q == G.exit || q == G.entrance) ? 1 : 0, tot[i] / cnt[i]); } } }
   if (bi == 0 || bm < tot[0] / cnt[0] + 150) return false;   // not clearly better: the rules
+  if (!getenv("OLDTENGULA") && c[bi].t == C_TAP && mob_at(c[bi].a) < 0 && c[bi].a != G.hero.pos) for (int j = 0; j < G.n_mobs; j++) if (G.mobs[j].HP > 0 && G.mobs[j].type == MT_TENGU && BIT_GET(G.fov, G.mobs[j].pos) && G.mobs[j].state == ST_HUNTING) return false;   // ss-mid 1 (Tengu lab: look-ahead stepped back every other turn while the rules closed in: 8 turns of shuriken, nothing dealt)
   if (getenv("LAONLY")) {   // 0.93 diagnostic (teacher): let only one kind of override through, to find which kind carries the gain
     const char *o = getenv("LAONLY"); int t = c[bi].t; bool mob = t == C_TAP && mob_at(c[bi].a) >= 0 && !ally(mob_at(c[bi].a));
     const char *k = t == C_REST ? "rest" : t == C_TAP ? (c[bi].a == G.hero.pos ? "stairs" : mob ? "attack" : "move") : t == C_ITEM ? "item" : (t == C_ZAP || t == C_THROW) ? "ranged" : "other";
@@ -4750,7 +4752,8 @@ int main(int argc, char **argv) {
       if (getenv("CAMPSEED")) s_camp_reroll = atoi(getenv("CAMPSEED")); }   // (a flagged reroll: other dice from here, applied once the floor's checkpoint round trip is done)
     if (getenv("HG")) { uint32_t hsh = 2166136261u; const uint8_t *pp = (const uint8_t *)&G; for (size_t i = 0; i < sizeof G; i++) hsh = (hsh ^ pp[i]) * 16777619u; printf("  HG game %d hash %08x\n", g, hsh); }
     if (getenv("SD")) { int sd = atoi(getenv("SD")); for (int d = 2; d <= sd; d++) { switch_level(d, ARRIVE_ENTRANCE); game_level_commit(); }
-      while (G.hero.lvl < sd) earn_exp(hero_max_exp() - G.hero.exp); G.hero.HT += 15 * hs; G.hero.HP = G.hero.HT;   /* (0.93: level-ups, not a bare lvl: attack and defense were left at level 1) */ G.hero.STR = 12 + sd / 4 + hs;
+      while (G.hero.lvl < sd) earn_exp(hero_max_exp() - G.hero.exp); G.hero.HT += 15 * hs; G.hero.HP = G.hero.HT;   /* (0.93: level-ups, not a bare lvl: attack and defense were left at level 1) */ G.hero.STR = 12 + sd / 4 + hs;   if (getenv("SDFOOD")) { G.hero.hunger = 100; bag_add(item_make(IK_RATION, 1)); }
+      if (getenv("SDKIT")) { int nk = atoi(getenv("SDKIT")); G.known[IK_POT_HEALING >> 3] |= 1 << (IK_POT_HEALING & 7); Item hp = item_make(IK_POT_HEALING, nk); bag_add(hp); }   /* (lab: a realistic boss-floor kit: n known Healing potions) */   /* (lab: the stairs walk fills the clock; a real run arrives fed with a ration) */
       Item a = item_make(sd >= 15 ? IK_SCALE_ARMOR : IK_MAIL_ARMOR, 1); a.lvl = sd / 4; a.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; a.dur = item_max_dur(&a); G.hero.armor = a;
       Item w = item_make(sd >= 15 ? IK_LONGSWORD : IK_SWORD, 1); w.lvl = sd / 4; w.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; w.dur = item_max_dur(&w); G.hero.weapon = w; }
     memset(s_ign_until, 0, sizeof s_ign_until);
@@ -4905,6 +4908,7 @@ int main(int argc, char **argv) {
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
       sp_stat(); bool did = decide();
+      if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == 10 && enemy_count() > 0) printf("TD t%d hero %d,%d hp %d did \"%s\"\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did);
       if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }
         long dt = G.now - tbefore; int k = tfoe0 || enemy_count() ? 1 : G.hero.pos != tpos0 ? 0 : strstr(s_did, "search") ? 2 : 3; ts[k] += dt;
         if (G.hero.HP <= 0) { printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = -1; } }
