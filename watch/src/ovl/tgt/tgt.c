@@ -923,9 +923,13 @@ static void hl_rank(int hk) {                          // 0.54 (owner): Back wal
 #endif
 static int targets(int16_t *cell, uint8_t *kind, int n0) {   // 0.63: tgt3: the hands, pinned in front of tgt2's list (main.c game_targets); 0.78: tgt4 escape and tactics
   s_tn = n0; s_tc = cell; s_tk = kind; s_h0 = 0;
+#if TGT_PART == 2
+  bool nn = g_ovr.ha == 255; g_ovr.ha = 0;               // day-WM safety net: the press just before spent no turn (main.c button: ACT_NONE sets g_ovr.ha 255)
+#endif
   if (!AS_ON) return s_tn;                               // 0.75 Off: the enemies only (tgt2)
 #if TGT_PART == 2
   if (AS_ITEMS) { s_aim = -1; int hk = hands(); if (hk >= 0) { t_front((hk == TK_BAG || hk == TK_GO) && s_aim >= 0 ? s_aim : G.hero.pos, hk); G.tgm.src0 = 3; } hl_rank(hk); }   // 0.51 (owner): plan A, and Down still offers the rest
+  if (nn) { g_ovr.d &= ~128; t_front(G.hero.pos, TK_GO); s_tn = 1; }   // (the list is just "search here" for this press: it takes the one after entry 0, and a turn passes; tgt4 may put an escape in front)
   return s_tn;
 #else
   s_h0 = G.tgm.src0 == 3 && s_tn > 0 && g_ovr.ha != ACN_THROW && g_ovr.ha != ACN_ZAP;   // (the hands' entry stays in front; 0.78 (owner: "always the second
@@ -1059,6 +1063,11 @@ static int targets(int16_t *cell, uint8_t *kind, int n0) {   // tgt2: the distan
   if (!AS_ON) {                                         // 0.75 (owner): Off: Down cycles the enemies, Select hits (or walks at) the one chosen
     int n = 0; for (int i = 0; i < s_tn; i++) if (s_tk[i] == TK_ENEMY) { s_tc[n] = s_tc[i]; s_tk[n] = TK_ENEMY; g_tgobj[n++] = g_tgobj[i]; }
     g_ovr.d &= ~128; return s_tn = n; }                  // (never a wait: Select attacks)
+  { int m0 = s_tn && s_tk[0] == TK_ENEMY && G.hero.b.charm ? mob_at(s_tc[0]) : -1;   // day-WM (owner: charmed beside a fly, the Assist stood still): charmed by it, the hero can't strike it
+    if (m0 >= 0 && G.mobs[m0].uid == G.charm_uid) {   // (Hero.actAttack: ready(), no turn): never plan A; another foe in sight, else wait it out
+      int bc = -1, bd = 99; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; int d = distance(m->pos, hp);
+        if (m->HP > 0 && !ally(i) && m->uid != G.charm_uid && BIT_GET(G.fov, m->pos) && m->state != ST_PASSIVE && d < bd) { bd = d; bc = m->pos; } }
+      if (bc >= 0) t_front(bc, TK_ENEMY); else { g_ovr.d &= ~128; t_front(hp, TK_GO); } } }
   int pr = mind(hp);
 #ifdef OVL_HOST
   if (getenv("TDBG") && pr >= 0) printf("  mind: %d\n", pr);

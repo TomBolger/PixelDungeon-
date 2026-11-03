@@ -524,7 +524,7 @@ void ui_message(const char *title, const char *text) {      // PD WndMessage (si
 }
 #endif
 void ui_confirm_jump(void) { s_scene = SC_OPTIONS; s_opt = 0; s_sel = 1; }
-char s_wnd_title[48], s_wnd_b[2][36];   // 0.30: the quest window's text shares s_text_buf (never shown with an info window)
+char s_wnd_title[32], s_wnd_b[2][36];   // 0.30: the quest window's text shares s_text_buf (never shown with an info window)
 const char *g_wnd_title;
 void ui_wnd_info(const Item *it) { int n = strlen(s_wnd_text); if (n < TEXT_BUF - 1) item_info(it, s_wnd_text + n, TEXT_BUF - n); }
 void ui_wnd(int mob, const char *text, const char *b1, const char *b2) {   // PD WndQuest: a creature speaks, maybe with two choices
@@ -1213,7 +1213,7 @@ static void button(ButtonId id) { woke();
   }
   if (id == BUTTON_ID_UP) zoom_cycle();              // 0.23: Up zooms, Down picks the next target, Select acts on it
   else if (id == BUTTON_ID_DOWN) { if (!AS_ON && !s_tgn) { s_hl = 0; redraw(); } else combat_cycle(1); }   // 0.75 Off: no enemy: the buttons
-  else if (s_tg >= 0) { ActResult r = tg_do(); if (r == ACT_NONE) { tg_refresh(1); s_tgi = 0; } act(r); }   // nothing came of it: the next one (0.36: rooted: wait it out)
+  else if (s_tg >= 0) { ActResult r = tg_do(); if (r == ACT_NONE) { g_ovr.ha = 255; tg_refresh(1); s_tgi = 0; } act(r); }   // nothing came of it: the next one (0.36: rooted: wait it out)
   else if (cam_free()) { cam_center(); redraw(); }
   else act(G.hero.pos == G.exit || heap_at(G.hero.pos) >= 0 ? game_tap_cell(G.hero.pos) : game_search());   // nothing in view: the stairs or things underfoot, else search (a closed room hides a door)
 }

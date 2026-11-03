@@ -101,7 +101,7 @@ extern int s_item_head;
 extern int s_bag_tab;
 extern int s_amulet; extern GRect s_btn_rect[2];
 void redraw(void); void to_title(void); void open_select(void); // the front screens' input (ui overlay)
-extern char s_wnd_title[48], s_wnd_b[2][36];
+extern char s_wnd_title[32], s_wnd_b[2][36];
 #define s_wnd_text s_text_buf
 void item_spr(int sp, int x, int y, int z);
 #ifdef PBL_ROUND

@@ -232,7 +232,7 @@ static void press(ButtonId id, uint32_t wait) {          // a button, as main.c'
   s_f_next = now_ms() + wait;
   if (OWN_INPUT(s_scene)) { ui_input(id, 0, 0); return; }          // the windows
   if (s_scene == SC_GAME && id == BUTTON_ID_SELECT) {
-    if (s_tg >= 0) { ActResult r = tg_do(); if (r == ACT_NONE) { tg_refresh(1); s_tgi = 0; } act(r); }
+    if (s_tg >= 0) { ActResult r = tg_do(); if (r == ACT_NONE) { g_ovr.ha = 255; tg_refresh(1); s_tgi = 0; } act(r); }
     else act(G.hero.pos == G.exit || heap_at(G.hero.pos) >= 0 ? game_tap_cell(G.hero.pos) : game_search());
   }
   else if (s_scene == SC_TARGET && id == BUTTON_ID_SELECT) {
