@@ -2099,6 +2099,77 @@ static double step2_eval(int hp, bool stay) {
   double hpv = h->HP, risk = taken > hpv * 0.5 ? (taken - hpv * 0.5) * (getenv("STEP2K") ? atof(getenv("STEP2K")) : 6.0) : 0;   // (near the edge, a blow costs far more than its points: the look-ahead's score is mostly deaths)
   return value - taken - risk;
 }
+// tact (owner, 2026-11-03: "evaluate every turn by expected damage taken vs dealt, and ways to gain a turn later with a better ratio"):
+// for the cell I stand on and every cell within a few steps, play the rest of the fight out on paper with the source's odds:
+// walk there (what can strike me on the way), then hold it (each foe comes the short way over known cells, the one that steps
+// in gives me the first blow, only so many fit round me, a shooter needs a line). The score is the HP it costs, plus a large
+// charge for the chance it kills me, plus a charge for unknown ground near the cell (something can wander out of it).
+// Only what the player sees: foes in view or beside me, cells already seen.
+typedef struct { int i, pos; double hp, dpt, hd, hi; int acts; bool rng; } TFoe;
+static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
+static int16_t s_td[MAP_LEN], s_tq[MAP_LEN];
+static void tact_field(int from) {                    // foes' distance to a cell, over seen open cells
+  for (int c = 0; c < MAP_LEN; c++) s_td[c] = 0x7FFF; int qh = 0, qt = 0; s_td[from] = 0; s_tq[qt++] = from;
+  while (qh < qt) { int c = s_tq[qh++]; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (!nb_ok(c, n) || s_td[n] != 0x7FFF || !BIT_GET(G.visited, n) || !PASSABLE(G.map[n])) continue; s_td[n] = s_td[c] + 1; s_tq[qt++] = n; } } }
+static double tact_eval(TFoe *F0, int nf, int P, const int *path, int plen, double *turns_out) {
+  Hero *h = &G.hero; TFoe F[24]; memcpy(F, F0, sizeof(TFoe) * nf);
+  int hc = h->pos; double E = 0, V = 0; int t, field_at = -1;
+  for (t = 0; t < 40; t++) {
+    bool any = false; for (int k = 0; k < nf; k++) if (F[k].hp > 0) any = true; if (!any) break;
+    if (t < plen) { int nx = path[t]; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].pos == nx) return 1e9; hc = nx; }
+    else { int b = -1; double bv = -1; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && adjacent(F[k].pos, hc)) { double v = F[k].dpt / (F[k].hp > 1 ? F[k].hp : 1); if (v > bv) { bv = v; b = k; } }   // the one that hurts most per HP left: first
+      if (b >= 0) F[b].hp -= F[b].hd; }
+    if (field_at != hc) { tact_field(hc); field_at = hc; }
+    for (int k = 0; k < nf; k++) { TFoe *f = &F[k]; if (f->hp <= 0) continue;
+      for (int a = 0; a < f->acts; a++) {
+        bool hit; double d = f->dpt / f->acts;
+        if (adjacent(f->pos, hc)) { E += d; V += d * f->hi * 0.7; continue; }
+        if (f->rng && distance(f->pos, hc) <= 8 && ballistica(f->pos, hc, &hit) == hc) { E += d; V += d * f->hi * 0.7; continue; }
+        int bq = -1, bd = s_td[f->pos]; for (int j = 0; j < 8; j++) { int q = f->pos + N8[j]; if (!nb_ok(f->pos, q) || q == hc || s_td[q] >= bd) continue; bool occ = false; for (int o = 0; o < nf; o++) if (o != k && F[o].hp > 0 && F[o].pos == q) occ = true; if (occ) continue; bd = s_td[q]; bq = q; }
+        if (bq >= 0) f->pos = bq; } } }
+  double rest_in = 0, rest_t = 0; for (int k = 0; k < nf; k++) if (F[k].hp > 0) { rest_in += F[k].dpt; rest_t += F[k].hp / (F[k].hd > 0.2 ? F[k].hd : 0.2); }
+  E += rest_in * rest_t * 0.6; V += rest_in * rest_t * 4;   // (not over in 40 turns: what's left, roughly)
+  if (turns_out) *turns_out = t + rest_t;
+  double hp = h->HP, z = (hp - E) / sqrt(V + 1), pd = 0.5 * erfc(z / sqrt(2.0));
+  int unk = 0; for (int dy = -3; dy <= 3; dy++) for (int dx = -3; dx <= 3; dx++) { int x = cx(P) + dx, y = cy(P) + dy; if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue; if (!BIT_GET(G.visited, y * MAP_W + x)) unk++; }
+  if (unk > 12) unk = 12;
+  static double ku = -1, kk = -1; if (ku < 0) { ku = getenv("TACTU") ? atof(getenv("TACTU")) : 0.004; kk = getenv("TACTK") ? atof(getenv("TACTK")) : 2.0; }
+  double mob_cost = 0.15 * h->HT;
+  return E + kk * pd * h->HT + ku * unk * (t + rest_t) * mob_cost;
+}
+static bool tact(void) {
+  Hero *h = &G.hero; if (s_rollout || h->b.roots || h->b.paralysis || h->b.blind || G.depth == 25 || G.depth == 20) return false;
+  TFoe F[24]; int nf = 0; bool adjf = false;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING) continue;
+    bool see = BIT_GET(G.fov, m->pos), adj = adjacent(m->pos, h->pos); if (!see && !adj) continue; if (distance(m->pos, h->pos) > 9) continue;
+    if (MOB_DEFS[m->type].flags & (MD_BOSS | MD_WATER | MD_NPC)) return false;
+    if (m->type == MT_STATUE || m->type == MT_MIMIC || m->b.paralysis || m->b.frost) continue;
+    if (nf >= 24) break; TFoe *f = &F[nf++]; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
+    f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->rng = magic_shooter(m->type) || m->type == MT_SCORPIO; if (adj) adjf = true; }
+  if (nf == 0) { s_tact_wait = 0; return false; }
+  // the hero's ways: cells within 5 steps over seen floor, no traps, no water creatures, none taken
+  static int16_t hd2[MAP_LEN], par[MAP_LEN], q[MAP_LEN]; for (int c = 0; c < MAP_LEN; c++) hd2[c] = -1;
+  int qh = 0, qt = 0; hd2[h->pos] = 0; par[h->pos] = -1; q[qt++] = h->pos;
+  while (qh < qt) { int c = q[qh++]; if (hd2[c] >= 5) continue; for (int k = 0; k < 8; k++) { int n = c + N8[k];
+      if (!nb_ok(c, n) || hd2[n] >= 0 || !BIT_GET(G.visited, n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID) || char_at(n) || PWATER(n) || bad_air(n) || n == G.exit) continue;
+      hd2[n] = hd2[c] + 1; par[n] = c; q[qt++] = n; } }
+  double tt; double s0 = tact_eval(F, nf, h->pos, NULL, 0, &tt), bs = s0; int bP = -1;
+  static double mg = -1, hy; if (mg < 0) { mg = getenv("TACTM") ? atof(getenv("TACTM")) : 2.0; hy = getenv("TACTH") ? atof(getenv("TACTH")) : 1.0; }
+  for (int qi = 1; qi < qt; qi++) { int P = q[qi]; int path[8], n = hd2[P]; for (int c = P, j = n - 1; j >= 0; j--, c = par[c]) path[j] = c;
+    double s = tact_eval(F, nf, P, path, n, NULL) - (P == s_tact_tgt ? hy : 0);
+    if (s < bs) { bs = s; bP = P; } }
+  if (getenv("TACTDBG")) printf("TACT step %d hp %d/%d foes %d stay %.1f (turns %.0f) best %.1f at %d,%d\n", s_bot_steps, h->HP, h->HT, nf, s0, tt, bs, bP >= 0 ? cx(bP) : -1, bP >= 0 ? cy(bP) : -1);
+  if (bP >= 0 && bs + mg < s0) {
+    int first = bP; while (par[first] != h->pos) first = par[first];
+    s_tact_tgt = bP; int32_t t0 = h->time; ActResult r = tap_safe(first); if (r == ACT_NONE && h->time == t0) return false;
+    st_tact_steps++; s_did[0] = 0; DID("tact: fight from %d,%d (expected cost %.0f there vs %.0f here)", cx(bP), cy(bP), bs, s0); walk(r); return true; }
+  s_tact_tgt = -1;
+  if (!adjf && s_tact_wait < 3) {                       // best here, none beside me yet: let it come (its step, my first blow)
+    bool ranged = false; for (int k = 0; k < nf; k++) if (F[k].rng) ranged = true;
+    if (!ranged) { s_tact_wait++; st_tact_waits++; s_did[0] = 0; DID("tact: hold here, let it come to me (expected cost %.0f)", s0); walk(game_rest(false)); return true; } }
+  if (adjf) s_tact_wait = 0;
+  return false;
+}
 static bool fight(void) {
   Hero *h = &G.hero;
   if (soures() && !getenv("NOFIGHTMEND") && !h->b.blind && !s_rollout) { int s = find_kind(IK_SCR_UPGRADE); if (s >= 0 && item_known(IK_SCR_UPGRADE))   // 0.93 (owner: a broken piece is only mended, the level is lost): a piece a few uses from breaking mid-fight: read it now
@@ -2171,6 +2242,7 @@ static bool fight(void) {
   if (getenv("TTRACE") && !s_rollout && !s_is_child && m->type == MT_TENGU) printf("TT t%d hero %d,%d hp %d tengu %d,%d hp %d dist %d aux %d vis %d\n", (int)(G.now / TICK), cx(h->pos), cy(h->pos), h->HP, cx(m->pos), cy(m->pos), m->HP, distance(m->pos, h->pos), m->aux, ({ bool hit; ballistica(m->pos, h->pos, &hit) == h->pos; }));
   DID("fight %s (its HP %d/%d, %s) %d away", mob_name(m->type), m->HP, m->HT, m->state == ST_HUNTING ? "hunting me" : m->state == ST_SLEEPING ? "asleep" : "wandering", distance(m->pos, h->pos));
   if (emergency()) return true;
+  if (getenv("TACT") && tact()) return true;   // tact (owner 2026-11-03): where to fight from, by the expected HP it costs
   if (getenv("SNEAK") && m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !h->b.roots) {
     int c = sneak_step(m);
     if (c >= 0) { int32_t t0 = h->time; ActResult rr = game_tap_cell(c); if (rr != ACT_NONE || h->time != t0) { st_sneak++; s_did[0] = 0; DID("sneak up on the sleeping %s (seen %d)", mob_name(m->type), s_sneak_expo); walk(rr); return true; } } }
