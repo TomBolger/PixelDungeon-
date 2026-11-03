@@ -3324,7 +3324,7 @@ static bool decide(void) {
   if (P) {                                              // the player's own decisions stay: eat (above), heal, items, rest
     if (!h->weapon.kind && enemy_count()) for (int i = 0; i < BAG_SIZE; i++) if (weapon_score(&h->bag[i]) > 0) { do_item(i, ACN_EQUIP); return true; }
     if (emergency()) return true;
-    if (!getenv("NOREST2") && (h->HP < h->HT / 2 || (s_resting && h->HP < h->HT)) && !game_starving() && enemy_count() == 0) { DID("rest to heal"); s_resting = true; int32_t t = h->time; walk(game_rest(false)); if (h->time > t) return true; }   // bot2: rest to (nearly) full
+    if (getenv("OLDREST2") && (h->HP < h->HT / 2 || (s_resting && h->HP < h->HT)) && !game_starving() && enemy_count() == 0) { DID("rest to heal"); s_resting = true; int32_t t = h->time; walk(game_rest(false)); if (h->time > t) return true; }   // bot2: rest to (nearly) full
     if (enemy_count() == 0 && use_items_when_safe()) return true;
     return press();
   }
@@ -3424,7 +3424,7 @@ static bool decide(void) {
   if (getenv("RESTDEEP") && G.depth >= 8) { int lo = 0, hi = 0; if (sscanf(getenv("RESTDEEP"), "%d,%d", &lo, &hi) == 2) { if (rlo < lo) rlo = lo; if (rhi < hi) rhi = hi; } }   // ss-mid 4: deep, a hit is 15-20: no exploring at 40%
   if (getenv("THRIFT")) { int pc = thrift_need() * 100 / (h->HT ? h->HT : 1); rhi = pc + 1; rlo = pc; }   // 0.58 (owner): rest only to what the next fight needs; the rest comes back while walking   // 0.57 counterfactual: rest to full whatever the food
   s_resting = s_resting && h->HP * 100 < h->HT * rhi;   // bot3 (owner): heal while walking; with a backup, rest only when low
-  if (getenv("NOREST2")) { rlo = -1; s_resting = false; }   // (test: no resting to heal)
+  if (!getenv("OLDREST2")) { rlo = -1; s_resting = false; }   // owner 2026-11-03: almost never rest (240 games: 5.75 without vs 5.71 with, fewer moves); OLDREST2=1 brings it back
   if (s_ambush > s_bot_steps && amb_retreat()) return true;
   int near_foes = getenv("OLDRESTGATE") ? enemy_count() : ({ int n = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP <= 0 || ally(i) || !BIT_GET(G.fov, o->pos) || o->state == ST_PASSIVE) continue; int dd = distance(o->pos, h->pos); if (dd <= 3 || (o->state == ST_HUNTING && dd <= 8)) n++; } n; });   // 0.50 (review g6): what Mind Vision shows far off, asleep or wandering, doesn't stop a rest
   if (!getenv("OLDSTAIRREST") && (h->HP * 100 < h->HT * rlo || s_resting) && !game_starving() && near_foes == 0 && G.depth > 1 && G.entrance >= 0 && h->pos != G.entrance && !boss_depth(G.depth)) {
