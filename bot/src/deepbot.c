@@ -4753,7 +4753,8 @@ int main(int argc, char **argv) {
     if (getenv("SD")) { int sd = atoi(getenv("SD")); for (int d = 2; d <= sd; d++) { switch_level(d, ARRIVE_ENTRANCE); game_level_commit(); }
       while (G.hero.lvl < sd) earn_exp(hero_max_exp() - G.hero.exp); G.hero.HT += 15 * hs; G.hero.HP = G.hero.HT;   /* (0.93: level-ups, not a bare lvl: attack and defense were left at level 1) */ G.hero.STR = 12 + sd / 4 + hs;
       Item a = item_make(sd >= 15 ? IK_SCALE_ARMOR : IK_MAIL_ARMOR, 1); a.lvl = sd / 4; a.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; a.dur = item_max_dur(&a); G.hero.armor = a;
-      Item w = item_make(sd >= 15 ? IK_LONGSWORD : IK_SWORD, 1); w.lvl = sd / 4; w.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; w.dur = item_max_dur(&w); G.hero.weapon = w; }
+      Item w = item_make(sd >= 15 ? IK_LONGSWORD : IK_SWORD, 1); w.lvl = sd / 4; w.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; w.dur = item_max_dur(&w); G.hero.weapon = w;
+      if (getenv("SDWEAK")) { Item a2 = item_make(IK_LEATHER_ARMOR, 1); a2.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; a2.dur = item_max_dur(&a2); G.hero.armor = a2; static const uint8_t WC[4] = { IK_SHORT_SWORD, IK_KNUCKLES, IK_DAGGER, IK_DAGGER }; Item w2 = item_make(WC[G.hero.hclass & 3], 1); w2.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; w2.dur = item_max_dur(&w2); G.hero.weapon = w2; G.hero.STR = 10 + (G.hero.hclass == 0); } }   // ss-early: SDWEAK=1: a lab hero with what a real one has at the Goo (leather armour, the class's own weapon)
     memset(s_ign_until, 0, sizeof s_ign_until);
     s_goo_calm = -1; s_goo_spot = -1; s_goo_hold = 0; s_stash = -1; s_stash_drink = -1; s_last_up = -1000000; s_upg_hold_until = 0; s_test_walk = -1; s_resting = false; s_step_back = -1;   // bot3: per-game state
     s_am_depth = 0; s_won = 0; s_amulet_scene = 0; s_goal = 99; s_curse_trip = 0; s_pick = -1; s_wnd_btn = 0; s_jump = false; s_last_depth = -1; s_nlog = 0; memset(s_last_log, 0, sizeof s_last_log);
