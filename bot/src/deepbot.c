@@ -4670,6 +4670,23 @@ static int run_explab(void) {
   printf("  %.1f searches/floor; everything seen and taken after %.1f turns, then %.1f more to leave\n", (double)nsrch / (nf ? nf : 1), (double)tseen / (nseen ? nseen : 1), (double)tafter / (nseen ? nseen : 1));
   return 0;
 }
+
+// Determinism: every game starts from the program's pristine variables (the bot's many per-game statics, in functions too, used to leak from
+// one game into the next, so a game played alone differed from the same game inside a batch). The tallies (st_, lg_, tt_) are kept.
+static char *s_pristine; static size_t s_pristine_n;
+static struct { char *p; size_t n; char *save; } s_keep_rng[400]; static int s_keep_n;
+static void pristine_take(void) {
+  extern char __data_start[], _end[]; s_pristine_n = (size_t)(_end - __data_start); s_pristine = malloc(s_pristine_n); memcpy(s_pristine, __data_start, s_pristine_n);
+  FILE *f = popen("nm -S --defined-only /proc/self/exe 2>/dev/null", "r"); char ln[300];
+  while (f && fgets(ln, sizeof ln, f)) { unsigned long a, z; char ty, nm[200]; if (sscanf(ln, "%lx %lx %c %199s", &a, &z, &ty, nm) != 4) continue; if (!strchr("bBdD", ty)) continue;
+    if ((strncmp(nm, "st_", 3) && strncmp(nm, "lg_", 3) && strncmp(nm, "tt_", 3) && strncmp(nm, "stdout", 6) && strncmp(nm, "stderr", 6) && strncmp(nm, "s_pristine", 10) && strncmp(nm, "s_keep_rng", 10) && strncmp(nm, "s_keep_n", 8)) || s_keep_n >= 400) continue;
+    char *q = (char *)(uintptr_t)a; if (q < __data_start || q + z > _end) continue; s_keep_rng[s_keep_n].p = q; s_keep_rng[s_keep_n].n = z; s_keep_rng[s_keep_n].save = malloc(z ? z : 1); s_keep_n++; }
+  if (f) pclose(f); }
+static void pristine_restore(void) {
+  extern char __data_start[]; if (!s_pristine) return;
+  for (int i = 0; i < s_keep_n; i++) memcpy(s_keep_rng[i].save, s_keep_rng[i].p, s_keep_rng[i].n);
+  memcpy(__data_start, s_pristine, s_pristine_n);
+  for (int i = 0; i < s_keep_n; i++) memcpy(s_keep_rng[i].p, s_keep_rng[i].save, s_keep_rng[i].n); }
 int main(int argc, char **argv) {
   s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
   if (!getenv("NOX")) { static const char *const X[] = { "X_OOZE", "X_DODGE", "X_DODGE2", "X_NOTEST", "X_DRYGOO", "X_OPENFIX", "X_NOBOSSTRAP" }; for (unsigned i = 0; i < sizeof X / sizeof *X; i++) setenv(X[i], "1", 0); }   // 0.52e: the boss audit's Goo/Tengu fixes on (NOX=1: off)
@@ -4691,7 +4708,9 @@ int main(int argc, char **argv) {
   P = getenv("PRESS") ? atoi(getenv("PRESS")) : 0; s_pure = getenv("PURE") != NULL; s_toe = getenv("TOE") != NULL;
   if (P) { int z = getenv("ZOOM") ? atoi(getenv("ZOOM")) : 1; memcpy(g_view, PVIEW[z], 4); if ((g_assist & 5) == 5) memset(g_view, 0, 4); }   // 0.77: Assist Max (0.80: off-screen targets, ASSIST=7): the whole map
   static int s_seedv[512], s_seedc[512], s_seedn; if (getenv("SEEDS")) { const char *q = getenv("SEEDS"); while (*q && s_seedn < 512) { s_seedv[s_seedn] = atoi(q); s_seedc[s_seedn] = -1; while (*q >= '0' && *q <= '9') q++; if (*q == ':') { q++; s_seedc[s_seedn] = atoi(q); while (*q >= '0' && *q <= '9') q++; } s_seedn++; if (*q == ',') q++; else break; } }   // SEEDS=84:0,151:2 (game:class): game index i plays the i-th listed seed (the runner hands out index ranges)
+  if (!getenv("OLDLEAK2")) pristine_take();
   for (int gi = getenv("START") ? atoi(getenv("START")) : 0; gi < N; gi++) {
+    if (!getenv("OLDLEAK2")) pristine_restore();
     int si = gi - (getenv("SEEDSBASE") ? atoi(getenv("SEEDSBASE")) : 0); if (s_seedn && (si < 0 || si >= s_seedn)) break; int g = s_seedn ? s_seedv[si] : gi; int seedcls = s_seedn ? s_seedc[si] : -1;
     cur_game = g; srand(g + 1 + s_salt * 7919); st_games++; lg_maxleft = 0;
     if (!getenv("OLDLEAK")) { g_ovr = (Ovr){ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; g_goal = -1; g_from = -1; memset(g_drop, 0, sizeof g_drop); g_drop_i = 0; }   // 0.64: no Assist state carried from game to game (a game replays alone the same)
