@@ -3297,6 +3297,7 @@ static bool decide(void) {
     int need = 300 + (boss_depth(G.depth + 1) ? 300 : 0), sur = bud - need;
     if (sur < 0) { if (rhi > 55) rhi = 55; if (rlo > 35) rlo = 35; if (getenv("RESTFOOD2")) { rhi = 35; rlo = 25; } } else if (sur < 200) { if (rhi > 65) rhi = 65; if (rlo > 40) rlo = 40; } }   /* (0.93 RESTFOOD2 test (audit): food-short, regen is food-limited: resting only moves it earlier and walking regenerates too) */
   if (getenv("RESTFULL")) { rhi = 100; rlo = 80; }
+  if (getenv("RESTDEEP") && G.depth >= 8) { int lo = 0, hi = 0; if (sscanf(getenv("RESTDEEP"), "%d,%d", &lo, &hi) == 2) { if (rlo < lo) rlo = lo; if (rhi < hi) rhi = hi; } }   // ss-mid 4: deep, a hit is 15-20: no exploring at 40%
   if (getenv("THRIFT")) { int pc = thrift_need() * 100 / (h->HT ? h->HT : 1); rhi = pc + 1; rlo = pc; }   // 0.58 (owner): rest only to what the next fight needs; the rest comes back while walking   // 0.57 counterfactual: rest to full whatever the food
   s_resting = s_resting && h->HP * 100 < h->HT * rhi;   // bot3 (owner): heal while walking; with a backup, rest only when low
   if (s_ambush > s_bot_steps && amb_retreat()) return true;
@@ -4909,7 +4910,7 @@ int main(int argc, char **argv) {
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
       sp_stat(); bool did = decide();
-      if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == 10 && enemy_count() > 0) printf("TD t%d hero %d,%d hp %d did \"%s\"\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did);
+      if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == atoi(getenv("TTRACE")) && enemy_count() > 0) printf("TD t%d hero %d,%d hp %d did \"%s\"\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did);
       if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }
         long dt = G.now - tbefore; int k = tfoe0 || enemy_count() ? 1 : G.hero.pos != tpos0 ? 0 : strstr(s_did, "search") ? 2 : 3; ts[k] += dt;
         if (G.hero.HP <= 0) { printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = -1; } }
