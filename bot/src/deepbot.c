@@ -80,6 +80,7 @@ static bool curse_food_ok(void); static bool food_pressed(void); static long cur
 static void prm_load(void) { const char *ps = getenv("PSET"); while (ps && *ps) { int i = atoi(ps); const char *q = strchr(ps, ':'); if (!q) break; if (i >= 0 && i < P_COUNT) PRM[i] = atoi(q + 1); ps = strchr(q, ','); if (ps) ps++; }
   const char *e = getenv("PRM"); if (!e) return; for (int i = 0; i < P_COUNT && *e; i++) { PRM[i] = atoi(e); while (*e && *e != ',') e++; if (*e) e++; } }
 static double s_hp_cut; static bool s_toe; static int toe_upgrade(int scroll); static int toe_choose(bool *hold); static bool toe_keep(int slot); static bool toe_buy(int hh);
+#define GOO2_ON() (!getenv("NOGOO2"))   /* ss-early 3: the water-kite Goo plan (was GOO2=1) is on: Goo lab 192 heroes 63% -> 75% */
 static int s_boom_plus; static bool hunt2(void); static bool dm_hold(void); static int boom_slot(void); static double boom_dpt_vs(int def, int dr, int extra, bool near);
 static int s_rollout; static int32_t s_last_up = -1000000; static int s_avoid_n; static int s_upg_child, s_upgcf_n; static int s_ev_sou0 = -1, s_ev_str0, s_ev_d = -1; static int food_budget(void); static uint8_t s_stepped[MAP_LEN / 8 + 1]; static uint8_t s_stepcnt[MAP_LEN]; static int s_wk[5]; static int s_floor_moves, s_floor_lastpos = -1; static int32_t s_floor_t0; static int storage_barr(void); static bool pot_new(int sl); static int s_barr_tries;   // (0.58: declared early: STAIRFLEE)                                   // bot3: inside a look-ahead copy of the game
 static char s_ring[64][96]; static int s_ring_n;      // 0.52g: the last 64 decisions, shown at a lockout
@@ -2119,7 +2120,7 @@ static bool fight(void) {
   int best = -1, bk = 1 << 30;
   for (int i = 0; i < G.n_mobs; i++) {
     Mob *m = &G.mobs[i];
-    if (m->HP <= 0 || ally(i) || ((!BIT_GET(G.fov, m->pos) || ignored(i)) && !(adjacent(m->pos, h->pos) && m->state == ST_HUNTING) && !(m->type == MT_GOO && getenv("GOO2") && m->state == ST_HUNTING && G.now - s_goo2_last <= 4 * TICK && distance(m->pos, h->pos) <= 5))) continue;   // (bot2: one beside you hunting you is fought, seen or not) (0.58: a Goo just dodged round a corner too)
+    if (m->HP <= 0 || ally(i) || ((!BIT_GET(G.fov, m->pos) || ignored(i)) && !(adjacent(m->pos, h->pos) && m->state == ST_HUNTING) && !(m->type == MT_GOO && GOO2_ON() && m->state == ST_HUNTING && G.now - s_goo2_last <= 4 * TICK && distance(m->pos, h->pos) <= 5))) continue;   // (bot2: one beside you hunting you is fought, seen or not) (0.58: a Goo just dodged round a corner too)
     if (m->state == ST_PASSIVE && !adjacent(m->pos, h->pos) && !(m->type == MT_STATUE && !getenv("OLDMOBS") && statue_worth(i))) continue;   // a statue minding its own business
     if (m->state == ST_PASSIVE && m->type == MT_STATUE && (getenv("OLDMOBS") || !statue_worth(i))) continue;
     int d = distance(m->pos, h->pos), key = adjacent(m->pos, h->pos) ? ((MOB_DEFS[m->type].flags & MD_BOSS) ? -1 : m->HP) : 1000 + d * 100 + m->HP;   // a boss beside you first
@@ -2242,7 +2243,7 @@ static bool fight(void) {
     int gr = room_at(m->pos);
     // 1. open while it sleeps / comes: bombs, then darts and other missiles, then known harmful potions
     if (goo_open(best)) return true;
-    if (getenv("GOO2")) { int r = goo2(m); if (r == 1) return true; if (r == 0) { walk(game_tap_cell(m->pos)); return true; } }
+    if (GOO2_ON()) { int r = goo2(m); if (r == 1) return true; if (r == 0) { walk(game_tap_cell(m->pos)); return true; } }
     // 2. it's awake: back out through the door of its room, and fight it there from the water if there is any
     int spot = -1, door = -1;
     if (gr >= 0 && m->state == ST_HUNTING && !getenv("GOO_NODOOR")) {
@@ -3258,7 +3259,7 @@ static bool decide(void) {
     if (foe >= 0 && fd >= 2) { bfs(h->pos, false); if (b_dist[G.entrance] <= 8 && distance(G.mobs[foe].pos, G.entrance) > b_dist[G.entrance]) {
       if (h->pos == G.entrance) { s_last_up = G.now; s_did[0] = 0; DID("hurt, one hunting me: up the stairs"); walk(game_tap_cell(h->pos)); return true; }
       int32_t t0 = h->time; ActResult rr = tap_safe(G.entrance); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; st_kit[5]++; DID("hurt, one hunting me: to the stairs up"); walk(rr); return true; } } } }
-  if (getenv("GOO2") && !h->b.roots) for (int i = 0; i < G.n_mobs; i++) { Mob *gm = &G.mobs[i];   // 0.58: in the middle of the Goo dance (it may be round a corner): the dance, nothing else
+  if (GOO2_ON() && !h->b.roots) for (int i = 0; i < G.n_mobs; i++) { Mob *gm = &G.mobs[i];   // 0.58: in the middle of the Goo dance (it may be round a corner): the dance, nothing else
     if (gm->HP <= 0 || gm->type != MT_GOO || gm->state != ST_HUNTING || distance(gm->pos, h->pos) > 5 || !(BIT_GET(G.fov, gm->pos) || G.now - s_goo2_last <= 4 * TICK)) continue;
     int r = goo2(gm); if (r == 1) return true; if (r == 0) { walk(game_tap_cell(gm->pos)); return true; } break; }
   if (s_pztest && ((h->b.invis > 2 && pool_puzzle_pending()) || (h->b.levitation > 2 && trap_puzzle_pending())) && !({ bool adjh = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && G.mobs[i].state == ST_HUNTING && adjacent(G.mobs[i].pos, h->pos) && !(MOB_DEFS[G.mobs[i].type].flags & MD_WATER)) adjh = true; adjh; })) {   // 0.92 (seed 84 d3: turned invisible at the pool, then swung at a passing crab and lost it): the prize first, the buff won't wait
@@ -3849,7 +3850,7 @@ static void cf_checkpoint(int g, int steps) {
       if (k == 0) { close(p[0]); s_cf_out = p[1]; s_cf_child = 1; s_cf_d0 = target; s_cf_s0 = steps; s_cf_pid = -1;
         char eb[400]; snprintf(eb, sizeof eb, "%s", env);
         for (char *s2 = NULL, *e = strtok_r(eb, ",", &s2); e; e = strtok_r(NULL, ",", &s2)) { char *q = strchr(e, '='); if (!q) q = strchr(e, '-'); if (q) { *q = 0; if (q[1]) setenv(e, q + 1, 1); else unsetenv(e); } else if (*e) setenv(e, "1", 1); }
-        if (getenv("LAK")) LA_K = atoi(getenv("LAK")); if (getenv("CFDBG")) fprintf(stderr, "  child %s: GOO2=%s NOLA=%s\n", v, getenv("GOO2") ? getenv("GOO2") : "(unset)", getenv("NOLA") ? getenv("NOLA") : "(unset)");
+        if (getenv("LAK")) LA_K = atoi(getenv("LAK")); if (getenv("CFDBG")) fprintf(stderr, "  child %s: GOO2=%s NOLA=%s\n", v, GOO2_ON() ? "on" : "off", getenv("NOLA") ? getenv("NOLA") : "(unset)");
         int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); } V = 0;
         g_rng ^= (uint32_t)(r + 1) * 2654435761u; srand(r + 1);
         return; }                                       // (back into the game loop: plays the floor again)
@@ -4909,6 +4910,7 @@ int main(int argc, char **argv) {
         long dt = G.now - tbefore; int k = tfoe0 || enemy_count() ? 1 : G.hero.pos != tpos0 ? 0 : strstr(s_did, "search") ? 2 : 3; ts[k] += dt;
         if (G.hero.HP <= 0) { printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = -1; } }
       snprintf(s_ring[s_ring_n++ & 63], 96, "s%d d%d t%d @%d,%d hp%d/%d h%d: %s", steps, G.depth, G.now / TICK, G.hero.pos % MAP_W, G.hero.pos / MAP_W, G.hero.HP, G.hero.HT, G.hero.hunger, s_did[0] ? s_did : "-");
+      if (getenv("RINGP") && !s_is_child && !s_rollout && steps >= atoi(getenv("RINGP")) && steps < atoi(getenv("RINGP")) + 40) printf("R %s burn%d\n", s_ring[(s_ring_n - 1) & 63], G.hero.b.burning);
       { static const char *CAT[] = { "fight", "walk to", "rest to heal", "Drink", "Read", "Eat", "out of", "search", "grave", "on fire", "to water" }; static long tot[12]; static int last_g = -1;
         int k = 11; for (int i = 0; i < 11; i++) if (!strncmp(s_did[0] ? s_did : "rest", CAT[i], strlen(CAT[i]))) { k = i; break; }
         if (strstr(s_did, "[search") || strstr(s_did, "[stay")) k = 2;
@@ -5012,6 +5014,8 @@ int main(int argc, char **argv) {
     st_qs[0][G.q.ghost]++; st_qs[1][G.q.wand]++; st_qs[2][G.q.smith]++; st_qs[3][G.q.imp]++;
     if (G.hero.HP <= 0) ledger_death();
     if (getenv("AUDHEAL") && G.hero.HP <= 0 && game_bag_find(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) printf("  AUDIT died with known healing g%d d%d\n", cur_game, G.depth);
+    if (getenv("DEATHRING") && G.depth <= 5) { printf("RING g%d d%d:\n", g, G.depth); for (int i = getenv("RINGN") ? 64 - atoi(getenv("RINGN")) : 40; i < 64; i++) { int j = (s_ring_n + i) & 63; if (s_ring[j][0]) printf("    %s\n", s_ring[j]); } }
+    if (getenv("MOBSTATS") && g == 0) for (int t = 0; t < MT_COUNT; t++) { const MobDef *d = &MOB_DEFS[t]; printf("MOB %s HT %d att %d def %d dmg %d-%d dr %d exp %d maxlvl %d move %d atk %d\n", mob_name(t), d->HT, d->att, d->def, d->dmg_lo, d->dmg_hi, d->dr, d->exp, d->max_lvl, d->move_cost, d->atk_delay); }
     if (getenv("D")) { int fd = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_FOOD) fd += G.hero.bag[i].qty; printf("DEATHINFO g%d hunger %d food %d depth %d turn %d\n", g, G.hero.hunger, fd, G.depth, G.now / TICK); }
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
                            G.depth, G.max_depth, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl,
