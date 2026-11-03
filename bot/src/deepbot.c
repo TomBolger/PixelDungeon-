@@ -2166,6 +2166,8 @@ static bool tact(void) {
   s_tact_tgt = -1;
   if (!adjf && s_tact_wait < 3) {                       // best here, none beside me yet: let it come (its step, my first blow)
     bool ranged = false; for (int k = 0; k < nf; k++) if (F[k].rng) ranged = true;
+    for (int i = 0; i < BAG_SIZE && !ranged; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_MISSILE && k != IK_CURARE_DART) ranged = true; }   // (a throw while it comes beats a wait: the rules throw)
+    if (hunt2() && boom_slot() >= 0) ranged = true;
     if (!ranged) { s_tact_wait++; st_tact_waits++; s_did[0] = 0; DID("tact: hold here, let it come to me (expected cost %.0f)", s0); walk(game_rest(false)); return true; } }
   if (adjf) s_tact_wait = 0;
   return false;
@@ -4263,6 +4265,7 @@ static bool lookahead(void) {
         printf("LCC %d step=%d dist=%d open=%d near=%d reach=%d mind=%d sumd=%d water=%d door=%d stairs=%d score=%ld\n", dec, distance(q, h->pos), b_dist[q], open, near, reach, mind, sumd, IS_WATER(G.map[q]) ? 1 : 0, (G.map[q] == T_DOOR || G.map[q] == T_OPEN_DOOR) ? 1 : 0, (q == G.exit || q == G.entrance) ? 1 : 0, tot[i] / cnt[i]); } } }
   if (bi == 0 || bm < tot[0] / cnt[0] + 150) return false;   // not clearly better: the rules
   if (!getenv("OLDTENGULA") && !(c[bi].t == C_ITEM && c[bi].act == ACN_DRINK && game_slot(c[bi].a)->kind == IK_POT_HEALING)) for (int j = 0; j < G.n_mobs; j++) if (G.mobs[j].HP > 0 && G.mobs[j].type == MT_TENGU && BIT_GET(G.fov, G.mobs[j].pos) && G.mobs[j].state == ST_HUNTING) return false;
+  if (getenv("TACTLA") && getenv("TACT") && c[bi].t == C_TAP && mob_at(c[bi].a) < 0 && c[bi].a != G.hero.pos && ({ bool f = false, boss = false; for (int j = 0; j < G.n_mobs; j++) { Mob *o = &G.mobs[j]; if (o->HP > 0 && !ally(j) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && distance(o->pos, G.hero.pos) <= 9) { f = true; if (MOB_DEFS[o->type].flags & MD_BOSS) boss = true; } } f && !boss; })) return false;   // tact: in a fight, where to stand is tact's call, not the look-ahead's
   if (!getenv("OLDTENGULA") && c[bi].t == C_TAP && mob_at(c[bi].a) < 0 && c[bi].a != G.hero.pos) for (int j = 0; j < G.n_mobs; j++) if (G.mobs[j].HP > 0 && G.mobs[j].type == MT_TENGU && BIT_GET(G.fov, G.mobs[j].pos) && G.mobs[j].state == ST_HUNTING) return false;   // ss-mid 1 (Tengu lab: look-ahead stepped back every other turn while the rules closed in: 8 turns of shuriken, nothing dealt)
   if (getenv("LAONLY")) {   // 0.93 diagnostic (teacher): let only one kind of override through, to find which kind carries the gain
     const char *o = getenv("LAONLY"); int t = c[bi].t; bool mob = t == C_TAP && mob_at(c[bi].a) >= 0 && !ally(mob_at(c[bi].a));
