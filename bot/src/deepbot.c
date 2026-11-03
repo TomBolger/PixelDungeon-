@@ -4442,6 +4442,7 @@ static void ledger_leave(void) {
   if (s_rollout || s_is_child || s_pend_depth <= G.depth || G.depth <= lg_maxleft) return;
   lg_maxleft = G.depth; lg_floors++;
   for (int i = 0; i < G.n_heaps; i++) { Heap *h = &G.heaps[i]; if (h->pos >= MAP_LEN || h->type == HEAP_FOR_SALE || !h->item.kind) continue;
+    if (getenv("LGFOOD") && lg_cat(h->item.kind) == CAT_FOOD) printf("LGFOOD wanted %d bdist %d black %d g%d d%d food kind %d at %d,%d seen %d heaptype %d hero left from %d,%d turn %d\n", heap_wanted(i), b_dist[h->pos], s_black[h->pos] > s_bot_steps, cur_game, G.depth, h->item.kind, cx(h->pos), cy(h->pos), BIT_GET(G.visited, h->pos), h->type, cx(G.hero.pos), cy(G.hero.pos), (int)(G.now / TICK));
     lg_left[lg_cat(h->item.kind)][BIT_GET(G.visited, h->pos) ? 0 : 1]++; }
 }
 static void ledger_death(void) {
