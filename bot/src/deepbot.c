@@ -70,6 +70,7 @@ static int total_viol;
 static int s_is_child;
 static int s_str_plus; static bool s_dring_on; static double s_arm_speedk = 1.0; static bool s_explab; static long st_upg_holds, st_stash, st_stash_lost; static int upg_plan(bool *hold); static int unknown_potion(void);                                   // bot3: planning: strength potions still to come
 static bool lookahead(void);
+static bool bat_in_view(void) { for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_BAT && BIT_GET(G.fov, G.mobs[i].pos)) return true; return false; }
 // bot3: tunable judgment calls (PRM=v0,v1,... overrides; tools/tune.py searches them)
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
 static int PRM[P_COUNT] = { 30, 60, 25, 40, 0, 33, 60, 3, 1, 90, 3, 1, 1, 0, 1, 2500 };
@@ -850,8 +851,9 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
   }
   if (PRM[P_GEARMODEL] && !getenv("OLDQBUG")) {   // 0.52 (audit): the blood quest's pickaxe in hand (it was inside the old model only: never ran)
     int pk = G.q.smith == QS_GIVEN && G.q.smith_alt && G.depth == G.q.smith_depth ? find_kind(IK_PICKAXE) : -1;
+    if (pk >= 0 && !getenv("OLDPKALL") && !bat_in_view()) pk = -1;   // seedlog 1: the pickaxe is a poor weapon: wield it only with the bat in sight (a gnoll brute killed the hero holding it)
     if (pk >= 0 && pk < BAG_SIZE && !(G.hero.bag[pk].flags & IF_BLOODY) && !(G.hero.weapon.flags & IF_CURSED)) { DID("the pickaxe in hand, for the bat's blood"); do_item(pk, ACN_EQUIP); return true; }
-    if (h->weapon.kind == IK_PICKAXE && ((h->weapon.flags & IF_BLOODY) || G.q.smith != QS_GIVEN || G.depth != G.q.smith_depth)) {
+    if (h->weapon.kind == IK_PICKAXE && ((h->weapon.flags & IF_BLOODY) || G.q.smith != QS_GIVEN || G.depth != G.q.smith_depth || (!getenv("OLDPKALL") && !bat_in_view()))) {
       int bw = -1; double bc = 1e18; Item ba = believed(&h->armor, 0);
       for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_WEAPON && h->bag[i].kind != IK_PICKAXE && !cursed_known(&h->bag[i])) { Item b = believed(&h->bag[i], 0); double c = gear_cost(&b, &ba); if (c < bc) { bc = c; bw = i; } }
       if (bw >= 0) { DID("the weapon back in hand"); do_item(bw, ACN_EQUIP); return true; } }
@@ -862,7 +864,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
   if (best >= 0 && !cursed_known(&h->armor)) { st_uses[ACN_EQUIP]++; do_item(best, ACN_EQUIP); return true; }
   int pk = G.q.smith == QS_GIVEN && G.q.smith_alt && G.depth == G.q.smith_depth ? find_kind(IK_PICKAXE) : -1;   // the blood quest: the pickaxe in hand
   if (pk >= 0 && pk < BAG_SIZE && !(G.hero.bag[pk].flags & IF_BLOODY) && !(G.hero.weapon.flags & IF_CURSED)) { do_item(pk, ACN_EQUIP); return true; }
-  if (h->weapon.kind == IK_PICKAXE && ((h->weapon.flags & IF_BLOODY) || G.q.smith != QS_GIVEN || G.depth != G.q.smith_depth)) {
+  if (h->weapon.kind == IK_PICKAXE && ((h->weapon.flags & IF_BLOODY) || G.q.smith != QS_GIVEN || G.depth != G.q.smith_depth || (!getenv("OLDPKALL") && !bat_in_view()))) {
     for (int i = 0; i < BAG_SIZE; i++) if (item_cat(h->bag[i].kind) == CAT_WEAPON && h->bag[i].kind != IK_PICKAXE) { do_item(i, ACN_EQUIP); return true; }
   } else if (h->weapon.kind != IK_PICKAXE) {
     best = -1; bs = h->weapon.kind ? weapon_score(&h->weapon) + 2 : 0;
@@ -2201,6 +2203,7 @@ static bool fight(void) {
       if (bc == h->pos && !ranged_try(best)) { s_did[0] = 0; DID("DM-300: hold the trap-free cell, let it come"); walk(game_rest(false)); return true; } } }
   if (curse_fight(best)) return true;
   s_losing = m->type != MT_GOO && losing_fight(best);
+  double hopeless_cost = s_lose_cost;   // seedlog 2: (kept for the hopeless-duel retreat below)
   if (!(MOB_DEFS[m->type].flags & MD_WATER) && seed_tactic(best)) { s_losing = false; return true; }
   if (altar_lure(best)) { s_losing = false; return true; }
   if (s_pztest && !(getenv("NOTENGUCLOSE") && !getenv("TENGUCORNER")) && m->type == MT_TENGU && distance(m->pos, h->pos) >= 2 && !h->b.roots && !m->b.paralysis && ({ bool hit; ballistica(m->pos, h->pos, &hit) == h->pos; })) {   // 0.92 (random-seed Tengu deaths: 15 darts thrown, all dodged, while its shuriken took 40 HP): in its sight it out-shoots you and leaps away; out of its sight it must walk to you, and up close the blows land
@@ -2214,6 +2217,11 @@ static bool fight(void) {
       if (st >= 0) { int32_t t0 = h->time; ActResult rr = tap_safe(st); if (rr != ACT_NONE || h->time != t0) { s_losing = false; s_did[0] = 0; DID("Tengu: close in (it dodges darts; up close the blows land)"); walk(rr); return true; } } } }
   if (m->type != MT_GOO && !(MOB_DEFS[m->type].flags & MD_WATER) && kit_fight(best)) { s_losing = false; return true; }
   s_losing = false;
+  if (getenv("HOPELESS") && G.depth > 1 && G.entrance >= 0 && !h->b.roots && !boss_depth(G.depth) && !(MOB_DEFS[m->type].flags & (MD_BOSS | MD_NPC | MD_WATER)) && m->state == ST_HUNTING && hopeless_cost > h->HP * 1.5 && G.now - s_last_up > 60 * TICK) {   // seedlog 2: a duel the numbers say it loses by a mile (a gnoll brute vs a spear-1 hero: 146 damage to take, 65 HP) and nothing in the kit to change that: up the stairs while it is still 2+ away (it only follows if beside me), rest, come back
+    int fd = distance(m->pos, h->pos); bfs(h->pos, false);
+    if (fd >= 2 && b_dist[G.entrance] <= 14 && distance(m->pos, G.entrance) + 2 >= b_dist[G.entrance]) {
+      if (h->pos == G.entrance) { s_last_up = G.now; s_did[0] = 0; DID("hopeless duel with the %s: up the stairs", mob_name(m->type)); walk(game_tap_cell(h->pos)); return true; }
+      int32_t t0 = h->time; ActResult rr = tap_safe(G.entrance); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("hopeless duel with the %s: to the stairs up", mob_name(m->type)); walk(rr); return true; } } }
   if ((MOB_DEFS[m->type].flags & MD_WATER) && s_bot_steps < s_pass_bite && h->HP > h->HT / 3 && !getenv("OLDPIRANHA")) return false;   // bot3: the only way on goes past them: keep walking
   if ((MOB_DEFS[m->type].flags & MD_WATER) && !h->b.roots && !getenv("OLDPIRANHA")) {   // bot3: piranhas: to the nearest cell out of their reach (no piranha water beside it)
     s_dry = true; bfs(h->pos, false); s_dry = false; int best = -1, bd = 30;
