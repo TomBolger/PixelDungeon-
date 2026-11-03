@@ -1460,6 +1460,20 @@ static bool attack_wand_ready(void) {
 }
 static int blob_at(int b, int c) { return g_blob[b] ? g_blob[b][c] : 0; }
 static bool bad_air(int c) { return blob_at(BLOB_TOXIC, c) || blob_at(BLOB_FIRE, c) || blob_at(BLOB_PARALYTIC, c) || blob_at(BLOB_CONFUSION, c) || (!s_oldfire && fire_next(c)) || fire_doomed(c); }
+// ss-mid2 3: the way out of a cloud that fills the cells all round (a corridor): bfs() never paths through gas, so with every neighbour in it the hero stood and breathed it (g21 d15: 4 HP a turn, 86 to 0, two Healings). A walk that ignores the gas, the nearest cell that is clear.
+static int gas_exit_step(void) {
+  Hero *h = &G.hero; static int16_t dd[MAP_LEN], fs[MAP_LEN], q[MAP_LEN];
+  for (int c = 0; c < MAP_LEN; c++) dd[c] = 0x7FFF;
+  int qh = 0, qt = 0; dd[h->pos] = 0; q[qt++] = h->pos;
+  while (qh < qt) { int c = q[qh++]; if (dd[c] >= 16) continue;
+    for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (!nb_ok(c, n) || dd[n] != 0x7FFF || !BIT_GET(G.visited, n)) continue;
+      int t = G.map[n]; if (!PASSABLE(t) || (TFLAGS(t) & F_AVOID) || IS_WATER(t) || char_at(n) || n == G.exit) continue;
+      if (blob_at(BLOB_FIRE, n)) continue;
+      dd[n] = dd[c] + 1; fs[n] = c == h->pos ? n : fs[c];
+      if (!bad_air(n) && !gas_at(n)) return fs[n];
+      q[qt++] = n; } }
+  return -1;
+}
 static bool escape_air(void) {                          // bot2: in gas or fire: walk to the nearest clean air (two steps clear)
   Hero *h = &G.hero; if (!bad_air(h->pos)) return false;
   if (dm_hold() && !blob_at(BLOB_FIRE, h->pos) && !blob_at(BLOB_PARALYTIC, h->pos)) return false;   // 0.54: its gas follows it anyway; stepping out makes it walk (and mend)
@@ -1471,6 +1485,7 @@ static bool escape_air(void) {                          // bot2: in gas or fire:
     bool clear = true; for (int k = 0; k < 8 && clear; k++) { int n = c + N8[k]; if (nb_ok(c, n) && bad_air(n)) clear = false; }
     if (clear) { bd = b_dist[c]; best = c; }
   }
+  if (best < 0 && !getenv("OLDGASEXIT")) { int g2 = gas_exit_step(); if (g2 >= 0) { int32_t t = h->time; ActResult r = tap_safe(g2); if (r != ACT_NONE || h->time != t) { DID("out of the gas, the long way (every cell round me is cloud)"); walk(r); return true; } } }
   if (best < 0) return false;
   bfs(best, false); int st = -1, sd = b_dist[h->pos];   // one step toward it, round whoever is in the way
   for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (nb_ok(h->pos, n) && b_dist[n] < sd && !char_at(n)) { sd = b_dist[n]; st = n; } }
@@ -1849,7 +1864,7 @@ static bool dm_open(int mi) {                            // 0.93 (DM-300 deaths 
   return false;
 }
 static int s_wait_mob, s_wait_n, s_boss_uid = -1, s_boss_min, s_boss_hits;
-static bool s_oldsleep;
+static bool s_oldsleep; static int s_restrich[3], s_restrich_d = 8; static int s_sleepskip, s_sleepskip_d = 10;
 static bool floor_left(void) {                          // anything left to explore or pick up on this floor (b_dist kept as it was)
   static int16_t keep[MAP_LEN]; memcpy(keep, b_dist, sizeof keep); bool r = false;
   bfs(G.hero.pos, false);
@@ -2134,6 +2149,7 @@ static bool fight(void) {
     if ((MOB_DEFS[m->type].flags & MD_WATER) && h->b.invis && !getenv("OLDINVIS")) continue;   // bot3: invisible in the pool: they can't see you; a blow would show you
     if (m->state != ST_HUNTING && !adjacent(m->pos, h->pos) && h->HP * 100 < h->HT * (getenv("OLDENGAGE") ? PRM[P_ENGAGE] : getenv("ENGAGEHP") ? atoi(getenv("ENGAGEHP")) : 60)) continue;   // (0.50 review g6: below 60%, let a wanderer pass; was tuned to 0)   // bot3: hurt: let it wander by
     if (m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !s_oldsleep && floor_left() && (getenv("OLDSLEEP2") || distance(m->pos, h->pos) > (getenv("SNEAKR") ? atoi(getenv("SNEAKR")) : 2))) continue;   // 0.49 (owner): one close by gets the sure first hit (asleep, it can't dodge) before walking past wakes it   // 0.48 (owner): sleepers after exploring (what's in the next room may be worth the health)
+    if (m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && s_sleepskip > 0 && G.depth >= s_sleepskip_d && distance(m->pos, h->pos) > (getenv("SLEEPSKIPR") ? atoi(getenv("SLEEPSKIPR")) : 2)) { losing_fight(i); if (s_lose_cost >= s_sleepskip * 0.01 * h->HP) continue; }   // ss-mid2 1: a sleeper the sum says is costly is left asleep, even when the floor is done (nothing to win but XP)
     if ((MOB_DEFS[m->type].flags & MD_BOSS) && m->state != ST_HUNTING && PRM[P_BOSSLAST] && (h->HP < h->HT || ({ bool fr = false; for (int q = 0; q < MAP_LEN && !fr; q++) if (frontier(q) && !boss_zone(q)) fr = true; fr; }))) continue;   // bot3: a sleeping boss: last, at full health
     if (key < bk) { bk = key; best = i; }
   }
@@ -3011,7 +3027,7 @@ static int s_ambush; static bool s_olddark; static int16_t s_trail[8]; static in
 static bool amb_retreat(void) {                          // shot from the dark: back the way you came, out of its line
   Hero *h = &G.hero; int back = -1;
   for (int k = 4; k >= 2 && back < 0; k--) { int c = s_trail[(s_trail_n - k) & 7]; if (s_trail_n >= k && c != h->pos && c >= 0 && c < MAP_LEN && c != G.entrance && c != G.exit) back = c; }
-  if (back < 0) return false;
+  if (back < 0 || (!getenv("OLDAMBGAS") && (bad_air(back) || gas_at(back)))) return false;
   int32_t t = h->time; ActResult r = tap_safe(back); if (r == ACT_NONE && h->time == t) return false;
   s_did[0] = 0; DID("hurt by something unseen: back out of its sight"); walk(r); return true;
 }
@@ -3160,7 +3176,7 @@ static bool decide(void) {
   evidence_track();
   { static int s_alt_last = -1, s_alt_depth = -1; if (s_alt_depth != G.depth) { s_alt_depth = G.depth; s_alt_last = G.lvars[0]; } if (G.altar_pos >= 0 && s_alt_last > 1 && G.lvars[0] == 1 && !s_rollout && !s_is_child) st_altar_done++; s_alt_last = G.lvars[0]; }
   { static int s_hp_last = -1, s_seen_last = 1; static int32_t s_now_last; Hero *hh = &G.hero;   // 0.48: hurt by something out of sight (an evil eye in the dark): no resting
-    bool dot = hh->b.burning || hh->b.poison || hh->b.bleed || game_starving() || bad_air(hh->pos) || hh->ooze;   // (not a foe seen then or now: one just killed hurt you first)
+    bool dot = hh->b.burning || hh->b.poison || hh->b.bleed || game_starving() || bad_air(hh->pos) || hh->ooze || (!getenv("OLDAMBGAS") && ({ bool gz = false; for (int k = 0; k < 8 && !gz; k++) { int n = hh->pos + N8[k]; if (nb_ok(hh->pos, n) && (bad_air(n) || gas_at(n))) gz = true; } gz; }));   // ss-mid2: (gas one cell off is what hurt me, not a shooter in the dark: g40 d11 stepped back into its own caustic cloud)   // (not a foe seen then or now: one just killed hurt you first)
     int seen = 0; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && distance(G.mobs[i].pos, hh->pos) <= 8 && (BIT_GET(G.fov, G.mobs[i].pos) || adjacent(G.mobs[i].pos, hh->pos))) seen = 1;
     if (!s_olddark && s_hp_last >= 0 && hh->HP < s_hp_last && G.now > s_now_last && !dot && !seen && !s_seen_last && view_distance() < 8) s_ambush = s_bot_steps + 12;
     s_hp_last = hh->HP; s_now_last = G.now; s_seen_last = seen || enemy_count() > 0; }
@@ -3297,6 +3313,10 @@ static bool decide(void) {
     int need = 300 + (boss_depth(G.depth + 1) ? 300 : 0), sur = bud - need;
     if (sur < 0) { if (rhi > 55) rhi = 55; if (rlo > 35) rlo = 35; if (getenv("RESTFOOD2")) { rhi = 35; rlo = 25; } } else if (sur < 200) { if (rhi > 65) rhi = 65; if (rlo > 40) rlo = 40; } }   /* (0.93 RESTFOOD2 test (audit): food-short, regen is food-limited: resting only moves it earlier and walking regenerates too) */
   if (getenv("RESTFULL")) { rhi = 100; rlo = 80; }
+  if (s_restrich[0] && G.depth >= s_restrich_d && !game_starving()) {   // ss-mid2: food to spare (the bag's rations and the clock, a floor's need kept back): rest even with a Healing in the pack
+    int bud = 360 - h->hunger; for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (is_food(k)) bud += (k == IK_RATION ? 260 : k == IK_PASTY ? 360 : 100) * h->bag[i].qty; }
+    int need = 300 + (boss_depth(G.depth + 1) ? 300 : 0);
+    if (bud - need >= s_restrich[0]) { if (rlo < s_restrich[1]) rlo = s_restrich[1]; if (rhi < s_restrich[2]) rhi = s_restrich[2]; } }
   if (getenv("RESTDEEP") && G.depth >= 8) { int lo = 0, hi = 0; if (sscanf(getenv("RESTDEEP"), "%d,%d", &lo, &hi) == 2) { if (rlo < lo) rlo = lo; if (rhi < hi) rhi = hi; } }   // ss-mid 4: deep, a hit is 15-20: no exploring at 40%
   if (getenv("THRIFT")) { int pc = thrift_need() * 100 / (h->HT ? h->HT : 1); rhi = pc + 1; rlo = pc; }   // 0.58 (owner): rest only to what the next fight needs; the rest comes back while walking   // 0.57 counterfactual: rest to full whatever the food
   s_resting = s_resting && h->HP * 100 < h->HT * rhi;   // bot3 (owner): heal while walking; with a backup, rest only when low
@@ -3619,7 +3639,8 @@ static bool decide(void) {
   }
   if (!getenv("OLDGASWAIT") && enemy_count() == 0 && gas_at(h->pos)) {   // 0.50 (review g6): standing in gas with nothing about: out of it first, the nearest clean cell
     bfs(h->pos, false); int bc = -1; for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] > 0 && b_dist[c] < 0x7FFF && !gas_at(c) && (bc < 0 || b_dist[c] < b_dist[bc])) bc = c;
-    if (bc >= 0 && bc != choice) { s_did[0] = 0; DID("out of the gas"); walk(tap_safe(bc)); return true; } }
+    if (bc >= 0 && bc != choice) { s_did[0] = 0; DID("out of the gas"); walk(tap_safe(bc)); return true; }
+    if (bc < 0 && !getenv("OLDGASEXIT")) { int g2 = gas_exit_step(); if (g2 >= 0) { int32_t t = h->time; ActResult r = tap_safe(g2); if (r != ACT_NONE || h->time != t) { s_did[0] = 0; DID("out of the gas, the long way"); walk(r); return true; } } } }
   if (!getenv("OLDGASWAIT") && enemy_count() == 0 && !gas_at(h->pos)) {   // 0.50 (review g6): never walk into gas with nothing chasing you: it clears
     int nx = -1; for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (nb_ok(h->pos, n) && (n == choice || (distance(n, choice) < distance(h->pos, choice) && PASSABLE(G.map[n])))) { if (nx < 0 || n == choice) nx = n; } }
     if (nx >= 0 && gas_at(nx) && (distance(h->pos, choice) <= 1 || ({ bool all = true; for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (nb_ok(h->pos, n) && PASSABLE(G.map[n]) && distance(n, choice) < distance(h->pos, choice) && !gas_at(n)) all = false; } all; }))) {
@@ -4715,7 +4736,7 @@ int main(int argc, char **argv) {
   if (!game_init()) return 1;
   prm_load();
   if (getenv("LAK")) LA_K = atoi(getenv("LAK"));
-  { s_noburnt = getenv("NOBURNT") != NULL; s_oldfire = getenv("OLDFIRE") != NULL; s_oldchoke = getenv("OLDCHOKE") != NULL; s_oldeat = getenv("OLDEAT") != NULL; if (getenv("EATLATE")) s_eatlate = atoi(getenv("EATLATE")); else if (getenv("PZTEST") && getenv("EATLATE50")) s_eatlate = 50; /* (0.92 e1, 120 games each: eat at Hungry 7.11, at Starving 6.81, Starving under 80% 6.50, under 50% 5.67: starving bleeds ~3 HP a 10 turns and stops mending) */ /* 0.92 (owner: "I always eat after starving down a little"): hunger stops at Starving, so turns spent there cost no food, only ~1.3 HP a 10 turns */ if (getenv("WARREAT")) s_warreat = atoi(getenv("WARREAT")); s_oldgear = getenv("OLDGEAR") != NULL; s_oldtrap = getenv("OLDTRAP") != NULL; if (getenv("SRCH_WIN")) s_srch_win = atoi(getenv("SRCH_WIN")); if (getenv("SRCH_K")) s_srch_k = atoi(getenv("SRCH_K")); s_olddead = getenv("OLDDEAD") != NULL; s_olddark = getenv("OLDDARK") != NULL; if (getenv("RISKP")) s_riskp = atof(getenv("RISKP")); s_nounk = getenv("NOUNK") != NULL; s_oldsleep = getenv("OLDSLEEP") != NULL; }
+  { s_sleepskip = getenv("SLEEPSKIP") ? atoi(getenv("SLEEPSKIP")) : 0; if (getenv("SLEEPSKIPD")) s_sleepskip_d = atoi(getenv("SLEEPSKIPD")); if (getenv("RESTRICH")) sscanf(getenv("RESTRICH"), "%d,%d,%d", &s_restrich[0], &s_restrich[1], &s_restrich[2]); if (getenv("RESTRICHD")) s_restrich_d = atoi(getenv("RESTRICHD")); s_noburnt = getenv("NOBURNT") != NULL; s_oldfire = getenv("OLDFIRE") != NULL; s_oldchoke = getenv("OLDCHOKE") != NULL; s_oldeat = getenv("OLDEAT") != NULL; if (getenv("EATLATE")) s_eatlate = atoi(getenv("EATLATE")); else if (getenv("PZTEST") && getenv("EATLATE50")) s_eatlate = 50; /* (0.92 e1, 120 games each: eat at Hungry 7.11, at Starving 6.81, Starving under 80% 6.50, under 50% 5.67: starving bleeds ~3 HP a 10 turns and stops mending) */ /* 0.92 (owner: "I always eat after starving down a little"): hunger stops at Starving, so turns spent there cost no food, only ~1.3 HP a 10 turns */ if (getenv("WARREAT")) s_warreat = atoi(getenv("WARREAT")); s_oldgear = getenv("OLDGEAR") != NULL; s_oldtrap = getenv("OLDTRAP") != NULL; if (getenv("SRCH_WIN")) s_srch_win = atoi(getenv("SRCH_WIN")); if (getenv("SRCH_K")) s_srch_k = atoi(getenv("SRCH_K")); s_olddead = getenv("OLDDEAD") != NULL; s_olddark = getenv("OLDDARK") != NULL; if (getenv("RISKP")) s_riskp = atof(getenv("RISKP")); s_nounk = getenv("NOUNK") != NULL; s_oldsleep = getenv("OLDSLEEP") != NULL; }
   s_dring_on = getenv("DEATHRING") != NULL; if (getenv("STARVELEAVE")) s_starve_leave = atoi(getenv("STARVELEAVE"));
   if (getenv("ARM_SPEEDK")) s_arm_speedk = atof(getenv("ARM_SPEEDK"));
   s_front_ortho = getenv("FRONT_ORTHO") != NULL; s_exw_diag = getenv("EXW_DIAG") ? atoi(getenv("EXW_DIAG")) : 0; s_exw_unk = getenv("EXW_UNK") ? atoi(getenv("EXW_UNK")) : 0; s_exp_tsp = getenv("EXP_TSP") != NULL; s_pocket = getenv("POCKET") ? atoi(getenv("POCKET")) : 0; s_plandbg = getenv("PLANDBG") ? atoi(getenv("PLANDBG")) : -1; s_detour = getenv("DETOUR") ? atoi(getenv("DETOUR")) : 0; s_kite2 = getenv("KITE2") != NULL; s_headb = getenv("HEADB") ? atoi(getenv("HEADB")) : 0; s_scrhold = getenv("SCRHOLD") ? atoi(getenv("SCRHOLD")) : 0; s_pztest = !getenv("NOPZTEST"); /* seedlog 2: the 0.92/0.93 owner-tested rule set is now on by default (NOPZTEST=1: the old behaviour) */ s_firedoom = s_pztest && !getenv("NOFIREDOOM"); s_grassw = getenv("GRASSW") ? atoi(getenv("GRASSW")) : 0; s_expgain = getenv("EXPGAIN") ? atoi(getenv("EXPGAIN")) : 0; s_expcommit = getenv("EXPCOMMIT") ? atoi(getenv("EXPCOMMIT")) : 0; s_exw_far = getenv("EXW_FAR") ? atoi(getenv("EXW_FAR")) : 0; s_srch_dead = getenv("SRCH_DEAD") ? atoi(getenv("SRCH_DEAD")) : 150; s_exw_item = getenv("EXW_ITEM") ? atoi(getenv("EXW_ITEM")) : getenv("OLDITEMS") ? 0 : 20;   /* 0.58: far items after the near exploring (+0.35) */ s_exw_inear = getenv("EXW_INEAR") ? atoi(getenv("EXW_INEAR")) : getenv("OLDITEMS") ? 99 : 6; s_front_wall = getenv("FRONT_WALL") != NULL;
@@ -4910,7 +4931,7 @@ int main(int argc, char **argv) {
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
       sp_stat(); bool did = decide();
-      if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == atoi(getenv("TTRACE")) && enemy_count() > 0) printf("TD t%d hero %d,%d hp %d did \"%s\"\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did);
+      if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == atoi(getenv("TTRACE")) && (enemy_count() > 0 || getenv("TDALL"))) printf("TD t%d hero %d,%d hp %d did \"%s\" para %d poison %d roots %d tox %d\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did, G.hero.b.paralysis, G.hero.b.poison, G.hero.b.roots, g_blob[BLOB_TOXIC] ? g_blob[BLOB_TOXIC][G.hero.pos] : -1);
       if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }
         long dt = G.now - tbefore; int k = tfoe0 || enemy_count() ? 1 : G.hero.pos != tpos0 ? 0 : strstr(s_did, "search") ? 2 : 3; ts[k] += dt;
         if (G.hero.HP <= 0) { printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = -1; } }
