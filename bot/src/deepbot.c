@@ -1513,6 +1513,7 @@ static int path_cell(Mob *m, int mind) {                // a free cell between i
 static bool seed_throw(int mi) {
   Hero *h = &G.hero; Mob *m = &G.mobs[mi]; int s, d = distance(m->pos, h->pos);
   if (m->state != ST_HUNTING || h->b.blind) return false;
+  if (!getenv("OLDSEEDSHOOT") && m->type == MT_TENGU) return false;   // seedlog ss-seed3 2 (g98 d10: 3 seeds thrown onto the way in of a Tengu that stands and shoots: 24 HP for nothing)
   bool hurt = h->HP * 100 < h->HT * PRM[P_SEEDHP] || s_losing, many = foes_near(3) >= 2;
   if (!hurt && !many) return false;
   if (d >= 3 && (s = find_kind(IK_SEED_EARTHROOT)) >= 0 && G.herbal_pos != h->pos) {   // armour while I stand on it: beside me, then onto it, before it comes
