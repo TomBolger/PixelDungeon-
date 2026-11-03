@@ -112,17 +112,23 @@ static int b2_route(void) {
   int back = stairs ? s_b2dh[G.exit] : 0;
   int best = -1; double bv = 0; const char *bw = "?"; static char bwhy[96];
   #define B2T(cell, val, what) do { int _c = (cell); if ((unsigned)_c < MAP_LEN && s_b2dh[_c] < 0x7FFF && _c != h->pos) { double _det = stairs ? (double)s_b2dh[_c] + (s_b2ds[_c] < 0x7FFF ? s_b2ds[_c] : s_b2dh[_c]) - back : s_b2dh[_c]; double _n = (val) - _det + (_c == s_goal_cell2 ? s_b2keep : 0); if (_n > bv) { bv = _n; best = _c; bw = (what); } } } while (0)
+  static int s_tap[MAP_LEN / 8 + 1]; memset(s_tap, 0, sizeof s_tap);   // targets tapped from beside (a grave, a locked door, a well): reached at the nearest cell next to them
+  #define B2TT(cell, val, what) do { int _t = (cell); if ((unsigned)_t < MAP_LEN) { if (s_b2dh[_t] < 0x7FFF) B2T(_t, val, what); else { int _b = -1, _bd = 0x7FFF; for (int _k = 0; _k < 8; _k++) { int _q = _t + N8[_k]; if (nb_ok(_t, _q) && s_b2dh[_q] < _bd) { _bd = s_b2dh[_q]; _b = _q; } } \
+      if (_b == h->pos) { if ((val) > bv) { best = _t; bv = (val); bw = (what); BIT_SET(s_tap, _t); } } else if (_b >= 0) { int _o = best; B2T(_b, val, what); if (best != _o && best == _b) BIT_SET(s_tap, _b); } } } } while (0)
   for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && !far_missile(i)) { const Item *it = &G.heaps[i].item; int k = it->kind, q = it->qty > 0 ? it->qty : 1;
     double v = is_food(k) ? (k == IK_RATION ? 260 : k == IK_PASTY ? 360 : k == IK_MYSTERY_MEAT ? 100 : 150) * q : item_value(it);   // food: the turns it feeds, in the brain's own currency
-    B2T(G.heaps[i].pos, v * (G.heaps[i].type == HEAP_PLAIN ? 1.0 : 1.2), "item"); }
+    static double iv = -1; if (iv < 0) iv = b2k("B2IV", 1); B2T(G.heaps[i].pos, v * iv * (G.heaps[i].type == HEAP_PLAIN ? 1.0 : 1.2), "item"); }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && BIT_GET(G.fov, m->pos) && npc_wanted(i) && s_black[m->pos] <= s_bot_steps) { int d = 0x7FFF, c0 = -1; for (int k = 0; k < 8; k++) { int q = m->pos + N8[k]; if (nb_ok(m->pos, q) && s_b2dh[q] < d) { d = s_b2dh[q]; c0 = q; } } if (c0 >= 0) B2T(c0, 150, "npc"); } }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i];   // a cheap kill on the way: its XP (a sleeper: my first blow lands)
     if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & (MD_NPC | MD_BOSS | MD_WATER))) continue;
-    double c = b2_duel(i, NULL); if (c >= 0) continue; int d = 0x7FFF, c0 = -1; for (int k = 0; k < 8; k++) { int q = m->pos + N8[k]; if (nb_ok(m->pos, q) && s_b2dh[q] < d) { d = s_b2dh[q]; c0 = q; } }
+    double pdm; double c = b2_duel(i, &pdm); static double hk = -1; if (hk < 0) hk = b2k("B2HUNTK", 0);
+    if (hk > 0 && pdm < 0.05) c = -(hk + (c < 0 ? -c : 0));   // (B2HUNTK: a monster I'd beat is worth taking out now, on my terms, before it wakes on its own at a bad moment)
+    if (c >= 0) continue; int d = 0x7FFF, c0 = -1; for (int k = 0; k < 8; k++) { int q = m->pos + N8[k]; if (nb_ok(m->pos, q) && s_b2dh[q] < d) { d = s_b2dh[q]; c0 = q; } }
     if (c0 >= 0) B2T(c0, -c, "hunt"); }
-  { const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { st_b2[2]++; return 1; } if (pt >= 0) B2T(pt, 150, pw ? pw : "puzzle"); }
-  { int q = quest_task(); if (q == -2) return 1; if (q >= 0) B2T(q, 200, "quest"); }
-  { int tp = trap_prize(); if (tp == -2) return 1; if (tp >= 0) B2T(tp, 150, "trap prize"); }
+  { const char *pw = NULL; int pt = puzzle_task(&pw); if (pt == -2) { st_b2[2]++; return 1; } if (pt >= 0) { if (getenv("B2TAP")) B2TT(pt, 150, pw ? pw : "puzzle"); else B2T(pt, 150, pw ? pw : "puzzle"); } }
+  { int q = quest_task(); if (q == -2) return 1; if (q >= 0) { if (getenv("B2TAP")) B2TT(q, 200, "quest"); else B2T(q, 200, "quest"); } }
+  { int tp = trap_prize(); if (tp == -2) return 1; if (tp >= 0) { if (getenv("B2TAP")) B2TT(tp, 150, "trap prize"); else B2T(tp, 150, "trap prize"); } }
+  if (getenv("B2TAP") && (G.keys[G.depth] & 15)) for (int c = 0; c < MAP_LEN; c++) if (G.map[c] == T_LOCKED_DOOR && BIT_GET(G.visited, c)) B2TT(c, 300, "locked door");   // (the key in hand: the vault behind it)
   // the unknown: the loot still to find, and the stairs if not found, shared among the frontier cells by the unknown beyond each
   int seen = 0; for (int c = 0; c < MAP_LEN; c++) if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) seen++;
   double left = 1 - seen / 420.0; if (left < 0.05) left = 0.05;
@@ -133,12 +139,16 @@ static int b2_route(void) {
     if (nb >= 0) B2T(nb, pool, "explore"); }
   else for (int i = 0; i < nfc; i++) B2T(fc[i], pool * fu[i] / su * (nfc > 1 ? 2.0 : 1.0), "explore");   // (B2SHARE: the old spread)
   #undef B2T
+  #undef B2TT
   if (best >= 0) {
+    if (best != h->pos && adjacent(best, h->pos) && !b2_open(best)) { st_b2[2]++; snprintf(bwhy, sizeof bwhy, "b2: %s at %d,%d (beside it: tap it)", bw, cx(best), cy(best)); int r = b2_step(best, bwhy); if (r > 0) return r; s_black[best] = s_bot_steps + 100; return -1; }
     s_goal_cell2 = best; int st = b2_first_step(best); if (st < 0) { s_black[best] = s_bot_steps + 50; return -1; }
     st_b2[2]++; snprintf(bwhy, sizeof bwhy, "b2: %s at %d,%d (worth %.0f over its walk)", bw, cx(best), cy(best), bv); return b2_step(st, bwhy); }
   s_goal_cell2 = -1;
+  if (getenv("B2WHY")) { const char *w = "?"; bfs(h->pos, false); int oc = plan_next(false, &w); printf("B2WHY step %d d%d nothing left (stairs %d); the old plan: %s at %d,%d dist %d\n", s_bot_steps, G.depth, stairs, oc >= 0 ? w : "none", oc >= 0 ? cx(oc) : -1, oc >= 0 ? cy(oc) : -1, oc >= 0 ? b_dist[oc] : -1);  if (oc >= 0 && heap_at(oc) >= 0) { int hh = heap_at(oc); char nm[48]; item_name(&G.heaps[hh].item, nm, sizeof nm); printf("   B2WHY item %s value %d myd %d stairsd %d back %d type %d\n", nm, item_value(&G.heaps[hh].item), s_b2dh[oc], s_b2ds[oc], back, G.heaps[hh].type); } }
   if (!stairs) return -1;                               // nothing left I can see and no stairs: the old rules search for the way on
   if (boss_depth(G.depth + 1)) return -1;               // (the floor before a boss: the old rules prepare for it)
+  if (getenv("B2OLDEND")) return -1;                   // (test: the old rules end the floor: searching, resting, the stairs)
   if (h->HP * 100 < h->HT * s_b2down && !game_starving() && threat_count() == 0) { st_b2[3]++; s_did[0] = 0; DID("b2: top up before the stairs (%d/%d)", h->HP, h->HT); walk(game_rest(false)); return 1; }
   st_b2[3]++; return b2_step(G.exit, "b2: nothing here worth its walk: down");
 }
@@ -149,9 +159,13 @@ static int brain2(void) {
   if (h->b.paralysis || h->b.frost || h->b.roots || h->b.burning || h->ooze || bad_air(h->pos) || h->b.levitation || h->b.invis) { st_b2[4]++; return -1; }   // physics, and the puzzle runs (levitating, invisible): the old rules
   for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) { st_b2[4]++; return -1; }
   if (emergency()) return 1;                            // badly hurt: the potions, the escapes
+  if (getenv("B2OLDFIGHT") && (threat_count() > 0 || ({ bool a = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE) a = true; a; }))) { st_b2[4]++; return -1; }   // (test: the old fight rules)
   int t = b2_threats(); if (t != 0) { if (t < 0) st_b2[4]++; return t; }
+  if (getenv("B2OLDROUTE")) { st_b2[4]++; return -1; }   // (test: the old route)
+  if (getenv("B2OLDSEEN") && enemy_count() > 0) { st_b2[4]++; return -1; }   // (test: any monster in sight, asleep or wandering: the old rules)
   if (eat_rule()) { st_b2[6]++; return 1; }
   { static double lo = -2; if (lo < -1) lo = b2k("B2RESTLO", -1); static bool resting; if (lo > 0 && !game_starving()) { if (h->HP * 100 < h->HT * lo) resting = true; if (h->HP * 100 >= h->HT * (lo + 30 > 100 ? 100 : lo + 30)) resting = false; if (resting) { s_did[0] = 0; DID("b2: rest (test knob B2RESTLO)"); walk(game_rest(false)); return 1; } } }   // (a test: does resting pay at all?)
-  if (use_items_when_safe()) { st_b2[5]++; return 1; }
+  if (!getenv("B2NOPRE")) { if (step_back() || escape_air() || prep_retreat() || (s_ambush > s_bot_steps && amb_retreat())) { st_b2[4]++; return 1; } }   // the old safety rules: step back off a seed, out of the air, a retreat when hurt from the dark
+  if (enemy_count() == 0 && use_items_when_safe()) { st_b2[5]++; return 1; }   // (none in sight, not even asleep: a scroll can wake the floor)
   int r = b2_route(); if (r < 0) st_b2[4]++; return r;
 }
