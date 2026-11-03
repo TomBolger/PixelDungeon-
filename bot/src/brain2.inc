@@ -26,9 +26,9 @@
 // sleeper, 0.1).
 
 static double b2k(const char *n, double d) { const char *v = getenv(n); return v ? atof(v) : d; }
-static double s_b2hpv, s_b2death, s_b2xpv, s_b2eps, s_b2ef, s_b2loot, s_b2stair, s_b2down, s_b2wake; static int s_b2init;
+static double s_b2keep, s_b2hpv, s_b2death, s_b2xpv, s_b2eps, s_b2ef, s_b2loot, s_b2stair, s_b2down, s_b2wake; static int s_b2init;
 static void b2_init(void) { if (s_b2init) return; s_b2init = 1;
-  s_b2hpv = b2k("B2HPV", 2); s_b2death = b2k("B2DEATH", 1500); s_b2xpv = b2k("B2XPV", 8); s_b2eps = b2k("B2EPS", 0.03); s_b2ef = b2k("B2EF", 0.5);
+  s_b2keep = b2k("B2KEEP", 30); s_b2hpv = b2k("B2HPV", 2); s_b2death = b2k("B2DEATH", 1500); s_b2xpv = b2k("B2XPV", 8); s_b2eps = b2k("B2EPS", 0.03); s_b2ef = b2k("B2EF", 0.5);
   s_b2loot = b2k("B2LOOT", 300); s_b2stair = b2k("B2STAIRV", 400); s_b2down = b2k("B2DOWNHP", 60); s_b2wake = b2k("B2WAKE", 0.1); }
 static long st_b2[8];                                   // tallies: engage, in tow, route, down, legacy, items, eat, hunt
 
@@ -91,6 +91,7 @@ static int b2_threats(void) {
   }
   st_b2[0]++;                                           // fight, here and now: the kit if it's a hard one, then where and how (tact), then the blow
   int tg = -1; double tv = -1; for (int j = 0; j < nf; j++) { double v = (adjacent(F[j].pos, h->pos) ? 1000 : 0) + F[j].dpt / (F[j].hp > 1 ? F[j].hp : 1) - distance(F[j].pos, h->pos); if (v > tv) { tv = v; tg = F[j].i; } }
+  if ((nf >= 2 || !adj) && tact()) return 1;          // (a crowd, or none beside me yet: first where to stand, how to meet it)
   if (tg >= 0 && kit_fight(tg)) return 1;
   if (tact()) return 1;
   if (tg >= 0) { char w[64]; snprintf(w, sizeof w, "b2: attack the %s", mob_name(G.mobs[tg].type)); int r = b2_step(G.mobs[tg].pos, w); if (r > 0) return r; }
@@ -110,7 +111,7 @@ static int b2_route(void) {
   b2_weights(); b2_dist(h->pos, s_b2dh, true); if (stairs) b2_dist(G.exit, s_b2ds, false);
   int back = stairs ? s_b2dh[G.exit] : 0;
   int best = -1; double bv = 0; const char *bw = "?"; static char bwhy[96];
-  #define B2T(cell, val, what) do { int _c = (cell); if ((unsigned)_c < MAP_LEN && s_b2dh[_c] < 0x7FFF && _c != h->pos) { double _det = stairs ? (double)s_b2dh[_c] + (s_b2ds[_c] < 0x7FFF ? s_b2ds[_c] : s_b2dh[_c]) - back : s_b2dh[_c]; double _n = (val) - _det; if (_n > bv) { bv = _n; best = _c; bw = (what); } } } while (0)
+  #define B2T(cell, val, what) do { int _c = (cell); if ((unsigned)_c < MAP_LEN && s_b2dh[_c] < 0x7FFF && _c != h->pos) { double _det = stairs ? (double)s_b2dh[_c] + (s_b2ds[_c] < 0x7FFF ? s_b2ds[_c] : s_b2dh[_c]) - back : s_b2dh[_c]; double _n = (val) - _det + (_c == s_goal_cell2 ? s_b2keep : 0); if (_n > bv) { bv = _n; best = _c; bw = (what); } } } while (0)
   for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && !far_missile(i)) { const Item *it = &G.heaps[i].item; int k = it->kind, q = it->qty > 0 ? it->qty : 1;
     double v = is_food(k) ? (k == IK_RATION ? 260 : k == IK_PASTY ? 360 : k == IK_MYSTERY_MEAT ? 100 : 150) * q : item_value(it);   // food: the turns it feeds, in the brain's own currency
     B2T(G.heaps[i].pos, v * (G.heaps[i].type == HEAP_PLAIN ? 1.0 : 1.2), "item"); }
@@ -148,6 +149,7 @@ static int brain2(void) {
   if (emergency()) return 1;                            // badly hurt: the potions, the escapes
   int t = b2_threats(); if (t != 0) { if (t < 0) st_b2[4]++; return t; }
   if (eat_rule()) { st_b2[6]++; return 1; }
+  { static double lo = -2; if (lo < -1) lo = b2k("B2RESTLO", -1); static bool resting; if (lo > 0 && !game_starving()) { if (h->HP * 100 < h->HT * lo) resting = true; if (h->HP * 100 >= h->HT * (lo + 30 > 100 ? 100 : lo + 30)) resting = false; if (resting) { s_did[0] = 0; DID("b2: rest (test knob B2RESTLO)"); walk(game_rest(false)); return 1; } } }   // (a test: does resting pay at all?)
   if (use_items_when_safe()) { st_b2[5]++; return 1; }
   int r = b2_route(); if (r < 0) st_b2[4]++; return r;
 }
