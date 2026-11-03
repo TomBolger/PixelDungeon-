@@ -2106,11 +2106,11 @@ static double step2_eval(int hp, bool stay) {
 // charge for the chance it kills me, plus a charge for unknown ground near the cell (something can wander out of it).
 // Only what the player sees: foes in view or beside me, cells already seen.
 typedef struct { int i, pos; double hp, dpt, hd, hi; int acts; bool rng; } TFoe;
-static long s_fight_hp; static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
+static long s_fight_hp; static double s_te_E; static int s_cal_on, s_cal_hp0, s_cal_type, s_cal_n, s_cal_uid, s_cal_away; static double s_cal_pred; static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
 static int16_t s_td[MAP_LEN], s_tq[MAP_LEN];
 static void tact_field(int from) {                    // foes' distance to a cell, over seen open cells
   for (int c = 0; c < MAP_LEN; c++) s_td[c] = 0x7FFF; int qh = 0, qt = 0; s_td[from] = 0; s_tq[qt++] = from;
-  while (qh < qt) { int c = s_tq[qh++]; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (!nb_ok(c, n) || s_td[n] != 0x7FFF || !BIT_GET(G.visited, n) || !PASSABLE(G.map[n])) continue; s_td[n] = s_td[c] + 1; s_tq[qt++] = n; } } }
+  while (qh < qt) { int c = s_tq[qh++]; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (!nb_ok(c, n) || s_td[n] != 0x7FFF || (BIT_GET(G.visited, n) && !PASSABLE(G.map[n]))) continue; s_td[n] = s_td[c] + 1; s_tq[qt++] = n; } } }
 static double tact_eval(TFoe *F0, int nf, int P, const int *path, int plen, double *turns_out) {
   Hero *h = &G.hero; TFoe F[24]; memcpy(F, F0, sizeof(TFoe) * nf);
   int hc = h->pos; double E = 0, V = 0; int t, field_at = -1;
@@ -2118,7 +2118,10 @@ static double tact_eval(TFoe *F0, int nf, int P, const int *path, int plen, doub
     bool any = false; for (int k = 0; k < nf; k++) if (F[k].hp > 0) any = true; if (!any) break;
     if (t < plen) { int nx = path[t]; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].pos == nx) return 1e9; hc = nx; }
     else { int b = -1; double bv = -1; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && adjacent(F[k].pos, hc)) { double v = F[k].dpt / (F[k].hp > 1 ? F[k].hp : 1); if (v > bv) { bv = v; b = k; } }   // the one that hurts most per HP left: first
-      if (b >= 0) F[b].hp -= F[b].hd; }
+      if (b >= 0) F[b].hp -= F[b].hd;
+      else { int r = -1, rd = 99; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].rng && distance(F[k].pos, hc) < rd) { rd = distance(F[k].pos, hc); r = k; }   // a shooter won't come: close in on it
+        if (r >= 0) { int bq = -1, bd = rd; for (int j = 0; j < 8; j++) { int q2 = hc + N8[j]; if (!nb_ok(hc, q2) || !BIT_GET(G.visited, q2) || !PASSABLE(G.map[q2]) || (TFLAGS(G.map[q2]) & F_AVOID)) continue; bool occ = false; for (int o = 0; o < nf; o++) if (F[o].hp > 0 && F[o].pos == q2) occ = true; if (occ) continue; if (distance(q2, F[r].pos) < bd) { bd = distance(q2, F[r].pos); bq = q2; } }
+          if (bq >= 0) hc = bq; } } }
     if (field_at != hc) { tact_field(hc); field_at = hc; }
     for (int k = 0; k < nf; k++) { TFoe *f = &F[k]; if (f->hp <= 0) continue;
       for (int a = 0; a < f->acts; a++) {
@@ -2127,9 +2130,13 @@ static double tact_eval(TFoe *F0, int nf, int P, const int *path, int plen, doub
         if (f->rng && distance(f->pos, hc) <= 8 && ballistica(f->pos, hc, &hit) == hc) { E += d; V += d * f->hi * 0.7; continue; }
         int bq = -1, bd = s_td[f->pos]; for (int j = 0; j < 8; j++) { int q = f->pos + N8[j]; if (!nb_ok(f->pos, q) || q == hc || s_td[q] >= bd) continue; bool occ = false; for (int o = 0; o < nf; o++) if (o != k && F[o].hp > 0 && F[o].pos == q) occ = true; if (occ) continue; bd = s_td[q]; bq = q; }
         if (bq >= 0) f->pos = bq; } } }
-  double rest_in = 0, rest_t = 0; for (int k = 0; k < nf; k++) if (F[k].hp > 0) { rest_in += F[k].dpt; rest_t += F[k].hp / (F[k].hd > 0.2 ? F[k].hd : 0.2); }
-  E += rest_in * rest_t * 0.6; V += rest_in * rest_t * 4;   // (not over in 40 turns: what's left, roughly)
+  double rest_t = 0, rest_e = 0; { int idx[24], m = 0; for (int k = 0; k < nf; k++) if (F[k].hp > 0) idx[m++] = k;   // not over in 40 turns: the rest one at a time, the best order (most hurt per turn to kill first)
+    for (int a = 0; a < m; a++) for (int b = a + 1; b < m; b++) { TFoe *x = &F[idx[a]], *y = &F[idx[b]]; double tx = x->hp / (x->hd > 0.2 ? x->hd : 0.2), ty = y->hp / (y->hd > 0.2 ? y->hd : 0.2); if (y->dpt * tx > x->dpt * ty) { int z = idx[a]; idx[a] = idx[b]; idx[b] = z; } }
+    double alive = 0; for (int a = 0; a < m; a++) alive += F[idx[a]].dpt;
+    for (int a = 0; a < m; a++) { TFoe *x = &F[idx[a]]; double tx = x->hp / (x->hd > 0.2 ? x->hd : 0.2); rest_e += alive * tx; rest_t += tx; alive -= x->dpt; } }
+  E += rest_e; V += rest_e * 3;
   if (turns_out) *turns_out = t + rest_t;
+  s_te_E = E;
   double hp = h->HP, z = (hp - E) / sqrt(V + 1), pd = 0.5 * erfc(z / sqrt(2.0));
   int unk = 0; for (int dy = -3; dy <= 3; dy++) for (int dx = -3; dx <= 3; dx++) { int x = cx(P) + dx, y = cy(P) + dy; if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue; if (!BIT_GET(G.visited, y * MAP_W + x)) unk++; }
   if (unk > 12) unk = 12;
@@ -2154,6 +2161,7 @@ static bool tact(void) {
       if (!nb_ok(c, n) || hd2[n] >= 0 || !BIT_GET(G.visited, n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID) || char_at(n) || PWATER(n) || bad_air(n) || n == G.exit) continue;
       hd2[n] = hd2[c] + 1; par[n] = c; q[qt++] = n; } }
   double tt; double s0 = tact_eval(F, nf, h->pos, NULL, 0, &tt), bs = s0; int bP = -1;
+  if (getenv("TACTCAL") && !s_cal_on) { s_cal_on = 1; s_cal_hp0 = h->HP; s_cal_pred = s_te_E; s_cal_type = G.mobs[F[0].i].type; s_cal_n = nf; s_cal_uid = G.mobs[F[0].i].uid; s_cal_away = 0; }
   static double mg = -1, hy; if (mg < 0) { mg = getenv("TACTM") ? atof(getenv("TACTM")) : 2.0; hy = getenv("TACTH") ? atof(getenv("TACTH")) : 1.0; }
   for (int qi = 1; qi < qt; qi++) { int P = q[qi]; int path[8], n = hd2[P]; for (int c = P, j = n - 1; j >= 0; j--, c = par[c]) path[j] = c;
     double s = tact_eval(F, nf, P, path, n, NULL) - (P == s_tact_tgt ? hy : 0);
@@ -5022,6 +5030,9 @@ int main(int argc, char **argv) {
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
       sp_stat(); bool did = decide();
+      if (s_cal_on && !s_is_child) { int ci = -1; for (int k = 0; k < G.n_mobs; k++) if (G.mobs[k].uid == s_cal_uid && G.mobs[k].HP > 0) ci = k;
+        if (ci >= 0 && !BIT_GET(G.fov, G.mobs[ci].pos)) s_cal_away++; else s_cal_away = 0;
+        if (s_cal_away > 20 || G.depth != s_cal_type * 0 + G.depth) s_cal_on = 0; else if (ci < 0 || G.hero.HP <= 0) { printf("TCAL %s n %d pred %.1f actual %d died %d\n", mob_name(s_cal_type), s_cal_n, s_cal_pred, s_cal_hp0 - (G.hero.HP > 0 ? G.hero.HP : 0), G.hero.HP <= 0); s_cal_on = 0; } }
       if (!s_is_child && (tfoe0 || enemy_count() > 0) && G.hero.HP < thp0) s_fight_hp += thp0 - G.hero.HP;   // tact metric: HP lost while foes are about
       if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == atoi(getenv("TTRACE")) && (enemy_count() > 0 || getenv("TDALL"))) printf("TD t%d hero %d,%d hp %d did \"%s\" para %d poison %d roots %d tox %d\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did, G.hero.b.paralysis, G.hero.b.poison, G.hero.b.roots, g_blob[BLOB_TOXIC] ? g_blob[BLOB_TOXIC][G.hero.pos] : -1);
       if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }
