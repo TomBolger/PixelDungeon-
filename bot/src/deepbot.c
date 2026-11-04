@@ -386,6 +386,7 @@ static int s_pot_guess[IK_COUNT];                       // alchemy: a potion bre
 static int seed_potion(int k) { switch (k) { case IK_SEED_FIREBLOOM: return IK_POT_FLAME; case IK_SEED_ICECAP: return IK_POT_FROST; case IK_SEED_SORROWMOSS: return IK_POT_TOXIC; case IK_SEED_DREAMWEED: return IK_POT_INVIS; case IK_SEED_SUNGRASS: return IK_POT_HEALING; case IK_SEED_EARTHROOT: return IK_POT_PARALYTIC; case IK_SEED_FADELEAF: return IK_POT_MIND; case IK_SEED_ROTBERRY: return IK_POT_STRENGTH; } return 0; }
 static int s_brew_kind = -1, s_brew_pot = -1;           // the last brew's seeds, if all of one kind, and the pot
 static bool smith_reachable(void) { Quests *q = &G.q; return q->smith && (q->smith == QS_DONE || q->smith == QS_GIVEN || q->smith == QS_SPAWNED) && G.depth <= q->smith_depth + 2; }
+static int shop_price(const Item *it);
 static int item_value(const Item *it) {
   int k = it->kind, c = item_cat(k), q = it->qty > 0 ? it->qty : 1; Hero *h = &G.hero; if (!k) return -1000;
   if (k == IK_AMULET || c == CAT_QUEST || c == CAT_KEY || k == IK_ANKH || (k >= IK_SEED_POUCH && k <= IK_WAND_HOLSTER) || k == IK_SEED_ROTBERRY || k == IK_DEW_VIAL) return 10000;
@@ -416,7 +417,9 @@ static int item_value(const Item *it) {
     if (w->kind == k && smith_reachable() && it != w) return 200;   // (owner: by the blacksmith a twin of what you wear is a scroll of upgrade, or better)
     int sc = c == CAT_WEAPON ? weapon_score(it) - weapon_score(w) : armor_score(it) - armor_score(w);
     if (k == IK_SHORT_SWORD && it->lvl > 0 && c == CAT_WEAPON && h->weapon.kind != IK_SHORT_SWORD) return 250;   // (its reforge: +1 for the weapon in hand)
-    return sc > 0 ? 100 + sc : 5; }
+    if (sc > 0) return 100 + sc;
+    if (!getenv("OLDSALEV") && G.depth <= 20) { int gold = shop_price(it) / (5 * (G.depth / 5 + 1)); return 5 + gold * 2 / 5; }   // owner 2026-11-03: worse gear still sells (a shop ahead): its gold buys Healing and food
+    return 5; }
   return 20 * q;
 }
 
@@ -3301,7 +3304,7 @@ static bool decide(void) {
   Hero *h = &G.hero; const char *why = "?";
   if (s_brew_kind >= 0 && s_brew_i >= 3 && (unsigned)s_brew_pot < MAP_LEN) { int hb = heap_at(s_brew_pot); if (hb >= 0 && item_cat(G.heaps[hb].item.kind) == CAT_POTION) { int pk = G.heaps[hb].item.kind; if (!item_known(pk) && !s_pot_guess[pk]) s_pot_guess[pk] = seed_potion(s_brew_kind); s_brew_kind = -1; } }   // (the brew's colour: probably that seed's potion)
   if (V) printf("  decide: hero %d hp %d/%d hunger %d blind %d light %d vd %d\n", h->pos, h->HP, h->HT, h->hunger, h->b.blind, h->light, view_distance());
-  if (getenv("BRAIN2") && !s_rollout && !s_is_child) { int r = brain2(); if (r >= 0) return r; }   // brain2: the one-goal brain (owner 2026-11-03); -1: the old rules for this turn
+  if (!getenv("NOBRAIN2") && !s_rollout && !s_is_child) { int r = brain2(); if (r >= 0) return r; }   // brain2: the one-goal brain (owner 2026-11-03); -1: the old rules for this turn
   // eat
   if (eat_rule()) return true;
   { bool any = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_PIRANHA) { any = true; if (BIT_GET(G.fov, G.mobs[i].pos)) s_piranhas = true; }
@@ -5171,7 +5174,7 @@ int main(int argc, char **argv) {
     if (getenv("DEATHRING") && G.depth <= 5) { printf("RING g%d d%d:\n", g, G.depth); for (int i = getenv("RINGN") ? 64 - atoi(getenv("RINGN")) : 40; i < 64; i++) { int j = (s_ring_n + i) & 63; if (s_ring[j][0]) printf("    %s\n", s_ring[j]); } }
     if (getenv("MOBSTATS") && g == 0) for (int t = 0; t < MT_COUNT; t++) { const MobDef *d = &MOB_DEFS[t]; printf("MOB %s HT %d att %d def %d dmg %d-%d dr %d exp %d maxlvl %d move %d atk %d\n", mob_name(t), d->HT, d->att, d->def, d->dmg_lo, d->dmg_hi, d->dr, d->exp, d->max_lvl, d->move_cost, d->atk_delay); }
     if (getenv("D")) { int fd = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_FOOD) fd += G.hero.bag[i].qty; printf("DEATHINFO g%d hunger %d food %d depth %d turn %d\n", g, G.hero.hunger, fd, G.depth, G.now / TICK); }
-    if (getenv("BRAIN2") && getenv("D")) { printf("B2TALLY g%d engage %ld tow %ld route %ld down %ld legacy %ld items %ld eat %ld\n", g, st_b2[0], st_b2[1], st_b2[2], st_b2[3], st_b2[4], st_b2[5], st_b2[6]); memset(st_b2, 0, sizeof st_b2); }
+    if (!getenv("NOBRAIN2") && getenv("D")) { printf("B2TALLY g%d engage %ld tow %ld route %ld down %ld legacy %ld items %ld eat %ld\n", g, st_b2[0], st_b2[1], st_b2[2], st_b2[3], st_b2[4], st_b2[5], st_b2[6]); memset(st_b2, 0, sizeof st_b2); }
     if (getenv("D")) printf("FIGHTHP g%d cls %d hp %ld maxd %d tact %ld holds %ld throws %ld\n", g, g_new_class, s_fight_hp, G.max_depth, st_tact_steps, st_tact_waits, st_tact_throws); st_tact_steps = st_tact_waits = st_tact_throws = 0; s_fight_hp = 0;
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
                            G.depth, G.max_depth, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl,
