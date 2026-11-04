@@ -414,7 +414,8 @@ static int item_value(const Item *it) {
   if (c == CAT_WEAPON || c == CAT_ARMOR) {
     const Item *w = c == CAT_WEAPON ? &h->weapon : &h->armor;
     if (cursed_known(it) || ((it->flags & IF_LEVEL_KNOWN) && it->lvl < 0)) return -10;
-    if (w->kind == k && smith_reachable() && it != w) return 200;   // (owner: by the blacksmith a twin of what you wear is a scroll of upgrade, or better)
+    if (w->kind == k && smith_reachable() && it != w) return 200;
+    if (!getenv("OLDTWIN") && w->kind == k && it != w && G.depth <= 14 && G.q.smith != QS_DONE && (item_tier(k) >= 3 || (w->flags & IF_LEVEL_KNOWN && w->lvl >= 2))) return 200;   // owner 2026-11-03: a twin of very good gear is kept for the troll blacksmith (floors 11-14), from wherever it turns up   // (owner: by the blacksmith a twin of what you wear is a scroll of upgrade, or better)
     int sc = c == CAT_WEAPON ? weapon_score(it) - weapon_score(w) : armor_score(it) - armor_score(w);
     if (k == IK_SHORT_SWORD && it->lvl > 0 && c == CAT_WEAPON && h->weapon.kind != IK_SHORT_SWORD) return 250;   // (its reforge: +1 for the weapon in hand)
     if (sc > 0) return 100 + sc;
