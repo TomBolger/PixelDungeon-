@@ -386,6 +386,9 @@ static int s_pot_guess[IK_COUNT];                       // alchemy: a potion bre
 static int seed_potion(int k) { switch (k) { case IK_SEED_FIREBLOOM: return IK_POT_FLAME; case IK_SEED_ICECAP: return IK_POT_FROST; case IK_SEED_SORROWMOSS: return IK_POT_TOXIC; case IK_SEED_DREAMWEED: return IK_POT_INVIS; case IK_SEED_SUNGRASS: return IK_POT_HEALING; case IK_SEED_EARTHROOT: return IK_POT_PARALYTIC; case IK_SEED_FADELEAF: return IK_POT_MIND; case IK_SEED_ROTBERRY: return IK_POT_STRENGTH; } return 0; }
 static int s_brew_kind = -1, s_brew_pot = -1;           // the last brew's seeds, if all of one kind, and the pot
 static bool smith_reachable(void) { Quests *q = &G.q; return q->smith && (q->smith == QS_DONE || q->smith == QS_GIVEN || q->smith == QS_SPAWNED) && G.depth <= q->smith_depth + 2; }
+static bool smith_twin(const Item *it) {             // owner 2026-11-03: a twin of very good worn gear, kept for the troll blacksmith (floors 11-14)
+  if (getenv("OLDTWIN")) return false; int c = item_cat(it->kind); if (c != CAT_WEAPON && c != CAT_ARMOR) return false; const Item *w = c == CAT_WEAPON ? &G.hero.weapon : &G.hero.armor;
+  return w->kind == it->kind && it != w && G.depth <= 14 && G.q.smith != QS_DONE && !cursed_known(it) && (item_tier(it->kind) >= 3 || ((w->flags & IF_LEVEL_KNOWN) && w->lvl >= 2)); }
 static int shop_price(const Item *it);
 static int item_value(const Item *it) {
   int k = it->kind, c = item_cat(k), q = it->qty > 0 ? it->qty : 1; Hero *h = &G.hero; if (!k) return -1000;
@@ -415,7 +418,7 @@ static int item_value(const Item *it) {
     const Item *w = c == CAT_WEAPON ? &h->weapon : &h->armor;
     if (cursed_known(it) || ((it->flags & IF_LEVEL_KNOWN) && it->lvl < 0)) return -10;
     if (w->kind == k && smith_reachable() && it != w) return 200;
-    if (!getenv("OLDTWIN") && w->kind == k && it != w && G.depth <= 14 && G.q.smith != QS_DONE && (item_tier(k) >= 3 || (w->flags & IF_LEVEL_KNOWN && w->lvl >= 2))) return 200;   // owner 2026-11-03: a twin of very good gear is kept for the troll blacksmith (floors 11-14), from wherever it turns up   // (owner: by the blacksmith a twin of what you wear is a scroll of upgrade, or better)
+    if (smith_twin(it)) return 200;   // owner 2026-11-03: a twin of very good gear is kept for the troll blacksmith (floors 11-14), from wherever it turns up   // (owner: by the blacksmith a twin of what you wear is a scroll of upgrade, or better)
     int sc = c == CAT_WEAPON ? weapon_score(it) - weapon_score(w) : armor_score(it) - armor_score(w);
     if (k == IK_SHORT_SWORD && it->lvl > 0 && c == CAT_WEAPON && h->weapon.kind != IK_SHORT_SWORD) return 250;   // (its reforge: +1 for the weapon in hand)
     if (sc > 0) return 100 + sc;
@@ -684,6 +687,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
         Item *it = &h->bag[s]; int c = item_cat(it->kind);
         if (!it->kind || !game_pick_ok(p, s)) continue;
         if (s_toe && (c == CAT_ARMOR || c == CAT_WEAPON) && toe_keep(s)) continue;   // 0.73 TOE
+        if (smith_twin(it)) continue;                    // (not the blacksmith's twin)
         if (sell_extra(it) || (c == CAT_ARMOR && armor_score(it) <= armor_score(&h->armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&h->weapon))) { s_shop_sold++; st_sells++; return s; }
       }
       return -1000;
@@ -955,6 +959,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
       else { Item b = believed(it, 1); double now = gear_cost_b(&h->weapon, &h->armor, 0), with = c == CAT_WEAPON ? ({ Item ba = believed(&h->armor, 0); gear_cost(&b, &ba); }) : ({ Item bw = believed(&h->weapon, 0); gear_cost(&bw, &b); });
         junk = with > now * 1.05; }
       if (junk && s_toe && toe_keep(i)) junk = false;   // 0.73 TOE: the plan grows into it, or the blacksmith wants its twin
+      if (junk && smith_twin(it)) junk = false;         // (the blacksmith's twin)
     }
     if (junk && heap_at(h->pos) < 0 && h->pos != G.entrance && h->pos != G.exit) { BIT_SET(s_dropped, h->pos); st_uses[ACN_DROP]++; DID("leave the junk behind: %s", ({ static char jn[96]; item_name(it, jn, sizeof jn); jn; })); do_item(i, ACN_DROP); return true; }
   }
@@ -2603,7 +2608,7 @@ static bool npc_wanted(int i) {
     case MT_SHOPKEEPER: case MT_IMP_SHOP: {
       if (s_shop_sold > 6) return false;
       for (int k = 0; k < BAG_SIZE; k++) { Item *it = &G.hero.bag[k]; int c = item_cat(it->kind);
-        if (it->kind && game_pick_ok(PICK_SELL, k) && !(s_toe && toe_keep(k)) && (sell_extra(it) || (c == CAT_ARMOR && armor_score(it) <= armor_score(&G.hero.armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&G.hero.weapon)))) return true; }
+        if (it->kind && game_pick_ok(PICK_SELL, k) && !(s_toe && toe_keep(k)) && !smith_twin(it) && (sell_extra(it) || (c == CAT_ARMOR && armor_score(it) <= armor_score(&G.hero.armor)) || (c == CAT_WEAPON && it->kind != IK_PICKAXE && weapon_score(it) <= weapon_score(&G.hero.weapon)))) return true; }
       return false; }
   }
   return false;
