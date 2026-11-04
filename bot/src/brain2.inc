@@ -120,6 +120,7 @@ static int b2_route(void) {
   { static int ring[10], rn; ring[rn++ % 10] = h->pos; int rep = 0; for (int i = 0; i < 10; i++) if (ring[i] == h->pos) rep++;   // A-B-A-B: the target I keep swapping to goes aside
     if (rep >= 4 && rn >= 10 && s_goal_cell2 >= 0) { s_black[s_goal_cell2] = s_bot_steps + 150; memset(ring, 0xff, sizeof ring); rn = 0; } }
   bfs(h->pos, false);                                   // (the old advisors read b_dist)
+  if (!getenv("B2NEWPLAN") && !getenv("B2PLANONLY")) return -1;   // the route advisor: the old rules' whole quiet route (its puzzles, quests, trap prizes, the hungry dive, then its planner)
   if (!getenv("B2NEWPLAN")) { const char *w = "?"; int oc = plan_next(false, &w); if (oc < 0) return -1; static char wb[64]; snprintf(wb, sizeof wb, "b2: plan: %s", w); int r = b2_step(oc, wb); if (r > 0) return r; s_black[oc] = s_bot_steps + 50; return -1; }   // (test: the old planner's choice)
   b2_weights(); b2_dist(h->pos, s_b2dh, true); if (stairs) b2_dist(G.exit, s_b2ds, false);
   int back = stairs ? s_b2dh[G.exit] : 0;
