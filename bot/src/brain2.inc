@@ -69,7 +69,9 @@ static int b2_first_step(int t) { if (s_b2dh[t] >= 0x7FFF) return -1; int c = t;
 static int b2_step(int c, const char *what) { int32_t t0 = G.hero.time; ActResult r = tap_safe(c); if (r == ACT_NONE && G.hero.time == t0) return -1; s_did[0] = 0; DID("%s", what); walk(r); return 1; }
 
 // The fight brain: something hunts me.
-static int b2_threats(void) {
+static int b2_threats_m(bool tow_only);
+static int b2_threats(void) { return b2_threats_m(false); }
+static int b2_threats_m(bool tow_only) {
   Hero *h = &G.hero; TFoe F[24]; int nf = 0; bool adj = false, can_go = true;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state == ST_PASSIVE) continue;
     bool see = BIT_GET(G.fov, m->pos), a = adjacent(m->pos, h->pos); if (m->state != ST_HUNTING && !a) continue;   // (one beside me strikes whatever its state says) if ((!see && !a) || distance(m->pos, h->pos) > 9) continue;
@@ -97,6 +99,7 @@ static int b2_threats(void) {
       if (sc > bs) { bs = sc; bq = q; } }
     if (bq >= 0) { st_b2[1]++; char w[96]; snprintf(w, sizeof w, "b2: walk on, %d in tow (a fight now: %.0f HP, %.0f%% death)", nf, E, pd * 100); return b2_step(bq, w); }
   }
+  if (tow_only) return 0;                               // (the tow alone: the rest is the old fight advisor's)
   st_b2[0]++;                                           // fight, here and now: the kit if it's a hard one, then where and how (tact), then the blow
   int tg = -1; double tv = -1; for (int j = 0; j < nf; j++) { int ty = G.mobs[F[j].i].type; double v = ((ty == MT_THIEF || ty == MT_BANDIT) && distance(F[j].pos, h->pos) <= 4 ? 2000 : 0) + (adjacent(F[j].pos, h->pos) ? 1000 : 0) + F[j].dpt / (F[j].hp > 1 ? F[j].hp : 1) - distance(F[j].pos, h->pos); if (v > tv) { tv = v; tg = F[j].i; } }
   if (tg >= 0 && !adjacent(G.mobs[tg].pos, h->pos) && ranged_try(tg)) return 1;   // (wands never miss, bombs and harmful potions from afar, darts while it comes)
@@ -176,6 +179,7 @@ static int brain2(void) {
   // B2NEWFIGHT: the new one (fight only when well ahead, else walk on with it in tow) for those hunting me.
   bool adjm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE) adjm = true;
   if (getenv("B2NEWFIGHT")) { int t = b2_threats(); if (t != 0) { if (t < 0) st_b2[4]++; return t; } }
+  else if (getenv("B2TOW") && !adjm) { int t = b2_threats_m(true); if (t > 0) return t; }   // (the tow alone, before the old fight advisor: a same-speed melee hunter I am not well ahead of follows me while I heal on my way)
   if (!getenv("B2NEWFIGHT") || getenv("B2OLDSEEN")) if (enemy_count() > 0 || adjm) { st_b2[0]++; return -1; }   // (the old fight advisor: the rest of decide())
   if (getenv("B2OLDROUTE")) { st_b2[4]++; return -1; }   // (test: the old route)
   if (eat_rule()) { st_b2[6]++; return 1; }
