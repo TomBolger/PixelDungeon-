@@ -117,7 +117,7 @@ static int b2_route(void) {
   { static int ring[10], rn; ring[rn++ % 10] = h->pos; int rep = 0; for (int i = 0; i < 10; i++) if (ring[i] == h->pos) rep++;   // A-B-A-B: the target I keep swapping to goes aside
     if (rep >= 4 && rn >= 10 && s_goal_cell2 >= 0) { s_black[s_goal_cell2] = s_bot_steps + 150; memset(ring, 0xff, sizeof ring); rn = 0; } }
   bfs(h->pos, false);                                   // (the old advisors read b_dist)
-  if (getenv("B2OLDPLAN")) { const char *w = "?"; int oc = plan_next(false, &w); if (oc < 0) return -1; static char wb[64]; snprintf(wb, sizeof wb, "b2/old plan: %s", w); int r = b2_step(oc, wb); if (r > 0) return r; s_black[oc] = s_bot_steps + 50; return -1; }   // (test: the old planner's choice)
+  if (!getenv("B2NEWPLAN")) { const char *w = "?"; int oc = plan_next(false, &w); if (oc < 0) return -1; static char wb[64]; snprintf(wb, sizeof wb, "b2: plan: %s", w); int r = b2_step(oc, wb); if (r > 0) return r; s_black[oc] = s_bot_steps + 50; return -1; }   // (test: the old planner's choice)
   b2_weights(); b2_dist(h->pos, s_b2dh, true); if (stairs) b2_dist(G.exit, s_b2ds, false);
   int back = stairs ? s_b2dh[G.exit] : 0;
   int best = -1; double bv = 0; const char *bw = "?"; static char bwhy[96];
@@ -172,10 +172,12 @@ static int brain2(void) {
   for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) { st_b2[4]++; return -1; }
   if (IS_WATER(G.map[h->pos]) || s_piranhas) for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_WATER) && distance(G.mobs[i].pos, h->pos) <= 2) { st_b2[4]++; return -1; }   // piranhas: never fought, out of their water (physics: the old rules)
   if (emergency()) return 1;                            // badly hurt: the potions, the escapes
-  if (getenv("B2OLDFIGHT") && (threat_count() > 0 || ({ bool a = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE) a = true; a; }))) { st_b2[4]++; return -1; }   // (test: the old fight rules)
-  int t = b2_threats(); if (t != 0) { if (t < 0) st_b2[4]++; return t; }
+  // Monsters: the fight advisor. By default the old one (its door kites, avoids, kit, look-ahead) for anything in view or beside me;
+  // B2NEWFIGHT: the new one (fight only when well ahead, else walk on with it in tow) for those hunting me.
+  bool adjm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE) adjm = true;
+  if (getenv("B2NEWFIGHT")) { int t = b2_threats(); if (t != 0) { if (t < 0) st_b2[4]++; return t; } }
+  if (!getenv("B2NEWFIGHT") || getenv("B2OLDSEEN")) if (enemy_count() > 0 || adjm) { st_b2[0]++; return -1; }   // (the old fight advisor: the rest of decide())
   if (getenv("B2OLDROUTE")) { st_b2[4]++; return -1; }   // (test: the old route)
-  if (getenv("B2OLDSEEN") && enemy_count() > 0) { st_b2[4]++; return -1; }   // (test: any monster in sight, asleep or wandering: the old rules)
   if (eat_rule()) { st_b2[6]++; return 1; }
   { static double lo = -2; if (lo < -1) lo = b2k("B2RESTLO", -1); static bool resting; if (lo > 0 && !game_starving()) { if (h->HP * 100 < h->HT * lo) resting = true; if (h->HP * 100 >= h->HT * (lo + 30 > 100 ? 100 : lo + 30)) resting = false; if (resting) { s_did[0] = 0; DID("b2: rest (test knob B2RESTLO)"); walk(game_rest(false)); return 1; } } }   // (a test: does resting pay at all?)
   if (!getenv("B2NOPRE")) { if (step_back() || escape_air() || prep_retreat() || (s_ambush > s_bot_steps && amb_retreat())) { st_b2[4]++; return 1; } }   // the old safety rules: step back off a seed, out of the air, a retreat when hurt from the dark
