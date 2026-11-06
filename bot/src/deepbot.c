@@ -2115,7 +2115,7 @@ static double step2_eval(int hp, bool stay) {
 // charge for the chance it kills me, plus a charge for unknown ground near the cell (something can wander out of it).
 // Only what the player sees: foes in view or beside me, cells already seen.
 typedef struct { int i, pos; double hp, dpt, hd, hi; int acts, mc, ac, tm; bool rng; } TFoe;   // mc/ac: ticks a move/an attack takes; tm: its time in hand
-static double s_te_pd; static int s_goal_cell2 = -1; static long s_fight_hp, st_tact_throws; static int s_tact_lastd = 99; static double s_te_E; static int s_cal_on, s_cal_hp0, s_cal_type, s_cal_n, s_cal_uid, s_cal_away; static double s_cal_pred; static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
+static double s_te_pd; static int s_goal_cell2 = -1; static int s_last_sleeper = -1; static long s_fight_hp, st_tact_throws; static int s_tact_lastd = 99; static double s_te_E; static int s_cal_on, s_cal_hp0, s_cal_type, s_cal_n, s_cal_uid, s_cal_away; static double s_cal_pred; static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
 static int16_t s_td[MAP_LEN], s_tq[MAP_LEN];
 static void tact_field(int from) {                    // foes' distance to a cell, over seen open cells
   for (int c = 0; c < MAP_LEN; c++) s_td[c] = 0x7FFF; int qh = 0, qt = 0; s_td[from] = 0; s_tq[qt++] = from;
@@ -5061,6 +5061,10 @@ int main(int argc, char **argv) {
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
       sp_stat(); bool did = decide();
+      if (getenv("FIGHTLOG") && !s_is_child) { static int fu = -1, fhp0, fty, fd, fhunger, fadj, fsleep; static long fstep;   // a fight: its first foe, my HP then, the cost, the end
+        if (fu < 0) { for (int k = 0; k < G.n_mobs; k++) { Mob *m = &G.mobs[k]; if (m->HP > 0 && !ally(k) && m->state == ST_HUNTING && BIT_GET(G.fov, m->pos) && !(MOB_DEFS[m->type].flags & MD_NPC)) { fu = m->uid; fhp0 = thp0; fty = m->type; fd = G.depth; fhunger = G.hero.hunger; fstep = s_bot_steps; fadj = 0; for (int j = 0; j < G.n_mobs; j++) if (G.mobs[j].HP > 0 && !ally(j) && G.mobs[j].state == ST_HUNTING && BIT_GET(G.fov, G.mobs[j].pos)) fadj++; fsleep = s_last_sleeper == m->uid; break; } } }
+        else { int ci = -1; for (int k = 0; k < G.n_mobs; k++) if (G.mobs[k].uid == fu && G.mobs[k].HP > 0) ci = k;
+          if (ci < 0 || G.hero.HP <= 0 || G.depth != fd || s_bot_steps - fstep > 200) { printf("FL d%d %s hp0 %d/%d lost %d died %d foes %d hunger %d turns %ld lvl %d cls %d\n", fd, mob_name(fty), fhp0, G.hero.HT, fhp0 - (G.hero.HP > 0 ? G.hero.HP : 0), G.hero.HP <= 0, fadj, fhunger, s_bot_steps - fstep, G.hero.lvl, g_new_class); fu = -1; } } }
       if (s_cal_on && !s_is_child) { int ci = -1; for (int k = 0; k < G.n_mobs; k++) if (G.mobs[k].uid == s_cal_uid && G.mobs[k].HP > 0) ci = k;
         if (ci >= 0 && !BIT_GET(G.fov, G.mobs[ci].pos)) s_cal_away++; else s_cal_away = 0;
         if (s_cal_away > 20 || G.depth != s_cal_type * 0 + G.depth) s_cal_on = 0; else if (ci < 0 || G.hero.HP <= 0) { printf("TCAL %s n %d pred %.1f actual %d died %d\n", mob_name(s_cal_type), s_cal_n, s_cal_pred, s_cal_hp0 - (G.hero.HP > 0 ? G.hero.HP : 0), G.hero.HP <= 0); s_cal_on = 0; } }
