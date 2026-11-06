@@ -69,12 +69,43 @@ static int b2_first_step(int t) { if (s_b2dh[t] >= 0x7FFF) return -1; int c = t;
 static int b2_step(int c, const char *what) { int32_t t0 = G.hero.time; ActResult r = tap_safe(c); if (r == ACT_NONE && G.hero.time == t0) return -1; s_did[0] = 0; DID("%s", what); walk(r); return 1; }
 
 // The fight brain: something hunts me.
+// Kite to heal (owner 2026-11-06: "you can always recover the same HP as a long rest by kiting an enemy in circles"):
+// a same-speed melee foe that follows me never strikes while I keep stepping away, and I heal as I go (1 HP / 10 turns).
+// So while a fight now would carry a real death risk, I step to the cell that keeps me clear of it, over ground I know
+// (away from the unknown, other monsters and dead ends), until the fight is safe; then I hold and let it step into my blow.
+static int b2_kite(void) {
+  Hero *h = &G.hero; if (!getenv("B2KITE") || game_starving() || h->HP * 10 >= h->HT * 9) return 0;
+  static double eps = -1; if (eps < 0) eps = b2k("B2KITEEPS", 0.01);
+  TFoe F[24]; int nf = 0;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & (MD_NPC | MD_WATER))) continue;
+    bool see = BIT_GET(G.fov, m->pos), a = adjacent(m->pos, h->pos); if (!see && !a) continue; if (m->state != ST_HUNTING && !a) continue; if (distance(m->pos, h->pos) > 9) continue;
+    if (MOB_DEFS[m->type].flags & MD_BOSS) return 0;
+    int mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (magic_shooter(m->type) || m->type == MT_SCORPIO || mc < TICK || m->b.paralysis) return 0;   // (a shooter or a faster one: kiting won't work)
+    if (nf >= 24) break; TFoe *f = &F[nf++]; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi; f->acts = 1; f->mc = mc; f->ac = MOB_DEFS[m->type].atk_delay ? MOB_DEFS[m->type].atk_delay : TICK; f->tm = 0; f->rng = false;
+    if (m->type == MT_BAT) { f->hd -= f->dpt; if (f->hd < 0.2) f->hd = 0.2; } if ((m->type == MT_BRUTE || m->type == MT_SHIELDED) && m->HP >= m->HT / 4) f->dpt *= 1.3; }
+  if (nf == 0) return 0;
+  double tt; tact_eval(F, nf, h->pos, NULL, 0, &tt, -1, 0); double pd = s_te_pd;
+  if (getenv("B2DBG")) printf("KITE step %d hp %d/%d foes %d pd %.3f\n", s_bot_steps, h->HP, h->HT, nf, pd);
+  if (pd < eps) return 0;                               // (safe enough: fight it, on my terms)
+  int bq = -1; double bs = -1e9;
+  for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !b2_open(q) || char_at(q) || q == G.exit || q == G.entrance) continue;
+    int mind = 99; for (int j = 0; j < nf; j++) { int d = distance(F[j].pos, q); if (d < mind) mind = d; } if (mind <= 1) continue;   // (never beside it after my step)
+    int open = 0, unk = 0, oth = 0;
+    for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (!nb_ok(q, r)) continue; if (b2_open(r) && !char_at(r)) { bool nearf = false; for (int f = 0; f < nf; f++) if (distance(F[f].pos, r) <= 1) nearf = true; if (!nearf) open++; } }
+    for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) { int x = cx(q) + dx, y = cy(q) + dy; if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue; if (!BIT_GET(G.visited, y * MAP_W + x)) unk++; }
+    for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state != ST_HUNTING && m->state != ST_PASSIVE && BIT_GET(G.fov, m->pos) && distance(m->pos, q) <= 3) oth++; }
+    double sc = mind * 2 + open * 1.5 - unk * 0.6 - oth * 8 - (open == 0 ? 30 : 0);
+    if (sc > bs) { bs = sc; bq = q; } }
+  if (bq < 0) return 0;                                 // (cornered: fight)
+  st_b2[1]++; char w[96]; snprintf(w, sizeof w, "b2: kite to heal (a fight now: %.0f%% death)", pd * 100); return b2_step(bq, w);
+}
 static int b2_threats_m(bool tow_only);
 static int b2_threats(void) { return b2_threats_m(false); }
 static int b2_threats_m(bool tow_only) {
   Hero *h = &G.hero; TFoe F[24]; int nf = 0; bool adj = false, can_go = true;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state == ST_PASSIVE) continue;
-    bool see = BIT_GET(G.fov, m->pos), a = adjacent(m->pos, h->pos); if (m->state != ST_HUNTING && !a) continue;   // (one beside me strikes whatever its state says) if ((!see && !a) || distance(m->pos, h->pos) > 9) continue;
+    bool see = BIT_GET(G.fov, m->pos), a = adjacent(m->pos, h->pos); if (m->state != ST_HUNTING && !a) continue;   // (one beside me strikes whatever its state says)
+    if ((!see && !a) || distance(m->pos, h->pos) > 9) continue;   // (only what I can see: FAIR)
     if (MOB_DEFS[m->type].flags & MD_BOSS) return -1;
     if (MOB_DEFS[m->type].flags & (MD_WATER | MD_NPC) || m->type == MT_STATUE || m->b.paralysis || m->b.frost) continue;
     if (nf >= 24) break; TFoe *f = &F[nf++]; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
@@ -268,6 +299,13 @@ static int brain2(void) {
   if (emergency()) return 1;                            // badly hurt: the potions, the escapes
   // Monsters: the fight advisor. By default the old one (its door kites, avoids, kit, look-ahead) for anything in view or beside me;
   // B2NEWFIGHT: the new one (fight only when well ahead, else walk on with it in tow) for those hunting me.
+  if (getenv("B2SPEND")) {                              // a risky fight: spend what lowers the risk (a wand charge comes back; a death doesn't): zap / throw from afar before it reaches me
+    static double se = -1; if (se < 0) se = b2k("B2SPENDEPS", 0.02);
+    for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING || !BIT_GET(G.fov, m->pos) || (MOB_DEFS[m->type].flags & (MD_NPC | MD_BOSS | MD_WATER))) continue;
+      double pdm; b2_duel(i, &pdm); if (pdm < se) continue;
+      if (!adjacent(m->pos, h->pos) && ranged_try(i)) { st_b2[0]++; return 1; }
+      if (adjacent(m->pos, h->pos) && kit_fight(i)) { st_b2[0]++; return 1; } } }
+  { int r = b2_kite(); if (r != 0) return r; }        // a same-speed hunter I'd risk dying to now: kite it while I heal
   { int r = b2_hurt(); if (r != 0) return r; }
   bool adjm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE) adjm = true;
   if (getenv("B2NEWFIGHT")) { int t = b2_threats(); if (t != 0) { if (t < 0) st_b2[4]++; return t; } }
