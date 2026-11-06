@@ -169,6 +169,31 @@ static int b2_route(void) {
   st_b2[3]++; return b2_step(G.exit, "b2: nothing here worth its walk: down");
 }
 
+// Hurt (owner 2026-11-06): explore while hurt, but don't start fights. Nothing about: the normal route (I heal as I go).
+// Something asleep or wandering in view: sneak past it (the old planner's target, over a way that keeps clear of it; never a hunt).
+// Something hunting me: well ahead, finish it; else walk on with it in tow; faster, shooting, or cornered: the old fight advisor.
+static int b2_hurt(void) {
+  Hero *h = &G.hero; static double hu = -2; if (hu < -1) hu = b2k("B2HURT", -1); if (hu <= 0 || h->HP * 100 >= h->HT * hu) return 0;
+  bool hunted = false, seen = false; int near[24], nn = 0;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & (MD_NPC | MD_BOSS))) continue;
+    bool see = BIT_GET(G.fov, m->pos); if (!see && !adjacent(m->pos, h->pos)) continue;
+    if (m->state == ST_HUNTING || adjacent(m->pos, h->pos)) hunted = true; else { seen = true; if (nn < 24) near[nn++] = m->pos; } }
+  if (!hunted && !seen) return 0;
+  if (hunted) { int t = b2_threats_m(true); if (t > 0) { st_b2[7]++; return t; } return 0; }   // (tow, or the old fight advisor)
+  // sneak: the old planner's target, by a way clear of the sleepers and wanderers
+  bfs(h->pos, false);
+  for (int tries = 0; tries < 3; tries++) {
+    const char *w = "?"; int oc = plan_next(false, &w); if (oc < 0) return -1;
+    bool bad = mob_at(oc) >= 0; for (int j = 0; j < nn; j++) if (distance(near[j], oc) <= 1) bad = true;   // (a hunt, or beside one: not now)
+    if (bad) { s_black[oc] = s_bot_steps + 40; bfs(h->pos, false); continue; }
+    for (int c = 0; c < MAP_LEN; c++) s_b2w[c] = 1;
+    for (int j = 0; j < nn; j++) for (int dy = -3; dy <= 3; dy++) for (int dx = -3; dx <= 3; dx++) { int x = cx(near[j]) + dx, y = cy(near[j]) + dy; if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue; int d = dx * dx > dy * dy ? (dx < 0 ? -dx : dx) : (dy < 0 ? -dy : dy); s_b2w[y * MAP_W + x] += d <= 1 ? 200 : d == 2 ? 40 : 10; }
+    b2_dist(h->pos, s_b2dh, true); int st = b2_first_step(oc); if (st < 0) { s_black[oc] = s_bot_steps + 40; bfs(h->pos, false); continue; }
+    for (int j = 0; j < nn; j++) if (distance(near[j], st) <= 1) return -1;   // (no way past without brushing it: the old rules)
+    static char wb[80]; snprintf(wb, sizeof wb, "b2: hurt: sneak on to %s, clear of %d", w, nn); st_b2[7]++; return b2_step(st, wb); }
+  return -1;
+}
+
 static int brain2(void) {
   b2_init(); Hero *h = &G.hero;
   if (boss_depth(G.depth)) { st_b2[4]++; return -1; }  // boss floors: the boss scripts
@@ -178,6 +203,7 @@ static int brain2(void) {
   if (emergency()) return 1;                            // badly hurt: the potions, the escapes
   // Monsters: the fight advisor. By default the old one (its door kites, avoids, kit, look-ahead) for anything in view or beside me;
   // B2NEWFIGHT: the new one (fight only when well ahead, else walk on with it in tow) for those hunting me.
+  { int r = b2_hurt(); if (r != 0) return r; }
   bool adjm = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && G.mobs[i].state != ST_PASSIVE) adjm = true;
   if (getenv("B2NEWFIGHT")) { int t = b2_threats(); if (t != 0) { if (t < 0) st_b2[4]++; return t; } }
   else if (getenv("B2TOW") && !adjm) { int t = b2_threats_m(true); if (t > 0) return t; }   // (the tow alone, before the old fight advisor: a same-speed melee hunter I am not well ahead of follows me while I heal on my way)
