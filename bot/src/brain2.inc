@@ -169,6 +169,71 @@ static int b2_route(void) {
   st_b2[3]++; return b2_step(G.exit, "b2: nothing here worth its walk: down");
 }
 
+
+// ---- The floor's worth still unfound, against the moves to find it (owner 2026-11-06: "a decision with the risk of
+// consequences weighed against rewards ... we know ALL of the odds"). From the source (content.c level_content): every
+// normal floor holds one food (a ration, 1 in 5 a pasty); a Strength potion and an Upgrade scroll on their quotas (the
+// odds over how many have spawned so far: q_unseen); an Enchant scroll (depth / 12(1+found) a floor); the dew vial once on
+// floors 1-3; and 3 random items, +1 at 40% again and again (Generator: potion 50, scroll 40, gold 50, weapon 15, armour
+// 10, seed 5, wand 4, ring 2, misc 5), each on a random cell. What I've seen of the floor (cells, heaps) gives the odds
+// of what's still out there; each is priced by item_value, a move by what food is worth to me now.
+// Knobs: B2MOVEV (points a move costs with food at ease: a ration's 90 over its 260 turns), B2FOODK (how fast that climbs
+// as food runs short), B2MPC (moves to explore an unseen cell), B2FLOORN (cells on a normal floor: 285 measured),
+// B2EVK (weight on the floor's worth; 1).
+static uint8_t s_fh_seen[MAP_LEN / 8 + 1]; static int s_fh_d = -1, s_fh_game = -1, s_fh_k, s_fh_soe; static long st_evleave;
+static void b2_heap_track(void) {
+  if (s_fh_d != G.depth || s_fh_game != cur_game) { memset(s_fh_seen, 0, sizeof s_fh_seen); s_fh_d = G.depth; s_fh_game = cur_game; s_fh_k = 0; }
+  for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = hp->pos; if (!BIT_GET(G.fov, c) || BIT_GET(s_fh_seen, c) || BIT_GET(s_dropped, c) || hp->type == HEAP_FOR_SALE || hp->type >= HEAP_CARRIED) continue;
+    BIT_SET(s_fh_seen, c); int k = hp->item.kind; if (k == IK_SCR_ENCHANT) s_fh_soe++;
+    if (!is_food(k) && k != IK_POT_STRENGTH && k != IK_SCR_UPGRADE && k != IK_SCR_ENCHANT && k != IK_DEW_VIAL) s_fh_k++; }   // (a random one: the guaranteed ones are counted apart)
+}
+static double b2_kind_avg(const uint16_t *W, const uint8_t *K, int n) { double v = 0, w = 0; for (int i = 0; i < n; i++) if (W[i]) { Item it = item_make(K[i], 1); v += W[i] * item_value(&it); w += W[i]; } return w > 0 ? v / w : 0; }
+static double b2_move_price(void) {                    // a move's worth in item points: food at ease, a ration's 90 over 260 turns; dearer as it runs short
+  static double mv = -1, fk; if (mv < 0) { mv = b2k("B2MOVEV", 90.0 / 260); fk = b2k("B2FOODK", 450); }
+  int fb = food_budget(); double sc = fk / (fb > 150 ? fb : 150); if (sc < 0.5) sc = 0.5; if (sc > 4) sc = 4; return mv * sc; }
+static double b2_floor_left(double *moves_out, double *s_out) {
+  static double mpc = -1, fln, evk; if (mpc < 0) { mpc = b2k("B2MPC", 0.9); fln = b2k("B2FLOORN", 285); evk = b2k("B2EVK", 1); }
+  int seen = 0; for (int c = 0; c < MAP_LEN; c++) if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) seen++;
+  double tot = seen + 20 > fln ? seen + 20 : fln, sf = seen / tot; if (sf > 0.99) sf = 0.99; double u = 1 - sf;
+  // random items: n ~ 3 + geometric(0.4); each seen with chance sf: E[the unseen | k seen]
+  int k = s_fh_k; double num = 0, den = 0; for (int n = 3; n <= 18; n++) { if (n < k) continue; double pn = 0.6 * pow(0.4, n - 3), c = 1; for (int j = 0; j < k; j++) c = c * (n - j) / (j + 1); double lik = c * pow(sf, k) * pow(u, n - k); num += pn * lik * (n - k); den += pn * lik; }
+  double eun = den > 0 ? num / den : 0;
+  static const uint16_t CW[9] = { 15, 10, 50, 40, 4, 2, 5, 50, 5 };   // weapon, armour, potion, scroll, wand, ring, seed, gold, misc
+  double cv[9]; cv[0] = b2k("B2VWPN", 30); cv[1] = b2k("B2VARM", 30); cv[2] = b2_kind_avg(IDB_PW, IDB_PK, 12); cv[3] = b2_kind_avg(IDB_SW, IDB_SK, 12);
+  cv[4] = b2k("B2VWAND", 120); cv[5] = b2k("B2VRING", 60); cv[6] = b2k("B2VSEED", 15); cv[7] = b2k("B2VGOLD", 0.3) * (30 + 10 * G.depth); cv[8] = b2k("B2VMISC", 20);
+  double rv = 0, rw = 0; for (int i = 0; i < 9; i++) { rv += CW[i] * cv[i]; rw += CW[i]; } rv /= rw;
+  double v = eun * rv;
+  double lam = b2_move_price();
+  if (!s_ev_food) v += 260 * lam * 1.1;                 // the floor's food, not found: it's out there (as many turns of food as it holds)
+  { Item a = item_make(IK_POT_STRENGTH, 1), b = item_make(IK_SCR_UPGRADE, 1), e = item_make(IK_SCR_ENCHANT, 1);
+    double pp = q_unseen(s_q_pos, Q_POS, G.depth, s_q_fp, u), ps = q_unseen(s_q_sou, Q_SOU, G.depth, s_q_fs, u);
+    double pe = G.depth / (12.0 * (1 + s_fh_soe)); if (pe > 1) pe = 1; pe = pe * u / (1 - pe * (1 - u) > 1e-6 ? 1 - pe * (1 - u) : 1e-6);
+    v += pp * item_value(&a) + ps * item_value(&b) + pe * item_value(&e); }
+  if (G.depth <= 3 && find_kind(IK_DEW_VIAL) < 0 && !(G.dflags & DF_VIAL_SPAWNED)) v += u * 200.0 / (4 - G.depth);   // (the vial: one of floors 1-3; the player knows only that it hasn't turned up)
+  if (moves_out) *moves_out = mpc * (tot - seen); if (s_out) *s_out = sf;
+  return v * evk;
+}
+// Leave now? When what the planner would do next is more exploring (or the search for what's hidden), weigh what's
+// probably still here against what finding it costs; seen items it still wants are fetched by the planner first.
+static int b2_leave_check(void) {
+  Hero *h = &G.hero; if (getenv("B2NOEV")) return 0;
+  if (boss_depth(G.depth) || boss_depth(G.depth + 1) || G.depth == 21 || G.depth >= 25 || G.exit < 0 || !BIT_GET(G.visited, G.exit)) return 0;
+  if (G.map[G.exit] == T_LOCKED_EXIT && !(G.keys[G.depth] & 64)) return 0;
+  if (quest_on_floor() || shop_hunt_ok() || s_goal <= G.depth) return 0;
+  bfs(h->pos, false); if (b_dist[G.exit] >= 0x7FFF) return 0;
+  const char *why = "?"; int c = plan_next(false, &why);
+  bool more = c < 0 || !strcmp(why, "explore") || !strcmp(why, "frontier") || !strcmp(why, "dead end") || !strcmp(why, "search");
+  if (!more) return 0;
+  for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && !far_missile(i) && G.heaps[i].item.kind != IK_GOLD && G.heaps[i].item.kind != IK_DEW && b_dist[G.heaps[i].pos] < 0x7FFF) return 0;
+  double mv, sf; double v = b2_floor_left(&mv, &sf); if (c < 0) mv = mv > 40 ? mv : 40;   // (the search for a hidden part: a few dozen moves at least)
+  double cost = mv * b2_move_price();
+  if (getenv("B2EVDBG")) { static int ls = -1; if (ls != s_bot_steps / 20) { ls = s_bot_steps / 20; printf("B2EV d%d step %d seen %.2f k %d left %.0f moves %.0f price %.2f cost %.0f food %d next %s -> %s\n", G.depth, s_bot_steps, sf, s_fh_k, v, mv, b2_move_price(), cost, food_budget(), why, v < cost ? "LEAVE" : "stay"); } }
+  if (v >= cost) return 0;
+  st_evleave++;
+  if (h->HP * 10 < h->HT * 7 && !game_starving() && threat_count() == 0 && !gas_at(h->pos) && !rest_cap()) { s_did[0] = 0; DID("b2: rest before going down"); walk(game_rest(false)); return 1; }
+  static char wb[96]; snprintf(wb, sizeof wb, "b2: what's likely left (%.0f) isn't worth the moves (%.0f): down", v, cost); return b2_step(G.exit, wb);
+}
+
 // Hurt (owner 2026-11-06): explore while hurt, but don't start fights. Nothing about: the normal route (I heal as I go).
 // Something asleep or wandering in view: sneak past it (the old planner's target, over a way that keeps clear of it; never a hunt).
 // Something hunting me: well ahead, finish it; else walk on with it in tow; faster, shooting, or cornered: the old fight advisor.
@@ -208,11 +273,13 @@ static int brain2(void) {
   if (getenv("B2NEWFIGHT")) { int t = b2_threats(); if (t != 0) { if (t < 0) st_b2[4]++; return t; } }
   else if (getenv("B2TOW") && !adjm) { int t = b2_threats_m(true); if (t > 0) return t; }   // (the tow alone, before the old fight advisor: a same-speed melee hunter I am not well ahead of follows me while I heal on my way)
   if (!getenv("B2NEWFIGHT") || getenv("B2OLDSEEN")) if (enemy_count() > 0 || adjm) { st_b2[0]++; return -1; }   // (the old fight advisor: the rest of decide())
+  b2_heap_track();
   if (getenv("B2OLDROUTE")) { st_b2[4]++; return -1; }   // (test: the old route)
   if (eat_rule()) { st_b2[6]++; return 1; }
   { static double lo = -2; if (lo < -1) lo = b2k("B2RESTLO", -1); static bool resting; if (lo > 0 && !game_starving()) { if (h->HP * 100 < h->HT * lo) resting = true; if (h->HP * 100 >= h->HT * (lo + 30 > 100 ? 100 : lo + 30)) resting = false; if (resting) { s_did[0] = 0; DID("b2: rest (test knob B2RESTLO)"); walk(game_rest(false)); return 1; } } }   // (a test: does resting pay at all?)
   if (!getenv("B2NOPRE")) { if (step_back() || escape_air() || prep_retreat() || (s_ambush > s_bot_steps && amb_retreat())) { st_b2[4]++; return 1; } }   // the old safety rules: step back off a seed, out of the air, a retreat when hurt from the dark
   if (enemy_count() == 0 && use_items_when_safe()) { st_b2[5]++; return 1; }   // (none in sight, not even asleep: a scroll can wake the floor)
   if (barricade_task()) { st_b2[5]++; return 1; }      // a storage barricade burned: 3-4 items behind it (the painter's Liquid Flame)
+  { int r = b2_leave_check(); if (r != 0) { st_b2[3]++; return r; } }   // what's likely left on the floor against the moves to find it
   int r = b2_route(); if (r < 0) st_b2[4]++; return r;
 }
