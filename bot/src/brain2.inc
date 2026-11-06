@@ -216,7 +216,7 @@ static double b2_floor_left(double *moves_out, double *s_out) {
 // Leave now? When what the planner would do next is more exploring (or the search for what's hidden), weigh what's
 // probably still here against what finding it costs; seen items it still wants are fetched by the planner first.
 static int b2_leave_check(void) {
-  Hero *h = &G.hero; if (getenv("B2NOEV")) return 0;
+  Hero *h = &G.hero; if (!getenv("B2EV")) return 0;   // (off: 480 games, 5.31 on vs 5.51 off; leaving sooner is worse still: the worth of exploring is more than its items)
   if (boss_depth(G.depth) || boss_depth(G.depth + 1) || G.depth == 21 || G.depth >= 25 || G.exit < 0 || !BIT_GET(G.visited, G.exit)) return 0;
   if (G.map[G.exit] == T_LOCKED_EXIT && !(G.keys[G.depth] & 64)) return 0;
   if (quest_on_floor() || shop_hunt_ok() || s_goal <= G.depth) return 0;
