@@ -2005,6 +2005,12 @@ static int goo2(Mob *m) {
     static double eps = -1; if (eps < 0) eps = atof(getenv("GOOKP")) > 0 ? atof(getenv("GOOKP")) : 0.05;
     bool pump = m->aux2 != 0; int att = pump ? (d == 1 ? 30 : 15) : 15; double pk = phit(att, hero_def_est()) * dmg_kill_p(pump ? 5 : 2, pump ? 30 : 12, hero_dr(), h->HP - G.deferred);
     if ((pump || d == 1) && pk > eps) { s_did[0] = 0; DID("Goo2: drink healing (its next blow kills %.0f%% of the time)", pk * 100); do_item(find_kind(IK_POT_HEALING), ACN_DRINK); return 1; } }
+  if (getenv("GOOWAND") && m->state == ST_HUNTING && !m->b.paralysis) {   // the boss gets the charged attack wands (none of the seeds and throws GOOKIT adds)
+    bool hit; if (ballistica(h->pos, m->pos, &hit) == m->pos) { int bs = 0, bpr = 99;
+      for (int s = -1; s < PACK0 + 32; s = s == BAG_SIZE - 1 ? PACK0 : s + 1) { Item *it = game_slot(s); if (item_cat(it->kind) != CAT_WAND || it->ench <= 0 || !item_known(it->kind) || !attack_wand(it->kind)) continue;
+        if (it->kind == IK_WND_SLOW && m->b.slow > 0) continue; if (it->kind == IK_WND_FIREBOLT && IS_WATER(G.map[m->pos])) continue;
+        int pr = it->kind == IK_WND_SLOW ? 0 : 1; if (pr < bpr) { bpr = pr; bs = s; } }
+      if (bpr < 99) { s_did[0] = 0; DID("Goo2: zap the wand"); walk(game_zap(bs, m->pos)); return 1; } } }
   if (getenv("GOOKIT") && !m->aux2 && d >= 2 && m->state == ST_HUNTING) {   // (2026-11-06 bags at Goo deaths: Firebloom, Earthroot, Sorrowmoss, Icecap, bombs, a Wand of Poison unused): the boss gets the whole bag while it comes
     int mi = (int)(m - G.mobs); if (ranged_try(mi)) { s_did[0] = 0; DID("Goo2: the kit while it comes"); return 1; }
     s_seed_force = true; bool st = seed_throw(mi); s_seed_force = false; if (st) return 1; }
