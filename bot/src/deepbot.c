@@ -1049,6 +1049,10 @@ static bool emergency(void) {                           // badly hurt
   { bool boss = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) boss = true;
     int dot = 0; for (int k = 1; k <= h->b.poison; k++) dot += k / 3 + 1; dot += 3 * h->b.bleed;
     if (!getenv("OLDHERO") && dot >= h->HP && (s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }   // 0.52 (audit): the poison still to come would kill
+  { int hs = find_kind(IK_POT_HEALING), nh = hs >= 0 && item_known(IK_POT_HEALING) ? h->bag[hs].qty : 0; static int res = -2; if (res < -1) res = getenv("HRES") ? atoi(getenv("HRES")) : -1;
+    if (res >= 0 && nh > 0 && nh <= res && !boss && !boss_depth(G.depth)) {   // (owner 2026-11-06: a Healing saved for the boss is worth 15-20 points of its fight: drink one before only when the next blows could kill)
+      double E, V; round_dmg(&E, &V); double k = getenv("EMERGK") ? atof(getenv("EMERGK")) : 2.5;
+      if ((h->HP - G.deferred) > E + k * sqrt(V) + 1) return false; } }
   if (calc_on() && getenv("EMERG4") && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) { double E, V; round_dmg(&E, &V); double k = getenv("EMERGK") ? atof(getenv("EMERGK")) : 2.5;   // 0.93 review: drink when the next round could kill (Healing fills me up: as late as is safe)
     if ((h->HP - G.deferred) > E + k * sqrt(V) + 1 && h->HP * 100 >= h->HT * 12) return false; } else
   if ((h->HP - (getenv("OLDGLYPH") ? 0 : G.deferred)) * 100 >= h->HT * (boss && getenv("BOSS_EMERG") ? atoi(getenv("BOSS_EMERG")) : PRM[P_EMERG])) return false; }   /* (0.52: Viscosity's deferred damage is still coming) */
