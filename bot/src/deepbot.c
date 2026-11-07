@@ -2360,6 +2360,12 @@ static bool fight(void) {
   double hopeless_cost = s_lose_cost;   // seedlog 2: (kept for the hopeless-duel retreat below)
   if (!(MOB_DEFS[m->type].flags & MD_WATER) && seed_tactic(best)) { s_losing = false; return true; }
   if (altar_lure(best)) { s_losing = false; return true; }
+  if (getenv("TENGUKIT") && m->type == MT_TENGU && !m->b.paralysis) {   // (2026-11-07 bags at Tengu deaths: Slowness, Firebolt, Lightning, Reach wands with charges, never zapped: closing in came first): the boss gets the wands
+    bool hit; if (ballistica(h->pos, m->pos, &hit) == m->pos) { int bs = 0, bpr = 99;
+      for (int s = -1; s < PACK0 + 32; s = s == BAG_SIZE - 1 ? PACK0 : s + 1) { Item *it = game_slot(s); if (item_cat(it->kind) != CAT_WAND || it->ench <= 0 || !item_known(it->kind) || !attack_wand(it->kind)) continue;
+        if (it->kind == IK_WND_SLOW && m->b.slow > 0) continue;
+        int pr = it->kind == IK_WND_SLOW ? 0 : 1; if (pr < bpr) { bpr = pr; bs = s; } }
+      if (bpr < 99) { s_did[0] = 0; DID("Tengu: zap the wand first"); walk(game_zap(bs, m->pos)); return true; } } }
   if (s_pztest && !(getenv("NOTENGUCLOSE") && !getenv("TENGUCORNER")) && m->type == MT_TENGU && distance(m->pos, h->pos) >= 2 && !h->b.roots && !m->b.paralysis && ({ bool hit; ballistica(m->pos, h->pos, &hit) == h->pos; })) {   // 0.92 (random-seed Tengu deaths: 15 darts thrown, all dodged, while its shuriken took 40 HP): in its sight it out-shoots you and leaps away; out of its sight it must walk to you, and up close the blows land
     bfs(h->pos, false); int bc = -1, bd = getenv("TCD") ? atoi(getenv("TCD")) : 16;   // (0.92 t1: hiding first 7.33, closing in only 7.42, neither 7.36: noise; hiding is opt-in, TENGUCORNER=1)
     if (getenv("TENGUCORNER")) for (int c = 0; c < MAP_LEN; c++) { if (b_dist[c] >= bd || char_at(c) || (TFLAGS(G.map[c]) & F_AVOID) || !BIT_GET(G.visited, c)) continue; bool hit; if (ballistica(m->pos, c, &hit) == c) continue; bd = b_dist[c]; bc = c; }
