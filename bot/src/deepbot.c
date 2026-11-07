@@ -1708,14 +1708,14 @@ static int plan_next(bool going, const char **why) {
     // from where #1 leaves me, times how likely I'd make it. Doing it now costs only the detour. Take the best such
     // detour first when it's cheaper than its weighted trip back.
     static int s_dt = -1, s_dt_d = -1; static const char *s_dtw; if (s_dt_d != G.depth) { s_dt = -1; s_dt_d = G.depth; }
-    if (s_dt >= 0 && (s_dt == h->pos || b_dist[s_dt] >= 0x7FFF || b_dist[s_dt] > (G.map[s_dt] == T_LOCKED_DOOR ? 26 : 10) || (s_pztest && b_dist[best] < b_dist[s_dt]) || !(heap_at(s_dt) >= 0 ? heap_wanted(heap_at(s_dt)) : G.map[s_dt] == T_HIGH_GRASS || (G.map[s_dt] == T_LOCKED_DOOR && (G.keys[G.depth] & 15)) || (s_pocket && frontier(s_dt))))) s_dt = -1;
+    if (s_dt >= 0 && (s_dt == h->pos || b_dist[s_dt] >= 0x7FFF || (s_detour < 99 && b_dist[s_dt] > (G.map[s_dt] == T_LOCKED_DOOR ? 26 : 10)) || (s_pztest && b_dist[best] < b_dist[s_dt]) || !(heap_at(s_dt) >= 0 ? heap_wanted(heap_at(s_dt)) : G.map[s_dt] == T_HIGH_GRASS || (G.map[s_dt] == T_LOCKED_DOOR && (G.keys[G.depth] & 15)) || (s_pocket && frontier(s_dt))))) s_dt = -1;
     if (s_dt >= 0) { best = s_dt; bw = s_dtw; goto detour_done; }   // (a detour, once chosen, is kept till done: two things each behind the other made it walk to and fro)
     static int16_t dh[MAP_LEN]; memcpy(dh, b_dist, sizeof dh); bfs(best, false);
     if (s_pztest && (G.keys[G.depth] & 15)) for (int c = 0; c < MAP_LEN; c++) if (G.map[c] == T_LOCKED_DOOR && BIT_GET(G.visited, c)) { int d = 0x7FFF; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (nb_ok(c, n) && b_dist[n] + 1 < d) d = b_dist[n] + 1; } if (d < 0x7FFF) b_dist[c] = d; }
     int pick = -1, pg = 0; const char *pw = NULL;
     for (int c = 0; c < MAP_LEN; c++) {
       bool ld = s_pztest && G.map[c] == T_LOCKED_DOOR && (G.keys[G.depth] & 15) && BIT_GET(G.visited, c) && c != best;   // 0.92 (seed 84 d1: the library 12 cells from the key, left for a 60-turn trip at the floor's end): a sure prize room
-      if (c == best || dh[c] == 0 || dh[c] > (ld ? 30 : 8) || b_dist[c] >= 0x7FFF || s_black[c] > s_bot_steps) continue;
+      if (c == best || dh[c] == 0 || (s_detour < 99 && dh[c] > (ld ? 30 : 8)) || dh[c] >= 0x7FFF || b_dist[c] >= 0x7FFF || s_black[c] > s_bot_steps) continue;   // (owner 2026-11-07: "every option on the map should be the math": DETOUR=99+ drops the reach caps)
       int wt = 0; const char *w = NULL; int hpi = heap_at(c);
       if (ld) { wt = 12; w = "locked door"; }
       else if (hpi >= 0 && heap_wanted(hpi)) { wt = 10; w = "item"; }
@@ -1723,7 +1723,7 @@ static int plan_next(bool going, const char **why) {
       else if (s_pocket && frontier(c) && !(s_piranhas && PREACH(c)) && !boss_zone(c) && (cx(c) <= 5 || cx(c) >= MAP_W - 6 || cy(c) <= 5 || cy(c) >= MAP_H - 6)) { wt = s_pocket; w = "explore"; }   // 0.92 (seed 84 d1: the west door by the stairs, left at turn 0, cost a 30-turn trip back): a corner pocket beside me is cheap now, dear later
       if (!w) continue;
       int detour = dh[c] + b_dist[c] - dh[best], back = 2 * b_dist[c] + 2, gain; if (ld && back < 30) back = 30; gain = back * wt - detour * 10;   // (tenths; a vault's a dead end: the trip back later is from wherever the floor ends, far on average)
-      if (detour <= (ld ? 40 : s_detour) && gain > pg) { pg = gain; pick = c; pw = w; } }
+      if ((s_detour >= 99 || detour <= (ld ? 40 : s_detour)) && gain > pg) { pg = gain; pick = c; pw = w; } }
     memcpy(b_dist, dh, sizeof dh);
     if (pick >= 0) { best = pick; bw = pw; st_detour++; s_dt = pick; s_dtw = pw; }
     detour_done:; }
