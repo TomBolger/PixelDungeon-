@@ -3218,6 +3218,10 @@ static bool eat_value(void) {
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && (MOB_DEFS[m->type].flags & MD_BOSS)) return true; }
   if (boss_depth(G.depth)) return true;                // (a boss floor: the fight is the next thing)
   if (getenv("EATSEE")) for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) >= 3) return true; }   // (a fight is coming for sure: the regeneration through it, and the rules that won't retreat a starving hero)
+  if (getenv("EATNEAR")) {   // the chance of a fight soon: what's in sight now (an awake one: a fight likely within turns; asleep: maybe), beside me: no time to eat
+    double near = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || (MOB_DEFS[m->type].flags & (MD_NPC | MD_WATER)) || m->state == ST_PASSIVE) continue;
+      if (adjacent(m->pos, h->pos)) return false; near += m->state == ST_SLEEPING ? 0.05 : 0.5; }
+    rate += near; }
   double x = (double)h->HP / h->HT, gain = rate * (fight_risk(x) - fight_risk(1.0)), cost = K / 260.0;
   return gain > cost; }
 static bool eat_late(void) {
