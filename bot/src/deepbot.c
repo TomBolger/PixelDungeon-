@@ -1719,10 +1719,11 @@ static int plan_next(bool going, const char **why) {
       int wt = 0; const char *w = NULL; int hpi = heap_at(c);
       if (ld) { wt = 12; w = "locked door"; }
       else if (hpi >= 0 && heap_wanted(hpi)) { wt = 10; w = "item"; }
-      else if (G.map[c] == T_HIGH_GRASS && BIT_GET(G.visited, c) && !boss_zone(c) && mob_at(c) < 0 && s_grassw) { wt = s_grassw; w = "grass"; }
+      else if (G.map[c] == T_HIGH_GRASS && BIT_GET(G.visited, c) && !boss_zone(c) && mob_at(c) < 0 && (s_grassw || getenv("GRASSV"))) { wt = s_grassw; w = "grass"; }
       else if (s_pocket && frontier(c) && !(s_piranhas && PREACH(c)) && !boss_zone(c) && (cx(c) <= 5 || cx(c) >= MAP_W - 6 || cy(c) <= 5 || cy(c) >= MAP_H - 6)) { wt = s_pocket; w = "explore"; }   // 0.92 (seed 84 d1: the west door by the stairs, left at turn 0, cost a 30-turn trip back): a corner pocket beside me is cheap now, dear later
       if (!w) continue;
-      int detour = dh[c] + b_dist[c] - dh[best], back = 2 * b_dist[c] + 2, gain; if (ld && back < 30) back = 30; gain = back * wt - detour * 10;   // (tenths; a vault's a dead end: the trip back later is from wherever the floor ends, far on average)
+      int detour = dh[c] + b_dist[c] - dh[best], back = 2 * b_dist[c] + 2, gain; if (ld && back < 30) back = 30; gain = back * wt - detour * 10;
+      if (getenv("GRASSV") && !strcmp(w, "grass")) gain = atoi(getenv("GRASSV")) * 10 - detour * 10;   // (2026-11-07: the bot never comes back for grass, so there is no trip back to save: a patch is worth what it gives, in turns: dew 1 in 6, a seed 1 in 18 (HighGrass.trample))   // (tenths; a vault's a dead end: the trip back later is from wherever the floor ends, far on average)
       if ((s_detour >= 99 || detour <= (ld ? 40 : s_detour)) && gain > pg) { pg = gain; pick = c; pw = w; } }
     memcpy(b_dist, dh, sizeof dh);
     if (pick >= 0) { best = pick; bw = pw; st_detour++; s_dt = pick; s_dtw = pw; }
