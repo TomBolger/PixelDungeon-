@@ -231,10 +231,17 @@ static double b2_floor_left(double *moves_out, double *s_out) {
   double eun = den > 0 ? num / den : 0;
   static const uint16_t CW[9] = { 15, 10, 50, 40, 4, 2, 5, 50, 5 };   // weapon, armour, potion, scroll, wand, ring, seed, gold, misc
   double cv[9]; cv[0] = b2k("B2VWPN", 30); cv[1] = b2k("B2VARM", 30); cv[2] = b2_kind_avg(IDB_PW, IDB_PK, 12); cv[3] = b2_kind_avg(IDB_SW, IDB_SK, 12);
+  if (!getenv("OLDEVGEAR")) {   // (owner 2026-11-07, the build planner): a weapon or armour here is worth what it could add to this hero: the share of its kinds above what I wear (the generator picks kinds evenly)
+    int at = G.hero.armor.kind ? item_tier(G.hero.armor.kind) : 0, wt = G.hero.weapon.kind ? item_tier(G.hero.weapon.kind) + G.hero.weapon.lvl / 3 : 0, na = 0, nwk = 0, ba = 0, bw = 0;
+    for (int k = 0; k < IK_COUNT; k++) { int c = item_cat(k); if (c == CAT_ARMOR && !CLASS_ARMOR(k)) { na++; if (item_tier(k) > at) ba++; } else if (c == CAT_WEAPON && k < IK_DART) { nwk++; if (item_tier(k) > wt) bw++; } }
+    cv[0] *= nwk ? 2.0 * bw / nwk : 0; cv[1] *= na ? 2.0 * ba / na : 0; }
   cv[4] = b2k("B2VWAND", 120); cv[5] = b2k("B2VRING", 60); cv[6] = b2k("B2VSEED", 15); cv[7] = b2k("B2VGOLD", 0.3) * (30 + 10 * G.depth); cv[8] = b2k("B2VMISC", 20);
   double rv = 0, rw = 0; for (int i = 0; i < 9; i++) { rv += CW[i] * cv[i]; rw += CW[i]; } rv /= rw;
   double v = eun * rv;
   double lam = b2_move_price();
+  if (!getenv("OLDEVXP")) {   // (the worth of exploring is more than its items: the monsters still to meet give XP; a level is +11 points at Goo): unseen share x a floor's start (3 + depth%5 + 1) x XP a kill
+    double nm = u * (4 + G.depth % 5), xp = 1 + G.depth / 2.0; if (G.hero.lvl > 2 * G.depth + 6) xp *= 0.3;   // (too high a level: a monster's XP stops at its max level)
+    v += nm * xp * s_b2xpv * lam * b2k("B2EVXP", 1); }
   if (!s_ev_food) v += 260 * lam * 1.1;                 // the floor's food, not found: it's out there (as many turns of food as it holds)
   { Item a = item_make(IK_POT_STRENGTH, 1), b = item_make(IK_SCR_UPGRADE, 1), e = item_make(IK_SCR_ENCHANT, 1);
     double pp = q_unseen(s_q_pos, Q_POS, G.depth, s_q_fp, u), ps = q_unseen(s_q_sou, Q_SOU, G.depth, s_q_fs, u);
