@@ -2024,6 +2024,13 @@ static int goo2(Mob *m) {
         if (st >= 0 && sd < 0x7FFF) { s_goo2_lure++; s_did[0] = 0; DID("Goo2: lead it out of the water"); walk(tap_safe(st)); return 1; } } }
     s_did[0] = 0; DID("Goo2: hit it (no dry ground to draw it onto)"); return 0;
   }
+  if (d >= 2 && getenv("GOOTHROW")) {                  // (owner 2026-11-06: try it) an unknown potion shattered on it: worth it if the odds of a harmful one (gas, fire, frost, paralysis) outweigh what a good one is worth to me
+    static double tv = -1; if (tv < 0) tv = getenv("GOOTV") ? atof(getenv("GOOTV")) : 1.0; bool hit; int bs = -1; double bv = 0;
+    if (ballistica(hp, m->pos, &hit) == m->pos) for (int sl = 0; sl < BAG_SIZE; sl++) { int k = h->bag[sl].kind; if (item_cat(k) != CAT_POTION || item_known(k)) continue;
+      double v = tv * (idb_p(k, IK_POT_TOXIC) * 200 + idb_p(k, IK_POT_PARALYTIC) * 200 + idb_p(k, IK_POT_FROST) * 150 + idb_p(k, IK_POT_FLAME) * (IS_WATER(G.map[m->pos]) ? 20 : 120));
+      v -= idb_p(k, IK_POT_HEALING) * 100 + idb_p(k, IK_POT_STRENGTH) * 300 + idb_p(k, IK_POT_MIGHT) * 300 + idb_p(k, IK_POT_EXPERIENCE) * 150 + idb_p(k, IK_POT_LEVITATION) * 50 + (idb_p(k, IK_POT_MIND) + idb_p(k, IK_POT_PURITY) + idb_p(k, IK_POT_INVIS)) * 40;   // (what a good one is worth, known)
+      if (v > bv) { bv = v; bs = sl; } }
+    if (bs >= 0) { s_did[0] = 0; DID("Goo2: shatter an unknown potion on it (worth %.0f by the odds)", bv); walk(game_throw(bs, m->pos)); return 1; } }
   // not beside me: wait where I stand in water and it must come over dry ground, or go to such a cell nearby
   { int a; GOO2_APPROACH(hp, a); int here = (hw ? WW : 0) + (a >= 0 && !IS_WATER(G.map[a]) ? 10 : 0) + (goo2_esc(hp, a) ? 20 : 0);
     int best = -1, bs = here; bfs(hp, false);
