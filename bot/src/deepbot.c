@@ -3184,6 +3184,20 @@ static void sp_stat(void) {
 // turn no food pays for; it costs ~1 HP a 33 turns and the regeneration (1 a 10 turns when hurt). EATLATE=p: eat only once
 // starving and under p% of full health, or with a hard fight coming (a boss, or two hunting you, none near yet)
 static int s_eatlate = -1, s_warreat;
+// owner 2026-11-06 ("a formula that decides every move with the goal in mind"): the fight death risk by health, measured
+// (W-fight, 960 warriors x3: died / fights by the health a fight starts at), f(x) = A exp(-B x) by stage of the dungeon
+static double fight_risk(double x) {
+  int d = G.depth; double A = d <= 4 ? 0.35 : d <= 9 ? 0.45 : 0.6, B = d <= 4 ? 5.6 : d <= 9 ? 6.7 : 4.5;
+  if (x < 0) x = 0; if (x > 1) x = 1; return A * exp(-B * x); }
+// Starving: no regeneration (that's all it costs at full health). Eat when the death risk carried each turn for being
+// below full, times the fights a turn brings, outweighs a turn's worth of food (a ration is worth EATK of a run).
+static bool eat_value(void) {
+  Hero *h = &G.hero; if (!game_starving()) return false;
+  static double K = -1; if (K < 0) K = atof(getenv("EATK")); double rate = getenv("EATR") ? atof(getenv("EATR")) : 0.025;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && (MOB_DEFS[m->type].flags & MD_BOSS)) return true; }
+  if (boss_depth(G.depth)) return true;                // (a boss floor: the fight is the next thing)
+  double x = (double)h->HP / h->HT, gain = rate * (fight_risk(x) - fight_risk(1.0)), cost = K / 260.0;
+  return gain > cost; }
 static bool eat_late(void) {
   Hero *h = &G.hero; if (!game_starving()) return false;
   if (h->HP * 100 < h->HT * s_eatlate) return true;
@@ -3303,7 +3317,7 @@ static void q_track(void) {                              // each step: the floor
 static bool eat_rule(void) {                          // when and what to eat (shared by both brains)
   Hero *h = &G.hero;
   bool buffrush = s_pztest && ((h->b.invis > 0 && pool_puzzle_pending()) || (h->b.levitation > 0 && trap_puzzle_pending()));   // 0.92 (seed 84: ate while floating, the ration left behind): the prize first
-  if (!(buffrush && !game_starving()) && (s_eatlate >= 0 && G.depth >= (getenv("EATLATED") ? atoi(getenv("EATLATED")) : 0) ? eat_late() : s_oldeat ? game_hungry() : (game_starving() || (((!getenv("OLDEAT2")) || getenv("THRIFT")) && game_hungry() && ({ bool r = false; for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_RATION || h->bag[i].kind == IK_CHARGRILLED || h->bag[i].kind == IK_CARPACCIO || h->bag[i].kind == IK_OVERPRICED) r = true; r; }))) && !foe_near(3))) {   // 0.58 EATEARLY: a ration (260) at hungry (260+) wastes nothing, and a fight while starving has no healing   // 0.47n: only once starving (PD: hungry costs nothing, a ration eaten early wastes up to 100 turns), never with a foe at hand
+  if (!(buffrush && !game_starving()) && (getenv("EATK") ? eat_value() : s_eatlate >= 0 && G.depth >= (getenv("EATLATED") ? atoi(getenv("EATLATED")) : 0) ? eat_late() : s_oldeat ? game_hungry() : (game_starving() || (((!getenv("OLDEAT2")) || getenv("THRIFT")) && game_hungry() && ({ bool r = false; for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == IK_RATION || h->bag[i].kind == IK_CHARGRILLED || h->bag[i].kind == IK_CARPACCIO || h->bag[i].kind == IK_OVERPRICED) r = true; r; }))) && !foe_near(3))) {   // 0.58 EATEARLY: a ration (260) at hungry (260+) wastes nothing, and a fight while starving has no healing   // 0.47n: only once starving (PD: hungry costs nothing, a ration eaten early wastes up to 100 turns), never with a foe at hand
     int s = -1; for (int i = 0; i < BAG_SIZE && s < 0; i++) if (is_food(h->bag[i].kind) && !(((!getenv("OLDEAT2")) || getenv("THRIFT")) && !game_starving() && h->bag[i].kind == IK_PASTY)) s = i;
     if (s < 0) s = find_kind(IK_MYSTERY_MEAT);
     if (s < 0 && game_starving() && (!s_pztest || getenv("OLDFISH"))) s = find_kind(IK_PHANTOM_FISH) >= 0 && G.q.wand != QS_GIVEN ? find_kind(IK_PHANTOM_FISH) : -1;   /* (0.93 audit: the phantom fish feeds nothing) */
