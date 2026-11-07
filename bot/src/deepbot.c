@@ -1529,11 +1529,12 @@ static int path_cell(Mob *m, int mind) {                // a free cell between i
     int sc = dm * 2 + dh; if (sc < bs) { bs = sc; best = c; } }
   return best;
 }
+static bool s_seed_force;   // (GOOKIT: the boss: the seeds go in whatever my health)
 static bool seed_throw(int mi) {
   Hero *h = &G.hero; Mob *m = &G.mobs[mi]; int s, d = distance(m->pos, h->pos);
   if (m->state != ST_HUNTING || h->b.blind) return false;
   if (!getenv("OLDSEEDSHOOT") && m->type == MT_TENGU) return false;   // seedlog ss-seed3 2 (g98 d10: 3 seeds thrown onto the way in of a Tengu that stands and shoots: 24 HP for nothing)
-  bool hurt = h->HP * 100 < h->HT * PRM[P_SEEDHP] || s_losing, many = foes_near(3) >= 2;
+  bool hurt = h->HP * 100 < h->HT * PRM[P_SEEDHP] || s_losing || s_seed_force, many = foes_near(3) >= 2;
   if (!hurt && !many) return false;
   if (d >= 3 && (s = find_kind(IK_SEED_EARTHROOT)) >= 0 && G.herbal_pos != h->pos) {   // armour while I stand on it: beside me, then onto it, before it comes
     for (int k = 0; k < 8; k++) { int c = h->pos + N8[k]; if (!nb_ok(h->pos, c) || !PASSABLE(G.map[c]) || (TFLAGS(G.map[c]) & F_AVOID) || char_at(c) || plant_at(c) >= 0 || heap_at(c) >= 0 || IS_WATER(G.map[c]) || distance(c, m->pos) < 2) continue;
@@ -2002,6 +2003,9 @@ static int goo2(Mob *m) {
     static double eps = -1; if (eps < 0) eps = atof(getenv("GOOKP")) > 0 ? atof(getenv("GOOKP")) : 0.05;
     bool pump = m->aux2 != 0; int att = pump ? (d == 1 ? 30 : 15) : 15; double pk = phit(att, hero_def_est()) * dmg_kill_p(pump ? 5 : 2, pump ? 30 : 12, hero_dr(), h->HP - G.deferred);
     if ((pump || d == 1) && pk > eps) { s_did[0] = 0; DID("Goo2: drink healing (its next blow kills %.0f%% of the time)", pk * 100); do_item(find_kind(IK_POT_HEALING), ACN_DRINK); return 1; } }
+  if (getenv("GOOKIT") && !m->aux2 && d >= 2 && m->state == ST_HUNTING) {   // (2026-11-06 bags at Goo deaths: Firebloom, Earthroot, Sorrowmoss, Icecap, bombs, a Wand of Poison unused): the boss gets the whole bag while it comes
+    int mi = (int)(m - G.mobs); if (ranged_try(mi)) { s_did[0] = 0; DID("Goo2: the kit while it comes"); return 1; }
+    s_seed_force = true; bool st = seed_throw(mi); s_seed_force = false; if (st) return 1; }
   if (m->aux2 && d <= 2) {                                // pumped: two moves before it lands
     bool finish = m->HP <= my * 2.2 && h->HP > 30;      // (owner: tank the last one if it'll likely die first)
     if (finish && d == 1) { s_did[0] = 0; DID("Goo2: pumped, but two blows should finish it"); return 0; }
