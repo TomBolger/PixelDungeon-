@@ -1718,7 +1718,7 @@ static int plan_next(bool going, const char **why) {
       if (c == best || dh[c] == 0 || (s_detour < 99 && dh[c] > (ld ? 30 : 8)) || dh[c] >= 0x7FFF || b_dist[c] >= 0x7FFF || s_black[c] > s_bot_steps) continue;   // (owner 2026-11-07: "every option on the map should be the math": DETOUR=99+ drops the reach caps)
       int wt = 0; const char *w = NULL; int hpi = heap_at(c);
       if (ld) { wt = 12; w = "locked door"; }
-      else if (hpi >= 0 && heap_wanted(hpi)) { wt = 10; w = "item"; }
+      else if (hpi >= 0 && heap_wanted(hpi)) { wt = getenv("ITEMW") ? atoi(getenv("ITEMW")) : 10; w = "item"; }   // (tenths: the share of the trip back that is truly saved: the explore walk passes by many skipped things anyway)
       else if (G.map[c] == T_HIGH_GRASS && BIT_GET(G.visited, c) && !boss_zone(c) && mob_at(c) < 0 && (s_grassw || getenv("GRASSV"))) { wt = s_grassw; w = "grass"; }
       else if (s_pocket && frontier(c) && !(s_piranhas && PREACH(c)) && !boss_zone(c) && (cx(c) <= 5 || cx(c) >= MAP_W - 6 || cy(c) <= 5 || cy(c) >= MAP_H - 6)) { wt = s_pocket; w = "explore"; }   // 0.92 (seed 84 d1: the west door by the stairs, left at turn 0, cost a 30-turn trip back): a corner pocket beside me is cheap now, dear later
       if (!w) continue;
