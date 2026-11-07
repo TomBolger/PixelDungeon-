@@ -3191,6 +3191,7 @@ static int s_eatlate = -1, s_warreat;
 // (W-fight, 960 warriors x3: died / fights by the health a fight starts at), f(x) = A exp(-B x) by stage of the dungeon
 static double fight_risk(double x) {
   int d = G.depth; double A = d <= 4 ? 0.35 : d <= 9 ? 0.45 : 0.6, B = d <= 4 ? 5.6 : d <= 9 ? 6.7 : 4.5;
+  if (getenv("RISK3")) { A = d <= 4 ? 0.5 : d <= 9 ? 0.5 : 0.8; B = d <= 4 ? 4.1 : d <= 9 ? 4.8 : 3.1; }   // (died within the next 3 fights: the chains a low hero walks into before he heals, same runs)
   if (x < 0) x = 0; if (x > 1) x = 1; return A * exp(-B * x); }
 // The formula, piece 3 (owner 2026-11-06): take on a monster that isn't hunting me (asleep, wandering) only when what it
 // gives beats what it costs, all in shares of a run: its XP (ENGXP a point) against the death chance of the duel and the
