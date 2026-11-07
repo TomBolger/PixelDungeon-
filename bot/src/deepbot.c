@@ -1110,6 +1110,7 @@ static void dmg_moments(int lo, int hi, int dr, double *m1, double *m2) {   // E
   for (int j = 0; j < n; j++) { double a = 2.0 * j / n, b = 2.0 * (j + 1) / n, Fa = a <= 1 ? a * a / 2 : 1 - (2 - a) * (2 - a) / 2, Fb = b <= 1 ? b * b / 2 : 1 - (2 - b) * (2 - b) / 2, pj = Fb - Fa;
     for (int r = 0; r <= R; r++) { double x = lo + j - (dr < 0 ? 0 : r); if (x < 0) x = 0; t1 += pj * x / (R + 1); t2 += pj * x * x / (R + 1); } }
   *m1 = t1; *m2 = t2; }
+static double fight_risk(double x); static double engage_value(int i);
 static double dmg_kill_p(int lo, int hi, int dr, int hp) {   // P(max(0, D - A) >= hp): D NormalIntRange(lo, hi), A uniform 0..dr (the same draw as dmg_moments)
   if (hi < lo) hi = lo; int n = hi - lo + 1, R = dr < 0 ? 0 : dr; double t = 0;
   for (int j = 0; j < n; j++) { double a = 2.0 * j / n, b = 2.0 * (j + 1) / n, Fa = a <= 1 ? a * a / 2 : 1 - (2 - a) * (2 - a) / 2, Fb = b <= 1 ? b * b / 2 : 1 - (2 - b) * (2 - b) / 2, pj = Fb - Fa;
@@ -2278,8 +2279,9 @@ static bool fight(void) {
     if ((MOB_DEFS[m->type].flags & MD_WATER) && !adjacent(m->pos, h->pos)) continue;   // piranhas: only when they come close
     if (m->type == MT_SPINNER && m->state == ST_FLEEING && !adjacent(m->pos, h->pos) && s_pztest && getenv("SPINNER2")) continue;   // 0.93 (source): a spinner that bit runs off laying webs until your poison is gone, then comes back: no chasing it into its webs
     if ((MOB_DEFS[m->type].flags & MD_WATER) && h->b.invis && !getenv("OLDINVIS")) continue;   // bot3: invisible in the pool: they can't see you; a blow would show you
+    if (getenv("ENGK") && m->state != ST_HUNTING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !((m->type == MT_THIEF || m->type == MT_BANDIT) && d <= 4)) { if (engage_value(i) < 0) continue; } else
     if (m->state != ST_HUNTING && !adjacent(m->pos, h->pos) && h->HP * 100 < h->HT * (getenv("OLDENGAGE") ? PRM[P_ENGAGE] : getenv("ENGAGEHP") ? atoi(getenv("ENGAGEHP")) : 60)) continue;   // (0.50 review g6: below 60%, let a wanderer pass; was tuned to 0)   // bot3: hurt: let it wander by
-    if (m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !s_oldsleep && floor_left() && (getenv("OLDSLEEP2") || distance(m->pos, h->pos) > (getenv("SNEAKR") ? atoi(getenv("SNEAKR")) : 2))) continue;   // 0.49 (owner): one close by gets the sure first hit (asleep, it can't dodge) before walking past wakes it   // 0.48 (owner): sleepers after exploring (what's in the next room may be worth the health)
+    if (!getenv("ENGK") && m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !s_oldsleep && floor_left() && (getenv("OLDSLEEP2") || distance(m->pos, h->pos) > (getenv("SNEAKR") ? atoi(getenv("SNEAKR")) : 2))) continue;   // 0.49 (owner): one close by gets the sure first hit (asleep, it can't dodge) before walking past wakes it   // 0.48 (owner): sleepers after exploring (what's in the next room may be worth the health)
     if (m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && s_sleepskip > 0 && G.depth >= s_sleepskip_d && distance(m->pos, h->pos) > (getenv("SLEEPSKIPR") ? atoi(getenv("SLEEPSKIPR")) : 2)) { losing_fight(i); if (s_lose_cost >= s_sleepskip * 0.01 * h->HP) continue; }   // ss-mid2 1: a sleeper the sum says is costly is left asleep, even when the floor is done (nothing to win but XP)
     if ((MOB_DEFS[m->type].flags & MD_BOSS) && m->state != ST_HUNTING && PRM[P_BOSSLAST] && (h->HP < h->HT || ({ bool fr = false; for (int q = 0; q < MAP_LEN && !fr; q++) if (frontier(q) && !boss_zone(q)) fr = true; fr; }))) continue;   // bot3: a sleeping boss: last, at full health
     if (key < bk) { bk = key; best = i; }
@@ -3189,6 +3191,20 @@ static int s_eatlate = -1, s_warreat;
 static double fight_risk(double x) {
   int d = G.depth; double A = d <= 4 ? 0.35 : d <= 9 ? 0.45 : 0.6, B = d <= 4 ? 5.6 : d <= 9 ? 6.7 : 4.5;
   if (x < 0) x = 0; if (x > 1) x = 1; return A * exp(-B * x); }
+// The formula, piece 3 (owner 2026-11-06): take on a monster that isn't hunting me (asleep, wandering) only when what it
+// gives beats what it costs, all in shares of a run: its XP (ENGXP a point) against the death chance of the duel and the
+// extra death risk I carry while the HP it takes grows back (10 turns an HP, EATR fights a turn, the measured curve).
+static double engage_value(int i) {
+  Mob *m = &G.mobs[i]; Hero *h = &G.hero; double hd = hero_dpt(m), fd = foe_dpt(m);
+  if (m->type == MT_BAT) hd -= fd; if (hd < 0.2) hd = 0.2;
+  double turns = m->HP / hd - (m->state == ST_SLEEPING ? 1 : 0); if (turns < 0) turns = 0;   // (asleep: the first blow is free)
+  double E = turns * fd, V = E * MOB_DEFS[m->type].dmg_hi * 0.7 + 1, pd = 0.5 * erfc((h->HP - E) / sqrt(V) / sqrt(2.0));
+  static double xpk = -1, re; if (xpk < 0) { xpk = getenv("ENGXP") ? atof(getenv("ENGXP")) : 0.004; re = getenv("EATR") ? atof(getenv("EATR")) : 0.025; }
+  int ex = h->lvl <= MOB_DEFS[m->type].max_lvl ? MOB_DEFS[m->type].exp : 0;
+  double x0 = (double)h->HP / h->HT, x1 = (h->HP - E) / h->HT; if (x1 < 0) x1 = 0;
+  double hpcost = re * (fight_risk(x1) - fight_risk(x0)) / 2 * 10 * E;
+  if (getenv("ENGDBG") && !s_rollout) printf("ENG d%d %s st%d hero %d/%d E %.1f pd %.4f hpcost %.4f xp %.4f -> %.4f\n", G.depth, mob_name(m->type), m->state, h->HP, h->HT, E, pd, hpcost, xpk * ex, xpk * ex - pd - hpcost);
+  return xpk * ex - pd - hpcost; }
 // Starving: no regeneration (that's all it costs at full health). Eat when the death risk carried each turn for being
 // below full, times the fights a turn brings, outweighs a turn's worth of food (a ration is worth EATK of a run).
 static bool eat_value(void) {
