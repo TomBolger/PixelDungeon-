@@ -4736,6 +4736,10 @@ static int lab_trial(const char *fn, uint32_t seed) {
     close(fds[0]); FILE *f = fopen(fn, "rb"); if (!f || fread(g_keys, sizeof g_keys, 1, f) != 1) _exit(1); fclose(f);
     if (!game_load()) _exit(1);
     if (getenv("LABSWAP")) { int k = atoi(getenv("LABSWAP")); Hero *h = &G.hero;   // what-if: the weapon's upgrades went into this bag weapon instead
+      if (!strcmp(getenv("LABSWAP"), "best") || !strcmp(getenv("LABSWAP"), "plain")) {   // (2026-11-07 gear table: 104 of 355 short-sword heroes at Tengu carried a better weapon they could lift): the best such, with the upgrades moved ("best") or as it is ("plain")
+        int bi = -1, bt = item_tier(h->weapon.kind); for (int i = 0; i < BAG_SIZE; i++) { Item *b = &h->bag[i]; if (item_cat(b->kind) != CAT_WEAPON || b->kind >= IK_DART) continue;
+          int lv = !strcmp(getenv("LABSWAP"), "best") ? h->weapon.lvl : b->lvl; { Item t = *b; t.lvl = lv; if (item_str(&t) > hero_str() || (b->flags & IF_CURSED_KNOWN && b->lvl < 0)) continue; } if (item_tier(b->kind) > bt) { bt = item_tier(b->kind); bi = i; } }
+        k = bi >= 0 ? h->bag[bi].kind : -999; if (!strcmp(getenv("LABSWAP"), "plain") && bi >= 0) { Item w = h->weapon; Item b = h->bag[bi]; if (b.lvl < 0) b.lvl = 0; b.flags |= IF_LEVEL_KNOWN | IF_CURSED_KNOWN; h->weapon = b; h->bag[bi] = w; k = -999; } }
       for (int i = 0; i < BAG_SIZE; i++) if (h->bag[i].kind == k) { Item w = h->weapon, b = h->bag[i]; b.lvl += w.lvl; w.lvl = 0; b.flags |= IF_LEVEL_KNOWN; h->weapon = b; h->bag[i] = w; break; } }
     if (getenv("GEARDBG")) { Hero *h = &G.hero; Item a = h->armor; printf("hero STR %d lvl %d weapon kind %d +%d str %d\n", hero_str(), h->lvl, h->weapon.kind, h->weapon.lvl, item_str(&h->weapon));
       for (int i = -1; i < BAG_SIZE; i++) { Item w = i < 0 ? h->weapon : h->bag[i]; if (item_cat(w.kind) != CAT_WEAPON) continue; for (int up = 0; up <= 3; up++) { Item x = w; x.lvl = up; printf("  weapon %2d +%d (STR %d): gear_cost %.1f\n", x.kind, up, item_str(&x), gear_cost(&x, &a)); } } _exit(0); }
