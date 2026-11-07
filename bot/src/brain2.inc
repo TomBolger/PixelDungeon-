@@ -74,7 +74,7 @@ static int b2_step(int c, const char *what) { int32_t t0 = G.hero.time; ActResul
 // So while a fight now would carry a real death risk, I step to the cell that keeps me clear of it, over ground I know
 // (away from the unknown, other monsters and dead ends), until the fight is safe; then I hold and let it step into my blow.
 static int b2_kite(void) {
-  Hero *h = &G.hero; if (!getenv("B2KITE") || game_starving() || h->HP * 10 >= h->HT * 9) return 0;
+  Hero *h = &G.hero; if (!getenv("B2KITE") || starve_block() || h->HP * 10 >= h->HT * 9) return 0;
   static double eps = -1; if (eps < 0) eps = b2k("B2KITEEPS", 0.01);
   TFoe F[24]; int nf = 0;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state == ST_PASSIVE || (MOB_DEFS[m->type].flags & (MD_NPC | MD_WATER))) continue;
@@ -120,7 +120,7 @@ static int b2_threats_m(bool tow_only) {
   double tt; tact_eval(F, nf, h->pos, NULL, 0, &tt, -1, 0); double E = s_te_E, pd = s_te_pd;
   bool ahead = pd < s_b2eps && E < h->HP * s_b2ef;
   if (getenv("B2DBG")) printf("B2 step %d hp %d/%d foes %d E %.1f pd %.3f ahead %d can_go %d\n", s_bot_steps, h->HP, h->HT, nf, E, pd, ahead, can_go);
-  if (game_starving()) can_go = false;                 // (starving: no healing on the way, so putting it off only makes it worse)
+  if (starve_block()) can_go = false;                 // (starving: no healing on the way, so putting it off only makes it worse)
   if (!ahead && can_go) {                               // walk on with it in tow: a step that leaves none beside me, the one that gets me furthest on my way
     int tgt = s_goal_cell2; int bq = -1; double bs = -1e9;
     for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !b2_open(q) || char_at(q) || q == G.exit) continue;
@@ -196,7 +196,7 @@ static int b2_route(void) {
   if (!stairs) return -1;                               // nothing left I can see and no stairs: the old rules search for the way on
   if (boss_depth(G.depth + 1)) return -1;               // (the floor before a boss: the old rules prepare for it)
   if (!getenv("B2NEWEND")) return -1;                  // the old rules end the floor: hidden-room searches on evidence, the shop, wells, dead ends, a trap in the way, the weak floor, the stairs
-  if (h->HP * 100 < h->HT * s_b2down && !game_starving() && threat_count() == 0) { st_b2[3]++; s_did[0] = 0; DID("b2: top up before the stairs (%d/%d)", h->HP, h->HT); walk(game_rest(false)); return 1; }
+  if (h->HP * 100 < h->HT * s_b2down && !starve_block() && threat_count() == 0) { st_b2[3]++; s_did[0] = 0; DID("b2: top up before the stairs (%d/%d)", h->HP, h->HT); walk(game_rest(false)); return 1; }
   st_b2[3]++; return b2_step(G.exit, "b2: nothing here worth its walk: down");
 }
 
@@ -261,7 +261,7 @@ static int b2_leave_check(void) {
   if (getenv("B2EVDBG")) { static int ls = -1; if (ls != s_bot_steps / 20) { ls = s_bot_steps / 20; printf("B2EV d%d step %d seen %.2f k %d left %.0f moves %.0f price %.2f cost %.0f food %d next %s -> %s\n", G.depth, s_bot_steps, sf, s_fh_k, v, mv, b2_move_price(), cost, food_budget(), why, v < cost ? "LEAVE" : "stay"); } }
   if (v >= cost) return 0;
   st_evleave++;
-  if (h->HP * 10 < h->HT * 7 && !game_starving() && threat_count() == 0 && !gas_at(h->pos) && !rest_cap()) { s_did[0] = 0; DID("b2: rest before going down"); walk(game_rest(false)); return 1; }
+  if (h->HP * 10 < h->HT * 7 && !starve_block() && threat_count() == 0 && !gas_at(h->pos) && !rest_cap()) { s_did[0] = 0; DID("b2: rest before going down"); walk(game_rest(false)); return 1; }
   static char wb[96]; snprintf(wb, sizeof wb, "b2: what's likely left (%.0f) isn't worth the moves (%.0f): down", v, cost); return b2_step(G.exit, wb);
 }
 
