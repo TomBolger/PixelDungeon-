@@ -3212,6 +3212,7 @@ static bool eat_value(void) {
   static double K = -1; if (K < 0) K = atof(getenv("EATK")); double rate = getenv("EATR") ? atof(getenv("EATR")) : 0.025;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && (MOB_DEFS[m->type].flags & MD_BOSS)) return true; }
   if (boss_depth(G.depth)) return true;                // (a boss floor: the fight is the next thing)
+  if (getenv("EATSEE")) for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) >= 3) return true; }   // (a fight is coming for sure: the regeneration through it, and the rules that won't retreat a starving hero)
   double x = (double)h->HP / h->HT, gain = rate * (fight_risk(x) - fight_risk(1.0)), cost = K / 260.0;
   return gain > cost; }
 static bool eat_late(void) {
