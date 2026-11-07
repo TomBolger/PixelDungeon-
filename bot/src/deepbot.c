@@ -1998,6 +1998,7 @@ static int goo2(Mob *m) {
       if (goo2_safe(q, m)) sc = 100 + IS_WATER(G.map[q]) * 5;
       else for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && goo2_ok(r) && r != hp && goo2_safe(r, m)) { int v = 50 + IS_WATER(G.map[r]) * 5; if (v > sc) sc = v; } }
       if (sc < 0) continue; sc += distance(q, m->pos);
+      if (!getenv("OLDGOODODGE")) { int room = 0; for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && goo2_ok(r) && !adjacent(r, m->pos) && r != m->pos) room++; } sc += room * 6 + (goo2_esc(q, m->pos) ? 25 : 0); if (room <= 1) sc -= 40; }   // (2026-11-06 lab: it dodged into a pocket and ate four pumped blows there: keep room for the next dodge)
       if (sc > bs) { bs = sc; best = q; } }
     if (best >= 0) { s_goo2_lure = 0; s_did[0] = 0; DID("Goo2: pumped: out of its reach"); walk(tap_safe(best)); return 1; }
     if (d == 1) { s_did[0] = 0; DID("Goo2: pumped, nowhere to go: two free blows"); return 0; }
