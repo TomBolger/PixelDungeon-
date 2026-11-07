@@ -62,6 +62,7 @@ void ui_wnd_info(const Item *it) { char b[300]; item_info(it, b, sizeof b); }
 void cap_first(char *s) { if (s[0] >= 'a' && s[0] <= 'z') s[0] -= 32; }
 void ui_free_cache(int m) {}
 extern int s_pend_depth, s_pend_arrive;
+static double hero_dpt(Mob *m); static double foe_dpt(Mob *m);
 extern int8_t g_trade; extern int16_t g_trade_arg;
 
 // ---------------- violations ----------------
@@ -824,6 +825,14 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
     if (!s_rollout) st_upg_holds++; }
   else if ((s = G.hero.b.blind ? -1 : find_kind(IK_SCR_UPGRADE)) >= 0 && item_known(IK_SCR_UPGRADE) && G.now >= s_upg_hold_until && !(getenv("UPGHOLDBOSS") && !boss_depth(G.depth) && !boss_depth(G.depth + 1)) &&   /* 0.58 test (owner: hold for better gear): read only on or just before a boss floor */ (game_pick_ok(PICK_UPGRADE, -2) || game_pick_ok(PICK_UPGRADE, -1))) {
     if (getenv("ARMLATE") && G.depth >= atoi(getenv("ARMLATE")) && h->armor.kind && !CLASS_ARMOR(h->armor.kind) && item_tier(h->armor.kind) >= 3) { do_item(s, ACN_READ); return true; }   /* (ARMLATE test: no playouts: into the armour) */
+    if (getenv("UPGM") && h->weapon.kind && h->armor.kind && game_pick_ok(PICK_UPGRADE, -1) && game_pick_ok(PICK_UPGRADE, -2) && !cursed_known(&h->weapon) && !cursed_known(&h->armor)) {
+      // (owner 2026-11-07: the game's math decides): the next boss's fight: HP lost ~ its HP x its damage a turn / mine.
+      // The upgrade goes where it cuts that most: +1 weapon raises mine (x hd'/hd), +1 armour cuts its (x fd/fd')
+      int bslot = (int)(sizeof G.mobs / sizeof G.mobs[0]) - 1; Mob keep = G.mobs[bslot], *bp = &G.mobs[bslot]; memset(bp, 0, sizeof *bp); bp->type = G.depth <= 5 ? MT_GOO : G.depth <= 10 ? MT_TENGU : G.depth <= 15 ? MT_DM300 : G.depth <= 20 ? MT_KING : MT_YOG; bp->HP = MOB_DEFS[bp->type].HT; bp->pos = h->pos; Mob b = *bp;   // (a spare slot: the stats hooks index the mob table)
+      double hd0 = hero_dpt(bp), fd0 = foe_dpt(bp); h->weapon.lvl++; double hd1 = hero_dpt(bp); h->weapon.lvl--; h->armor.lvl++; double fd1 = foe_dpt(bp); h->armor.lvl--; G.mobs[bslot] = keep;
+      double gw = hd1 / (hd0 > 0.05 ? hd0 : 0.05), ga = fd0 / (fd1 > 0.05 ? fd1 : 0.05); int slot = ga > gw ? -2 : -1;
+      if (!s_rollout) DID("upgrade the %s (vs the %s: weapon x%.3f, armour x%.3f)", slot == -2 ? "armour" : "weapon", mob_name(b.type), gw, ga);
+      s_force_pick = slot; do_item(s, ACN_READ); return true; }
     if (getenv("UPGW") && h->weapon.kind && game_pick_ok(PICK_UPGRADE, -1) && !cursed_known(&h->weapon)) { if (!s_rollout) DID("upgrade the weapon (UPGW)"); s_force_pick = -1; do_item(s, ACN_READ); return true; }   /* (boss fit 2026-11-06: a weapon level is worth +13 pts at Goo, an armour level +8) */
     if (!s_rollout && !getenv("NOSTRAT")) { int r = s_toe && !getenv("TOENOUP") ? toe_upgrade(s) : strategic_upgrade(s); if (r == 1) return true; if (r == 0) { s_upg_hold_until = G.now + 400 * TICK; } }
     else { bool hold = false; if (PRM[P_GEARMODEL]) upg_plan(&hold); if (!hold) { do_item(s, ACN_READ); return true; } if (!s_rollout) st_upg_holds++; }
