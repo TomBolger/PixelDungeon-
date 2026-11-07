@@ -707,7 +707,7 @@ static int pick_for(PickMode p) {                        // an item selector is 
   }
 }
 static int wnd_for(void) {                              // a window with buttons: which one
-  if (g_trade == 1) { int hh = heap_at(g_trade_arg); if (hh >= 0 && strncmp(s_wnd_b1, "Buy", 3) == 0 && (getenv("OLDBUY") || want_buy(hh))) { st_buys++; return 0; } /* 0.50 (review g6): only what it meant to buy (walking over the wares once cost 1200g for a sword it sold back for 80) */ s_black[g_trade_arg] = s_bot_steps + 3000; s_sale_gold[g_trade_arg] = G.hero.gold; return 1; }
+  if (g_trade == 1) { int hh = heap_at(g_trade_arg); if (hh >= 0 && strncmp(s_wnd_b1, "Buy", 3) == 0 && (getenv("OLDBUY") || want_buy(hh))) { st_buys++; if (getenv("BUYLOG") && !s_rollout && !s_is_child) { char nm[64]; item_name(&G.heaps[hh].item, nm, sizeof nm); printf("BUY g%d d%d %s gold %d\n", cur_game, G.depth, nm, G.hero.gold); } return 0; } /* 0.50 (review g6): only what it meant to buy (walking over the wares once cost 1200g for a sword it sold back for 80) */ s_black[g_trade_arg] = s_bot_steps + 3000; s_sale_gold[g_trade_arg] = G.hero.gold; return 1; }
   if (g_trade == 3 && !getenv("OLDGEARFIX")) {   // 0.52 (audit): the Tome: the way that suits this bot (no wand-in-hand melee, so not Battlemage)
     if (strncmp(s_wnd_b1, "Yes", 3) == 0) return 1;      // (a respec: no)
     static const char *const PREF[] = { "Gladiator", "Warlock", "Freerunner", "Sniper" };
