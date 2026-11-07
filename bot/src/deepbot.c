@@ -1110,6 +1110,11 @@ static void dmg_moments(int lo, int hi, int dr, double *m1, double *m2) {   // E
   for (int j = 0; j < n; j++) { double a = 2.0 * j / n, b = 2.0 * (j + 1) / n, Fa = a <= 1 ? a * a / 2 : 1 - (2 - a) * (2 - a) / 2, Fb = b <= 1 ? b * b / 2 : 1 - (2 - b) * (2 - b) / 2, pj = Fb - Fa;
     for (int r = 0; r <= R; r++) { double x = lo + j - (dr < 0 ? 0 : r); if (x < 0) x = 0; t1 += pj * x / (R + 1); t2 += pj * x * x / (R + 1); } }
   *m1 = t1; *m2 = t2; }
+static double dmg_kill_p(int lo, int hi, int dr, int hp) {   // P(max(0, D - A) >= hp): D NormalIntRange(lo, hi), A uniform 0..dr (the same draw as dmg_moments)
+  if (hi < lo) hi = lo; int n = hi - lo + 1, R = dr < 0 ? 0 : dr; double t = 0;
+  for (int j = 0; j < n; j++) { double a = 2.0 * j / n, b = 2.0 * (j + 1) / n, Fa = a <= 1 ? a * a / 2 : 1 - (2 - a) * (2 - a) / 2, Fb = b <= 1 ? b * b / 2 : 1 - (2 - b) * (2 - b) / 2, pj = Fb - Fa;
+    for (int r = 0; r <= R; r++) if (lo + j - (dr < 0 ? 0 : r) >= hp) t += pj / (R + 1); }
+  return t; }
 static bool magic_shooter(int t) { return t == MT_SHAMAN || t == MT_WARLOCK || t == MT_EYE || t == MT_BURNING_FIST; }   // char_hit(.., magic): their roll doubled, armour ignored
 static int mst(Mob *m, int w, int d) { int v = g_mh.stats ? g_mh.stats((int)(m - G.mobs), w) : -1; return v >= 0 ? v : d; }   // the creature overlay's own numbers (bats, Goo...)
 static double hero_dpt(Mob *m) {                       // the hero's mean damage to m per turn, melee
@@ -1993,6 +1998,10 @@ static int goo2(Mob *m) {
   s_goo2_last = G.now;
   if (m->aux2 && goo2_safe(hp, m) && m->state == ST_HUNTING) { s_did[0] = 0; DID("Goo2: pumped, I'm out of its reach: let it waste it"); walk(game_rest(false)); return 1; }
   double my = hero_dpt(m); int WW = getenv("GOO2W") ? atoi(getenv("GOO2W")) : 4;
+  if (getenv("GOOKP") && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING) && d <= 2) {   // (owner: decisions by the odds, not fixed lines; seed 47 d5: 13/35 HP beside a pumped Goo, a known Healing unused): drink when its next blow could kill
+    static double eps = -1; if (eps < 0) eps = atof(getenv("GOOKP")) > 0 ? atof(getenv("GOOKP")) : 0.05;
+    bool pump = m->aux2 != 0; int att = pump ? (d == 1 ? 30 : 15) : 15; double pk = phit(att, hero_def_est()) * dmg_kill_p(pump ? 5 : 2, pump ? 30 : 12, hero_dr(), h->HP - G.deferred);
+    if ((pump || d == 1) && pk > eps) { s_did[0] = 0; DID("Goo2: drink healing (its next blow kills %.0f%% of the time)", pk * 100); do_item(find_kind(IK_POT_HEALING), ACN_DRINK); return 1; } }
   if (m->aux2 && d <= 2) {                                // pumped: two moves before it lands
     bool finish = m->HP <= my * 2.2 && h->HP > 30;      // (owner: tank the last one if it'll likely die first)
     if (finish && d == 1) { s_did[0] = 0; DID("Goo2: pumped, but two blows should finish it"); return 0; }
@@ -5197,7 +5206,8 @@ int main(int argc, char **argv) {
     if (getenv("AUDHEAL") && G.hero.HP <= 0 && game_bag_find(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) printf("  AUDIT died with known healing g%d d%d\n", cur_game, G.depth);
     if (getenv("DEATHRING") && G.depth <= 5) { printf("RING g%d d%d:\n", g, G.depth); for (int i = getenv("RINGN") ? 64 - atoi(getenv("RINGN")) : 40; i < 64; i++) { int j = (s_ring_n + i) & 63; if (s_ring[j][0]) printf("    %s\n", s_ring[j]); } }
     if (getenv("MOBSTATS") && g == 0) for (int t = 0; t < MT_COUNT; t++) { const MobDef *d = &MOB_DEFS[t]; printf("MOB %s HT %d att %d def %d dmg %d-%d dr %d exp %d maxlvl %d move %d atk %d\n", mob_name(t), d->HT, d->att, d->def, d->dmg_lo, d->dmg_hi, d->dr, d->exp, d->max_lvl, d->move_cost, d->atk_delay); }
-    if (getenv("D")) { int fd = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_FOOD) fd += G.hero.bag[i].qty; printf("DEATHINFO g%d hunger %d food %d depth %d turn %d\n", g, G.hero.hunger, fd, G.depth, G.now / TICK); }
+    if (getenv("D")) { int fd = 0; for (int i = 0; i < BAG_SIZE; i++) if (item_cat(G.hero.bag[i].kind) == CAT_FOOD) fd += G.hero.bag[i].qty; printf("DEATHINFO g%d hunger %d food %d depth %d turn %d\n", g, G.hero.hunger, fd, G.depth, G.now / TICK);
+      if (getenv("BAGLOG")) { printf("DEATHBAG g%d d%d:", g, G.depth); for (int i = 0; i < BAG_SIZE; i++) if (G.hero.bag[i].kind) { char nm[64]; item_name(&G.hero.bag[i], nm, sizeof nm); printf(" [%s%s]", nm, item_known(G.hero.bag[i].kind) ? "" : "?"); } printf("\n"); } }
     if (!getenv("NOBRAIN2") && getenv("D")) { printf("B2TALLY g%d engage %ld tow %ld route %ld down %ld legacy %ld items %ld eat %ld hurt %ld\n", g, st_b2[0], st_b2[1], st_b2[2], st_b2[3], st_b2[4], st_b2[5], st_b2[6], st_b2[7]); memset(st_b2, 0, sizeof st_b2); }
     if (getenv("D")) printf("FIGHTHP g%d cls %d hp %ld maxd %d tact %ld holds %ld throws %ld\n", g, g_new_class, s_fight_hp, G.max_depth, st_tact_steps, st_tact_waits, st_tact_throws); st_tact_steps = st_tact_waits = st_tact_throws = 0; s_fight_hp = 0;
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
