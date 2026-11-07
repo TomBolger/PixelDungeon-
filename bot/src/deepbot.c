@@ -1110,7 +1110,7 @@ static void dmg_moments(int lo, int hi, int dr, double *m1, double *m2) {   // E
   for (int j = 0; j < n; j++) { double a = 2.0 * j / n, b = 2.0 * (j + 1) / n, Fa = a <= 1 ? a * a / 2 : 1 - (2 - a) * (2 - a) / 2, Fb = b <= 1 ? b * b / 2 : 1 - (2 - b) * (2 - b) / 2, pj = Fb - Fa;
     for (int r = 0; r <= R; r++) { double x = lo + j - (dr < 0 ? 0 : r); if (x < 0) x = 0; t1 += pj * x / (R + 1); t2 += pj * x * x / (R + 1); } }
   *m1 = t1; *m2 = t2; }
-static double fight_risk(double x); static double engage_value(int i);
+static double fight_risk(double x); static double engage_value(int i); static void gm_log(void);
 static bool starve_block(void);
 static double dmg_kill_p(int lo, int hi, int dr, int hp) {   // P(max(0, D - A) >= hp): D NormalIntRange(lo, hi), A uniform 0..dr (the same draw as dmg_moments)
   if (hi < lo) hi = lo; int n = hi - lo + 1, R = dr < 0 ? 0 : dr; double t = 0;
@@ -4434,6 +4434,7 @@ static int strat_playout(int scroll, int target, uint32_t seed) {
     if (target == -1000) s_upg_hold_until = G.now + 400 * TICK; else { s_force_pick = target; do_item(scroll, ACN_READ); if (s_pick >= 0) la_step(); }
     int steps = 0;
     while (G.hero.HP > 0 && steps < 2500 && G.depth < d0 + 3) {
+      gm_log();
       if (s_pend_depth) { s_arrival = true; game_level_commit(); s_arrival = false; if (G.depth != s_last_depth) { s_last_depth = G.depth; on_new_floor(G.depth > G.max_depth - 1); } }
       if (!la_step()) break; steps++;
     }
@@ -4767,6 +4768,15 @@ static int lab_trial(const char *fn, uint32_t seed) {
   close(fds[0]); int st; waitpid(pid, &st, 0);
   return r;
 }
+static void gm_log(void) {
+  if (s_pend_depth && getenv("GEARMISS") && s_pend_depth > G.depth) {   // (owner 2026-11-07: the build planner: armour and weapons left behind on a floor, and why)
+        for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = item_cat(hp->item.kind); if ((c != CAT_ARMOR && c != CAT_WEAPON) || hp->item.kind >= IK_DART) continue;
+          const Item *w = c == CAT_ARMOR ? &G.hero.armor : &G.hero.weapon; Item t = hp->item; t.lvl = 0;
+          printf("GM d%d g%d cat %d kind %d tier %d worn %d better %d liftable %d seen %d type %d\n", G.depth, cur_game, c == CAT_ARMOR ? 1 : 2, hp->item.kind, item_tier(hp->item.kind), w->kind, item_tier(hp->item.kind) > item_tier(w->kind), item_str(&t) <= hero_str() + 1, BIT_GET(G.visited, hp->pos) ? 1 : 0, hp->type); } }
+}
+static void gm_arrive(void) { if (!getenv("GEARMISS")) return; static int seen_d[32], seen_g = -1; if (seen_g != cur_game) { memset(seen_d, 0, sizeof seen_d); seen_g = cur_game; } if (G.depth >= 32 || seen_d[G.depth]) return; seen_d[G.depth] = 1;
+  int na = 0, nw = 0, ba = 0, bw = 0; for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = item_cat(hp->item.kind); if (c == CAT_ARMOR) { na++; if (item_tier(hp->item.kind) > item_tier(G.hero.armor.kind)) ba++; } else if (c == CAT_WEAPON && hp->item.kind < IK_DART) { nw++; if (item_tier(hp->item.kind) > item_tier(G.hero.weapon.kind)) bw++; } }
+  printf("GA d%d g%d armour %d better %d weapons %d better %d\n", G.depth, cur_game, na, ba, nw, bw); }
 static int run_lab(const char *dir) {
   char cmd[400]; snprintf(cmd, sizeof cmd, "ls %s/arr_g*.bin", dir); FILE *ls = popen(cmd, "r"); char fn[300]; int R = getenv("LABR") ? atoi(getenv("LABR")) : 5;
   int a = getenv("LABA") ? atoi(getenv("LABA")) : getenv("START") ? atoi(getenv("START")) : 0, b = getenv("LABB") ? atoi(getenv("LABB")) : s_lab_b, idx = 0;   // (0.93: START..N: one runner chunk each)
@@ -4945,7 +4955,7 @@ static void pristine_restore(void) {
 #include "brain2.inc"
 int main(int argc, char **argv) {
   s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
-  if (!getenv("NOF1")) { static const char *const F1[][2] = { { "EATK", "0.02" }, { "EATSEE", "1" }, { "ENGK", "1" }, { "HRES", "3" }, { "CALC", "1" }, { "EMERG4", "1" }, { "UPGW", "1" } }; for (unsigned i = 0; i < sizeof F1 / sizeof *F1; i++) setenv(F1[i][0], F1[i][1], 0); }   // formula set 1 (2026-11-07, warrior 2x960 seeds: past Tengu 19.7 -> 23.8 and 16.9 -> 19.4%; Goo deaths 34 -> 32, 37 -> 30)
+  if (!getenv("NOF1")) { static const char *const F1[][2] = { { "EATK", "0.02" }, { "EATSEE", "1" }, { "ENGK", "1" }, { "HRES", "3" }, { "CALC", "1" }, { "EMERG4", "1" }, { "UPGW", "1" }, { "DETOUR", "99" }, { "ITEMW", "2" }, { "GRASSV", "3" } };   /* pass-by formula on (owner 2026-11-07: tune the brains, don't switch them off): tied the rules at ITEMW 2 (24.1 vs 23.8% past Tengu) */ for (unsigned i = 0; i < sizeof F1 / sizeof *F1; i++) setenv(F1[i][0], F1[i][1], 0); }   // formula set 1 (2026-11-07, warrior 2x960 seeds: past Tengu 19.7 -> 23.8 and 16.9 -> 19.4%; Goo deaths 34 -> 32, 37 -> 30)
   if (!getenv("NOIDB")) setenv("IDB", "1", 0);   // seedlog 2: identification odds drive drink/read/buy decisions (200 games: +0.15)
   if (!getenv("NOX")) { static const char *const X[] = { "X_OOZE", "X_DODGE", "X_DODGE2", "X_NOTEST", "X_DRYGOO", "X_OPENFIX", "X_NOBOSSTRAP" }; for (unsigned i = 0; i < sizeof X / sizeof *X; i++) setenv(X[i], "1", 0); }   // 0.52e: the boss audit's Goo/Tengu fixes on (NOX=1: off)
   signal(SIGALRM, on_alarm); signal(SIGVTALRM, on_alarm); setvbuf(stdout, NULL, _IONBF, 0);
@@ -5046,7 +5056,7 @@ int main(int argc, char **argv) {
       }
       if (s_pend_depth) {                               // the UI fades
         floor_report();   // (then commits the floor change, then saves)
-        s_arrival = true; game_level_commit(); check_state("commit"); s_arrival = false;
+        gm_log(); s_arrival = true; game_level_commit(); check_state("commit"); s_arrival = false; gm_arrive();
         if (G.hero.HP > 0) { game_save(); saved_at = G.now; }
       }
       if (G.depth != s_last_depth && ++s_level_changes > (getenv("RESPAWN") ? 2000 : 300)) { viol("PINGPONG", "300 floor changes in one game (depth %d, goal %d)", G.depth, s_goal); st_stuck++; break; }
