@@ -315,6 +315,12 @@ static int brain2(void) {
   if (getenv("B2OLDROUTE")) { st_b2[4]++; return -1; }   // (test: the old route)
   if (eat_rule()) { st_b2[6]++; return 1; }
   { static double lo = -2; if (lo < -1) lo = b2k("B2RESTLO", -1); static bool resting; if (lo > 0 && !game_starving()) { if (h->HP * 100 < h->HT * lo) resting = true; if (h->HP * 100 >= h->HT * (lo + 30 > 100 ? 100 : lo + 30)) resting = false; if (resting) { s_did[0] = 0; DID("b2: rest (test knob B2RESTLO)"); walk(game_rest(false)); return 1; } } }   // (a test: does resting pay at all?)
+  if (getenv("RESTK") && !game_starving() && !gas_at(h->pos) && h->HP < h->HT) {   // the formula, piece 2 (owner 2026-11-06): a turn resting vs a turn exploring. Both regenerate the same; exploring meets
+    // fights (EATR a turn), resting meets only the wanderers (RESTR a turn). Rest while the death risk it keeps off,
+    // r_e (f(x) - f(1)) - r_r f(x), outweighs the turn's food (a ration = RESTK of a run).
+    static double K = -1, re, rr; if (K < 0) { K = atof(getenv("RESTK")); re = getenv("EATR") ? atof(getenv("EATR")) : 0.025; rr = getenv("RESTR") ? atof(getenv("RESTR")) : 0.005; }
+    double x = (double)h->HP / h->HT, gain = re * (fight_risk(x) - fight_risk(1.0)) - rr * fight_risk(x);
+    if (gain > K / 260.0) { s_did[0] = 0; DID("b2: rest (the risk ahead at %d%% health outweighs the food)", (int)(x * 100)); walk(game_rest(false)); return 1; } }
   if (!getenv("B2NOPRE")) { if (step_back() || escape_air() || prep_retreat() || (s_ambush > s_bot_steps && amb_retreat())) { st_b2[4]++; return 1; } }   // the old safety rules: step back off a seed, out of the air, a retreat when hurt from the dark
   if (enemy_count() == 0 && use_items_when_safe()) { st_b2[5]++; return 1; }   // (none in sight, not even asleep: a scroll can wake the floor)
   if (barricade_task()) { st_b2[5]++; return 1; }      // a storage barricade burned: 3-4 items behind it (the painter's Liquid Flame)
