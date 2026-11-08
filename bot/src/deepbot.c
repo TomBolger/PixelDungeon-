@@ -5271,6 +5271,7 @@ int main(int argc, char **argv) {
       if (getenv("BAGLOG")) { printf("DEATHBAG g%d d%d:", g, G.depth); for (int i = 0; i < BAG_SIZE; i++) if (G.hero.bag[i].kind) { char nm[64]; item_name(&G.hero.bag[i], nm, sizeof nm); printf(" [%s%s]", nm, item_known(G.hero.bag[i].kind) ? "" : "?"); } printf("\n"); } }
     if (!getenv("NOBRAIN2") && getenv("D")) { printf("B2TALLY g%d engage %ld tow %ld route %ld down %ld legacy %ld items %ld eat %ld hurt %ld\n", g, st_b2[0], st_b2[1], st_b2[2], st_b2[3], st_b2[4], st_b2[5], st_b2[6], st_b2[7]); memset(st_b2, 0, sizeof st_b2); }
     if (getenv("D")) printf("FIGHTHP g%d cls %d hp %ld maxd %d tact %ld holds %ld throws %ld\n", g, g_new_class, s_fight_hp, G.max_depth, st_tact_steps, st_tact_waits, st_tact_throws); st_tact_steps = st_tact_waits = st_tact_throws = 0; s_fight_hp = 0;
+    ch_cal_end(G.hero.HP <= 0);
     if (getenv("D")) printf("game %d cls %d: %s depth %d (max %d) lvl %d turns %d steps %d HP %d/%d STR %d arm %d+%d wpn %d+%d quests %d%d%d%d%s%s\n", g, g_new_class, s_won ? "WON" : G.hero.HP <= 0 ? "died" : "stopped",
                            G.depth, G.max_depth, G.hero.lvl, G.now / TICK, steps, G.hero.HP, G.hero.HT, G.hero.STR, G.hero.armor.kind, G.hero.armor.lvl, G.hero.weapon.kind, G.hero.weapon.lvl,
                            G.q.ghost, G.q.wand, G.q.smith, G.q.imp, G.hero.HP <= 0 ? ": " : "", G.hero.HP <= 0 ? G.death : "");

@@ -87,8 +87,14 @@ static double ch_mc(TFoe *F0, int nf, int P, const int *path, int plen, int tk, 
     if (dead) deaths++; }
   s_te_pd = deaths / (double)runs; s_te_E = lost / runs;
   return s_te_E; }
+
+// CHCAL: each encounter's forecast (at its first priced turn) against what happened: the check on the model's numbers
+static int c_cal_on, c_cal_hp0, c_cal_type, c_cal_nf, c_cal_d, c_cal_g; static double c_cal_pd, c_cal_E;
+static void ch_cal_end(bool died) {
+  if (!c_cal_on || !getenv("CHCAL")) { c_cal_on = 0; return; }
+  printf("CAL g%d d%d %s nf %d hp0 %d ht %d pd %.3f E %.1f lost %d died %d\n", c_cal_g, c_cal_d, mob_name(c_cal_type), c_cal_nf, c_cal_hp0, G.hero.HT, c_cal_pd, c_cal_E, c_cal_hp0 - (G.hero.HP > 0 ? G.hero.HP : 0), died); c_cal_on = 0; }
 static int choose(void) {
-  Hero *h = &G.hero; if (s_rollout || h->b.paralysis || h->b.frost || (G.depth % 5 == 0 && G.depth != 5) || (G.depth == 5 && getenv("CHNOGOO"))) return 0;   // (bosses: the Goo so far)
+  Hero *h = &G.hero; if (s_rollout || h->b.paralysis || h->b.frost || (G.depth % 5 == 0 && G.depth != 5) || (G.depth == 5 && !getenv("CHGOO"))) return 0;   // (bosses: not yet; the Goo model (CHGOO) lost to the old Goo code on the PC, 31.3 vs 26.3% Goo deaths: its numbers are being fixed)
   TFoe F[24]; int nf = 0;
   // what I know of the foes: those in sight now, and those that were hunting me when last seen a few turns ago (where I saw them):
   // a foe that steps out of sight hasn't gone (the player knows it's there; the true position stays hidden)
@@ -106,7 +112,7 @@ static int choose(void) {
     if (nf >= 24) break; TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
     f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (f->mc < 5) f->mc = 5;
     f->ac = MOB_DEFS[m->type].atk_delay ? MOB_DEFS[m->type].atk_delay : TICK; f->tm = 0; f->rng = magic_shooter(m->type) || m->type == MT_SCORPIO; }
-  if (nf == 0) return 0;
+  if (nf == 0) { if (c_cal_on) ch_cal_end(false); return 0; }
   static double kdeath = -1, kreach, cheal, cunk, cvial, ctele, cstair, cthrow; if (kdeath < 0) {
     kdeath = ch_k("CH_DEATH", 4.0);     // a death, in HTs of HP (the run's whole worth: tuned)
     kreach = ch_k("CH_REACH", 8);       // how far a walk to fight from is looked at (cells)
@@ -168,6 +174,7 @@ static int choose(void) {
       for (int a = 0; a < no && a < keep + 1; a++) for (int b = a + 1; b < no; b++) if (price[idx[b]] < price[idx[a]]) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
       static bool sel[700]; memset(sel, 0, sizeof(bool) * no); sel[0] = true; for (int a = 0; a < no && a < keep; a++) sel[idx[a]] = true;
       for (int i = 0; i < no; i++) if (!sel[i]) price[i] = 1e9; } }
+  if (!c_cal_on && getenv("CHCAL")) { c_seed = 0x51ed27u; s_te_hp = -1; ch_mc(F, nf, h->pos, NULL, 0, -1, 0, 256, h->HP); c_cal_on = 1; c_cal_hp0 = h->HP; c_cal_type = G.mobs[F[0].i].type; c_cal_nf = nf; c_cal_d = G.depth; c_cal_g = cur_game; c_cal_pd = s_te_pd; c_cal_E = s_te_E; }
   s_te_hp = -1;
   int bi = 0; for (int i = 1; i < no; i++) if (price[i] < price[bi]) bi = i;
   double best = price[bi]; int bk = O[bi].kind, barg = O[bi].kind == 2 ? O[bi].arg : O[bi].kind == 1 ? O[bi].P : O[bi].arg;
