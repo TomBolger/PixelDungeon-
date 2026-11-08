@@ -53,6 +53,13 @@ static int mc_moves(int *mv) {
     else if (cat == CAT_SEED && plant_at(hp) < 0 && heap_at(hp) < 0 && hp != G.exit && hp != G.entrance) mv[n++] = 16 + s * 4 + 3;
     if (cat == CAT_MISSILE || cat == CAT_POTION) for (int j = 0; j < nf && n < 120; j++) if (!adjacent(G.mobs[foes[j]].pos, hp) || cat == CAT_MISSILE) mv[n++] = 512 + s * 32 + j;
     if (cat == CAT_WAND && it->ench > 0) for (int j = 0; j < nf && n < 120; j++) mv[n++] = 4096 + s * 32 + j; }
+  // walks: any known cell 2..MC_WALK steps away, as one move (a corridor, a doorway, out of sight, the stairs): the search
+  // can't find a plan four steps long by trying single steps, but it can by trying the walk as a whole
+  static int wr = -1; if (wr < 0) wr = getenv("MC_WALK") ? atoi(getenv("MC_WALK")) : 6;
+  if (wr >= 2 && !h->b.roots) { static int16_t dd[MAP_LEN], q[MAP_LEN]; for (int c = 0; c < MAP_LEN; c++) dd[c] = -1; int qh = 0, qt = 0; dd[hp] = 0; q[qt++] = hp;
+    while (qh < qt) { int c = q[qh++]; if (dd[c] >= wr) continue; for (int k = 0; k < 8; k++) { int x = c + N8[k];
+        if (!nb_ok(c, x) || dd[x] >= 0 || !BIT_GET(G.visited, x) || !PASSABLE(G.map[x]) || (TFLAGS(G.map[x]) & F_AVOID) || (char_at(x) && x != hp)) continue; dd[x] = dd[c] + 1; q[qt++] = x; } }
+    for (int i = 1; i < qt && n < 250; i++) if (dd[q[i]] >= 2) mv[n++] = 8192 + q[i]; }
   return n; }
 static bool mc_apply(int id) {
   Hero *h = &G.hero; int32_t t0 = h->time; int d0 = G.depth, hp = h->pos;
@@ -62,7 +69,14 @@ static bool mc_apply(int id) {
   else if (id == 9) walk(game_tap_cell(hp));
   else if (id < 512) { int s = (id - 16) / 4, u = (id - 16) % 4; do_item(s, u == 0 ? ACN_DRINK : u == 1 ? ACN_READ : u == 2 ? ACN_EAT : ACN_PLANT); }
   else if (id < 4096) { int s = (id - 512) / 32, j = (id - 512) % 32; if (j >= nf) return false; walk(game_throw(s, G.mobs[foes[j]].pos)); }
-  else { int s = (id - 4096) / 32, j = (id - 4096) % 32; if (j >= nf) return false; walk(game_zap(s, G.mobs[foes[j]].pos)); }
+  else if (id < 8192) { int s = (id - 4096) / 32, j = (id - 4096) % 32; if (j >= nf) return false; walk(game_zap(s, G.mobs[foes[j]].pos)); }
+  else { int dest = id - 8192; static int16_t pr[MAP_LEN], q[MAP_LEN];   // a walk: step by step along the shortest known way; it ends early if a foe comes beside me (the next move is chosen then)
+    for (int st = 0; st < 12 && h->pos != dest && h->HP > 0 && !s_pend_depth; st++) {
+      if (st > 0) { bool adj = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && adjacent(m->pos, h->pos)) adj = true; } if (adj) break; }
+      for (int c = 0; c < MAP_LEN; c++) pr[c] = -2; int qh = 0, qt = 0; pr[h->pos] = -1; q[qt++] = h->pos;
+      while (qh < qt && pr[dest] == -2) { int c = q[qh++]; for (int k = 0; k < 8; k++) { int x = c + N8[k]; if (!nb_ok(c, x) || pr[x] != -2 || !BIT_GET(G.visited, x) || !PASSABLE(G.map[x]) || (TFLAGS(G.map[x]) & F_AVOID) || (char_at(x) && x != dest)) continue; pr[x] = c; q[qt++] = x; } }
+      if (pr[dest] == -2) break; int nx = dest; while (pr[nx] != h->pos) nx = pr[nx];
+      int32_t ts = h->time; walk(game_tap_cell(nx)); if (h->time == ts) break; } }
   for (int g = 0; g < 4 && (s_pick >= 0 || s_wnd_btn); g++) la_step();   // (a picker or window a move opened: answered as ever)
   return h->time != t0 || G.depth != d0 || s_pend_depth; }
 static bool mc_calm(void) { Hero *hh = &G.hero; if (bad_air(hh->pos) || hh->b.burning || hh->b.poison) return false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) return false; } return true; }   // (no foe hunting me at all, seen or not: the search judged hiding round a corner as the fight won)
@@ -78,7 +92,7 @@ static int mcts(void) {
   if (bad_air(h->pos) || h->b.burning || h->b.poison || h->b.bleed) threat = true;   // (harm going on with no foe in sight: gas, fire, poison, bleeding: the search's turn too; g10 rested to death in toxic gas)
   if (!threat) return 0;
   static int iters = -1, horizon, calmk; static double cu, pw; if (iters < 0) { pw = getenv("MC_PW") ? atof(getenv("MC_PW")) : 1.5; iters = getenv("MC_IT") ? atoi(getenv("MC_IT")) : 300; horizon = getenv("MC_H") ? atoi(getenv("MC_H")) : 20; cu = getenv("MC_C") ? atof(getenv("MC_C")) : 0.3; calmk = 2; }
-  int mv0[128]; int n0 = mc_moves(mv0); if (n0 <= 1) return 0;
+  int mv0[256]; int n0 = mc_moves(mv0); if (n0 <= 1) return 0;
   s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 };
   uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u);
   st_mc_calls++;
@@ -92,9 +106,9 @@ static int mcts(void) {
         if (h->HP <= 0) { val = 0; break; }
         if (s_pend_depth) { val = mc_leaf(); break; }
         if (mc_calm()) { if (++calm >= calmk) { val = mc_leaf(); break; } } else calm = 0;
-        int mv[128]; int n = mc_moves(mv); if (!n) { val = mc_leaf(); break; }
+        int mv[256]; int n = mc_moves(mv); if (!n) { val = mc_leaf(); break; }
         // UCT over the moves open here; one not yet tried is tried first (in a random order)
-        int untried[128], nu = 0; for (int i = 0; i < n; i++) if (node < 0 || mc_child(node, mv[i]) < 0) untried[nu++] = mv[i];
+        int untried[256], nu = 0; for (int i = 0; i < n; i++) if (node < 0 || mc_child(node, mv[i]) < 0) untried[nu++] = mv[i];
         int pick; int nch = n - nu;
         // progressive widening (MC_PW): a node opens a new move only while it has fewer than PW*sqrt(visits) children, so
         // the tries go deeper down the good lines instead of one level across every move
