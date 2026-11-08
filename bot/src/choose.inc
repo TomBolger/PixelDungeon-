@@ -16,7 +16,7 @@ static double ch_k(const char *n, double d) { const char *v = getenv(n); return 
 // the foes move as tact_eval moves them. The price: the HP it costs on average plus the share of runs that kill me x
 // CH_DEATH x HT. (tact_eval played one average fight: a 3-HP gnoll was dead in its one sim and alive in half the real ones.)
 static double c_ph[24], c_pf[24], c_rpf[24]; static int c_hlo[24], c_hhi[24], c_hex[24], c_fdr[24], c_flo[24], c_fhi[24], c_rlo[24], c_rhi[24], c_rt[24]; static bool c_mag[24], c_rn[24]; static int c_hdr; static double c_hdef;   // c_r*: the shot from afar (its own dice, time and armour rule)
-static uint32_t c_rs = 0x9e3779b9u, c_seed = 0x9e3779b9u; static int c_type[24]; static int c_pump0[24];
+static double c_l1, c_turns, c_won; static uint32_t c_rs = 0x9e3779b9u, c_seed = 0x9e3779b9u; static int c_type[24]; static int c_pump0[24];
 #define m_shaman(k) (c_type[k] == MT_SHAMAN || c_type[k] == MT_WARLOCK)   // uniform rnd_int2 rolls
 static inline double c_rnd(void) { c_rs ^= c_rs << 13; c_rs ^= c_rs >> 17; c_rs ^= c_rs << 5; return (c_rs >> 8) / 16777216.0; }
 static inline int c_norm(int lo, int hi) { if (hi <= lo) return lo; return lo + (int)((c_rnd() + c_rnd()) * (hi - lo + 1) / 2); }
@@ -48,14 +48,15 @@ static void ch_field(int hc) {
   for (int i = 0; i < c_fn; i++) if (c_fpos[i] == hc) { memcpy(s_td, c_fld[i], sizeof s_td); return; }
   tact_field(hc); int slot = c_fn < 48 ? c_fn++ : (int)(c_rnd() * 48); c_fpos[slot] = hc; memcpy(c_fld[slot], s_td, sizeof s_td); }
 static double ch_mc(TFoe *F0, int nf, int P, const int *path, int plen, int tk, double tdmg, int runs, double hp0) {
-  Hero *h = &G.hero; double lost = 0; int deaths = 0; static int field_at = -1; static int field_game = -1, field_step = -1;
+  Hero *h = &G.hero; double lost = 0, lost1 = 0, turns = 0, won = 0; int deaths = 0; static int field_at = -1; static int field_game = -1, field_step = -1;
   if (field_game != cur_game || field_step != s_bot_steps) { field_at = -1; field_game = cur_game; field_step = s_bot_steps; }
   c_rs = c_seed ^ (uint32_t)(s_bot_steps * 2654435761u) ^ (uint32_t)cur_game; if (!c_rs) c_rs = 1;   // the same dice for every option this turn (common random numbers): the options differ by what they do, not by luck; the cheapest of 150 noisy guesses is otherwise just the luckiest
   for (int r = 0; r < runs; r++) {
     int pump[24]; memcpy(pump, c_pump0, sizeof pump); int ooze = h->ooze ? 1 : 0, para = 0;
     TFoe F[24]; memcpy(F, F0, sizeof(TFoe) * nf); double hp = hp0 + (vial_full() ? h->HT : 0); int hc = h->pos; bool dead = false;   // (a full dew vial brings me back at full health: Hero.die)
-    for (int t = 0; t < 60 && !dead; t++) {
-      bool any = false; for (int k = 0; k < nf; k++) if (F[k].hp > 0) any = true; if (!any) break;
+    double l0 = lost; int tt = 0;
+    for (int t = 0; t < 60 && !dead; t++) { tt = t; if (t == 1) lost1 += lost - l0;
+      bool any = false; for (int k = 0; k < nf; k++) if (F[k].hp > 0) any = true; if (!any) { won++; break; }
       if (para > 0) para--;
       else if (t < plen) { int nx = path[t]; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].pos == nx) return 1e9; hc = nx; }
       else if (t == 0 && tk >= 0) { if (c_rnd() < 0.85) F[tk].hp -= tdmg / 0.85; }
@@ -91,8 +92,8 @@ static double ch_mc(TFoe *F0, int nf, int P, const int *path, int plen, int tk, 
           f->tm -= f->mc;
           int bq = -1, bd = s_td[f->pos]; for (int j = 0; j < 8; j++) { int q = f->pos + N8[j]; if (!nb_ok(f->pos, q) || q == hc || s_td[q] >= bd || (f->wat && !IS_WATER(G.map[q]))) continue; bool occ = false; for (int o = 0; o < nf; o++) if (o != k && F[o].hp > 0 && F[o].pos == q) occ = true; if (occ) continue; bd = s_td[q]; bq = q; }
           if (bq >= 0) f->pos = bq; else break; } } }
-    if (dead) deaths++; }
-  s_te_pd = deaths / (double)runs; s_te_E = lost / runs;
+    turns += tt; if (dead) deaths++; }
+  s_te_pd = deaths / (double)runs; s_te_E = lost / runs; c_l1 = lost1 / runs; c_turns = turns / runs; c_won = won / runs;
   return s_te_E; }
 
 // CHCAL: each encounter's forecast (at its first priced turn) against what happened: the check on the model's numbers
@@ -118,7 +119,7 @@ static int choose(void) {
     if (m->b.paralysis || m->b.frost) continue;
     if (nf >= 24) break; TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
     f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (f->mc < 5) f->mc = 5;
-    f->ac = MOB_DEFS[m->type].atk_delay ? MOB_DEFS[m->type].atk_delay : TICK; f->tm = 0; f->rng = magic_shooter(m->type) || m->type == MT_SCORPIO; }
+    f->ac = MOB_DEFS[m->type].atk_delay ? MOB_DEFS[m->type].atk_delay : TICK; f->tm = h->time - m->time; if (f->tm > TICK) f->tm = TICK; if (f->tm < -4 * TICK) f->tm = -4 * TICK; f->rng = magic_shooter(m->type) || m->type == MT_SCORPIO; }   // (CALT: the game's clock: a Goo that just pumped (2 turns) or a slow blow acts later than my next move; its time debt is what a player sees it spend)
   if (nf == 0) { if (c_cal_on) ch_cal_end(false); return 0; }
   static double kdeath = -1, kreach, cheal, cunk, cvial, ctele, cstair, cthrow; if (kdeath < 0) {
     kdeath = ch_k("CH_DEATH", 4.0);     // a death, in HTs of HP (the run's whole worth: tuned)
@@ -182,6 +183,8 @@ static int choose(void) {
       static bool sel[700]; memset(sel, 0, sizeof(bool) * no); sel[0] = true; for (int a = 0; a < no && a < keep; a++) sel[idx[a]] = true;
       for (int i = 0; i < no; i++) if (!sel[i]) price[i] = 1e9; } }
   if (!c_cal_on && getenv("CHCAL")) { c_seed = 0x51ed27u; s_te_hp = -1; ch_mc(F, nf, h->pos, NULL, 0, -1, 0, 256, h->HP); c_cal_on = 1; c_cal_hp0 = h->HP; c_cal_type = G.mobs[F[0].i].type; c_cal_nf = nf; c_cal_d = G.depth; c_cal_g = cur_game; c_cal_pd = s_te_pd; c_cal_E = s_te_E; }
+  if (getenv("CALT") && G.depth == 5) { static int php = -1, pstep = -1; static double pl1; if (pstep == s_bot_steps - 1 && php >= 0) printf("CALT pred1 %.2f actual1 %d\n", pl1, php - h->HP);
+    int bj = 0; for (int i = 1; i < no; i++) if (price[i] < price[bj]) bj = i; c_seed = 0x51ed27u; if (O[bj].kind == 1) { int path[16]; for (int j = 0; j < O[bj].n; j++) path[j] = O[bj].path[j]; ch_mc(F, nf, O[bj].P, path, O[bj].n, -1, 0, 256, h->HP); } else ch_mc(F, nf, h->pos, NULL, 0, -1, 0, 256, h->HP); int gi = F[0].i; printf("CALT2 hp %d/%d goo %d/%d pump %d adj %d pd %.2f E %.1f turns %.1f won %.2f\n", h->HP, h->HT, G.mobs[gi].HP, G.mobs[gi].HT, G.mobs[gi].aux2, adjacent(G.mobs[gi].pos, h->pos), s_te_pd, s_te_E, c_turns, c_won); php = h->HP; pstep = s_bot_steps; pl1 = c_l1; }
   s_te_hp = -1;
   int bi = 0; for (int i = 1; i < no; i++) if (price[i] < price[bi]) bi = i;
   double best = price[bi]; int bk = O[bi].kind, barg = O[bi].kind == 2 ? O[bi].arg : O[bi].kind == 1 ? O[bi].P : O[bi].arg;
