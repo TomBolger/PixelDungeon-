@@ -145,7 +145,7 @@ static int b2_threats_m(bool tow_only) {
 static int b2_route(void) {
   Hero *h = &G.hero; bool stairs = G.exit >= 0 && BIT_GET(G.visited, G.exit);
   { int hp = heap_at(h->pos); static int s_tried = -1;   // on a heap I came for: take it (a tap on my cell); still there after a try: aside for a while
-    if (hp >= 0 && G.heaps[hp].type < HEAP_CARRIED && G.heaps[hp].type != HEAP_FOR_SALE && h->pos != G.exit && h->pos != G.entrance && s_black[h->pos] <= s_bot_steps) {
+    if (hp >= 0 && G.heaps[hp].type < HEAP_CARRIED && G.heaps[hp].type != HEAP_FOR_SALE && h->pos != G.exit && h->pos != G.entrance && s_black[h->pos] <= s_bot_steps && (G.heaps[hp].item.kind != IK_DEW || getenv("OLDB2DEW") || dew_take())) {   // (2026-11-07: the drop a trample leaves under my feet was taken hurt, whatever the dew rule said: half the run's dew went that way)
       if (s_tried != h->pos) { s_tried = h->pos; int r = b2_step(h->pos, "b2: take what lies here"); if (r > 0) return r; }
       s_black[h->pos] = s_bot_steps + 300; s_tried = -1; } else s_tried = -1; }
   { static int ring[10], rn; ring[rn++ % 10] = h->pos; int rep = 0; for (int i = 0; i < 10; i++) if (ring[i] == h->pos) rep++;   // A-B-A-B: the target I keep swapping to goes aside

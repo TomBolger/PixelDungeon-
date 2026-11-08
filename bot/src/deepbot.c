@@ -958,7 +958,7 @@ static bool use_items_when_safe(void) {                 // housekeeping with no 
     st_uses[ACN_SET]++; do_item(s, ACN_SET); return true;
   }
   // the dew vial when hurt
-  if (h->HP < h->HT / 2 && G.dew >= 5 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || (G.dew < 10 && (game_starving() || (s_pztest && G.depth >= 6))))) { do_item(s, ACN_DRINK); return true; }   // (0.92: deep, the vial's drops are worth more drunk than hoarded: it fills only at full health)   // 0.52 (audit): a full vial is a second life (it revives you at death): rest instead, unless starving
+  if (!getenv("VIALBANK") && h->HP < h->HT / 2 && G.dew >= 5 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || (G.dew < 10 && (game_starving() || (s_pztest && G.depth >= 6))))) { do_item(s, ACN_DRINK); return true; }   // (0.92: deep, the vial's drops are worth more drunk than hoarded: it fills only at full health)   // 0.52 (audit): a full vial is a second life (it revives you at death): rest instead, unless starving
   // 0.48 (owner): leave junk behind: known cursed or negative pieces not worn, rings known bad, and weapons and armour
   // that even at +1 would be worse than what's worn (dropped here, never picked up again)
   if (!s_oldgear && !getenv("NOJUNK") && enemy_count() == 0 && (getenv("OLDGEARFIX") || !h->weakness) && (getenv("OLDJUNK2") || ({ int nb = 0; for (int j = 0; j < BAG_SIZE; j++) nb += h->bag[j].kind != 0; nb; }) >= BAG_SIZE - 4)) for (int i = 0; i < BAG_SIZE; i++) {   // 0.49 (owner): only when the bag fills (spares are things to throw onto traps; heavy gear may fit later)
@@ -1076,7 +1076,7 @@ static bool emergency(void) {                           // badly hurt
     for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) != CAT_POTION || item_known(k)) continue; double ph = idb_p(k, IK_POT_HEALING), bad = idb_p(k, IK_POT_PARALYTIC) + idb_p(k, IK_POT_TOXIC) + idb_p(k, IK_POT_FLAME);
       if (ph >= bp && bad <= 0.25) { bp = ph; bi = i; } }
     if (bi >= 0) { st_uses[ACN_DRINK]++; if (!s_rollout) DID("probably Healing (%.0f%%): drink it", bp * 100); do_item(bi, ACN_DRINK); return true; } }
-  if (G.dew >= 3 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || G.dew < 10)) { do_item(s, ACN_DRINK); return true; }   // (0.52: at 10 it fires by itself at death)
+  if (!getenv("VIALBANK") && G.dew >= 3 && (s = find_kind(IK_DEW_VIAL)) >= 0 && (getenv("OLDDEW") || G.dew < 10)) { do_item(s, ACN_DRINK); return true; }   // (VIALBANK: the vial is never drunk half full: at 10 it is a second life)   // (0.52: at 10 it fires by itself at death)
   int adj = 0, adjm = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && !ally(i) && adjacent(G.mobs[i].pos, h->pos) && (!fair_on() || foe_sees(i)) && G.mobs[i].state != ST_PASSIVE && (getenv("OLDEMERG") || G.mobs[i].state == ST_HUNTING)) { adj++; adjm = i; }   // 0.52 (audit): lulled, terrified, asleep: not a threat now (it spent the next escape item)
   if (!adj) return false;
   if (dm_hold()) return false;   // 0.54 (audit): no leap, smoke, terror, invisibility: they all make DM-300 walk over the dead traps
@@ -1605,6 +1605,7 @@ static bool boss_zone(int c) {
 // half health; into a vial that isn't full at full health; or hurt with the vial full. Else leave it for later (the Assist's rule)
 static bool dew_take(void) {
   Hero *h = &G.hero; bool vial = find_kind(IK_DEW_VIAL) >= 0;
+  if (getenv("VIALBANK") && vial && G.dew < 10) return h->HP >= h->HT;   // (2026-11-07: half the run's dew went into 1 HP heals while hurt; ten drops banked are a second life at full health: only at full health, into the vial)
   if (s_pztest && getenv("DEWBANK") && vial && G.dew < 10) return h->HP >= h->HT || h->HP * 10 < h->HT * 3;   // 0.93 test (audit): a full vial heals all of max HP (volume^1.3/20), ten drops eaten hurt ~3 HP each: bank them
   if (s_pztest && h->HP < h->HT && (G.depth >= 6 || game_starving())) return true;   // 0.92 (seed 84: 52 drops left lying while it limped, starving, from floor 8 on; mending is 1 HP a 10 turns): deep, or with no mending, a drop is 2-4 HP now
   return h->HP * 2 < h->HT || (vial && (G.dew < 10 ? h->HP >= h->HT : h->HP < h->HT));
@@ -4781,6 +4782,9 @@ static int lab_trial(const char *fn, uint32_t seed) {
   return r;
 }
 static void gm_log(void) {
+  if (getenv("DEWLOG") && s_pend_depth > G.depth) { int nd = 0, nds = 0, grass = 0, grs = 0; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW) { nd++; if (BIT_GET(G.visited, G.heaps[i].pos)) nds++; }
+    for (int c = 0; c < MAP_LEN; c++) if (G.map[c] == T_HIGH_GRASS) { grass++; if (BIT_GET(G.visited, c)) grs++; }
+    printf("DEWL d%d g%d dew_left %d seen %d grass_left %d seen %d vial %d dew %d hp %d/%d\n", G.depth, cur_game, nd, nds, grass, grs, find_kind(IK_DEW_VIAL) >= 0, G.dew, G.hero.HP, G.hero.HT); }
   if (s_pend_depth && getenv("GEARMISS") && s_pend_depth > G.depth) {   // (owner 2026-11-07: the build planner: armour and weapons left behind on a floor, and why)
         for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = item_cat(hp->item.kind); if ((c != CAT_ARMOR && c != CAT_WEAPON) || hp->item.kind >= IK_DART) continue;
           const Item *w = c == CAT_ARMOR ? &G.hero.armor : &G.hero.weapon; Item t = hp->item; t.lvl = 0;
@@ -4788,7 +4792,7 @@ static void gm_log(void) {
 }
 static void gm_arrive(void) { if (!getenv("GEARMISS")) return; static int seen_d[32], seen_g = -1; if (seen_g != cur_game) { memset(seen_d, 0, sizeof seen_d); seen_g = cur_game; } if (G.depth >= 32 || seen_d[G.depth]) return; seen_d[G.depth] = 1;
   int na = 0, nw = 0, ba = 0, bw = 0; for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; int c = item_cat(hp->item.kind); if (c == CAT_ARMOR) { na++; if (item_tier(hp->item.kind) > item_tier(G.hero.armor.kind)) ba++; } else if (c == CAT_WEAPON && hp->item.kind < IK_DART) { nw++; if (item_tier(hp->item.kind) > item_tier(G.hero.weapon.kind)) bw++; } }
-  printf("GA d%d g%d armour %d better %d weapons %d better %d\n", G.depth, cur_game, na, ba, nw, bw); }
+  int gr = 0; for (int c = 0; c < MAP_LEN; c++) gr += G.map[c] == T_HIGH_GRASS; printf("GA d%d g%d armour %d better %d weapons %d better %d grass %d\n", G.depth, cur_game, na, ba, nw, bw, gr); }
 static int run_lab(const char *dir) {
   char cmd[400]; snprintf(cmd, sizeof cmd, "ls %s/arr_g*.bin", dir); FILE *ls = popen(cmd, "r"); char fn[300]; int R = getenv("LABR") ? atoi(getenv("LABR")) : 5;
   int a = getenv("LABA") ? atoi(getenv("LABA")) : getenv("START") ? atoi(getenv("START")) : 0, b = getenv("LABB") ? atoi(getenv("LABB")) : s_lab_b, idx = 0;   // (0.93: START..N: one runner chunk each)
