@@ -248,6 +248,8 @@ static double b2_floor_left(double *moves_out, double *s_out) {
     double pe = G.depth / (12.0 * (1 + s_fh_soe)); if (pe > 1) pe = 1; pe = pe * u / (1 - pe * (1 - u) > 1e-6 ? 1 - pe * (1 - u) : 1e-6);
     v += pp * item_value(&a) + ps * item_value(&b) + pe * item_value(&e); }
   if (G.depth <= 3 && find_kind(IK_DEW_VIAL) < 0 && !(G.dflags & DF_VIAL_SPAWNED)) v += u * 200.0 / (4 - G.depth);   // (the vial: one of floors 1-3; the player knows only that it hasn't turned up)
+  if (!getenv("NOGHOST") && G.depth >= 2 && G.depth <= 4 && G.q.ghost < QS_REWARDED && !npc_known(MT_GHOST, G.q.ghost)) {   // (g3, g54: left floor 2 by this sum with the ghost unseen in its unexplored part): the ghost is on floor 2 at 1 in 3, 3 at 1 in 2 (if not on 2), 4 for certain; his reward is the best of 4 armours or weapons by level
+    double pg = G.depth == 2 ? 1 / 3.0 : G.depth == 3 ? 0.5 : 1.0; v += pg * u * b2k("B2VGHOST", ghost_worth() ? 300 : 150); }
   if (moves_out) *moves_out = mpc * (tot - seen); if (s_out) *s_out = sf;
   return v * evk;
 }
@@ -257,7 +259,7 @@ static int b2_leave_check(void) {
   Hero *h = &G.hero; if (!getenv("B2EV")) return 0;   // (off: 480 games, 5.31 on vs 5.51 off; leaving sooner is worse still: the worth of exploring is more than its items)
   if (boss_depth(G.depth) || boss_depth(G.depth + 1) || G.depth == 21 || G.depth >= 25 || G.exit < 0 || !BIT_GET(G.visited, G.exit)) return 0;
   if (G.map[G.exit] == T_LOCKED_EXIT && !(G.keys[G.depth] & 64)) return 0;
-  if (quest_on_floor() || shop_hunt_ok() || s_goal <= G.depth) return 0;
+  if (quest_on_floor() || ghost_pending() || shop_hunt_ok() || s_goal <= G.depth) return 0;
   bfs(h->pos, false); if (b_dist[G.exit] >= 0x7FFF) return 0;
   const char *why = "?"; int c = plan_next(false, &why);
   bool more = c < 0 || !strcmp(why, "explore") || !strcmp(why, "frontier") || !strcmp(why, "dead end") || !strcmp(why, "search");

@@ -2721,6 +2721,61 @@ static bool want_buy(int h) {
 static uint32_t s_npc_seen; static int s_npc_d = -1, s_npc_g = -1;   // 0.93 FAIR: the quest-givers seen on this floor (a player can't know one's there before)
 static bool npc_known(int mt, int st) { if (!fair_on() || st >= QS_GIVEN) return true; if (s_npc_d != G.depth || s_npc_g != cur_game) { s_npc_d = G.depth; s_npc_g = cur_game; s_npc_seen = 0; }
   for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && BIT_GET(G.fov, G.mobs[i].pos) && G.mobs[i].type < 32) s_npc_seen |= 1u << G.mobs[i].type; return (s_npc_seen >> mt) & 1; }
+static int s_floor_turn_cap(void) { return getenv("GHOSTT") ? atoi(getenv("GHOSTT")) : 700; }   // (the rose: 8 kills at most, a respawn each 50 turns)
+// The ghost's quest, by its worth (2026-11-07 deep dive, 48 floor-4 departures: rewarded 40%, done-but-not-collected 33%, never
+// talked 21%): his armour is the best of 4 by level (leather or mail, +1 or +2 typically: DR max about 8). Worth the turns
+// while what I wear blocks less. Rose (alt 0): kills on his floor drop it. Rat (alt 1): the fetid rat is on the floor from
+// the talk (QS_DONE at its spawn): find it, kill it, bring the skull. Then find him (he drifts). The curse (alt 2) has its plan.
+static int s_gh_t = -1, s_gh_n, s_gh_d = -1, s_gh_g = -1, s_gh_r = -1, s_gh_round; static uint64_t s_gh_swept;
+static bool ghost_worth(void) {
+  if (getenv("NOGHOST")) return false;
+  int dr = G.hero.armor.kind ? item_tier(G.hero.armor.kind) * (2 + (G.hero.armor.lvl > 0 ? G.hero.armor.lvl : 0)) : 0;
+  if (dr < (getenv("GHOSTDR") ? atoi(getenv("GHOSTDR")) : 8)) return true;
+  // (g27: good armour, so the hunt was skipped; but his other offer is the best of 4 weapons by level, near my strength: worth it while mine is low-tier and barely upgraded: a weapon level is +13 at the Goo, more than an armour level's +8)
+  const Item *w = &G.hero.weapon; return !w->kind || (item_tier(w->kind) <= 2 && w->lvl <= 1); }
+static int ghost_room_cell(int r) {                       // the room's centre, or the cell nearest it that isn't the stairs (g27: a sweep walked onto the way down)
+  Room *R = &G.rooms[r]; int c = (R->left + R->right) / 2 + (R->top + R->bottom) / 2 * MAP_W;
+  if (c != G.exit && c != G.entrance) return c;
+  for (int d = 0; d < 8; d++) { int n = c + N8[d]; if ((unsigned)n < MAP_LEN && n != G.exit && n != G.entrance && PASSABLE(G.map[n]) && BIT_GET(G.visited, n)) return n; }
+  return -1; }
+static int ghost_sweep(const char **why, const char *what) {   // the nearest room centre not in sight and not yet swept this floor
+  Hero *h = &G.hero;
+  if (s_gh_d != G.depth || s_gh_g != cur_game) { s_gh_d = G.depth; s_gh_g = cur_game; s_gh_t = -1; s_gh_n = 0; s_gh_swept = 0; s_gh_r = -1; s_gh_round = 0; }
+  bfs(h->pos, false);
+  for (int r = 0; r < G.n_rooms && r < 64; r++) { int c = ghost_room_cell(r); if (c >= 0 && BIT_GET(G.fov, c)) s_gh_swept |= 1ull << r; }   // (a room in sight is swept)
+  if (s_gh_t >= 0 && (h->pos == s_gh_t || b_dist[s_gh_t] >= 0x7FFF || (s_gh_r >= 0 && (s_gh_swept >> s_gh_r) & 1))) { s_gh_n++; s_gh_t = -1; s_gh_r = -1; }
+  if (s_gh_t < 0) { if (s_gh_n >= 3 * G.n_rooms + 4) return -1; int best = -1, bd = 0x7FFF, br = -1;
+    for (int pass = 0; pass < 2 && best < 0; pass++) {
+      if (pass) { s_gh_swept = 0; s_gh_round++; }       // (every room looked at: a second round; he drifts)
+      for (int r = 0; r < G.n_rooms && r < 64; r++) { int c = ghost_room_cell(r);
+        if (c < 0 || (s_gh_swept >> r) & 1 || !BIT_GET(G.visited, c) || !PASSABLE(G.map[c]) || b_dist[c] >= 0x7FFF || c == h->pos) continue;
+        if (b_dist[c] < bd) { bd = b_dist[c]; best = c; br = r; } } }
+    s_gh_t = best; s_gh_r = br; if (best < 0) return -1; }
+  static char w[64]; snprintf(w, sizeof w, "the ghost's quest: looking round for %s", what); *why = w; return s_gh_t; }
+static bool npc_known(int mt, int st); static int search_spot(void);
+// The ghost's quest is still worth working on here: the item in hand (his reward is a walk away), or the quest open and his
+// armour worth more than mine. He's known to be on this floor once seen, or on floor 4 by the rules (he spawns by then for sure).
+static bool ghost_pending(void) {
+  Quests *q = &G.q; if (getenv("NOGHOST") || q->ghost_depth != G.depth || q->ghost == QS_NONE || q->ghost_alt == 2 || q->ghost >= QS_REWARDED || starve_block()) return false;
+  if (find_kind(q->ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0) return true;
+  if (!ghost_worth()) return false;
+  bool known = npc_known(MT_GHOST, q->ghost) || (G.depth == 4 && !getenv("NOGHOSTDUE"));
+  return known && (q->ghost == QS_SPAWNED || q->ghost == QS_GIVEN || q->ghost == QS_DONE); }
+static int ghost_hunt(const char **why) {
+  Quests *q = &G.q; Hero *h = &G.hero;
+  if (!ghost_pending()) return -1;
+  if (threat_count() > 0 || h->HP * 2 < h->HT) return -1;   // (not hurt, not hunted: the floor's fights come first)
+  int need = q->ghost_alt ? IK_RAT_SKULL : IK_ROSE; bool have = find_kind(need) >= 0;
+  int gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i;
+  bool gvis = gi >= 0 && BIT_GET(G.fov, G.mobs[gi].pos);
+  if (have || q->ghost == QS_SPAWNED) { if (gvis) return -1; return ghost_sweep(why, "the ghost"); }   // (in sight: the npc step talks to him)
+  if (q->ghost_alt == 1 && q->ghost == QS_DONE) {         // the fetid rat is about: find it (the fight step takes it once seen)
+    for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_FETID_RAT && BIT_GET(G.fov, G.mobs[i].pos)) return -1;
+    if (s_gh_d == G.depth && s_gh_g == cur_game && s_gh_round > 0 && s_floor_searches < 400) {   // (g27: 31 rounds of the rooms; the rat wandered a hidden part all along): every room looked at once: it's in the part I haven't found: search for the way in
+      int sp = search_spot(); if (sp >= 0) { if (sp == h->pos) return -2; *why = "the ghost's quest: the fetid rat must be in the hidden part: to where a door may hide"; return sp; } }
+    return ghost_sweep(why, "the fetid rat"); }
+  for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == need && G.heaps[i].pos < MAP_LEN && BIT_GET(G.visited, G.heaps[i].pos)) { bfs(h->pos, false); if (b_dist[G.heaps[i].pos] < 0x7FFF) { *why = "the ghost's quest: the item he wants"; return G.heaps[i].pos; } }
+  return -1; }
 static bool quest_on_floor(void) {                      // work on this floor's quest before leaving
   Quests *q = &G.q; int d = G.depth; if (s_explab) return false;   // (stage 1: no quests)
   if (q->ghost_depth == d && q->ghost && q->ghost < QS_REWARDED && npc_known(MT_GHOST, q->ghost)) return true;
@@ -3582,7 +3637,7 @@ static bool decide(void) {
     bool want = false; for (int i = 0; i < G.n_heaps && !want; i++) if (heap_wanted(i) && G.heaps[i].item.kind != IK_DEW && G.heaps[i].item.kind != IK_GOLD && b_dist[G.heaps[i].pos] < 0x7FFF && b_dist[G.heaps[i].pos] <= (getenv("PACEW") ? atoi(getenv("PACEW")) : 12)) want = true;
     if (!want) { choice = G.exit; why = "pace: this floor has had its share of the food: down"; st_pace++; } }
   bool famished = game_hungry() && !({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; });
-  if (choice < 0 && famished && PRM[P_HUNGRYDOWN] && !food_ev_ok() && !shop_hunt_ok() && BIT_GET(G.visited, G.exit) && s_goal > G.depth && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; }) &&   /* (0.52: a way there: seen across a chasm or a trap field isn't one) */ (getenv("OLDHERO") || (s_ev_food && (getenv("OLDHUNGRY") || game_starving())) || !floor_left() || boss_depth(G.depth) || G.depth == 21 || (game_starving() && h->HP * 100 < h->HT * s_starve_leave && !(s_pztest && boss_depth(G.depth + 1) && floor_left() && !s_ev_food))) &&   /* (0.92 seed 84: down to the Goo at 12/40 starving, the floor's ration unfound: before a boss, find it) */   /* (owner: look for it even starving; under 30% health, just go) */   /* 0.52 (audit): every floor but the bosses' has a ration somewhere: find it first */ (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // bot3: no food, hungry: on down
+  if (choice < 0 && famished && PRM[P_HUNGRYDOWN] && !food_ev_ok() && !shop_hunt_ok() && !ghost_pending() /* (g28: the rose in hand, hungry: hand it in first; ghost_pending() is off once starving without food) */ && BIT_GET(G.visited, G.exit) && s_goal > G.depth && ({ bfs(h->pos, false); b_dist[G.exit] < 0x7FFF; }) &&   /* (0.52: a way there: seen across a chasm or a trap field isn't one) */ (getenv("OLDHERO") || (s_ev_food && (getenv("OLDHUNGRY") || game_starving())) || !floor_left() || boss_depth(G.depth) || G.depth == 21 || (game_starving() && h->HP * 100 < h->HT * s_starve_leave && !(s_pztest && boss_depth(G.depth + 1) && floor_left() && !s_ev_food))) &&   /* (0.92 seed 84: down to the Goo at 12/40 starving, the floor's ration unfound: before a boss, find it) */   /* (owner: look for it even starving; under 30% health, just go) */   /* 0.52 (audit): every floor but the bosses' has a ration somewhere: find it first */ (G.map[G.exit] != T_LOCKED_EXIT || (G.keys[G.depth] & 64))) {   // bot3: no food, hungry: on down
     bool food_here = false; for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && is_food(G.heaps[i].item.kind)) food_here = true;
     if (!game_starving() || (!getenv("OLDPRIZEFOOD") && h->HP * 2 >= h->HT)) for (int i = 0; i < G.n_heaps; i++) { int r = (unsigned)G.heaps[i].pos < MAP_LEN ? room_at(G.heaps[i].pos) : -1; if (r >= 0 && !room_skipped(r) && (G.rooms[r].type == RT_TRAPS || (G.rooms[r].type == RT_POOL && !getenv("OLDPRIZEFOOD"))) && is_food(G.heaps[i].item.kind) && BIT_GET(G.visited, G.heaps[i].pos)) food_here = true; }   // 0.91: food in the trap room: solve it, don't leave it lying (seed 84 floor 1)
     bool grab = false; if (!getenv("OLDHUNGRY") && !(game_starving() && h->HP * 100 < h->HT * s_starve_leave)) for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && !far_missile(i) && G.heaps[i].item.kind != IK_GOLD && G.heaps[i].item.kind != IK_DEW && b_dist[G.heaps[i].pos] < 0x7FFF) grab = true;
@@ -3726,13 +3781,19 @@ static bool decide(void) {
         if (gsw_t >= 0) { choice = gsw_t; why = "the ghost: looking round for him"; } } }
     else if (s_curse_trip && threat_count() == 0) { s_curse_trip = 0; s_goal = 99; s_curse_no_key = curse_key(); } }   // (here, the real odds say no after all: on down)
   if (choice < 0 && !going && !floor_left() && s_goal > G.depth && pit_jump()) return true;
+  if (choice < 0 && !going && s_goal >= G.depth) { int c = ghost_hunt(&why);
+    if (c == -2) { for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (nb_ok(h->pos, n)) BIT_SET(s_searched, n); } BIT_SET(s_searched, h->pos); s_floor_searches++; st_search++; DID("the ghost's quest: search for the hidden part (the fetid rat is in there)"); walk(bot_search()); return true; }
+    if (c >= 0 && c != h->pos) choice = c; }
+  if (getenv("GHDBG") && !s_rollout && !s_is_child && G.q.ghost_depth == G.depth && G.q.ghost && G.q.ghost < QS_REWARDED) { static int ls = -1; if (ls != s_bot_steps / 10) { ls = s_bot_steps / 10;
+    printf("  GH d%d step %d state %d alt %d choice %d going %d goal %d worth %d have %d hp %d/%d threats %d gvis %d ghn %d ght %d why %s\n", G.depth, s_bot_steps, G.q.ghost, G.q.ghost_alt, choice, going, s_goal, ghost_worth(), find_kind(G.q.ghost_alt ? IK_RAT_SKULL : IK_ROSE) >= 0, h->HP, h->HT, threat_count(), ({ int gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GHOST) gi = i; gi >= 0 && BIT_GET(G.fov, G.mobs[gi].pos); }), s_gh_n, s_gh_t, why ? why : "-"); for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (G.mobs[i].type == MT_FETID_RAT || G.mobs[i].type == MT_GHOST)) printf("    GHM type %d at %d,%d hp %d st %d fov %d visited %d hero %d,%d\n", G.mobs[i].type, cx(G.mobs[i].pos), cy(G.mobs[i].pos), G.mobs[i].HP, G.mobs[i].state, BIT_GET(G.fov, G.mobs[i].pos) ? 1 : 0, BIT_GET(G.visited, G.mobs[i].pos) ? 1 : 0, cx(h->pos), cy(h->pos)); } }
   if (choice < 0) {
     // explored: stairs, or the goal
     bool up = s_goal < G.depth;
     int stairs = up ? G.entrance : G.exit;
-    bool stay = !up && quest_on_floor() && s_floor_steps < PRM[P_QSTAY] && !game_starving();   // bot2: starving: food lies deeper
-    if (stay && !getenv("OLDQSTAY") && (!wait_quest() || s_floor_steps > 600 || game_hungry())) stay = false;
-    if (stay && s_pztest && (G.now - s_floor_turn0) / TICK > (getenv("QSTAYT") ? atoi(getenv("QSTAYT")) : 350)) stay = false;   // 0.92 (s1 g112: 700 turns and two rations on floor 3 for a quest that never came): a floor's worth of turns, no more
+    bool gworth = !up && ghost_pending() && (G.now - s_floor_turn0) / TICK < s_floor_turn_cap();   // (any pending state: the rose in hand is a near-free hand-in, the rat a hunt)
+    bool stay = !up && quest_on_floor() && s_floor_steps < PRM[P_QSTAY] && (!game_starving() || gworth);   // bot2: starving: food lies deeper   // (the rose: the kills to come are worth their food while I wear little)
+    if (stay && !getenv("OLDQSTAY") && (!wait_quest() || s_floor_steps > 600 || game_hungry()) && !gworth) stay = false;
+    if (stay && s_pztest && (G.now - s_floor_turn0) / TICK > (getenv("QSTAYT") ? atoi(getenv("QSTAYT")) : 350) && !gworth) stay = false;   // 0.92 (s1 g112: 700 turns and two rations on floor 3 for a quest that never came): a floor's worth of turns, no more
     if (stay && s_pztest && !({ bool f = false; for (int i = 0; i < BAG_SIZE; i++) if (is_food(h->bag[i].kind)) f = true; f; })) stay = false;   // 0.92 (seed 84 d3: 223 turns wandering for the ghost on its last pasty, then down hungry to the Goo): only on food in the bag   // 0.50 (review g6): wandering about only helps a quest that needs monsters to come, and not for long (food)
     if (stay && !BIT_GET(G.visited, stairs) && !getenv("OLDSTAY")) stay = false;   // 0.49: the way down not found yet: search while waiting (what it waits for may be behind that door)
     static int s_bounce_wait;
@@ -4782,6 +4843,7 @@ static int lab_trial(const char *fn, uint32_t seed) {
   return r;
 }
 static void gm_log(void) {
+  if (getenv("QLOG") && s_pend_depth > G.depth && G.depth <= 5) printf("QL d%d g%d ghost_depth %d state %d alt %d turn %d lvl %d\n", G.depth, cur_game, G.q.ghost_depth, G.q.ghost, G.q.ghost_alt, (int)(G.now / TICK), G.hero.lvl);
   if (getenv("DEWLOG") && s_pend_depth > G.depth) { int nd = 0, nds = 0, grass = 0, grs = 0; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW) { nd++; if (BIT_GET(G.visited, G.heaps[i].pos)) nds++; }
     for (int c = 0; c < MAP_LEN; c++) if (G.map[c] == T_HIGH_GRASS) { grass++; if (BIT_GET(G.visited, c)) grs++; }
     printf("DEWL d%d g%d dew_left %d seen %d grass_left %d seen %d vial %d dew %d hp %d/%d\n", G.depth, cur_game, nd, nds, grass, grs, find_kind(IK_DEW_VIAL) >= 0, G.dew, G.hero.HP, G.hero.HT); }
@@ -5182,7 +5244,7 @@ int main(int argc, char **argv) {
         if (ci >= 0 && !BIT_GET(G.fov, G.mobs[ci].pos)) s_cal_away++; else s_cal_away = 0;
         if (s_cal_away > 20 || G.depth != s_cal_type * 0 + G.depth) s_cal_on = 0; else if (ci < 0 || G.hero.HP <= 0) { printf("TCAL %s n %d pred %.1f actual %d died %d\n", mob_name(s_cal_type), s_cal_n, s_cal_pred, s_cal_hp0 - (G.hero.HP > 0 ? G.hero.HP : 0), G.hero.HP <= 0); s_cal_on = 0; } }
       if (!s_is_child && (tfoe0 || enemy_count() > 0) && G.hero.HP < thp0) s_fight_hp += thp0 - G.hero.HP;
-      if (getenv("DIDLOG") && !s_is_child && (atoi(getenv("DIDLOG")) == 2 || (getenv("FOELOG") ? (enemy_count() > 0 || tfoe0 > 0) : (enemy_count() == 0 && tfoe0 == 0)))) { char k[20]; int j = 0; const char *br = strchr(s_did, '['); if (br && !strncmp(s_did, "walk to", 7)) { for (const char *c = br; *c && j < 18 && *c != ']'; c++) k[j++] = *c; } else for (const char *c = s_did; *c && j < 18; c++) { if (*c == ':' || *c == '(' || *c == ',' || (*c >= '0' && *c <= '9')) break; k[j++] = *c; } while (j > 0 && k[j-1] == ' ') j--; k[j] = 0; int vis1 = 0; for (int c = 0; c < MAP_LEN; c++) vis1 += BIT_GET(G.visited, c) ? 1 : 0; if (atoi(getenv("DIDLOG")) == 2) printf("DIDLOG t%d hp %d/%d foes %d | %s\n", (int)(G.now / TICK), G.hero.HP, G.hero.HT, enemy_count(), s_did); else printf("DIDLOG %ld %s|%d|d%d\n", (long)((G.now - tbefore) / TICK), k, vis1 - s_vis0, G.depth); }
+      if (getenv("DIDLOG") && !s_is_child && (atoi(getenv("DIDLOG")) == 2 || (getenv("FOELOG") ? (enemy_count() > 0 || tfoe0 > 0) : (enemy_count() == 0 && tfoe0 == 0)))) { char k[20]; int j = 0; const char *br = strchr(s_did, '['); if (br && !strncmp(s_did, "walk to", 7)) { for (const char *c = br; *c && j < 18 && *c != ']'; c++) k[j++] = *c; } else for (const char *c = s_did; *c && j < 18; c++) { if (*c == ':' || *c == '(' || *c == ',' || (*c >= '0' && *c <= '9')) break; k[j++] = *c; } while (j > 0 && k[j-1] == ' ') j--; k[j] = 0; int vis1 = 0; for (int c = 0; c < MAP_LEN; c++) vis1 += BIT_GET(G.visited, c) ? 1 : 0; if (atoi(getenv("DIDLOG")) == 2) printf("DIDLOG t%d d%d hp %d/%d foes %d | %s\n", (int)(G.now / TICK), G.depth, G.hero.HP, G.hero.HT, enemy_count(), s_did); else printf("DIDLOG %ld %s|%d|d%d\n", (long)((G.now - tbefore) / TICK), k, vis1 - s_vis0, G.depth); }
       if (getenv("HPSRC") && !s_is_child && G.hero.HP < thp0) { char k[24]; int j = 0; for (const char *c = s_did + (strncmp(s_did, "b2: ", 4) ? 0 : 4); *c && j < 22; c++) { if (*c == ':' || *c == '(' || (*c >= '0' && *c <= '9')) break; k[j++] = *c; } while (j > 0 && k[j-1] == ' ') j--; k[j] = 0; printf("HPSRC %d %s\n", thp0 - G.hero.HP, k); }   // which decision the HP went in   // tact metric: HP lost while foes are about
       if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == atoi(getenv("TTRACE")) && (enemy_count() > 0 || getenv("TDALL"))) printf("TD t%d hero %d,%d hp %d did \"%s\" para %d poison %d roots %d tox %d\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did, G.hero.b.paralysis, G.hero.b.poison, G.hero.b.roots, g_blob[BLOB_TOXIC] ? g_blob[BLOB_TOXIC][G.hero.pos] : -1);
       if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }
