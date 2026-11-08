@@ -15,16 +15,16 @@ static double ch_k(const char *n, double d) { const char *v = getenv(n); return 
 // against the defender's evasion (Char.hit), its damage a NormalIntRange roll less an armour roll 0..DR (Char.damage);
 // the foes move as tact_eval moves them. The price: the HP it costs on average plus the share of runs that kill me x
 // CH_DEATH x HT. (tact_eval played one average fight: a 3-HP gnoll was dead in its one sim and alive in half the real ones.)
-static double c_ph[24], c_pf[24], c_rpf[24]; static int c_hlo[24], c_hhi[24], c_hex[24], c_fdr[24], c_flo[24], c_fhi[24], c_rlo[24], c_rhi[24], c_rt[24]; static bool c_mag[24], c_rn[24]; static int c_hdr;   // c_r*: the shot from afar (its own dice, time and armour rule)
-static uint32_t c_rs = 0x9e3779b9u, c_seed = 0x9e3779b9u; static int c_type[24];
+static double c_ph[24], c_pf[24], c_rpf[24]; static int c_hlo[24], c_hhi[24], c_hex[24], c_fdr[24], c_flo[24], c_fhi[24], c_rlo[24], c_rhi[24], c_rt[24]; static bool c_mag[24], c_rn[24]; static int c_hdr; static double c_hdef;   // c_r*: the shot from afar (its own dice, time and armour rule)
+static uint32_t c_rs = 0x9e3779b9u, c_seed = 0x9e3779b9u; static int c_type[24]; static int c_pump0[24];
 #define m_shaman(k) (c_type[k] == MT_SHAMAN || c_type[k] == MT_WARLOCK)   // uniform rnd_int2 rolls
 static inline double c_rnd(void) { c_rs ^= c_rs << 13; c_rs ^= c_rs >> 17; c_rs ^= c_rs << 5; return (c_rs >> 8) / 16777216.0; }
 static inline int c_norm(int lo, int hi) { if (hi <= lo) return lo; return lo + (int)((c_rnd() + c_rnd()) * (hi - lo + 1) / 2); }
 static inline int c_uni(int lo, int hi) { if (hi <= lo) return lo; return lo + (int)(c_rnd() * (hi - lo + 1)); }
 static void ch_prep(TFoe *F, int nf) {
   Hero *h = &G.hero; const Item *w = h->weapon.kind ? &h->weapon : NULL; int st = hero_str();
-  double rate = w ? TICK / (double)attack_delay(w) : 1; c_hdr = hero_dr();
-  for (int k = 0; k < nf; k++) { Mob *m = &G.mobs[F[k].i]; const MobDef *d = &MOB_DEFS[m->type]; c_type[k] = m->type;
+  double rate = w ? TICK / (double)attack_delay(w) : 1; c_hdr = hero_dr(); c_hdef = hero_def_est();
+  for (int k = 0; k < nf; k++) { Mob *m = &G.mobs[F[k].i]; const MobDef *d = &MOB_DEFS[m->type]; c_type[k] = m->type; c_pump0[k] = m->type == MT_GOO ? m->aux2 : 0;
     double p = (m->b.paralysis || m->b.frost) ? 1 : phit(hero_attack_skill(NULL, m->pos), mst(m, STAT_DEF, d->def)); c_ph[k] = p * rate > 1 ? 1 : p * rate;
     if (w) { c_hlo[k] = weapon_min(w); c_hhi[k] = weapon_max(w); c_hex[k] = h->hclass != 3 && st > item_str(w) ? st - item_str(w) : 0; } else { c_hlo[k] = 1; c_hhi[k] = st > 10 ? st - 9 : 1; c_hex[k] = 0; }
     c_fdr[k] = mst(m, STAT_DR, d->dr);
@@ -51,6 +51,7 @@ static double ch_mc(TFoe *F0, int nf, int P, const int *path, int plen, int tk, 
   if (field_game != cur_game || field_step != s_bot_steps) { field_at = -1; field_game = cur_game; field_step = s_bot_steps; }
   c_rs = c_seed ^ (uint32_t)(s_bot_steps * 2654435761u) ^ (uint32_t)cur_game; if (!c_rs) c_rs = 1;   // the same dice for every option this turn (common random numbers): the options differ by what they do, not by luck; the cheapest of 150 noisy guesses is otherwise just the luckiest
   for (int r = 0; r < runs; r++) {
+    int pump[24]; memcpy(pump, c_pump0, sizeof pump); int ooze = h->ooze ? 1 : 0;
     TFoe F[24]; memcpy(F, F0, sizeof(TFoe) * nf); double hp = hp0 + (vial_full() ? h->HT : 0); int hc = h->pos; bool dead = false;   // (a full dew vial brings me back at full health: Hero.die)
     for (int t = 0; t < 60 && !dead; t++) {
       bool any = false; for (int k = 0; k < nf; k++) if (F[k].hp > 0) any = true; if (!any) break;
@@ -61,10 +62,20 @@ static double ch_mc(TFoe *F0, int nf, int P, const int *path, int plen, int tk, 
         else { int rr = -1, rd = 99; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].rng && distance(F[k].pos, hc) < rd) { rd = distance(F[k].pos, hc); rr = k; }
           if (rr >= 0) { int bq = -1, bd = rd; for (int j = 0; j < 8; j++) { int q2 = hc + N8[j]; if (!nb_ok(hc, q2) || !BIT_GET(G.visited, q2) || !PASSABLE(G.map[q2]) || (TFLAGS(G.map[q2]) & F_AVOID)) continue; bool occ = false; for (int o = 0; o < nf; o++) if (F[o].hp > 0 && F[o].pos == q2) occ = true; if (occ) continue; if (distance(q2, F[rr].pos) < bd) { bd = distance(q2, F[rr].pos); bq = q2; } }
             if (bq >= 0) hc = bq; } } }
+      if (ooze) { if (IS_WATER(G.map[hc])) ooze = 0; else { hp -= 1; lost += 1; if (hp <= 0) { dead = true; break; } } }   // ooze: a point a turn till I stand in water
+      for (int k = 0; k < nf; k++) if (c_type[k] == MT_GOO && F[k].hp > 0 && IS_WATER(G.map[F[k].pos]) && F[k].hp < G.mobs[F[k].i].HT) F[k].hp += 1;   // Goo mends in water
       if (field_at != hc) { ch_field(hc); field_at = hc; }
       for (int k = 0; k < nf && !dead; k++) { TFoe *f = &F[k]; if (f->hp <= 0) continue;
         f->tm += TICK;
         for (int guard = 0; guard < 6 && f->tm > 0; guard++) { bool hit;
+          if (c_type[k] == MT_GOO) {   // Goo (sewers.c): beside me, 2 in 3 a blow (2-12, accuracy 15), else it pumps up (2 turns); pumped, it reaches 2 cells in a clear line, jumps beside me and strikes for 5-30 (accuracy 30 unless it jumped); moving off cancels the pump; in water it mends 1 a turn
+            bool adj = adjacent(f->pos, hc), inl = pump[k] && distance(f->pos, hc) <= 2 && ballistica(f->pos, hc, &hit) == hc;
+            if (pump[k] && (adj || inl)) { f->tm -= TICK; double pa = phit(adj ? 30 : 15, c_hdef); pump[k] = 0;
+              if (!adj) { int bq = -1; for (int j = 0; j < 8; j++) { int q = hc + N8[j]; if (nb_ok(hc, q) && PASSABLE(G.map[q]) && distance(q, f->pos) < distance(f->pos, hc) + 1) { bq = q; break; } } if (bq >= 0) f->pos = bq; }
+              if (c_rnd() < pa) { int dm = c_norm(5, 30) - c_uni(0, c_hdr); if (dm > 0) { hp -= dm; lost += dm; if (c_rnd() < 1 / 3.0) ooze = 1; if (hp <= 0) { dead = true; break; } } } continue; }
+            if (adj) { if (c_rnd() < 2 / 3.0) { f->tm -= TICK; if (c_rnd() < c_pf[k]) { int dm = c_norm(2, 12) - c_uni(0, c_hdr); if (dm > 0) { hp -= dm; lost += dm; if (c_rnd() < 1 / 3.0) ooze = 1; if (hp <= 0) { dead = true; break; } } } }
+              else { f->tm -= 2 * TICK; pump[k] = 1; } continue; }
+            pump[k] = 0; }
           bool reach = adjacent(f->pos, hc) || (f->rng && distance(f->pos, hc) <= 8 && ballistica(f->pos, hc, &hit) == hc);
           if (reach) { bool adj = adjacent(f->pos, hc); int dm = 0;
             if (adj || !c_rn[k]) { f->tm -= adj ? f->ac : c_rt[k]; if (c_rnd() < c_pf[k]) dm = c_norm(c_flo[k], c_fhi[k]) - c_uni(0, c_hdr); }
@@ -77,7 +88,7 @@ static double ch_mc(TFoe *F0, int nf, int P, const int *path, int plen, int tk, 
   s_te_pd = deaths / (double)runs; s_te_E = lost / runs;
   return s_te_E; }
 static int choose(void) {
-  Hero *h = &G.hero; if (s_rollout || h->b.paralysis || h->b.frost || G.depth % 5 == 0) return 0;
+  Hero *h = &G.hero; if (s_rollout || h->b.paralysis || h->b.frost || (G.depth % 5 == 0 && G.depth != 5) || (G.depth == 5 && getenv("CHNOGOO"))) return 0;   // (bosses: the Goo so far)
   TFoe F[24]; int nf = 0;
   // what I know of the foes: those in sight now, and those that were hunting me when last seen a few turns ago (where I saw them):
   // a foe that steps out of sight hasn't gone (the player knows it's there; the true position stays hidden)
@@ -90,7 +101,7 @@ static int choose(void) {
     if (see || adj) { if (m->state != ST_HUNTING) continue; }
     else { if (mu[i] != m->uid || G.now - mt[i] > kmem * TICK || BIT_GET(G.fov, mp[i])) continue; pos = mp[i]; }   // (out of sight: where I last saw it; if I can see that cell now, it's moved on: lost)
     if (distance(pos, h->pos) > 9) continue;
-    if (MOB_DEFS[m->type].flags & (MD_BOSS | MD_NPC)) return 0;
+    if (MOB_DEFS[m->type].flags & MD_NPC) continue; if ((MOB_DEFS[m->type].flags & MD_BOSS) && m->type != MT_GOO) return 0;
     if (m->b.paralysis || m->b.frost) continue;
     if (nf >= 24) break; TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
     f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (f->mc < 5) f->mc = 5;
