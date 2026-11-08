@@ -2168,9 +2168,10 @@ static double step2_eval(int hp, bool stay) {
 // in gives me the first blow, only so many fit round me, a shooter needs a line). The score is the HP it costs, plus a large
 // charge for the chance it kills me, plus a charge for unknown ground near the cell (something can wander out of it).
 // Only what the player sees: foes in view or beside me, cells already seen.
-typedef struct { int i, pos; double hp, dpt, hd, hi; int acts, mc, ac, tm; bool rng; } TFoe;   // mc/ac: ticks a move/an attack takes; tm: its time in hand
+typedef struct { int i, pos; double hp, dpt, hd, hi; int acts, mc, ac, tm; bool rng, wat; } TFoe;   // wat: lives in water (a piranha): moves only over water, dies out of it   // mc/ac: ticks a move/an attack takes; tm: its time in hand
 static double s_te_pd; static int s_goal_cell2 = -1; static int s_last_sleeper = -1; static long s_fight_hp, st_tact_throws; static int s_tact_lastd = 99; static double s_te_E; static int s_cal_on, s_cal_hp0, s_cal_type, s_cal_n, s_cal_uid, s_cal_away; static double s_cal_pred; static int s_tact_n, s_tact_wait, s_tact_tgt = -1; static long st_tact_steps, st_tact_waits;
-static int16_t s_td[MAP_LEN], s_tq[MAP_LEN];
+static int16_t s_td[MAP_LEN], s_tq[MAP_LEN]; static double s_te_hp = -1;   // s_te_hp: the HP to judge the fight with (a potion drunk), -1: as I am
+static bool vial_full(void);
 static void tact_field(int from) {                    // foes' distance to a cell, over seen open cells
   for (int c = 0; c < MAP_LEN; c++) s_td[c] = 0x7FFF; int qh = 0, qt = 0; s_td[from] = 0; s_tq[qt++] = from;
   while (qh < qt) { int c = s_tq[qh++]; for (int k = 0; k < 8; k++) { int n = c + N8[k]; if (!nb_ok(c, n) || s_td[n] != 0x7FFF || (BIT_GET(G.visited, n) && !PASSABLE(G.map[n]))) continue; s_td[n] = s_td[c] + 1; s_tq[qt++] = n; } } }
@@ -2193,16 +2194,19 @@ static double tact_eval(TFoe *F0, int nf, int P, const int *path, int plen, doub
         bool hit; double d = f->dpt * f->ac / (double)TICK;   // (dpt is per turn: one blow's worth)
         if (adjacent(f->pos, hc) || (f->rng && distance(f->pos, hc) <= 8 && ballistica(f->pos, hc, &hit) == hc)) { E += d; V += d * f->hi * 0.7; f->tm -= f->ac; continue; }
         f->tm -= f->mc;
-        int bq = -1, bd = s_td[f->pos]; for (int j = 0; j < 8; j++) { int q = f->pos + N8[j]; if (!nb_ok(f->pos, q) || q == hc || s_td[q] >= bd) continue; bool occ = false; for (int o = 0; o < nf; o++) if (o != k && F[o].hp > 0 && F[o].pos == q) occ = true; if (occ) continue; bd = s_td[q]; bq = q; }
+        int bq = -1, bd = s_td[f->pos]; for (int j = 0; j < 8; j++) { int q = f->pos + N8[j]; if (!nb_ok(f->pos, q) || q == hc || s_td[q] >= bd || (f->wat && !IS_WATER(G.map[q]))) continue; bool occ = false; for (int o = 0; o < nf; o++) if (o != k && F[o].hp > 0 && F[o].pos == q) occ = true; if (occ) continue; bd = s_td[q]; bq = q; }
         if (bq >= 0) f->pos = bq; } } }
-  double rest_t = 0, rest_e = 0; { int idx[24], m = 0; for (int k = 0; k < nf; k++) if (F[k].hp > 0) idx[m++] = k;   // not over in 40 turns: the rest one at a time, the best order (most hurt per turn to kill first)
+  double rest_t = 0, rest_e = 0; { int idx[24], m = 0; for (int k = 0; k < nf; k++) if (F[k].hp > 0) {
+      if (F[k].wat && !adjacent(F[k].pos, hc)) { bool wet = false; for (int j = 0; j < 8; j++) { int w = hc + N8[j]; if (nb_ok(hc, w) && IS_WATER(G.map[w])) wet = true; } if (!wet) continue; }   // (a fish can't follow me onto dry ground: no fight left with it)
+      idx[m++] = k; }   // not over in 40 turns: the rest one at a time, the best order (most hurt per turn to kill first)
     for (int a = 0; a < m; a++) for (int b = a + 1; b < m; b++) { TFoe *x = &F[idx[a]], *y = &F[idx[b]]; double tx = x->hp / (x->hd > 0.2 ? x->hd : 0.2), ty = y->hp / (y->hd > 0.2 ? y->hd : 0.2); if (y->dpt * tx > x->dpt * ty) { int z = idx[a]; idx[a] = idx[b]; idx[b] = z; } }
     double alive = 0; for (int a = 0; a < m; a++) alive += F[idx[a]].dpt;
     for (int a = 0; a < m; a++) { TFoe *x = &F[idx[a]]; double tx = x->hp / (x->hd > 0.2 ? x->hd : 0.2); rest_e += alive * tx; rest_t += tx; alive -= x->dpt; } }
   E += rest_e; V += rest_e * 3;
   if (turns_out) *turns_out = t + rest_t;
   s_te_E = E;
-  double hp = h->HP, z = (hp - E) / sqrt(V + 1), pd = 0.5 * erfc(z / sqrt(2.0)); s_te_pd = pd;
+  double hp = s_te_hp >= 0 ? s_te_hp : h->HP; if (vial_full()) hp += h->HT;   // (a full dew vial revives at death: Hero.die)
+  double z = (hp - E) / sqrt(V + 1), pd = 0.5 * erfc(z / sqrt(2.0)); s_te_pd = pd;
   int unk = 0; for (int dy = -3; dy <= 3; dy++) for (int dx = -3; dx <= 3; dx++) { int x = cx(P) + dx, y = cy(P) + dy; if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue; if (!BIT_GET(G.visited, y * MAP_W + x)) unk++; }
   if (unk > 12) unk = 12;
   static double ku = -1, kk = -1; if (ku < 0) { ku = getenv("TACTU") ? atof(getenv("TACTU")) : 0.004; kk = getenv("TACTK") ? atof(getenv("TACTK")) : 2.0; }
@@ -2216,7 +2220,7 @@ static bool tact(void) {
     bool see = BIT_GET(G.fov, m->pos), adj = adjacent(m->pos, h->pos); if (!see && !adj) continue; if (distance(m->pos, h->pos) > 9) continue;
     if (MOB_DEFS[m->type].flags & (MD_BOSS | MD_WATER | MD_NPC)) return false;
     if (m->type == MT_STATUE || m->type == MT_MIMIC || m->b.paralysis || m->b.frost) continue;
-    if (nf >= 24) break; TFoe *f = &F[nf++]; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
+    if (nf >= 24) break; TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
     f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (f->mc < 5) f->mc = 5; f->ac = MOB_DEFS[m->type].atk_delay ? MOB_DEFS[m->type].atk_delay : TICK; f->tm = 0; f->rng = magic_shooter(m->type) || m->type == MT_SCORPIO; if (adj) adjf = true; }
   if (nf == 0) { s_tact_wait = 0; s_tact_lastd = 99; return false; }
   // the hero's ways: cells within 5 steps over seen floor, no traps, no water creatures, none taken
@@ -2254,6 +2258,7 @@ static bool tact(void) {
   if (adjf) s_tact_wait = 0; s_tact_lastd = md;
   return false;
 }
+#include "choose.inc"
 static bool fight(void) {
   Hero *h = &G.hero;
   if (soures() && !getenv("NOFIGHTMEND") && !h->b.blind && !s_rollout) { int s = find_kind(IK_SCR_UPGRADE); if (s >= 0 && item_known(IK_SCR_UPGRADE))   // 0.93 (owner: a broken piece is only mended, the level is lost): a piece a few uses from breaking mid-fight: read it now
@@ -3479,6 +3484,7 @@ static bool decide(void) {
   Hero *h = &G.hero; const char *why = "?";
   if (s_brew_kind >= 0 && s_brew_i >= 3 && (unsigned)s_brew_pot < MAP_LEN) { int hb = heap_at(s_brew_pot); if (hb >= 0 && item_cat(G.heaps[hb].item.kind) == CAT_POTION) { int pk = G.heaps[hb].item.kind; if (!item_known(pk) && !s_pot_guess[pk]) s_pot_guess[pk] = seed_potion(s_brew_kind); s_brew_kind = -1; } }   // (the brew's colour: probably that seed's potion)
   if (V) printf("  decide: hero %d hp %d/%d hunger %d blind %d light %d vd %d\n", h->pos, h->HP, h->HT, h->hunger, h->b.blind, h->light, view_distance());
+  if (getenv("CHOOSE") && !s_is_child && choose()) return true;   // the one scorer, for every turn with an awake foe about
   if (!getenv("NOBRAIN2") && !s_rollout && !s_is_child) { int r = brain2(); if (r >= 0) return r; }   // brain2: the one-goal brain (owner 2026-11-03); -1: the old rules for this turn
   // eat
   if (eat_rule()) return true;
