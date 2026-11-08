@@ -26,7 +26,18 @@ static double mc_owed(void) {
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING || !BIT_GET(G.fov, m->pos) || (MOB_DEFS[m->type].flags & MD_NPC)) continue;
     double hd = hero_dpt(m); owed += m->HP / (hd > 0.2 ? hd : 0.2) * foe_dpt(m); }
   (void)h; return owed; }
-static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0; double hp = h->HP + (vial_full() ? h->HT : 0) - mc_owed(); if (hp > h->HT) hp = h->HT; return judge_value(hp); }
+// the leaf: if a fight is still on, the rest of it is played out with the dice model (ch_mc: the game's hit and damage
+// rolls, calibrated against 57k real encounters) standing my ground from here; the judge takes what's left of me
+static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0;
+  TFoe F[24]; int nf = 0;
+  for (int i = 0; i < G.n_mobs && nf < 24; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING || (MOB_DEFS[m->type].flags & MD_NPC) || distance(m->pos, h->pos) > 12) continue;
+    TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
+    f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (f->mc < 5) f->mc = 5;
+    f->ac = MOB_DEFS[m->type].atk_delay ? MOB_DEFS[m->type].atk_delay : TICK; f->tm = h->time - m->time; if (f->tm > TICK) f->tm = TICK; if (f->tm < -4 * TICK) f->tm = -4 * TICK; f->rng = magic_shooter(m->type) || m->type == MT_SCORPIO; }
+  if (nf == 0 || getenv("MC_OWED")) { double hp = h->HP + (vial_full() ? h->HT : 0) - (nf ? mc_owed() : 0); if (hp > h->HT) hp = h->HT; return judge_value(hp); }
+  ch_prep(F, nf); c_seed = (uint32_t)rand(); double E = ch_mc(F, nf, h->pos, NULL, 0, -1, 0, 16, h->HP); double pd = s_te_pd;
+  double hp = h->HP + (vial_full() ? h->HT : 0) - E; if (hp > h->HT) hp = h->HT; if (hp < 1) hp = 1;
+  return (1 - pd) * judge_value(hp); }
 // the hero's moves, as ids: 0-7 a step or blow that way, 8 wait, 9 the stairs underfoot, 16+slot*4+use (drink/read/eat/plant), 512+slot*32+foe (throw), 4096+slot*32+foe (zap)
 static int mc_moves(int *mv) {
   Hero *h = &G.hero; int n = 0, hp = h->pos;
@@ -54,7 +65,7 @@ static bool mc_apply(int id) {
   else { int s = (id - 4096) / 32, j = (id - 4096) % 32; if (j >= nf) return false; walk(game_zap(s, G.mobs[foes[j]].pos)); }
   for (int g = 0; g < 4 && (s_pick >= 0 || s_wnd_btn); g++) la_step();   // (a picker or window a move opened: answered as ever)
   return h->time != t0 || G.depth != d0 || s_pend_depth; }
-static bool mc_calm(void) { for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && BIT_GET(G.fov, m->pos) && !(MOB_DEFS[m->type].flags & MD_NPC)) return false; } return true; }
+static bool mc_calm(void) { for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) return false; } return true; }   // (no foe hunting me at all, seen or not: the search judged hiding round a corner as the fight won)
 typedef struct { int32_t first; int32_t next; int32_t id; int32_t n; double w; } MNode;   // first child, next sibling
 #define MC_MAXN 60000
 static MNode s_mn[MC_MAXN]; static int s_mnn;
@@ -65,7 +76,7 @@ static int mcts(void) {
   Hero *h = &G.hero; if (s_rollout || s_is_child || getenv("NOMCTS") || h->b.paralysis) return 0;
   bool threat = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) threat = true; }
   if (!threat) return 0;
-  static int iters = -1, horizon, calmk; static double cu; if (iters < 0) { iters = getenv("MC_IT") ? atoi(getenv("MC_IT")) : 300; horizon = getenv("MC_H") ? atoi(getenv("MC_H")) : 20; cu = getenv("MC_C") ? atof(getenv("MC_C")) : 0.05; calmk = 2; }
+  static int iters = -1, horizon, calmk; static double cu, pw; if (iters < 0) { pw = getenv("MC_PW") ? atof(getenv("MC_PW")) : 1.5; iters = getenv("MC_IT") ? atoi(getenv("MC_IT")) : 300; horizon = getenv("MC_H") ? atoi(getenv("MC_H")) : 20; cu = getenv("MC_C") ? atof(getenv("MC_C")) : 0.3; calmk = 2; }
   int mv0[128]; int n0 = mc_moves(mv0); if (n0 <= 1) return 0;
   s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 };
   uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u);
@@ -83,8 +94,11 @@ static int mcts(void) {
         int mv[128]; int n = mc_moves(mv); if (!n) { val = mc_leaf(); break; }
         // UCT over the moves open here; one not yet tried is tried first (in a random order)
         int untried[128], nu = 0; for (int i = 0; i < n; i++) if (node < 0 || mc_child(node, mv[i]) < 0) untried[nu++] = mv[i];
-        int pick;
-        if (nu > 0) { pick = untried[rand() % nu]; path[np++] = pick; if (!mc_apply(pick)) { val = -2; break; }
+        int pick; int nch = n - nu;
+        // progressive widening (MC_PW): a node opens a new move only while it has fewer than PW*sqrt(visits) children, so
+        // the tries go deeper down the good lines instead of one level across every move
+        bool widen = nu > 0 && (node < 0 || nch < 1 || nch < pw * sqrt((double)(s_mn[node].n + 1)));
+        if (widen) { pick = untried[rand() % nu]; path[np++] = pick; if (!mc_apply(pick)) { val = -2; break; }
           // the new leaf: judged as it stands, the fight still owed taken off
           if (h->HP <= 0) val = 0; else val = mc_leaf(); break; }
         double bv = -1e9; int bc = -1, bid = -1; double ln = log((double)(s_mn[node].n > 0 ? s_mn[node].n : 1));
@@ -101,7 +115,9 @@ static int mcts(void) {
     st_mc_iters++;
     int node = 0; s_mn[0].n++; s_mn[0].w += v;
     for (int i = 0; i < np; i++) { int c = mc_child(node, path[i]); if (c < 0) c = mc_add(node, path[i]); if (c < 0) break; s_mn[c].n++; s_mn[c].w += v; node = c; } }
-  int best = -1, bn = -1; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n > bn) { bn = s_mn[c].n; best = c; }
+  // the move: the best average among those tried at least a tenth as often as the most tried (the most-tried alone follows early luck)
+  int best = -1, bn = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n > bn) bn = s_mn[c].n;
+  double bv0 = -1; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n * 10 >= bn && s_mn[c].w / s_mn[c].n > bv0) { bv0 = s_mn[c].w / s_mn[c].n; best = c; }
   if (best < 0) return 0;
   if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn);
     for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n >= 5) printf(" [%d n%d v%.3f]", s_mn[c].id, s_mn[c].n, s_mn[c].w / s_mn[c].n); printf("\n"); }
