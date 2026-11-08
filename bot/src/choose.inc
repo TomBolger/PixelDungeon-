@@ -31,6 +31,7 @@ static void ch_prep(TFoe *F, int nf) {
     c_mag[k] = magic_shooter(m->type) && distance(m->pos, h->pos) > 1;
     c_pf[k] = phit(mst(m, STAT_ATT, d->att) * (c_mag[k] ? 2 : 1), hero_def_est());
     c_flo[k] = d->dmg_lo; c_fhi[k] = d->dmg_hi;
+    if (g_mh.stats && m->type != MT_GOO) { uint32_t r0 = g_rng; int lo = 9999, hi = -1; for (int t = 0; t < 64; t++) { int v = g_mh.stats(F[k].i, STAT_DMG); if (v < 0) break; if (v < lo) lo = v; if (v > hi) hi = v; } g_rng = r0; if (hi >= 0) { c_flo[k] = lo; c_fhi[k] = hi; } }   // (CHCAL: a brute's table says 10-40, its overlay rolls 8-18 till enraged; a mimic grows with depth: the creature's own dice, its range read off 64 rolls, the game's dice put back)
     c_pf[k] = phit(mst(m, STAT_ATT, d->att), hero_def_est());   // a blow beside me: its plain accuracy, its dice less my armour
     // the shot from afar, from the source: shaman lightning 2-11 (x1.5 standing in water), 2 turns (mob_shaman.inc); warlock 12-17, a turn (city.c);
     // evil eye 14-20 NormalIntRange (halls.c); all magic: the roll doubled, armour ignored (char_hit(.., true))
@@ -51,14 +52,20 @@ static double ch_mc(TFoe *F0, int nf, int P, const int *path, int plen, int tk, 
   if (field_game != cur_game || field_step != s_bot_steps) { field_at = -1; field_game = cur_game; field_step = s_bot_steps; }
   c_rs = c_seed ^ (uint32_t)(s_bot_steps * 2654435761u) ^ (uint32_t)cur_game; if (!c_rs) c_rs = 1;   // the same dice for every option this turn (common random numbers): the options differ by what they do, not by luck; the cheapest of 150 noisy guesses is otherwise just the luckiest
   for (int r = 0; r < runs; r++) {
-    int pump[24]; memcpy(pump, c_pump0, sizeof pump); int ooze = h->ooze ? 1 : 0;
+    int pump[24]; memcpy(pump, c_pump0, sizeof pump); int ooze = h->ooze ? 1 : 0, para = 0;
     TFoe F[24]; memcpy(F, F0, sizeof(TFoe) * nf); double hp = hp0 + (vial_full() ? h->HT : 0); int hc = h->pos; bool dead = false;   // (a full dew vial brings me back at full health: Hero.die)
     for (int t = 0; t < 60 && !dead; t++) {
       bool any = false; for (int k = 0; k < nf; k++) if (F[k].hp > 0) any = true; if (!any) break;
-      if (t < plen) { int nx = path[t]; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].pos == nx) return 1e9; hc = nx; }
+      if (para > 0) para--;
+      else if (t < plen) { int nx = path[t]; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].pos == nx) return 1e9; hc = nx; }
       else if (t == 0 && tk >= 0) { if (c_rnd() < 0.85) F[tk].hp -= tdmg / 0.85; }
+      else if (({ bool dodged = false; bool hit2;   // (CHCAL: the Goo forecast 55% deaths, 24% happened: the future me re-plans each turn and steps out of a pumped Goo's reach, as the scorer does now; the plan's later turns must too)
+          for (int k = 0; k < nf && !dodged; k++) if (F[k].hp > 0 && pump[k] && distance(F[k].pos, hc) <= 2 && (adjacent(F[k].pos, hc) || ballistica(F[k].pos, hc, &hit2) == hc)) {
+            for (int j = 0; j < 8 && !dodged; j++) { int q2 = hc + N8[j]; if (!nb_ok(hc, q2) || !BIT_GET(G.visited, q2) || !PASSABLE(G.map[q2]) || (TFLAGS(G.map[q2]) & F_AVOID)) continue; bool occ = false; for (int o = 0; o < nf; o++) if (F[o].hp > 0 && F[o].pos == q2) occ = true; if (occ) continue;
+              if (distance(F[k].pos, q2) > 2 || ballistica(F[k].pos, q2, &hit2) != q2) { hc = q2; dodged = true; } } }
+          dodged; })) {}
       else { int b = -1; double bv = -1; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && adjacent(F[k].pos, hc)) { double v = F[k].dpt / (F[k].hp > 1 ? F[k].hp : 1); if (v > bv) { bv = v; b = k; } }
-        if (b >= 0) { if (c_rnd() < c_ph[b]) { int dm = c_norm(c_hlo[b], c_hhi[b]) + (c_hex[b] ? c_uni(0, c_hex[b]) : 0) - c_uni(0, c_fdr[b]); if (dm > 0) F[b].hp -= dm; } }
+        if (b >= 0) { if (c_rnd() < c_ph[b]) { int dm = c_norm(c_hlo[b], c_hhi[b]) + (c_hex[b] ? c_uni(0, c_hex[b]) : 0) - c_uni(0, c_fdr[b]); if (dm > 0) F[b].hp -= dm; if (c_type[b] == MT_FETID_RAT) para = 10; } }   // (sewers.c defense_proc: a struck fetid rat puffs paralytic gas onto its cell: beside it, 10 turns paralysed (game.c), while it, immune, bites on)
         else { int rr = -1, rd = 99; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].rng && distance(F[k].pos, hc) < rd) { rd = distance(F[k].pos, hc); rr = k; }
           if (rr >= 0) { int bq = -1, bd = rd; for (int j = 0; j < 8; j++) { int q2 = hc + N8[j]; if (!nb_ok(hc, q2) || !BIT_GET(G.visited, q2) || !PASSABLE(G.map[q2]) || (TFLAGS(G.map[q2]) & F_AVOID)) continue; bool occ = false; for (int o = 0; o < nf; o++) if (F[o].hp > 0 && F[o].pos == q2) occ = true; if (occ) continue; if (distance(q2, F[rr].pos) < bd) { bd = distance(q2, F[rr].pos); bq = q2; } }
             if (bq >= 0) hc = bq; } } }
