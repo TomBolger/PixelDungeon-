@@ -71,7 +71,7 @@ static const char *vk_name[NK]; static int vk_count[NK], vk_games[NK], vk_lastga
 static int total_viol;
 static int s_is_child;
 static int s_str_plus; static bool s_dring_on; static double s_arm_speedk = 1.0; static bool s_explab; static long st_upg_holds, st_stash, st_stash_lost; static int upg_plan(bool *hold); static int unknown_potion(void);                                   // bot3: planning: strength potions still to come
-static bool lookahead(void);
+static bool lookahead(void); static int mcts(void);
 static bool bat_in_view(void) { for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_BAT && BIT_GET(G.fov, G.mobs[i].pos)) return true; return false; }
 // bot3: tunable judgment calls (PRM=v0,v1,... overrides; tools/tune.py searches them)
 enum { P_REST_LO, P_REST_HI, P_REST_LO_B, P_REST_HI_B, P_ENGAGE, P_EMERG, P_SEEDHP, P_WAITN, P_FRONT_BIAS, P_TESTHP, P_CHOKE, P_BOSSLAST, P_GEARMODEL, P_HUNT, P_HUNGRYDOWN, P_QSTAY, P_COUNT };
@@ -3384,6 +3384,7 @@ static bool decide(void) {
   Hero *h = &G.hero; const char *why = "?";
   if (s_brew_kind >= 0 && s_brew_i >= 3 && (unsigned)s_brew_pot < MAP_LEN) { int hb = heap_at(s_brew_pot); if (hb >= 0 && item_cat(G.heaps[hb].item.kind) == CAT_POTION) { int pk = G.heaps[hb].item.kind; if (!item_known(pk) && !s_pot_guess[pk]) s_pot_guess[pk] = seed_potion(s_brew_kind); s_brew_kind = -1; } }   // (the brew's colour: probably that seed's potion)
   if (V) printf("  decide: hero %d hp %d/%d hunger %d blind %d light %d vd %d\n", h->pos, h->HP, h->HT, h->hunger, h->b.blind, h->light, view_distance());
+  if (!s_is_child && mcts()) return true;   // the search, for every turn with an awake foe about (NOMCTS: off)
   if (!getenv("NOCHOOSE") && !s_is_child && choose()) return true;   // the one scorer, for every turn with an awake foe about
   if (!getenv("NOBRAIN2") && !s_rollout && !s_is_child) { int r = brain2(); if (r >= 0) return r; }   // brain2: the one-goal brain (owner 2026-11-03); -1: the old rules for this turn
   // eat
@@ -4319,6 +4320,7 @@ static void bl_on_death(void) {
     fflush(stdout); if (write(s_bl_fd[slot], msg, sizeof msg) != sizeof msg) {} close(s_bl_fd[slot]); int st; waitpid(s_bl_pid[slot], &st, 0); s_bl_pid[slot] = 0; }
   bl_kill_all();
 }
+#include "mcts.inc"
 static bool lookahead(void) {
   if (s_rollout || s_is_child || getenv("NOLA") || !danger()) return false;
   if (!getenv("GOO_LA")) for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GOO && G.mobs[i].state == ST_HUNTING && BIT_GET(G.fov, G.mobs[i].pos)) return false;   // (the Goo plan decides)
