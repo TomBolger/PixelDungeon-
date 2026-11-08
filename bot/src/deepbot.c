@@ -1054,8 +1054,10 @@ static bool class_special(bool escape) {
 }
 static bool magic_shooter(int t); static bool losing_fight(int mi);
 static bool calc_on(void); static bool fair_on(void); static int foe_sees(int i); static void round_dmg(double *E, double *V);
+static bool vial_full(void) { return G.dew >= 10 && find_kind(IK_DEW_VIAL) >= 0; }   // Hero.die: DewVial.autoDrink: a full vial brings me back at full health, all kept
 static bool emergency(void) {                           // badly hurt
   Hero *h = &G.hero; int s;
+  if (getenv("VIALSAVE") && vial_full() && !h->b.poison && !h->b.bleed && !G.deferred) return false;   // (2026-11-07: a full vial is a second life: no potion is spent while it's there)
   { bool boss = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) boss = true;
     int dot = 0; for (int k = 1; k <= h->b.poison; k++) dot += k / 3 + 1; dot += 3 * h->b.bleed;
     if (!getenv("OLDHERO") && dot >= h->HP && (s = find_kind(IK_POT_HEALING)) >= 0 && item_known(IK_POT_HEALING)) { st_uses[ACN_DRINK]++; do_item(s, ACN_DRINK); return true; }   // 0.52 (audit): the poison still to come would kill
@@ -1119,7 +1121,7 @@ static void dmg_moments(int lo, int hi, int dr, double *m1, double *m2) {   // E
   for (int j = 0; j < n; j++) { double a = 2.0 * j / n, b = 2.0 * (j + 1) / n, Fa = a <= 1 ? a * a / 2 : 1 - (2 - a) * (2 - a) / 2, Fb = b <= 1 ? b * b / 2 : 1 - (2 - b) * (2 - b) / 2, pj = Fb - Fa;
     for (int r = 0; r <= R; r++) { double x = lo + j - (dr < 0 ? 0 : r); if (x < 0) x = 0; t1 += pj * x / (R + 1); t2 += pj * x * x / (R + 1); } }
   *m1 = t1; *m2 = t2; }
-static double fight_risk(double x); static double engage_value(int i); static void gm_log(void);
+static double fight_risk(double x); static double engage_value(int i); static void gm_log(void); static bool vial_full(void);
 static bool starve_block(void);
 static double dmg_kill_p(int lo, int hi, int dr, int hp) {   // P(max(0, D - A) >= hp): D NormalIntRange(lo, hi), A uniform 0..dr (the same draw as dmg_moments)
   if (hi < lo) hi = lo; int n = hi - lo + 1, R = dr < 0 ? 0 : dr; double t = 0;
@@ -2028,7 +2030,7 @@ static int goo2(Mob *m) {
   if (m->aux2 && d <= 2) {                                // pumped: two moves before it lands
     bool finish = m->HP <= my * 2.2 && h->HP > 30;      // (owner: tank the last one if it'll likely die first)
     if (finish && d == 1) { s_did[0] = 0; DID("Goo2: pumped, but two blows should finish it"); return 0; }
-    if (h->HP * 4 < h->HT && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) { s_did[0] = 0; DID("Goo2: drink healing"); do_item(find_kind(IK_POT_HEALING), ACN_DRINK); return 1; }
+    if (h->HP * 4 < h->HT && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING) && !(getenv("VIALSAVE") && vial_full())) { s_did[0] = 0; DID("Goo2: drink healing"); do_item(find_kind(IK_POT_HEALING), ACN_DRINK); return 1; }
     int best = -1, bs = -1;
     for (int k = 0; k < 8; k++) { int q = hp + N8[k]; if (!nb_ok(hp, q) || !goo2_ok(q)) continue;
       int sc = -1;
@@ -2041,7 +2043,7 @@ static int goo2(Mob *m) {
     if (d == 1) { s_did[0] = 0; DID("Goo2: pumped, nowhere to go: two free blows"); return 0; }
     s_did[0] = 0; DID("Goo2: pumped, nowhere to go: wait"); walk(game_rest(false)); return 1;
   }
-  if (h->HP * 10 < h->HT * 4 && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) { s_did[0] = 0; DID("Goo2: drink healing"); do_item(find_kind(IK_POT_HEALING), ACN_DRINK); return 1; }
+  if (h->HP * 10 < h->HT * 4 && find_kind(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING) && !(getenv("VIALSAVE") && vial_full())) { s_did[0] = 0; DID("Goo2: drink healing"); do_item(find_kind(IK_POT_HEALING), ACN_DRINK); return 1; }
   // where it would stand to hit me at q: the cell beside q nearest to it (it walks the short way)
   #define GOO2_APPROACH(q, out) do { int _b = -1, _bd = 99; for (int _k = 0; _k < 8; _k++) { int _c = (q) + N8[_k]; if (!nb_ok((q), _c) || !PASSABLE(G.map[_c]) || (TFLAGS(G.map[_c]) & F_AVOID) || (char_at(_c) && _c != m->pos && _c != G.hero.pos)) continue; int _dd = distance(_c, m->pos); if (_dd < _bd) { _bd = _dd; _b = _c; } } (out) = _b; } while (0)
   if (d == 1) {
