@@ -1057,6 +1057,12 @@ static bool calc_on(void); static bool fair_on(void); static int foe_sees(int i)
 static bool vial_full(void) { return G.dew >= 10 && find_kind(IK_DEW_VIAL) >= 0; }   // Hero.die: DewVial.autoDrink: a full vial brings me back at full health, all kept
 static bool emergency(void) {                           // badly hurt
   Hero *h = &G.hero; int s;
+  if (!getenv("OLDFISH") && h->HP * 2 < h->HT && !h->b.roots) {   // (g49: bitten for 15 in a pool room's doorway at 29/35, then an unknown potion drunk, and bitten dead): fish can't leave the water: a step out of their reach beats any potion
+    bool fish = false, other = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state != ST_HUNTING) continue; if (MOB_DEFS[m->type].flags & MD_WATER) { if (distance(m->pos, h->pos) <= 2) fish = true; } else if (distance(m->pos, h->pos) <= 3) other = true; }
+    if (fish && !other) { int best = -1, bs = -1;
+      for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (!nb_ok(h->pos, n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID) || char_at(n) || IS_WATER(G.map[n])) continue;
+        int wet = 0; for (int j = 0; j < 8; j++) { int w = n + N8[j]; if (nb_ok(n, w) && IS_WATER(G.map[w])) wet++; } int sc = 20 - wet * 3 - (PREACH(n) ? 10 : 0); if (sc > bs) { bs = sc; best = n; } }
+      if (best >= 0 && bs >= 10) { int32_t t0 = h->time; ActResult r = game_tap_cell(best); if (r != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("bitten: a step out of the fish's reach"); walk(r); return true; } } } }
   if (getenv("VIALSAVE") && vial_full() && !h->b.poison && !h->b.bleed && !G.deferred) return false;   // (2026-11-07: a full vial is a second life: no potion is spent while it's there)
   { bool boss = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) boss = true;
     int dot = 0; for (int k = 1; k <= h->b.poison; k++) dot += k / 3 + 1; dot += 3 * h->b.bleed;
@@ -3290,21 +3296,36 @@ static double engage_value(int i) {
   return xpk * ex - pd - hpcost; }
 // Starving with food in the bag isn't stuck: a meal brings the regeneration back whenever it's wanted (EATK: the
 // rules that rest or back off while hurt don't give up on a starving hero who can eat)
+// BOSSRATION (2026-11-07, 649 Goo arrivals: fed and at full health 86% win; starving, under half health 33%; 157 arrived starving,
+// 156 of them with no food): the last ration before a boss floor is kept for it: eaten there, the hero can rest to full
+// and fights fed. It's eaten early only below BOSSRATION_HP% (the risk formula's turn-by-turn gain can't match a third of a Goo win).
+static bool keep_ration(void) {
+  if (getenv("NOBOSSRATION") || !s_pztest || boss_depth(G.depth) || !boss_depth(G.depth + 1)) return false;
+  int n = 0; for (int i = 0; i < BAG_SIZE; i++) if (G.hero.bag[i].kind == IK_RATION || G.hero.bag[i].kind == IK_PASTY) n += G.hero.bag[i].qty;
+  if (n != 1) return false;
+  return G.hero.HP * 100 >= G.hero.HT * (getenv("BOSSRATION_HP") ? atoi(getenv("BOSSRATION_HP")) : 40); }
 static bool starve_block(void) { if (!game_starving()) return false; if (!getenv("EATK")) return true;
+  if (keep_ration()) return true;                      // (the ration's for the boss: no healing till then)
   for (int i = 0; i < BAG_SIZE; i++) if (is_food(G.hero.bag[i].kind)) return false; return true; }
 // Starving: no regeneration (that's all it costs at full health). Eat when the death risk carried each turn for being
 // below full, times the fights a turn brings, outweighs a turn's worth of food (a ration is worth EATK of a run).
 static bool eat_value(void) {
   Hero *h = &G.hero; if (!game_starving()) return false;
+  if (keep_ration()) return false;
   static double K = -1; if (K < 0) K = atof(getenv("EATK")); double rate = getenv("EATR") ? atof(getenv("EATR")) : 0.025;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && (MOB_DEFS[m->type].flags & MD_BOSS)) return true; }
   if (boss_depth(G.depth)) return true;                // (a boss floor: the fight is the next thing)
-  if (getenv("EATSEE")) for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) >= 3) return true; }   // (a fight is coming for sure: the regeneration through it, and the rules that won't retreat a starving hero)
+  if (getenv("EATSEE")) for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) >= 3) rate = 1.0; }   // (a fight is coming for sure: the regeneration through it, and the rules that won't retreat a starving hero)   // (g99: it used to say eat at once, fish beside me and all: now it's a fight for certain, weighed against the blows the meal takes)
   if (getenv("EATNEAR")) {   // the chance of a fight soon: what's in sight now (an awake one: a fight likely within turns; asleep: maybe), beside me: no time to eat
     double near = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || (MOB_DEFS[m->type].flags & (MD_NPC | MD_WATER)) || m->state == ST_PASSIVE) continue;
       if (adjacent(m->pos, h->pos)) return false; near += m->state == ST_SLEEPING ? 0.05 : 0.5; }
     rate += near; }
   double x = (double)h->HP / h->HT, gain = rate * (fight_risk(x) - fight_risk(1.0)), cost = K / 260.0;
+  // (g64: ate for 3 turns with a crab beside me at 10/25, 11 HP lost): a meal is 3 turns; what's awake and within reach lands its blows through them
+  double blows = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || (MOB_DEFS[m->type].flags & MD_NPC) || ((MOB_DEFS[m->type].flags & MD_WATER) && !PREACH(h->pos)) || m->state == ST_PASSIVE || m->state == ST_SLEEPING) continue;   // (g99: ate in a pool room's doorway, the fish beside me)
+    int dd = distance(m->pos, h->pos); double mc = MOB_DEFS[m->type].move_cost > 0 ? MOB_DEFS[m->type].move_cost / (double)TICK : 1; double t = 3 - (dd - 1) * mc; if (t > 0) blows += t * foe_dpt(m); }
+  if (blows > 0) { double xa = (h->HP - blows) / h->HT; if (xa < 0) xa = 0; cost += fight_risk(xa) - fight_risk(x); }
+  if (getenv("EATDBG") && !s_rollout) printf("EATDBG d%d hp %d/%d gain %.5f cost %.5f blows %.1f -> %s\n", G.depth, h->HP, h->HT, gain, cost, blows, gain > cost ? "EAT" : "no");
   return gain > cost; }
 static bool eat_late(void) {
   Hero *h = &G.hero; if (!game_starving()) return false;
@@ -3462,6 +3483,7 @@ static bool decide(void) {
   // eat
   if (eat_rule()) return true;
   { bool any = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_PIRANHA) { any = true; if (BIT_GET(G.fov, G.mobs[i].pos)) s_piranhas = true; }
+    if (any && !getenv("OLDPOOL")) for (int r = 0; r < G.n_rooms; r++) if (G.rooms[r].type == RT_POOL && room_seen(r)) s_piranhas = true;   // (g49: through a pool room's door at 29/35, three unseen fish beside it, dead in two turns): a pool room always holds three piranhas (content.c RT_POOL): once I've seen the room, its water is theirs, seen or not
     if (!any || s_brave) s_piranhas = false; }   // (seen once, and still about; unless there's no other way)
   if (h->b.paralysis || h->b.frost) { walk(game_rest(false)); return true; }
   if (getenv("GOODBG") && !s_rollout && G.depth == 5 && s_goo_calm > 0 && G.now < s_goo_calm + 8 * TICK) { int gi = -1; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GOO) gi = i; printf("  CALMDBG step %d now %d calm %d goo %d state %d fov %d threat %d\n", s_bot_steps, G.now, s_goo_calm, gi, gi >= 0 ? G.mobs[gi].state : -1, gi >= 0 ? BIT_GET(G.fov, G.mobs[gi].pos) : -1, threat_count()); }
@@ -5244,7 +5266,7 @@ int main(int argc, char **argv) {
         if (ci >= 0 && !BIT_GET(G.fov, G.mobs[ci].pos)) s_cal_away++; else s_cal_away = 0;
         if (s_cal_away > 20 || G.depth != s_cal_type * 0 + G.depth) s_cal_on = 0; else if (ci < 0 || G.hero.HP <= 0) { printf("TCAL %s n %d pred %.1f actual %d died %d\n", mob_name(s_cal_type), s_cal_n, s_cal_pred, s_cal_hp0 - (G.hero.HP > 0 ? G.hero.HP : 0), G.hero.HP <= 0); s_cal_on = 0; } }
       if (!s_is_child && (tfoe0 || enemy_count() > 0) && G.hero.HP < thp0) s_fight_hp += thp0 - G.hero.HP;
-      if (getenv("DIDLOG") && !s_is_child && (atoi(getenv("DIDLOG")) == 2 || (getenv("FOELOG") ? (enemy_count() > 0 || tfoe0 > 0) : (enemy_count() == 0 && tfoe0 == 0)))) { char k[20]; int j = 0; const char *br = strchr(s_did, '['); if (br && !strncmp(s_did, "walk to", 7)) { for (const char *c = br; *c && j < 18 && *c != ']'; c++) k[j++] = *c; } else for (const char *c = s_did; *c && j < 18; c++) { if (*c == ':' || *c == '(' || *c == ',' || (*c >= '0' && *c <= '9')) break; k[j++] = *c; } while (j > 0 && k[j-1] == ' ') j--; k[j] = 0; int vis1 = 0; for (int c = 0; c < MAP_LEN; c++) vis1 += BIT_GET(G.visited, c) ? 1 : 0; if (atoi(getenv("DIDLOG")) == 2) printf("DIDLOG t%d d%d hp %d/%d foes %d | %s\n", (int)(G.now / TICK), G.depth, G.hero.HP, G.hero.HT, enemy_count(), s_did); else printf("DIDLOG %ld %s|%d|d%d\n", (long)((G.now - tbefore) / TICK), k, vis1 - s_vis0, G.depth); }
+      if (getenv("DIDLOG") && !s_is_child && (atoi(getenv("DIDLOG")) == 2 || (getenv("FOELOG") ? (enemy_count() > 0 || tfoe0 > 0) : (enemy_count() == 0 && tfoe0 == 0)))) { char k[20]; int j = 0; const char *br = strchr(s_did, '['); if (br && !strncmp(s_did, "walk to", 7)) { for (const char *c = br; *c && j < 18 && *c != ']'; c++) k[j++] = *c; } else for (const char *c = s_did; *c && j < 18; c++) { if (*c == ':' || *c == '(' || *c == ',' || (*c >= '0' && *c <= '9')) break; k[j++] = *c; } while (j > 0 && k[j-1] == ' ') j--; k[j] = 0; int vis1 = 0; for (int c = 0; c < MAP_LEN; c++) vis1 += BIT_GET(G.visited, c) ? 1 : 0; if (atoi(getenv("DIDLOG")) == 2) { printf("DIDLOG t%d d%d hp %d/%d foes %d | %s\n", (int)(G.now / TICK), G.depth, G.hero.HP, G.hero.HT, enemy_count(), s_did); if (getenv("DIEMAP") && (G.hero.HP <= 0 || atoi(getenv("DIEMAP")) == 2)) { if (G.hero.HP <= 0) dump_map(G.hero.pos); for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0) printf("   mob %s at %d,%d st %d fov %d hp %d\n", mob_name(G.mobs[i].type), cx(G.mobs[i].pos), cy(G.mobs[i].pos), G.mobs[i].state, BIT_GET(G.fov, G.mobs[i].pos) ? 1 : 0, G.mobs[i].HP); } } else printf("DIDLOG %ld %s|%d|d%d\n", (long)((G.now - tbefore) / TICK), k, vis1 - s_vis0, G.depth); }
       if (getenv("HPSRC") && !s_is_child && G.hero.HP < thp0) { char k[24]; int j = 0; for (const char *c = s_did + (strncmp(s_did, "b2: ", 4) ? 0 : 4); *c && j < 22; c++) { if (*c == ':' || *c == '(' || (*c >= '0' && *c <= '9')) break; k[j++] = *c; } while (j > 0 && k[j-1] == ' ') j--; k[j] = 0; printf("HPSRC %d %s\n", thp0 - G.hero.HP, k); }   // which decision the HP went in   // tact metric: HP lost while foes are about
       if (getenv("TTRACE") && !s_is_child && !s_rollout && G.depth == atoi(getenv("TTRACE")) && (enemy_count() > 0 || getenv("TDALL"))) printf("TD t%d hero %d,%d hp %d did \"%s\" para %d poison %d roots %d tox %d\n", (int)(G.now / TICK), cx(G.hero.pos), cy(G.hero.pos), G.hero.HP, s_did, G.hero.b.paralysis, G.hero.b.poison, G.hero.b.roots, g_blob[BLOB_TOXIC] ? g_blob[BLOB_TOXIC][G.hero.pos] : -1);
       if (getenv("TSPLIT") && !s_is_child) { static long ts[5]; static int tg = -1; if (tg != g) { if (tg >= 0) printf("TSPLIT g%d walk %ld fight %ld search %ld idle %ld\n", tg, ts[0] / TICK, ts[1] / TICK, ts[2] / TICK, ts[3] / TICK); memset(ts, 0, sizeof ts); tg = g; }

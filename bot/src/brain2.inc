@@ -221,7 +221,12 @@ static void b2_heap_track(void) {
 static double b2_kind_avg(const uint16_t *W, const uint8_t *K, int n) { double v = 0, w = 0; for (int i = 0; i < n; i++) if (W[i]) { Item it = item_make(K[i], 1); v += W[i] * item_value(&it); w += W[i]; } return w > 0 ? v / w : 0; }
 static double b2_move_price(void) {                    // a move's worth in item points: food at ease, a ration's 90 over 260 turns; dearer as it runs short
   static double mv = -1, fk; if (mv < 0) { mv = b2k("B2MOVEV", 90.0 / 260); fk = b2k("B2FOODK", 450); }
-  int fb = food_budget(); double sc = fk / (fb > 150 ? fb : 150); if (sc < 0.5) sc = 0.5; if (sc > 4) sc = 4; return mv * sc; }
+  int fb = food_budget(); double sc = fk / (fb > 150 ? fb : 150); if (sc < 0.5) sc = 0.5; if (sc > 4) sc = 4; double price = mv * sc;
+  static double gp = -1, gt; if (gp < 0) { gp = b2k("GOOFOODP", 0); gt = b2k("GOOFOODT", 400); }
+  if (gp > 0 && G.depth < 5) {   // (2026-11-07, 649 Goo arrivals: fed 86%, starving and hurt 33-55%; half arrive starving): the turns still to spend before the Goo (GOOFOODT a floor, measured ~400) against the food in hand: each turn past the budget is a turn starving at his door
+    double need = (5 - G.depth) * gt - (G.now - s_floor_turn0) / (double)TICK + 100 + 36 * (5 - G.depth), deficit = need - fb;
+    if (deficit > 0) price += gp * (deficit < 150 ? deficit / 150 : 1); }
+  return price; }
 static double b2_floor_left(double *moves_out, double *s_out) {
   static double mpc = -1, fln, evk; if (mpc < 0) { mpc = b2k("B2MPC", 0.9); fln = b2k("B2FLOORN", 285); evk = b2k("B2EVK", 1); }
   int seen = 0; for (int c = 0; c < MAP_LEN; c++) if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) seen++;
