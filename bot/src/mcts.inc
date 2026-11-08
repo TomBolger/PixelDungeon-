@@ -65,7 +65,7 @@ static bool mc_apply(int id) {
   else { int s = (id - 4096) / 32, j = (id - 4096) % 32; if (j >= nf) return false; walk(game_zap(s, G.mobs[foes[j]].pos)); }
   for (int g = 0; g < 4 && (s_pick >= 0 || s_wnd_btn); g++) la_step();   // (a picker or window a move opened: answered as ever)
   return h->time != t0 || G.depth != d0 || s_pend_depth; }
-static bool mc_calm(void) { for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) return false; } return true; }   // (no foe hunting me at all, seen or not: the search judged hiding round a corner as the fight won)
+static bool mc_calm(void) { Hero *hh = &G.hero; if (bad_air(hh->pos) || hh->b.burning || hh->b.poison) return false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) return false; } return true; }   // (no foe hunting me at all, seen or not: the search judged hiding round a corner as the fight won)
 typedef struct { int32_t first; int32_t next; int32_t id; int32_t n; double w; } MNode;   // first child, next sibling
 #define MC_MAXN 60000
 static MNode s_mn[MC_MAXN]; static int s_mnn;
@@ -74,7 +74,8 @@ static int mc_add(int p, int id) { if (s_mnn >= MC_MAXN) return -1; int c = s_mn
 static long st_mc_calls, st_mc_iters;
 static int mcts(void) {
   Hero *h = &G.hero; if (s_rollout || s_is_child || getenv("NOMCTS") || h->b.paralysis) return 0;
-  bool threat = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC)) threat = true; }
+  bool threat = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state != ST_PASSIVE && (m->state != ST_SLEEPING || distance(m->pos, h->pos) <= 2) && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) <= 8) threat = true; }   // (any creature awake in sight, or asleep beside me: whether to take it on is the search's call too; g10: the old rules walked into a crab at 8/30)
+  if (bad_air(h->pos) || h->b.burning || h->b.poison || h->b.bleed) threat = true;   // (harm going on with no foe in sight: gas, fire, poison, bleeding: the search's turn too; g10 rested to death in toxic gas)
   if (!threat) return 0;
   static int iters = -1, horizon, calmk; static double cu, pw; if (iters < 0) { pw = getenv("MC_PW") ? atof(getenv("MC_PW")) : 1.5; iters = getenv("MC_IT") ? atoi(getenv("MC_IT")) : 300; horizon = getenv("MC_H") ? atoi(getenv("MC_H")) : 20; cu = getenv("MC_C") ? atof(getenv("MC_C")) : 0.3; calmk = 2; }
   int mv0[128]; int n0 = mc_moves(mv0); if (n0 <= 1) return 0;
@@ -98,14 +99,14 @@ static int mcts(void) {
         // progressive widening (MC_PW): a node opens a new move only while it has fewer than PW*sqrt(visits) children, so
         // the tries go deeper down the good lines instead of one level across every move
         bool widen = nu > 0 && (node < 0 || nch < 1 || nch < pw * sqrt((double)(s_mn[node].n + 1)));
-        if (widen) { pick = untried[rand() % nu]; path[np++] = pick; if (!mc_apply(pick)) { val = -2; break; }
+        if (widen) { pick = untried[rand() % nu]; path[np++] = pick; if (!mc_apply(pick)) { if (getenv("MCDBG2")) fprintf(stderr, "MCFAIL id %d dep %d hp %d pos %d,%d time %d\n", pick, dep, h->HP, cx(h->pos), cy(h->pos), h->time); val = -2; break; }
           // the new leaf: judged as it stands, the fight still owed taken off
           if (h->HP <= 0) val = 0; else val = mc_leaf(); break; }
         double bv = -1e9; int bc = -1, bid = -1; double ln = log((double)(s_mn[node].n > 0 ? s_mn[node].n : 1));
         for (int i = 0; i < n; i++) { int c = mc_child(node, mv[i]); if (c < 0) continue; double u = s_mn[c].w / s_mn[c].n + cu * sqrt(ln / s_mn[c].n); if (u > bv) { bv = u; bc = c; bid = mv[i]; } }
         if (bc < 0) { val = mc_leaf(); break; }
         path[np++] = bid; if (!mc_apply(bid)) { val = -2; break; } node = bc; }
-      if (val < -1.5) { np = 0; val = -1; }   // (a move that didn't take: nothing learnt)
+      if (val < -1.5) val = -1000;   // (a move that doesn't take here (a scroll that can't be read...): marked dead, never tried again)
       if (val < 0) val = mc_leaf();
       double v = val;
       if (write(fds[1], &np, sizeof np) != sizeof np || write(fds[1], path, sizeof(int) * np) != (ssize_t)(sizeof(int) * np) || write(fds[1], &v, sizeof v) != sizeof v) {}
@@ -113,11 +114,12 @@ static int mcts(void) {
     close(fds[1]); int np = 0; int path[64]; double v = 0; bool ok = read(fds[0], &np, sizeof np) == sizeof np && np >= 0 && np <= 64 && read(fds[0], path, sizeof(int) * np) == (ssize_t)(sizeof(int) * np) && read(fds[0], &v, sizeof v) == sizeof v;
     close(fds[0]); int st; waitpid(pid, &st, 0); if (!ok || np == 0) continue;
     st_mc_iters++;
-    int node = 0; s_mn[0].n++; s_mn[0].w += v;
+    int node = 0; s_mn[0].n++; s_mn[0].w += v < -500 ? 0 : v;
+    if (v < -500) { for (int i = 0; i < np; i++) { int c = mc_child(node, path[i]); if (c < 0) c = mc_add(node, path[i]); if (c < 0) break; if (i == np - 1) { s_mn[c].n = 1; s_mn[c].w = -1000; } node = c; } s_mn[0].n--; continue; }
     for (int i = 0; i < np; i++) { int c = mc_child(node, path[i]); if (c < 0) c = mc_add(node, path[i]); if (c < 0) break; s_mn[c].n++; s_mn[c].w += v; node = c; } }
   // the move: the best average among those tried at least a tenth as often as the most tried (the most-tried alone follows early luck)
   int best = -1, bn = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n > bn) bn = s_mn[c].n;
-  double bv0 = -1; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n * 10 >= bn && s_mn[c].w / s_mn[c].n > bv0) { bv0 = s_mn[c].w / s_mn[c].n; best = c; }
+  double bv0 = -1; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500 && s_mn[c].n * 10 >= bn && s_mn[c].w / s_mn[c].n > bv0) { bv0 = s_mn[c].w / s_mn[c].n; best = c; }
   if (best < 0) return 0;
   if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn);
     for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n >= 5) printf(" [%d n%d v%.3f]", s_mn[c].id, s_mn[c].n, s_mn[c].w / s_mn[c].n); printf("\n"); }
