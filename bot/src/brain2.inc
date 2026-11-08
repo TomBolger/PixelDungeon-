@@ -322,6 +322,10 @@ static int brain2(void) {
   if (getenv("B2OLDROUTE")) { st_b2[4]++; return -1; }   // (test: the old route)
   if (eat_rule()) { st_b2[6]++; return 1; }
   { static double lo = -2; if (lo < -1) lo = b2k("B2RESTLO", -1); static bool resting; if (lo > 0 && !game_starving()) { if (h->HP * 100 < h->HT * lo) resting = true; if (h->HP * 100 >= h->HT * (lo + 30 > 100 ? 100 : lo + 30)) resting = false; if (resting) { s_did[0] = 0; DID("b2: rest (test knob B2RESTLO)"); walk(game_rest(false)); return 1; } } }   // (a test: does resting pay at all?)
+  if (getenv("VIALSWEEP") && h->HP < h->HT && !starve_block() && !gas_at(h->pos) && find_kind(IK_DEW_VIAL) >= 0 && G.dew < 10 && threat_count() == 0) {   // (2026-11-07: 1.2 drops a floor left lying at the stairs: a drop banked is a tenth of a second life): rest to full while the drops in sight are worth the turns
+    int nd = 0; for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].item.kind == IK_DEW && BIT_GET(G.visited, G.heaps[i].pos) && b_dist[G.heaps[i].pos] < 0x7FFF) nd++;
+    int need = 10 - G.dew; if (nd > need) nd = need;
+    if (nd > 0 && nd * atof(getenv("VIALSWEEP")) > (h->HT - h->HP) * 10.0) { s_did[0] = 0; DID("b2: rest to full: %d dew lying for the vial", nd); walk(game_rest(false)); return 1; } }
   if (getenv("RESTK") && !game_starving() && !gas_at(h->pos) && h->HP < h->HT) {   // the formula, piece 2 (owner 2026-11-06): a turn resting vs a turn exploring. Both regenerate the same; exploring meets
     // fights (EATR a turn), resting meets only the wanderers (RESTR a turn). Rest while the death risk it keeps off,
     // r_e (f(x) - f(1)) - r_r f(x), outweighs the turn's food (a ration = RESTK of a run).
