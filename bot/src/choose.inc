@@ -10,6 +10,72 @@
 static double idb_p(int label, int kind);
 static long st_ch[12];
 static double ch_k(const char *n, double d) { const char *v = getenv(n); return v ? atof(v) : d; }
+
+// The fight played out N times with the game's dice (CH_RUNS): each blow a hit-or-miss draw on the attacker's accuracy
+// against the defender's evasion (Char.hit), its damage a NormalIntRange roll less an armour roll 0..DR (Char.damage);
+// the foes move as tact_eval moves them. The price: the HP it costs on average plus the share of runs that kill me x
+// CH_DEATH x HT. (tact_eval played one average fight: a 3-HP gnoll was dead in its one sim and alive in half the real ones.)
+static double c_ph[24], c_pf[24], c_rpf[24]; static int c_hlo[24], c_hhi[24], c_hex[24], c_fdr[24], c_flo[24], c_fhi[24], c_rlo[24], c_rhi[24], c_rt[24]; static bool c_mag[24], c_rn[24]; static int c_hdr;   // c_r*: the shot from afar (its own dice, time and armour rule)
+static uint32_t c_rs = 0x9e3779b9u, c_seed = 0x9e3779b9u; static int c_type[24];
+#define m_shaman(k) (c_type[k] == MT_SHAMAN || c_type[k] == MT_WARLOCK)   // uniform rnd_int2 rolls
+static inline double c_rnd(void) { c_rs ^= c_rs << 13; c_rs ^= c_rs >> 17; c_rs ^= c_rs << 5; return (c_rs >> 8) / 16777216.0; }
+static inline int c_norm(int lo, int hi) { if (hi <= lo) return lo; return lo + (int)((c_rnd() + c_rnd()) * (hi - lo + 1) / 2); }
+static inline int c_uni(int lo, int hi) { if (hi <= lo) return lo; return lo + (int)(c_rnd() * (hi - lo + 1)); }
+static void ch_prep(TFoe *F, int nf) {
+  Hero *h = &G.hero; const Item *w = h->weapon.kind ? &h->weapon : NULL; int st = hero_str();
+  double rate = w ? TICK / (double)attack_delay(w) : 1; c_hdr = hero_dr();
+  for (int k = 0; k < nf; k++) { Mob *m = &G.mobs[F[k].i]; const MobDef *d = &MOB_DEFS[m->type]; c_type[k] = m->type;
+    double p = (m->b.paralysis || m->b.frost) ? 1 : phit(hero_attack_skill(NULL, m->pos), mst(m, STAT_DEF, d->def)); c_ph[k] = p * rate > 1 ? 1 : p * rate;
+    if (w) { c_hlo[k] = weapon_min(w); c_hhi[k] = weapon_max(w); c_hex[k] = h->hclass != 3 && st > item_str(w) ? st - item_str(w) : 0; } else { c_hlo[k] = 1; c_hhi[k] = st > 10 ? st - 9 : 1; c_hex[k] = 0; }
+    c_fdr[k] = mst(m, STAT_DR, d->dr);
+    c_mag[k] = magic_shooter(m->type) && distance(m->pos, h->pos) > 1;
+    c_pf[k] = phit(mst(m, STAT_ATT, d->att) * (c_mag[k] ? 2 : 1), hero_def_est());
+    c_flo[k] = d->dmg_lo; c_fhi[k] = d->dmg_hi;
+    c_pf[k] = phit(mst(m, STAT_ATT, d->att), hero_def_est());   // a blow beside me: its plain accuracy, its dice less my armour
+    // the shot from afar, from the source: shaman lightning 2-11 (x1.5 standing in water), 2 turns (mob_shaman.inc); warlock 12-17, a turn (city.c);
+    // evil eye 14-20 NormalIntRange (halls.c); all magic: the roll doubled, armour ignored (char_hit(.., true))
+    c_rn[k] = true; c_rpf[k] = phit(mst(m, STAT_ATT, d->att) * 2, hero_def_est()); c_rt[k] = TICK;
+    if (m->type == MT_SHAMAN) { c_rlo[k] = 2; c_rhi[k] = 11; c_rt[k] = 2 * TICK; }
+    else if (m->type == MT_WARLOCK) { c_rlo[k] = 12; c_rhi[k] = 17; }
+    else if (m->type == MT_EYE) { c_rlo[k] = 14; c_rhi[k] = 20; c_rt[k] = d->atk_delay ? d->atk_delay : TICK; }
+    else { c_rn[k] = false; c_rlo[k] = d->dmg_lo; c_rhi[k] = d->dmg_hi; c_rpf[k] = c_pf[k]; c_rt[k] = d->atk_delay ? d->atk_delay : TICK; } } }
+
+// tact_field (the foes' walking distances to the hero's cell), kept for the cells asked about this decision
+static int16_t c_fld[48][MAP_LEN]; static int16_t c_fpos[48]; static int c_fn, c_fstep = -1, c_fgame = -1;
+static void ch_field(int hc) {
+  if (c_fstep != s_bot_steps || c_fgame != cur_game) { c_fn = 0; c_fstep = s_bot_steps; c_fgame = cur_game; }
+  for (int i = 0; i < c_fn; i++) if (c_fpos[i] == hc) { memcpy(s_td, c_fld[i], sizeof s_td); return; }
+  tact_field(hc); int slot = c_fn < 48 ? c_fn++ : (int)(c_rnd() * 48); c_fpos[slot] = hc; memcpy(c_fld[slot], s_td, sizeof s_td); }
+static double ch_mc(TFoe *F0, int nf, int P, const int *path, int plen, int tk, double tdmg, int runs, double hp0) {
+  Hero *h = &G.hero; double lost = 0; int deaths = 0; static int field_at = -1; static int field_game = -1, field_step = -1;
+  if (field_game != cur_game || field_step != s_bot_steps) { field_at = -1; field_game = cur_game; field_step = s_bot_steps; }
+  c_rs = c_seed ^ (uint32_t)(s_bot_steps * 2654435761u) ^ (uint32_t)cur_game; if (!c_rs) c_rs = 1;   // the same dice for every option this turn (common random numbers): the options differ by what they do, not by luck; the cheapest of 150 noisy guesses is otherwise just the luckiest
+  for (int r = 0; r < runs; r++) {
+    TFoe F[24]; memcpy(F, F0, sizeof(TFoe) * nf); double hp = hp0 + (vial_full() ? h->HT : 0); int hc = h->pos; bool dead = false;   // (a full dew vial brings me back at full health: Hero.die)
+    for (int t = 0; t < 60 && !dead; t++) {
+      bool any = false; for (int k = 0; k < nf; k++) if (F[k].hp > 0) any = true; if (!any) break;
+      if (t < plen) { int nx = path[t]; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].pos == nx) return 1e9; hc = nx; }
+      else if (t == 0 && tk >= 0) { if (c_rnd() < 0.85) F[tk].hp -= tdmg / 0.85; }
+      else { int b = -1; double bv = -1; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && adjacent(F[k].pos, hc)) { double v = F[k].dpt / (F[k].hp > 1 ? F[k].hp : 1); if (v > bv) { bv = v; b = k; } }
+        if (b >= 0) { if (c_rnd() < c_ph[b]) { int dm = c_norm(c_hlo[b], c_hhi[b]) + (c_hex[b] ? c_uni(0, c_hex[b]) : 0) - c_uni(0, c_fdr[b]); if (dm > 0) F[b].hp -= dm; } }
+        else { int rr = -1, rd = 99; for (int k = 0; k < nf; k++) if (F[k].hp > 0 && F[k].rng && distance(F[k].pos, hc) < rd) { rd = distance(F[k].pos, hc); rr = k; }
+          if (rr >= 0) { int bq = -1, bd = rd; for (int j = 0; j < 8; j++) { int q2 = hc + N8[j]; if (!nb_ok(hc, q2) || !BIT_GET(G.visited, q2) || !PASSABLE(G.map[q2]) || (TFLAGS(G.map[q2]) & F_AVOID)) continue; bool occ = false; for (int o = 0; o < nf; o++) if (F[o].hp > 0 && F[o].pos == q2) occ = true; if (occ) continue; if (distance(q2, F[rr].pos) < bd) { bd = distance(q2, F[rr].pos); bq = q2; } }
+            if (bq >= 0) hc = bq; } } }
+      if (field_at != hc) { ch_field(hc); field_at = hc; }
+      for (int k = 0; k < nf && !dead; k++) { TFoe *f = &F[k]; if (f->hp <= 0) continue;
+        f->tm += TICK;
+        for (int guard = 0; guard < 6 && f->tm > 0; guard++) { bool hit;
+          bool reach = adjacent(f->pos, hc) || (f->rng && distance(f->pos, hc) <= 8 && ballistica(f->pos, hc, &hit) == hc);
+          if (reach) { bool adj = adjacent(f->pos, hc); int dm = 0;
+            if (adj || !c_rn[k]) { f->tm -= adj ? f->ac : c_rt[k]; if (c_rnd() < c_pf[k]) dm = c_norm(c_flo[k], c_fhi[k]) - c_uni(0, c_hdr); }
+            else { f->tm -= c_rt[k]; if (c_rnd() < c_rpf[k]) { dm = m_shaman(k) ? c_uni(c_rlo[k], c_rhi[k]) : c_norm(c_rlo[k], c_rhi[k]); if (m_shaman(k) && IS_WATER(G.map[hc])) dm = dm * 3 / 2; } }
+            if (dm > 0) { hp -= dm; lost += dm; if (hp <= 0) { dead = true; break; } } continue; }
+          f->tm -= f->mc;
+          int bq = -1, bd = s_td[f->pos]; for (int j = 0; j < 8; j++) { int q = f->pos + N8[j]; if (!nb_ok(f->pos, q) || q == hc || s_td[q] >= bd || (f->wat && !IS_WATER(G.map[q]))) continue; bool occ = false; for (int o = 0; o < nf; o++) if (o != k && F[o].hp > 0 && F[o].pos == q) occ = true; if (occ) continue; bd = s_td[q]; bq = q; }
+          if (bq >= 0) f->pos = bq; else break; } } }
+    if (dead) deaths++; }
+  s_te_pd = deaths / (double)runs; s_te_E = lost / runs;
+  return s_te_E; }
 static int choose(void) {
   Hero *h = &G.hero; if (s_rollout || h->b.paralysis || h->b.frost || G.depth % 5 == 0) return 0;
   TFoe F[24]; int nf = 0;
@@ -40,47 +106,62 @@ static int choose(void) {
     cstair = ch_k("CH_STAIR", 0.15);    // the stairs: 36 food and the trip back, in HTs
     cthrow = ch_k("CH_THROW", 0.0); }   // a missile thrown (picked up again after)
   const double HT = h->HT > 0 ? h->HT : 1;
-  // the price of a plan: the fight's HP plus its death chance; tact_eval gives E + 2 pd HT + unknown-ground: re-weigh the death part
-  #define PRICE(v) ((v) + (kdeath - 2.0) * s_te_pd * HT)
-  double best; int bk = 0, barg = -1; const char *bw = "hold";
-  s_te_hp = -1; best = PRICE(tact_eval(F, nf, h->pos, NULL, 0, NULL, -1, 0)); double hold = best;
-  // walk to a cell and fight from it
+  // the options; each is priced by ch_price below
+  typedef struct { int8_t kind; int16_t arg, P, n; int16_t path[16]; double extra, td; } Opt;
+  static Opt O[700]; int no = 0;
+  O[no++] = (Opt){ .kind = 0, .P = h->pos, .n = 0 };                                   // hold
   static int16_t hd2[MAP_LEN], par[MAP_LEN], q[MAP_LEN]; for (int c = 0; c < MAP_LEN; c++) hd2[c] = -1;
   int qh = 0, qt = 0; hd2[h->pos] = 0; par[h->pos] = -1; q[qt++] = h->pos;
   while (qh < qt) { int c = q[qh++]; if (hd2[c] >= kreach) continue; for (int k = 0; k < 8; k++) { int n = c + N8[k];
       if (!nb_ok(c, n) || hd2[n] >= 0 || !BIT_GET(G.visited, n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID) || char_at(n) || bad_air(n) || n == G.exit || (h->b.roots && c == h->pos)) continue;
       hd2[n] = hd2[c] + 1; par[n] = c; q[qt++] = n; } }
-  for (int qi = 1; qi < qt; qi++) { int P = q[qi]; int path[16], n = hd2[P]; if (n > 16) continue; for (int c = P, j = n - 1; j >= 0; j--, c = par[c]) path[j] = c;
-    double v = PRICE(tact_eval(F, nf, P, path, n, NULL, -1, 0)); if (v < best) { best = v; bk = 1; barg = P; bw = "walk"; } }
-  // throw a missile at a foe in line, two or more away
+  for (int qi = 1; qi < qt && no < 600; qi++) { int P = q[qi], n = hd2[P]; if (n > 16) continue; Opt *o = &O[no++]; *o = (Opt){ .kind = 1, .arg = P, .P = P, .n = n };
+    for (int c = P, j = n - 1; j >= 0; j--, c = par[c]) o->path[j] = c; }   // walk there, fight from there
   for (int s = 0; s < BAG_SIZE; s++) { Item *it = &h->bag[s]; int k = it->kind; if (item_cat(k) != CAT_MISSILE || k == IK_BOOMERANG) continue;
-    for (int j = 0; j < nf; j++) { Mob *m = &G.mobs[F[j].i]; bool hit; if (distance(F[j].pos, h->pos) < 2 || ballistica(h->pos, F[j].pos, &hit) != F[j].pos) continue;
+    for (int j = 0; j < nf && no < 690; j++) { Mob *m = &G.mobs[F[j].i]; bool hit; if (distance(F[j].pos, h->pos) < 2 || ballistica(h->pos, F[j].pos, &hit) != F[j].pos) continue;
       int def = mst(m, STAT_DEF, MOB_DEFS[m->type].def), dr = mst(m, STAT_DR, MOB_DEFS[m->type].dr);
-      double td = phit(hero_attack_skill(it, F[j].pos), def) * dmg_vs_dr(weapon_min(it), weapon_max(it), dr);
-      double v = PRICE(tact_eval(F, nf, h->pos, NULL, 0, NULL, j, td)) + cthrow * HT; if (v < best) { best = v; bk = 2; barg = s * 32 + j; bw = "throw"; } } }
-  // a turn spent on something (a drink, a read): the foes act; then the fight goes on from here with the new HP
-  int stay[1] = { h->pos };
-  #define AFTER_TURN(hpnew) (s_te_hp = (hpnew), PRICE(tact_eval(F, nf, h->pos, stay, 1, NULL, -1, 0)))
-  int hs = find_kind(IK_POT_HEALING);
-  if (hs >= 0 && item_known(IK_POT_HEALING) && h->HP < h->HT) { double v = AFTER_TURN(h->HT) + cheal * HT; if (v < best) { best = v; bk = 3; barg = hs; bw = "heal"; } }
-  for (int s = 0; s < BAG_SIZE; s++) { int k = h->bag[s].kind; if (item_cat(k) != CAT_POTION || item_known(k)) continue;
-    bool dup = false; for (int t = 0; t < s; t++) if (h->bag[t].kind == k) dup = true; if (dup) continue;
-    double ph = idb_p(k, IK_POT_HEALING), pt = idb_p(k, IK_POT_TOXIC), pf = idb_p(k, IK_POT_FLAME), pp = idb_p(k, IK_POT_PARALYTIC), pi = idb_p(k, IK_POT_INVIS);
-    double near = 0; for (int j = 0; j < nf; j++) if (distance(F[j].pos, h->pos) <= 2) near += F[j].dpt;
-    double vh = AFTER_TURN(h->HT), v0 = AFTER_TURN(-1);
-    double v = ph * vh + (1 - ph) * v0 + pt * 12 + pf * 10 + pp * near * 8 - pi * (v0 - hold) * 0.5 + cunk * HT;   // gas on myself: ~12 (toxic) / ~10 (flame) HP; paralysed 8-12 turns with them beside me; invisible: they lose me
-    if (v < best) { best = v; bk = 4; barg = s; bw = "unknown potion"; } }
-  int vs = find_kind(IK_DEW_VIAL);
-  if (vs >= 0 && G.dew > 0 && h->HP < h->HT) { static const uint8_t PCT[11] = { 0, 5, 13, 21, 31, 41, 52, 63, 75, 88, 100 };
-    double nh = h->HP + h->HT * PCT[G.dew > 10 ? 10 : G.dew] / 100.0; if (nh > h->HT) nh = h->HT;
-    int d0 = G.dew; G.dew = 0; double v = AFTER_TURN(nh) + cvial * d0 * HT; G.dew = d0;   // (drunk: no revive left)
-    if (v < best) { best = v; bk = 5; barg = vs; bw = "dew vial"; } }
-  int ts = find_kind(IK_SCR_TELEPORT);
-  if (ts >= 0 && item_known(IK_SCR_TELEPORT) && !h->b.blind) { double v = ctele * HT; if (v < best) { best = v; bk = 6; barg = ts; bw = "teleport"; } }
-  if ((h->pos == G.entrance && G.depth > 1) || (h->pos == G.exit && !boss_depth(G.depth + 1))) { double v = cstair * HT; if (v < best) { best = v; bk = 7; bw = "stairs"; } }
+      O[no++] = (Opt){ .kind = 2, .arg = s * 32 + j, .P = h->pos, .td = phit(hero_attack_skill(it, F[j].pos), def) * dmg_vs_dr(weapon_min(it), weapon_max(it), dr), .extra = cthrow * HT }; } }
+  int hs = find_kind(IK_POT_HEALING); if (hs >= 0 && item_known(IK_POT_HEALING) && h->HP < h->HT) O[no++] = (Opt){ .kind = 3, .arg = hs, .extra = cheal * HT };
+  for (int s = 0; s < BAG_SIZE && no < 698; s++) { int k = h->bag[s].kind; if (item_cat(k) != CAT_POTION || item_known(k)) continue;
+    bool dup = false; for (int t = 0; t < s; t++) if (h->bag[t].kind == k) dup = true; if (!dup) O[no++] = (Opt){ .kind = 4, .arg = s, .extra = cunk * HT }; }
+  int vs = find_kind(IK_DEW_VIAL); if (vs >= 0 && G.dew > 0 && h->HP < h->HT && no < 699) O[no++] = (Opt){ .kind = 5, .arg = vs, .extra = cvial * G.dew * HT };
+  int ts = find_kind(IK_SCR_TELEPORT); if (ts >= 0 && item_known(IK_SCR_TELEPORT) && !h->b.blind && no < 699) O[no++] = (Opt){ .kind = 6, .arg = ts, .extra = ctele * HT };
+  bool on_st = (h->pos == G.entrance && G.depth > 1) || (h->pos == G.exit && !boss_depth(G.depth + 1)); if (on_st && no < 699) O[no++] = (Opt){ .kind = 7, .extra = cstair * HT };
+  // the price: two rounds (CH_RUNS dice each, the same dice for every option), then the best few again with CH_RUNS2 dice:
+  // the cheapest of hundreds of noisy prices is mostly the luckiest one; a second, bigger draw on the few best removes that
+  static int runs = -1, runs2, keep; if (runs < 0) { runs = (int)ch_k("CH_RUNS", 32); runs2 = (int)ch_k("CH_RUNS2", 256); keep = (int)ch_k("CH_KEEP", 6); }
+  bool mc = !getenv("CHNOMC"); if (mc) ch_prep(F, nf);
+  double hold = 0, price[700]; int stay[1] = { h->pos };
+  for (int pass = 0; pass < 2; pass++) { int R = pass ? runs2 : runs; uint32_t seed = pass ? 0x51ed27u : 0x9e3779b9u;
+    for (int i = 0; i < no; i++) { Opt *o = &O[i]; if (pass && price[i] > 1e8) continue;
+      #define EV(hp_, P_, path_, n_, tk_, td_) (c_seed = seed, s_te_hp = (hp_), mc ? ch_mc(F, nf, P_, path_, n_, tk_, td_, R, s_te_hp >= 0 ? s_te_hp : h->HP) + kdeath * s_te_pd * HT : tact_eval(F, nf, P_, path_, n_, NULL, tk_, td_) + (kdeath - 2.0) * s_te_pd * HT)
+      double v;
+      switch (o->kind) {
+        case 0: v = EV(-1, h->pos, NULL, 0, -1, 0); break;
+        case 1: { int path[16]; for (int j = 0; j < o->n; j++) path[j] = o->path[j]; v = EV(-1, o->P, path, o->n, -1, 0); break; }
+        case 2: v = EV(-1, h->pos, NULL, 0, o->arg % 32, o->td); break;
+        case 3: v = EV(h->HT, h->pos, stay, 1, -1, 0); break;
+        case 4: { int k = h->bag[o->arg].kind; double ph = idb_p(k, IK_POT_HEALING), pt = idb_p(k, IK_POT_TOXIC), pf = idb_p(k, IK_POT_FLAME), pp = idb_p(k, IK_POT_PARALYTIC), pi = idb_p(k, IK_POT_INVIS);
+          double near = 0; for (int j = 0; j < nf; j++) if (distance(F[j].pos, h->pos) <= 2) near += F[j].dpt;
+          double vh = EV(h->HT, h->pos, stay, 1, -1, 0), v0 = EV(-1, h->pos, stay, 1, -1, 0);
+          v = ph * vh + (1 - ph) * v0 + pt * 12 + pf * 10 + pp * near * 8 - pi * (v0 - hold) * 0.5; break; }   // gas on myself: ~12 (toxic) / ~10 (flame) HP; paralysed 8-12 turns with them beside me; invisible: they lose me
+        case 5: { static const uint8_t PCT[11] = { 0, 5, 13, 21, 31, 41, 52, 63, 75, 88, 100 }; double nh = h->HP + h->HT * PCT[G.dew > 10 ? 10 : G.dew] / 100.0; if (nh > h->HT) nh = h->HT;
+          int d0 = G.dew; G.dew = 0; v = EV(nh, h->pos, stay, 1, -1, 0); G.dew = d0; break; }   // (drunk: no revive left)
+        case 6: v = 0; break;
+        default: v = h->pos == G.entrance ? (o->kind == 7 ? hold : 0) : 0; break;   // (up: they stay by the stairs: the same fight when I come back, as I am now; down: a new floor)
+      }
+      #undef EV
+      price[i] = v + o->extra; if (o->kind == 0) hold = price[i]; }
+    if (!pass) {   // keep the hold and the best few for the second round
+      int idx[700]; for (int i = 0; i < no; i++) idx[i] = i;
+      for (int a = 0; a < no && a < keep + 1; a++) for (int b = a + 1; b < no; b++) if (price[idx[b]] < price[idx[a]]) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
+      static bool sel[700]; memset(sel, 0, sizeof(bool) * no); sel[0] = true; for (int a = 0; a < no && a < keep; a++) sel[idx[a]] = true;
+      for (int i = 0; i < no; i++) if (!sel[i]) price[i] = 1e9; } }
   s_te_hp = -1;
-  #undef AFTER_TURN
-  #undef PRICE
+  int bi = 0; for (int i = 1; i < no; i++) if (price[i] < price[bi]) bi = i;
+  double best = price[bi]; int bk = O[bi].kind, barg = O[bi].kind == 2 ? O[bi].arg : O[bi].kind == 1 ? O[bi].P : O[bi].arg;
+  static const char *const KN[8] = { "hold", "walk", "throw", "heal", "unknown potion", "dew vial", "teleport", "stairs" }; const char *bw = KN[bk];
+  if (getenv("CHDBG2")) { printf("   CHH at %d,%d -> hold %.1f", cx(h->pos), cy(h->pos), hold); for (int j = 0; j < nf; j++) printf(" | f%d %d,%d hp %.0f pf %.2f %d-%d rng %d ph %.2f", j, cx(F[j].pos), cy(F[j].pos), F[j].hp, c_pf[j], c_flo[j], c_fhi[j], F[j].rng, c_ph[j]); printf("\n"); }
   if (getenv("CHDBG")) printf("CH d%d t%d hp %d/%d foes %d hold %.1f -> %s %.1f\n", G.depth, (int)(G.now / TICK), h->HP, h->HT, nf, hold, bw, best);
   st_ch[bk]++;
   int32_t t0 = h->time; ActResult r = ACT_NONE;
