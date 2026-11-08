@@ -1057,12 +1057,6 @@ static bool calc_on(void); static bool fair_on(void); static int foe_sees(int i)
 static bool vial_full(void) { return G.dew >= 10 && find_kind(IK_DEW_VIAL) >= 0; }   // Hero.die: DewVial.autoDrink: a full vial brings me back at full health, all kept
 static bool emergency(void) {                           // badly hurt
   Hero *h = &G.hero; int s;
-  if (!getenv("OLDFISH") && h->HP * 2 < h->HT && !h->b.roots) {   // (g49: bitten for 15 in a pool room's doorway at 29/35, then an unknown potion drunk, and bitten dead): fish can't leave the water: a step out of their reach beats any potion
-    bool fish = false, other = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state != ST_HUNTING) continue; if (MOB_DEFS[m->type].flags & MD_WATER) { if (distance(m->pos, h->pos) <= 2) fish = true; } else if (distance(m->pos, h->pos) <= 3) other = true; }
-    if (fish && !other) { int best = -1, bs = -1;
-      for (int k = 0; k < 8; k++) { int n = h->pos + N8[k]; if (!nb_ok(h->pos, n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID) || char_at(n) || IS_WATER(G.map[n])) continue;
-        int wet = 0; for (int j = 0; j < 8; j++) { int w = n + N8[j]; if (nb_ok(n, w) && IS_WATER(G.map[w])) wet++; } int sc = 20 - wet * 3 - (PREACH(n) ? 10 : 0); if (sc > bs) { bs = sc; best = n; } }
-      if (best >= 0 && bs >= 10) { int32_t t0 = h->time; ActResult r = game_tap_cell(best); if (r != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("bitten: a step out of the fish's reach"); walk(r); return true; } } } }
   if (getenv("VIALSAVE") && vial_full() && !h->b.poison && !h->b.bleed && !G.deferred) return false;   // (2026-11-07: a full vial is a second life: no potion is spent while it's there)
   { bool boss = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && (MOB_DEFS[G.mobs[i].type].flags & MD_BOSS) && BIT_GET(G.fov, G.mobs[i].pos)) boss = true;
     int dot = 0; for (int k = 1; k <= h->b.poison; k++) dot += k / 3 + 1; dot += 3 * h->b.bleed;
@@ -2146,22 +2140,6 @@ static bool curse_fight(int mi) {
 // a deterministic two-turn evaluation from what's visible, cheap enough for the watch. For staying to fight and for each
 // step: the hero acts, then each foe in sight acts on its real speed (attack if beside me, else a step toward me; a fast
 // one gets two actions), twice over; damage taken against damage dealt (a kill worth the blows it saves).
-static double step2_eval(int hp, bool stay) {
-  Hero *h = &G.hero; int ix[24], ps[24], n = 0; double mh[24];
-  for (int i = 0; i < G.n_mobs && n < 24; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state != ST_HUNTING || distance(m->pos, h->pos) > 6) continue; ix[n] = i; ps[n] = m->pos; mh[n] = m->HP; n++; }
-  double taken = 0, value = 0;
-  for (int turn = 0; turn < 2; turn++) {
-    if (turn > 0 || stay) { int t = -1; for (int k = 0; k < n; k++) if (mh[k] > 0 && distance(ps[k], hp) <= 1 && (t < 0 || mh[k] < mh[t])) t = k;   // the hero strikes the weakest beside him
-      if (t >= 0) { Mob *m = &G.mobs[ix[t]]; double d = hero_dpt(m); if (d > mh[t]) d = mh[t]; mh[t] -= d; value += d / (m->HT ? m->HT : 1) * foe_dpt(m) * 6; if (mh[t] <= 0.5) value += foe_dpt(m) * 3; } }
-    for (int k = 0; k < n; k++) { if (mh[k] <= 0) continue; Mob *m = &G.mobs[ix[k]]; int acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; double fd = foe_dpt(m);
-      if (magic_shooter(m->type) && distance(ps[k], hp) > 1) { taken += fd; continue; }
-      for (int a = 0; a < acts; a++) {
-        if (distance(ps[k], hp) <= 1) { taken += fd / acts; continue; }
-        int bq = ps[k], bd = distance(ps[k], hp); for (int j = 0; j < 8; j++) { int q = ps[k] + N8[j]; if (!nb_ok(ps[k], q) || !PASSABLE(G.map[q]) || q == hp) continue; bool occ = false; for (int o = 0; o < n; o++) if (o != k && ps[o] == q && mh[o] > 0) occ = true; if (occ) continue; int dd = distance(q, hp); if (dd < bd) { bd = dd; bq = q; } }
-        ps[k] = bq; } } }
-  double hpv = h->HP, risk = taken > hpv * 0.5 ? (taken - hpv * 0.5) * (getenv("STEP2K") ? atof(getenv("STEP2K")) : 6.0) : 0;   // (near the edge, a blow costs far more than its points: the look-ahead's score is mostly deaths)
-  return value - taken - risk;
-}
 // tact (owner, 2026-11-03: "evaluate every turn by expected damage taken vs dealt, and ways to gain a turn later with a better ratio"):
 // for the cell I stand on and every cell within a few steps, play the rest of the fight out on paper with the source's odds:
 // walk there (what can strike me on the way), then hold it (each foe comes the short way over known cells, the one that steps
@@ -2213,88 +2191,11 @@ static double tact_eval(TFoe *F0, int nf, int P, const int *path, int plen, doub
   double mob_cost = 0.15 * h->HT;
   return E + kk * pd * h->HT + ku * unk * (t + rest_t) * mob_cost;
 }
-static bool tact(void) {
-  Hero *h = &G.hero; if (s_rollout || h->b.roots || h->b.paralysis || h->b.blind || G.depth == 25 || G.depth == 20) return false;
-  TFoe F[24]; int nf = 0; bool adjf = false;
-  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING) continue;
-    bool see = BIT_GET(G.fov, m->pos), adj = adjacent(m->pos, h->pos); if (!see && !adj) continue; if (distance(m->pos, h->pos) > 9) continue;
-    if (MOB_DEFS[m->type].flags & (MD_BOSS | MD_WATER | MD_NPC)) return false;
-    if (m->type == MT_STATUE || m->type == MT_MIMIC || m->b.paralysis || m->b.frost) continue;
-    if (nf >= 24) break; TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
-    f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (f->mc < 5) f->mc = 5; f->ac = MOB_DEFS[m->type].atk_delay ? MOB_DEFS[m->type].atk_delay : TICK; f->tm = 0; f->rng = magic_shooter(m->type) || m->type == MT_SCORPIO; if (adj) adjf = true; }
-  if (nf == 0) { s_tact_wait = 0; s_tact_lastd = 99; return false; }
-  // the hero's ways: cells within 5 steps over seen floor, no traps, no water creatures, none taken
-  static int16_t hd2[MAP_LEN], par[MAP_LEN], q[MAP_LEN]; for (int c = 0; c < MAP_LEN; c++) hd2[c] = -1;
-  int qh = 0, qt = 0; hd2[h->pos] = 0; par[h->pos] = -1; q[qt++] = h->pos;
-  while (qh < qt) { int c = q[qh++]; if (hd2[c] >= 5) continue; for (int k = 0; k < 8; k++) { int n = c + N8[k];
-      if (!nb_ok(c, n) || hd2[n] >= 0 || !BIT_GET(G.visited, n) || !PASSABLE(G.map[n]) || (TFLAGS(G.map[n]) & F_AVOID) || char_at(n) || PWATER(n) || bad_air(n) || n == G.exit) continue;
-      hd2[n] = hd2[c] + 1; par[n] = c; q[qt++] = n; } }
-  double tt; double s0 = tact_eval(F, nf, h->pos, NULL, 0, &tt, -1, 0), bs = s0; int bP = -1;
-  if (getenv("TACTCAL") && !s_cal_on) { s_cal_on = 1; s_cal_hp0 = h->HP; s_cal_pred = s_te_E; s_cal_type = G.mobs[F[0].i].type; s_cal_n = nf; s_cal_uid = G.mobs[F[0].i].uid; s_cal_away = 0; }
-  static double mg = -1, hy; if (mg < 0) { mg = getenv("TACTM") ? atof(getenv("TACTM")) : 2.0; hy = getenv("TACTH") ? atof(getenv("TACTH")) : 1.0; }
-  for (int qi = 1; qi < qt; qi++) { int P = q[qi]; int path[8], n = hd2[P]; for (int c = P, j = n - 1; j >= 0; j--, c = par[c]) path[j] = c;
-    double s = tact_eval(F, nf, P, path, n, NULL, -1, 0) - (P == s_tact_tgt ? hy : 0);
-    if (s < bs) { bs = s; bP = P; } }
-  if (getenv("TACTDBG")) printf("TACT step %d hp %d/%d foes %d stay %.1f (turns %.0f) best %.1f at %d,%d\n", s_bot_steps, h->HP, h->HT, nf, s0, tt, bs, bP >= 0 ? cx(bP) : -1, bP >= 0 ? cy(bP) : -1);
-  if (bP >= 0 && bs + mg < s0) {
-    int first = bP; while (par[first] != h->pos) first = par[first];
-    s_tact_tgt = bP; int32_t t0 = h->time; ActResult r = tap_safe(first); if (r == ACT_NONE && h->time == t0) return false;
-    st_tact_steps++; s_did[0] = 0; DID("tact: fight from %d,%d (expected cost %.0f there vs %.0f here)", cx(bP), cy(bP), bs, s0); walk(r); return true; }
-  s_tact_tgt = -1;
-  if (!adjf && !getenv("TACTNOTHROW")) {                // a throw first, against holding: what's cheaper over the whole fight
-    int ms = -1; for (int i = 0; i < BAG_SIZE; i++) { int k = h->bag[i].kind; if (item_cat(k) == CAT_MISSILE && k != IK_CURARE_DART && k != IK_BOOMERANG && k != IK_INCENDIARY_DART) { ms = i; break; } }
-    int bsl = hunt2() ? boom_slot() : -100; int bk = -1, bslot = -1; double bt = s0 - (getenv("TACTTM") ? atof(getenv("TACTTM")) : 0.5);
-    for (int k = 0; k < nf; k++) { Mob *m = &G.mobs[F[k].i]; bool hit; if (distance(F[k].pos, h->pos) < 2 || ballistica(h->pos, F[k].pos, &hit) != F[k].pos) continue;
-      int def = mst(m, STAT_DEF, MOB_DEFS[m->type].def), dr = mst(m, STAT_DR, MOB_DEFS[m->type].dr);
-      for (int w = 0; w < 2; w++) { int sl = w == 0 ? ms : bsl; if (sl < 0) continue; Item *it = &h->bag[sl]; double td;
-        if (it->kind == IK_BOOMERANG) td = boom_dpt_vs(def, dr, 0, false); else td = phit(hero_attack_skill(it, F[k].pos), def) * dmg_vs_dr(weapon_min(it), weapon_max(it), dr);
-        double sv = tact_eval(F, nf, h->pos, NULL, 0, NULL, k, td); if (sv < bt) { bt = sv; bk = k; bslot = sl; } } }
-    if (bk >= 0) { st_tact_throws++; s_did[0] = 0; DID("tact: throw at the %s first (expected cost %.0f vs %.0f holding)", mob_name(G.mobs[F[bk].i].type), bt, s0); walk(game_throw(bslot, F[bk].pos)); return true; } }
-  int md = 99; for (int k = 0; k < nf; k++) if (!F[k].rng) { int d = distance(F[k].pos, h->pos); if (d < md) md = d; }
-  if (!adjf && md <= 6 && (md <= 2 || md < s_tact_lastd) && s_tact_wait < 8 && !getenv("TACTNOHOLD")) {   // best here, none beside me yet, one coming: let it come (its step, my first blow)
-    bool ranged = false; for (int k = 0; k < nf; k++) if (F[k].rng) ranged = true;
-    s_tact_lastd = md;
-    if (!ranged) { s_tact_wait++; st_tact_waits++; s_did[0] = 0; DID("tact: hold here, let it come to me (expected cost %.0f)", s0); walk(game_rest(false)); return true; } }
-  if (adjf) s_tact_wait = 0; s_tact_lastd = md;
-  return false;
-}
 #include "choose.inc"
 static bool fight(void) {
   Hero *h = &G.hero;
   if (soures() && !getenv("NOFIGHTMEND") && !h->b.blind && !s_rollout) { int s = find_kind(IK_SCR_UPGRADE); if (s >= 0 && item_known(IK_SCR_UPGRADE))   // 0.93 (owner: a broken piece is only mended, the level is lost): a piece a few uses from breaking mid-fight: read it now
     for (int w = -2; w <= -1; w++) { Item *it = game_slot(w); if (it->kind && it->lvl >= 2 && (it->flags & IF_LEVEL_KNOWN) && !item_broken(it) && it->dur <= 3 && game_pick_ok(PICK_UPGRADE, w)) { s_force_pick = w; s_did[0] = 0; DID("the %s is about to break: upgrade it now, before it does", w == -1 ? "weapon" : "armour"); do_item(s, ACN_READ); return true; } } }
-  if (getenv("STEP2") && !s_rollout && !h->b.roots && !h->b.paralysis) {
-    bool near = false, boss = false; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && BIT_GET(G.fov, o->pos) && o->state == ST_HUNTING) { if (distance(o->pos, h->pos) <= 2) near = true; if (MOB_DEFS[o->type].flags & MD_BOSS) boss = true; } }
-    if (near && !boss) { double s0 = step2_eval(h->pos, true), bsv = s0 + (getenv("STEP2M") ? atof(getenv("STEP2M")) : 1.0); int bq = -1;
-      for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || char_at(q) || PWATER(q)) continue; double v = step2_eval(q, false); if (v > bsv) { bsv = v; bq = q; } }
-      if (getenv("STEP2DBG")) printf("STEP2 step %d hp %d/%d stay %.1f best %.1f at %d\n", s_bot_steps, h->HP, h->HT, s0, bsv, bq);
-      if (bq >= 0) { s_did[0] = 0; DID("step2: a step scores %.1f against %.1f for standing", bsv, s0); walk(tap_safe(bq)); return true; } } }
-  if (getenv("CHOKE") && !s_rollout && !h->b.roots && !h->b.paralysis) {   // 0.93 (teacher: a second foe coming and the one beside me still healthy: the look-ahead steps first, 77%): to where fewer can reach me at once
-    int na = 0, nh = 0, ai = -1; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP <= 0 || ally(i) || !BIT_GET(G.fov, o->pos) || o->state != ST_HUNTING || (MOB_DEFS[o->type].flags & MD_BOSS)) continue; int d = distance(o->pos, h->pos); if (d <= 1) { na++; ai = i; } if (d <= 4) nh++; }
-    if (na >= 1 && nh >= 2 && G.mobs[ai].HP * 4 > G.mobs[ai].HT * 3) {
-      int slots0 = 0; for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (nb_ok(h->pos, q) && PASSABLE(G.map[q]) && !(TFLAGS(G.map[q]) & F_AVOID)) slots0++; }
-      int bq = -1, bsl = slots0 - 2;   // (worth a step only if it shuts at least two ways in)
-      for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || char_at(q) || PWATER(q)) continue;
-        int adjf = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP > 0 && !ally(i) && o->state == ST_HUNTING && BIT_GET(G.fov, o->pos) && distance(o->pos, q) <= 1) adjf++; }
-        if (adjf > na) continue;
-        int sl = 0; for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && PASSABLE(G.map[r]) && !(TFLAGS(G.map[r]) & F_AVOID)) sl++; }
-        if (sl <= bsl) { bsl = sl; bq = q; } }
-      if (bq >= 0) { s_did[0] = 0; DID("choke: a step to where only %d can reach me (was %d)", bsl, slots0); walk(tap_safe(bq)); return true; } } }
-  if ((getenv("DANCE") || getenv("TELEADJ")) && !s_rollout && !h->b.roots && !h->b.paralysis) {   // 0.93 (teacher: the look-ahead's commonest pick was a step away from the one beside me)
-    int adj = -1, nadj = 0, oth = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *o = &G.mobs[i]; if (o->HP <= 0 || ally(i) || !BIT_GET(G.fov, o->pos) || o->state == ST_PASSIVE) continue; int d = distance(o->pos, h->pos); if (d <= 1 && o->state == ST_HUNTING) { nadj++; adj = i; } else if (d <= 6 && o->state == ST_HUNTING) oth++; }
-    if (nadj == 1) { Mob *m = &G.mobs[adj]; bool boss = MOB_DEFS[m->type].flags & MD_BOSS;
-      if (getenv("TELEADJ") && !boss && h->HP * 3 < h->HT * 2) { int ws = -1; for (int sl = -1; sl < PACK0 + 32; sl = sl == BAG_SIZE - 1 ? PACK0 : sl + 1) { Item *it = game_slot(sl); if (it->kind == IK_WND_TELEPORT && item_known(IK_WND_TELEPORT) && it->ench > 0) ws = sl; }
-        double hd = hero_dpt(m), cost = m->HP / (hd > 0.1 ? hd : 0.1) * foe_dpt(m);
-        if (ws >= 0 && cost > h->HP * 0.5) { s_did[0] = 0; DID("teleport the %s away (finishing it would cost ~%.0f of my %d)", mob_name(m->type), cost, h->HP); walk(game_zap(ws, m->pos)); return true; } }
-      static int s_dance_on, s_dance_n, s_dance_g = -1; if (s_dance_g != cur_game) { s_dance_g = cur_game; s_dance_on = 0; s_dance_n = 0; }
-      int lo = getenv("DANCELO") ? atoi(getenv("DANCELO")) : 50, hi = getenv("DANCEHI") ? atoi(getenv("DANCEHI")) : 75;
-      bool want = h->HP * 100 < h->HT * (s_dance_on ? hi : lo);
-      if (getenv("DANCEDBG")) printf("DANCE? step %d hp %d/%d want %d oth %d starving %d mag %d mc %d/%d n %d\n", s_bot_steps, h->HP, h->HT, want, oth, game_starving(), magic_shooter(m->type), mob_move_cost(m), hero_move_cost(), s_dance_n);
-      if (getenv("DANCE") && want && !boss && oth == 0 && !game_starving() && !magic_shooter(m->type) && m->type != MT_SCORPIO && mob_move_cost(m) >= hero_move_cost() && s_dance_n < 300) {
-        int bq = -1, bo = 0; for (int k = 0; k < 8; k++) { int q = h->pos + N8[k]; if (!nb_ok(h->pos, q) || !PASSABLE(G.map[q]) || (TFLAGS(G.map[q]) & F_AVOID) || char_at(q) || PWATER(q) || distance(q, m->pos) < 2) continue;
-          int open = 0; for (int j = 0; j < 8; j++) { int r = q + N8[j]; if (nb_ok(q, r) && PASSABLE(G.map[r]) && !(TFLAGS(G.map[r]) & F_AVOID) && distance(r, m->pos) >= 2) open++; } if (open > bo) { bo = open; bq = q; } }
-        if (bq >= 0 && bo >= 2) { s_dance_on = 1; s_dance_n++; s_did[0] = 0; DID("dance: a step away from the %s (it follows instead of striking; I mend meanwhile)", mob_name(m->type)); walk(tap_safe(bq)); return true; } }
-      if (!want) s_dance_on = 0; } }
   int best = -1, bk = 1 << 30;
   for (int i = 0; i < G.n_mobs; i++) {
     Mob *m = &G.mobs[i];
@@ -2332,7 +2233,6 @@ static bool fight(void) {
   if (getenv("TTRACE") && !s_rollout && !s_is_child && m->type == MT_TENGU) printf("TT t%d hero %d,%d hp %d tengu %d,%d hp %d dist %d aux %d vis %d\n", (int)(G.now / TICK), cx(h->pos), cy(h->pos), h->HP, cx(m->pos), cy(m->pos), m->HP, distance(m->pos, h->pos), m->aux, ({ bool hit; ballistica(m->pos, h->pos, &hit) == h->pos; }));
   DID("fight %s (its HP %d/%d, %s) %d away", mob_name(m->type), m->HP, m->HT, m->state == ST_HUNTING ? "hunting me" : m->state == ST_SLEEPING ? "asleep" : "wandering", distance(m->pos, h->pos));
   if (emergency()) return true;
-  if (getenv("TACT") && tact()) return true;   // tact (owner 2026-11-03): where to fight from, by the expected HP it costs
   if (getenv("SNEAK") && m->state == ST_SLEEPING && !adjacent(m->pos, h->pos) && !(MOB_DEFS[m->type].flags & MD_BOSS) && !h->b.roots) {
     int c = sneak_step(m);
     if (c >= 0) { int32_t t0 = h->time; ActResult rr = game_tap_cell(c); if (rr != ACT_NONE || h->time != t0) { st_sneak++; s_did[0] = 0; DID("sneak up on the sleeping %s (seen %d)", mob_name(m->type), s_sneak_expo); walk(rr); return true; } } }
@@ -3484,7 +3384,7 @@ static bool decide(void) {
   Hero *h = &G.hero; const char *why = "?";
   if (s_brew_kind >= 0 && s_brew_i >= 3 && (unsigned)s_brew_pot < MAP_LEN) { int hb = heap_at(s_brew_pot); if (hb >= 0 && item_cat(G.heaps[hb].item.kind) == CAT_POTION) { int pk = G.heaps[hb].item.kind; if (!item_known(pk) && !s_pot_guess[pk]) s_pot_guess[pk] = seed_potion(s_brew_kind); s_brew_kind = -1; } }   // (the brew's colour: probably that seed's potion)
   if (V) printf("  decide: hero %d hp %d/%d hunger %d blind %d light %d vd %d\n", h->pos, h->HP, h->HT, h->hunger, h->b.blind, h->light, view_distance());
-  if (getenv("CHOOSE") && !s_is_child && choose()) return true;   // the one scorer, for every turn with an awake foe about
+  if (!getenv("NOCHOOSE") && !s_is_child && choose()) return true;   // the one scorer, for every turn with an awake foe about
   if (!getenv("NOBRAIN2") && !s_rollout && !s_is_child) { int r = brain2(); if (r >= 0) return r; }   // brain2: the one-goal brain (owner 2026-11-03); -1: the old rules for this turn
   // eat
   if (eat_rule()) return true;
@@ -3512,12 +3412,6 @@ static bool decide(void) {
     if (getenv("OLDREST2") && (h->HP < h->HT / 2 || (s_resting && h->HP < h->HT)) && !game_starving() && enemy_count() == 0) { DID("rest to heal"); s_resting = true; int32_t t = h->time; walk(game_rest(false)); if (h->time > t) return true; }   // bot2: rest to (nearly) full
     if (enemy_count() == 0 && use_items_when_safe()) return true;
     return press();
-  }
-  bool fish_near = false; for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_PIRANHA && distance(G.mobs[i].pos, h->pos) <= 1) fish_near = true;
-  if (fish_near && IS_WATER(G.map[h->pos]) && !h->b.roots) {   // out of the water, the shortest way
-    bfs(h->pos, false); int best = -1, bd = 0x7FFF;
-    for (int c = 0; c < MAP_LEN; c++) if (b_dist[c] < bd && !IS_WATER(G.map[c]) && PASSABLE(G.map[c]) && G.map[c] != T_ALCHEMY && c != G.entrance && c != G.exit && heap_at(c) < 0) { bd = b_dist[c]; best = c; }
-    if (best >= 0) { int32_t t = h->time; ActResult r = tap_safe(best); if (r != ACT_NONE || h->time != t) { walk(r); return true; } }
   }
   if (h->b.roots && enemy_count() == 0) { walk(game_rest(false)); return true; }
   if (h->b.burning && !IS_WATER(G.map[h->pos])) {      // on fire: into the water if it's close (bot2: up to 8 steps, piranha water too)
@@ -3548,22 +3442,6 @@ static bool decide(void) {
       int32_t t = h->time; ActResult r = tap_safe(h->pos); if (r == ACT_NONE && h->time == t) s_black[h->pos] = s_bot_steps + 100; else { walk(r); return true; } } }
   if (!h->weapon.kind && enemy_count()) for (int i = 0; i < BAG_SIZE; i++) if (weapon_score(&h->bag[i]) > 0) { do_item(i, ACN_EQUIP); return true; }   // back in hand
   if (prep_retreat()) return true;
-  if (getenv("AVOID") && (!getenv("AVOIDCLS") || (h->hclass & 3) == atoi(getenv("AVOIDCLS"))) && !h->b.roots && !boss_depth(G.depth) && floor_left() && s_avoid_n < (getenv("AVOIDN") ? atoi(getenv("AVOIDN")) : 150)) {   // 0.58 (owner: "avoid combat until the level's power is gathered; if you can run and escape, do so: pop behind a door")
-    int foe = -1, fd = 99; for (int i = 0; i < G.n_mobs; i++) { Mob *fm = &G.mobs[i]; if (fm->HP <= 0 || ally(i) || fm->state != ST_HUNTING || !BIT_GET(G.fov, fm->pos) || (MOB_DEFS[fm->type].flags & (MD_BOSS | MD_NPC | MD_WATER))) continue;
-      if (MOB_DEFS[fm->type].move_cost < hero_move_cost()) continue;   // (a faster one can't be outrun; Haste changes that)
-      int dd = distance(fm->pos, h->pos); if (dd < fd) { fd = dd; foe = i; } }
-    if (foe >= 0 && fd >= 2 && !(getenv("AVOIDFAV") && hp_cost_vs(G.mobs[foe].type, h->weapon.kind ? &h->weapon : NULL, h->armor.kind ? &h->armor : NULL) * 3 < h->HP)) {
-      static int16_t md[MAP_LEN]; int fp = G.mobs[foe].pos; bfs(fp, false); for (int c = 0; c < MAP_LEN; c++) md[c] = b_dist[c];
-      bfs(h->pos, false); int best = -1, bs = 1 << 30;
-      for (int c = 0; c < MAP_LEN; c++) { int hd = b_dist[c]; if (hd < 1 || hd > 12 || char_at(c) || (TFLAGS(G.map[c]) & F_AVOID) || PWATER(c)) continue; int m2 = md[c] < 0x7FFF ? md[c] : 99;
-        if (m2 - hd < 2) continue; bool hh; if (ballistica(fp, c, &hh) == c) continue;   // (it gets there first, or still sees me there)
-        int sc = hd * 4 - (m2 - hd) * 2 + ((G.map[c] == T_DOOR || G.map[c] == T_OPEN_DOOR) ? -6 : 0); if (sc < bs) { bs = sc; best = c; } }
-      if (best >= 0) { int32_t t0 = h->time; ActResult rr = tap_safe(best); if (rr != ACT_NONE || h->time != t0) { s_avoid_n++; s_did[0] = 0; DID("avoid the %s: out of its sight (fight later)", mob_name(G.mobs[foe].type)); walk(rr); return true; } } } }
-  if ((getenv("STAIRFLEE") || getenv("THRIFT")) && G.depth > 1 && G.entrance >= 0 && (getenv("THRIFT") ? h->HP < thrift_need() : h->HP * 2 < h->HT) && !h->b.roots && !boss_depth(G.depth) && !(s_zone_start && boss_depth(G.depth - 1)) && G.now - s_last_up > 100 * TICK) {   // 0.58: hurt and one hunting me: up the stairs (they don't follow), rest, come back
-    int foe = -1, fd = 99; for (int i = 0; i < G.n_mobs; i++) { Mob *fm = &G.mobs[i]; if (fm->HP <= 0 || ally(i) || fm->state != ST_HUNTING || !BIT_GET(G.fov, fm->pos) || (MOB_DEFS[fm->type].flags & (MD_BOSS | MD_NPC | MD_WATER))) continue; int dd = distance(fm->pos, h->pos); if (dd < fd) { fd = dd; foe = i; } }
-    if (foe >= 0 && fd >= 2) { bfs(h->pos, false); if (b_dist[G.entrance] <= 8 && distance(G.mobs[foe].pos, G.entrance) > b_dist[G.entrance]) {
-      if (h->pos == G.entrance) { s_last_up = G.now; s_did[0] = 0; DID("hurt, one hunting me: up the stairs"); walk(game_tap_cell(h->pos)); return true; }
-      int32_t t0 = h->time; ActResult rr = tap_safe(G.entrance); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; st_kit[5]++; DID("hurt, one hunting me: to the stairs up"); walk(rr); return true; } } } }
   if (GOO2_ON() && !h->b.roots) for (int i = 0; i < G.n_mobs; i++) { Mob *gm = &G.mobs[i];   // 0.58: in the middle of the Goo dance (it may be round a corner): the dance, nothing else
     if (gm->HP <= 0 || gm->type != MT_GOO || gm->state != ST_HUNTING || distance(gm->pos, h->pos) > 5 || !(BIT_GET(G.fov, gm->pos) || G.now - s_goo2_last <= 4 * TICK)) continue;
     int r = goo2(gm); if (r == 1) return true; if (r == 0) { walk(game_tap_cell(gm->pos)); return true; } break; }

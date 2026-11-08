@@ -134,9 +134,7 @@ static int b2_threats_m(bool tow_only) {
   st_b2[0]++;                                           // fight, here and now: the kit if it's a hard one, then where and how (tact), then the blow
   int tg = -1; double tv = -1; for (int j = 0; j < nf; j++) { int ty = G.mobs[F[j].i].type; double v = ((ty == MT_THIEF || ty == MT_BANDIT) && distance(F[j].pos, h->pos) <= 4 ? 2000 : 0) + (adjacent(F[j].pos, h->pos) ? 1000 : 0) + F[j].dpt / (F[j].hp > 1 ? F[j].hp : 1) - distance(F[j].pos, h->pos); if (v > tv) { tv = v; tg = F[j].i; } }
   if (tg >= 0 && !adjacent(G.mobs[tg].pos, h->pos) && ranged_try(tg)) return 1;   // (wands never miss, bombs and harmful potions from afar, darts while it comes)
-  if ((nf >= 2 || !adj) && tact()) return 1;          // (a crowd, or none beside me yet: first where to stand, how to meet it)
   if (tg >= 0 && kit_fight(tg)) return 1;
-  if (tact()) return 1;
   if (tg >= 0) { char w[64]; snprintf(w, sizeof w, "b2: attack the %s", mob_name(G.mobs[tg].type)); int r = b2_step(G.mobs[tg].pos, w); if (r > 0) return r; }
   return -1;
 }
