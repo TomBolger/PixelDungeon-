@@ -96,7 +96,9 @@ typedef struct { int32_t first; int32_t next; int32_t id; int32_t n; double w; }
 static MNode s_mn[MC_MAXN]; static int s_mnn;
 static int mc_child(int p, int id) { for (int c = s_mn[p].first; c >= 0; c = s_mn[c].next) if (s_mn[c].id == id) return c; return -1; }
 static int mc_add(int p, int id) { if (s_mnn >= MC_MAXN) return -1; int c = s_mnn++; s_mn[c] = (MNode){ -1, s_mn[p].first, id, 0, 0 }; s_mn[p].first = c; return c; }
-static long st_mc_calls, st_mc_iters; static double s_rp[256]; static int s_rid[256], s_rn;   // the root moves' instinct shares
+static long st_mc_calls, st_mc_iters; static double s_qlo, s_qhi;   // the values seen this search: every comparison is on their spread (MuZero's normalised Q), so a Tengu floor where all is 0.00-0.07 still ranks its moves
+static double s_rp[256]; static int s_rid[256], s_rn;   // the root moves' instinct shares
+#define QN(q) (s_qhi > s_qlo + 1e-9 ? ((q) - s_qlo) / (s_qhi - s_qlo) : 0.5)
 static int mcts(void) {
   Hero *h = &G.hero; if (s_rollout || s_is_child || getenv("NOMCTS") || h->b.paralysis) return 0;
   bool threat = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state != ST_PASSIVE && (m->state != ST_SLEEPING || distance(m->pos, h->pos) <= 2) && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) <= 8) threat = true; }   // (any creature awake in sight, or asleep beside me: whether to take it on is the search's call too; g10: the old rules walked into a crab at 8/30)
@@ -106,14 +108,14 @@ static int mcts(void) {
   int mv0[256]; int n0 = mc_moves(mv0); if (n0 <= 1) return 0;
   // the instinct (AlphaZero's "policy"): the dice-model scorer prices every root move; the search spends its tries mostly where
   // the instinct points (PUCT) and checks them against the real game, free to overrule it. A move it didn't price gets a small share.
-  static double mt_ = -1, cp; if (mt_ < 0) { mt_ = getenv("MC_T") ? atof(getenv("MC_T")) : 0.05; cp = getenv("MC_CP") ? atof(getenv("MC_CP")) : 1.0; }
+  static double mt_ = -1, cp; if (mt_ < 0) { mt_ = getenv("MC_T") ? atof(getenv("MC_T")) : 0.25;   /* (0.05 HT: the instinct took 93% of the tries on one move, and the search could not overrule it) */ cp = getenv("MC_CP") ? atof(getenv("MC_CP")) : 1.0; }
   s_mc_goal = getenv("MC_NOGOAL") ? -1 : s_goal_cell2; s_mc_gd0 = mc_goal_dist();
   s_ch_prior = 1; s_pr_n = 0; int chr = choose(); s_ch_prior = 0; if (getenv("MCDBG")) printf("MCPRIOR ret %d n %d\n", chr, s_pr_n);
   { double mn = 1e18; for (int i = 0; i < s_pr_n; i++) if (s_pr_v[i] < mn) mn = s_pr_v[i]; double T = mt_ * (h->HT > 0 ? h->HT : 1), tot = 0;
     for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
     for (int i = 0; i < n0; i++) s_rp[i] /= tot; s_rn = n0;
     if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
-  s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 };
+  s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 }; s_qlo = 1e9; s_qhi = -1e9;
   uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u);
   st_mc_calls++; struct timespec t_a, t_b; clock_gettime(CLOCK_MONOTONIC, &t_a);
   for (int it = 0; it < iters; it++) {
@@ -130,8 +132,8 @@ static int mcts(void) {
         if (mc_calm()) { if (++calm >= calmk) { val = mc_leaf(); break; } } else calm = 0;
         int mv[256]; int n = mc_moves(mv); if (!n) { val = mc_leaf(); break; }
         if (dep == 0) {   // the root: PUCT over every move, tried or not (an untried one counts as the root's average so far)
-          double nr = s_mn[0].n, q0 = nr > 0 ? s_mn[0].w / nr : 0.5, bu = -1e18; int bid = -1, bc = -1;
-          for (int i = 0; i < s_rn; i++) { int c = mc_child(0, s_rid[i]); double q = c >= 0 ? (s_mn[c].w > -500 ? s_mn[c].w / s_mn[c].n : -1e9) : q0; int cn = c >= 0 ? s_mn[c].n : 0;
+          double nr = s_mn[0].n, q0 = nr > 0 ? QN(s_mn[0].w / nr) : 0.5, bu = -1e18; int bid = -1, bc = -1;
+          for (int i = 0; i < s_rn; i++) { int c = mc_child(0, s_rid[i]); double q = c >= 0 ? (s_mn[c].w > -500 ? QN(s_mn[c].w / s_mn[c].n) : -1e9) : q0; int cn = c >= 0 ? s_mn[c].n : 0;
             double u = q + cp * s_rp[i] * sqrt(nr + 1) / (1 + cn) + (rand() % 1000) * 1e-9; if (u > bu) { bu = u; bid = s_rid[i]; bc = c; } }
           if (bid < 0) { val = mc_leaf(); break; }
           path[np++] = bid; if (!mc_apply(bid)) { val = -2; break; }
@@ -147,7 +149,7 @@ static int mcts(void) {
           // the new leaf: judged as it stands, the fight still owed taken off
           if (h->HP <= 0) val = 0; else val = mc_leaf(); break; }
         double bv = -1e9; int bc = -1, bid = -1; double ln = log((double)(s_mn[node].n > 0 ? s_mn[node].n : 1));
-        for (int i = 0; i < n; i++) { int c = mc_child(node, mv[i]); if (c < 0) continue; double u = s_mn[c].w / s_mn[c].n + cu * sqrt(ln / s_mn[c].n); if (u > bv) { bv = u; bc = c; bid = mv[i]; } }
+        for (int i = 0; i < n; i++) { int c = mc_child(node, mv[i]); if (c < 0) continue; double u = (s_mn[c].w > -500 ? QN(s_mn[c].w / s_mn[c].n) : -1e9) + cu * sqrt(ln / s_mn[c].n); if (u > bv) { bv = u; bc = c; bid = mv[i]; } }
         if (bc < 0) { val = mc_leaf(); break; }
         path[np++] = bid; if (!mc_apply(bid)) { val = -2; break; } node = bc; }
       if (val < -1.5) val = -1000;   // (a move that doesn't take here (a scroll that can't be read...): marked dead, never tried again)
@@ -158,12 +160,11 @@ static int mcts(void) {
     close(fds[1]); int np = 0; int path[64]; double v = 0; bool ok = read(fds[0], &np, sizeof np) == sizeof np && np >= 0 && np <= 64 && read(fds[0], path, sizeof(int) * np) == (ssize_t)(sizeof(int) * np) && read(fds[0], &v, sizeof v) == sizeof v;
     close(fds[0]); int st; waitpid(pid, &st, 0); if (!ok || np == 0) continue;
     st_mc_iters++;
+    if (v > -500) { if (v < s_qlo) s_qlo = v; if (v > s_qhi) s_qhi = v; }
     int node = 0; s_mn[0].n++; s_mn[0].w += v < -500 ? 0 : v;
     if (v < -500) { for (int i = 0; i < np; i++) { int c = mc_child(node, path[i]); if (c < 0) c = mc_add(node, path[i]); if (c < 0) break; if (i == np - 1) { s_mn[c].n = 1; s_mn[c].w = -1000; } node = c; } s_mn[0].n--; continue; }
     for (int i = 0; i < np; i++) { int c = mc_child(node, path[i]); if (c < 0) c = mc_add(node, path[i]); if (c < 0) break; s_mn[c].n++; s_mn[c].w += v; node = c; } }
-  // the move: the best average among those tried at least a tenth as often as the most tried (the most-tried alone follows early luck)
-  int best = -1, bn = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n > bn) bn = s_mn[c].n;
-  double bv0 = -1; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500 && s_mn[c].n * 10 >= bn && s_mn[c].w / s_mn[c].n > bv0) { bv0 = s_mn[c].w / s_mn[c].n; best = c; }
+  int best = -1, bn = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500 && (s_mn[c].n > bn || (s_mn[c].n == bn && best >= 0 && s_mn[c].w / s_mn[c].n > s_mn[best].w / s_mn[best].n))) { bn = s_mn[c].n; best = c; }   // (the most tried: PUCT spends its tries by value; the best average alone picked 2-try flukes)
   if (best < 0) { if (getenv("MC_NOP")) { struct timespec t_c; clock_gettime(CLOCK_MONOTONIC, &t_c); printf("MCNOP us/iter %.0f\n", ((t_c.tv_sec - t_a.tv_sec) * 1e6 + (t_c.tv_nsec - t_a.tv_nsec) / 1e3) / iters); } return 0; }
   clock_gettime(CLOCK_MONOTONIC, &t_b); double us = (t_b.tv_sec - t_a.tv_sec) * 1e6 + (t_b.tv_nsec - t_a.tv_nsec) / 1e3;
   if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d us/iter %.0f:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn, us / (iters > 0 ? iters : 1));
