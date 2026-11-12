@@ -3367,8 +3367,10 @@ static bool eat_rule(void) {                          // when and what to eat (s
   return false;
 }
 static int brain2(void);
+static void snap_log(void);
 static bool decide(void) {
   oracles();
+  if (getenv("SNAPLOG") && !s_rollout && !s_is_child) snap_log();
   if (P && s_pure && !s_rollout) return press();   // 0.64: Assist alone: every move is Select on the watch's suggestion (windows still the bot's)
   pwater_map(); burnt_scan();
   memset(s_sale, 0, sizeof s_sale); s_sale_any = false; if (!getenv("OLDSALE")) for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && G.heaps[i].pos < MAP_LEN) { BIT_SET(s_sale, G.heaps[i].pos); s_sale_any = true; }
@@ -4941,6 +4943,22 @@ static void pristine_restore(void) {
   memcpy(__data_start, s_pristine, s_pristine_n);
   for (int i = 0; i < n; i++) memcpy(t[i].p, t[i].save, t[i].n);
   free(t); }
+// SNAPLOG (the judge's training data, 2026-11-12): every 25 turns, what the player knows of the hero's position mid-floor:
+// health, level, gear, food, potions, the dew, the floor seen so far, and the awake foes in sight (their HP over my damage a
+// turn, their damage a turn). Outcomes are joined afterwards from the game's end (tools/judge2.py).
+static void snap_log(void) {
+  static int last_t = -1000, last_g = -1; int t = (int)(G.now / TICK); if (last_g != cur_game) { last_g = cur_game; last_t = -1000; }
+  if (t - last_t < 25 || boss_depth(G.depth)) return; last_t = t;
+  Hero *h = &G.hero; int nfood = 0, nheal = 0, nunk = 0, nsc = 0;
+  for (int s2 = 0; s2 < BAG_SIZE; s2++) { Item *it = &h->bag[s2]; int k = it->kind; if (!k) continue; int q = it->qty > 0 ? it->qty : 1;
+    if (is_food(k)) nfood += q; else if (k == IK_POT_HEALING && item_known(k)) nheal += q; else if (item_cat(k) == CAT_POTION && !item_known(k)) nunk += q; else if (item_cat(k) == CAT_SCROLL) nsc += q; }
+  int nf = 0; double owe = 0, fdpt = 0, turns = 0;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || !BIT_GET(G.fov, m->pos) || m->state == ST_PASSIVE || m->state == ST_SLEEPING || (MOB_DEFS[m->type].flags & MD_NPC)) continue;
+    double hd = hero_dpt(m), fd = foe_dpt(m), kt = m->HP / (hd > 0.2 ? hd : 0.2); nf++; fdpt += fd; turns += kt; owe += kt * fd; }
+  int seen = 0; for (int c = 0; c < MAP_LEN; c++) if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) seen++;
+  printf("SNAP g%d t%d d%d lvl %d hp %d ht %d hunger %d food %d heal %d unk %d scr %d str %d at %d al %d wt %d wl %d dew %d vial %d seen %d nf %d fdpt %.2f kturns %.1f owe %.1f ft %d stairs %d\n",
+    cur_game, t, G.depth, h->lvl, h->HP, h->HT, h->hunger, nfood, nheal, nunk, nsc, hero_str(), h->armor.kind ? item_tier(h->armor.kind) : 0, h->armor.lvl, h->weapon.kind ? item_tier(h->weapon.kind) : 0, h->weapon.lvl,
+    G.dew, find_kind(IK_DEW_VIAL) >= 0, seen, nf, fdpt, turns, owe, (int)((G.now - s_floor_turn0) / TICK), G.exit >= 0 && BIT_GET(G.visited, G.exit)); }
 #include "brain2.inc"
 int main(int argc, char **argv) {
   s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
