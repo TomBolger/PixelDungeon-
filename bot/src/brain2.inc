@@ -194,7 +194,10 @@ static int b2_route(void) {
   if (!stairs) return -1;                               // nothing left I can see and no stairs: the old rules search for the way on
   if (boss_depth(G.depth + 1)) return -1;               // (the floor before a boss: the old rules prepare for it)
   if (!getenv("B2NEWEND")) return -1;                  // the old rules end the floor: hidden-room searches on evidence, the shop, wells, dead ends, a trap in the way, the weak floor, the stairs
-  if (h->HP * 100 < h->HT * s_b2down && !starve_block() && threat_count() == 0) { st_b2[3]++; s_did[0] = 0; DID("b2: top up before the stairs (%d/%d)", h->HP, h->HT); walk(game_rest(false)); return 1; }
+  if (h->HP < h->HT && !starve_block() && threat_count() == 0 && !getenv("OLDTOPUP")) {   // rest before the stairs, as a goal priced by the judge: full health after the turns it takes (10 a point), the food they eat, against going down as I am
+    int n = (h->HT - h->HP) * 10; double gain = judge_after(h->HT, n) - judge_value(h->HP);
+    if (gain > 0) { st_b2[3]++; s_did[0] = 0; DID("b2: rest before the stairs: the judge says %+.3f (%d/%d)", gain, h->HP, h->HT); walk(game_rest(false)); return 1; } }
+  else if (getenv("OLDTOPUP") && h->HP * 100 < h->HT * s_b2down && !starve_block() && threat_count() == 0) { st_b2[3]++; s_did[0] = 0; DID("b2: top up before the stairs (%d/%d)", h->HP, h->HT); walk(game_rest(false)); return 1; }
   st_b2[3]++; return b2_step(G.exit, "b2: nothing here worth its walk: down");
 }
 

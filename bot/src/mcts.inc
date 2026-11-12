@@ -20,6 +20,15 @@ static double judge_value(double hp) {                 // hp: the HP to judge wi
   int d = G.depth; const double *W = d <= 5 ? JW5 : JW10; int slot = d <= 5 ? d - 1 : (d <= 10 ? d - 6 : 4); f[16 + slot] = 1;
   double z = 0; for (int i = 0; i < 21; i++) z += W[i] * f[i];
   return 1 / (1 + exp(-z)); }
+// the judge after n more turns at hp (resting, say): hunger and the clock move on; past starving, a meal from the bag is eaten
+static double judge_after(double hp, int n) {
+  Hero *h = &G.hero; int hu0 = h->hunger; int32_t now0 = G.now; int fs = -1;
+  h->hunger += n; G.now += n * TICK;
+  if (h->hunger >= 360) for (int s2 = 0; s2 < BAG_SIZE; s2++) if (is_food(h->bag[s2].kind) && h->bag[s2].qty > 0) { fs = s2; h->bag[s2].qty--; h->hunger -= h->bag[s2].kind == IK_PASTY ? 360 : h->bag[s2].kind == IK_RATION ? 260 : 100; if (h->hunger < 0) h->hunger = 0; break; }
+  int k0 = fs >= 0 ? h->bag[fs].kind : 0; if (fs >= 0 && h->bag[fs].qty == 0) h->bag[fs].kind = 0;
+  double v = judge_value(hp);
+  if (fs >= 0) { h->bag[fs].kind = k0; h->bag[fs].qty++; }
+  h->hunger = hu0; G.now = now0; return v; }
 // the fight still owed at a leaf: each awake foe in sight, its HP over my damage a turn, times its damage a turn (the game's odds)
 static double mc_owed(void) {
   Hero *h = &G.hero; double owed = 0;
