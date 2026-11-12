@@ -29,6 +29,28 @@ static double judge_after(double hp, int n) {
   double v = judge_value(hp);
   if (fs >= 0) { h->bag[fs].kind = k0; h->bag[fs].qty++; }
   h->hunger = hu0; G.now = now0; return v; }
+// judge2 (2026-11-12, tools/judge2.py on 88,765 snapshots of the old code's play every 25 turns): the value of a position mid-floor,
+// mid-fight = P(past the next boss) x (1 - P(dead within 50 turns)). Features: health, the awake foes in sight (their HP over my
+// damage, their damage), food, potions, gear, the dew, the floor seen, the floor's turns. Its check: full health beside a rat 0.53,
+// 4 HP beside a crab 0.16 (the first judge, fitted at floor arrivals only, couldn't tell them apart through the search's noise)
+static const double J2_PB[51] = { 1.37308, -0.56017, -0.34519, -0.06929, 0.02486, 0.15776, 0.18194, 0.02862, -0.24492, -0.11590, 0.22680, 0.48044, 0.09516, 0.15789, 0.23769, 0.20188, 0.53411, 0.32267, 0.07810, 0.26317, 0.17373, -0.06110, -0.13600, -0.00241, -0.02351, 3.17284, 2.70709, 2.13493, 1.79003, 0.00000, -0.66364, -1.19378, -1.68865, -1.92249, 0.00000, -4.98660, -5.24522, -5.25024, -5.08780, 0.00000, -14.02703, -14.44167, -14.89316, -14.97434, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, -7.36915 };
+static const double J2_D50[51] = { -7.28120, 3.19619, 0.53419, -0.27250, 0.39590, 2.47697, -0.11181, -0.02295, 0.03597, 0.05281, 0.01699, -0.70470, -0.07134, -0.11692, -0.33235, -0.10910, -0.13884, -0.21596, -0.15797, -0.79075, 0.14553, -0.37186, -0.02327, -0.06083, 0.00987, -2.78311, -1.67932, -0.93904, -0.76228, 0.00000, 0.11464, 0.52491, 1.14453, 1.64076, 0.00000, 2.50990, 3.61332, 3.77858, 4.43387, 0.00000, 5.85710, 7.17044, 7.24158, 7.41281, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 3.70580 };
+static double judge2(void) {
+  Hero *h = &G.hero; if (h->HP <= 0) return 0;
+  int nfood = 0, nheal = 0, nunk = 0;
+  for (int s2 = 0; s2 < BAG_SIZE; s2++) { Item *it = &h->bag[s2]; int k = it->kind; if (!k) continue; int q = it->qty > 0 ? it->qty : 1;
+    if (is_food(k)) nfood += q; else if (k == IK_POT_HEALING && item_known(k)) nheal += q; else if (item_cat(k) == CAT_POTION && !item_known(k)) nunk += q; }
+  int nf = 0; double owe = 0, fdpt = 0;
+  for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state == ST_PASSIVE || m->state == ST_SLEEPING || (MOB_DEFS[m->type].flags & MD_NPC) || (!BIT_GET(G.fov, m->pos) && m->state != ST_HUNTING) || distance(m->pos, h->pos) > 12) continue;
+    double hd = hero_dpt(m), fd = foe_dpt(m), kt = m->HP / (hd > 0.2 ? hd : 0.2); nf++; fdpt += fd; owe += kt * fd; }
+  int seen = 0; for (int c = 0; c < MAP_LEN; c++) if (BIT_GET(G.visited, c) && PASSABLE(G.map[c])) seen++;
+  double ht = h->HT > 0 ? h->HT : 1, x = h->HP / ht, r = owe / (h->HP > 1 ? h->HP : 1);
+  double f[51] = { x, x * x, r < 3 ? r : 3, r > 1, nf, fdpt / ht, h->lvl, ht, h->hunger >= 360, h->hunger >= 260 && h->hunger < 360, nfood < 3 ? nfood : 3, nheal < 3 ? nheal : 3, nunk < 5 ? nunk : 5,
+    hero_str(), h->armor.kind ? item_tier(h->armor.kind) : 0, h->armor.lvl > -2 ? h->armor.lvl : -2, h->weapon.kind ? item_tier(h->weapon.kind) : 0, h->weapon.lvl > -2 ? h->weapon.lvl : -2,
+    G.dew, G.dew >= 10, find_kind(IK_DEW_VIAL) >= 0, seen / 300.0, (G.now - s_floor_turn0) / (double)TICK / 100.0, G.exit >= 0 && BIT_GET(G.visited, G.exit), G.now / (double)TICK / 100.0 };
+  int d = G.depth < 1 ? 1 : G.depth > 25 ? 25 : G.depth; f[24 + d] = 1; f[50] = 1;
+  double zb = 0, zd = 0; for (int i = 0; i < 51; i++) { zb += J2_PB[i] * f[i]; zd += J2_D50[i] * f[i]; }
+  return 1 / (1 + exp(-zb)) * (1 - 1 / (1 + exp(-zd))); }
 // the fight still owed at a leaf: each awake foe in sight, its HP over my damage a turn, times its damage a turn (the game's odds)
 static double mc_owed(void) {
   Hero *h = &G.hero; double owed = 0;
@@ -47,7 +69,7 @@ static int mc_goal_dist(void) { if (s_mc_goal < 0) return 0; Hero *h = &G.hero; 
   return 61; }
 static double mc_goal_bonus(void) { static double gk = -1; if (gk < 0) gk = getenv("MC_GK") ? atof(getenv("MC_GK")) : 0.003; if (s_mc_goal < 0 || gk <= 0) return 0; return gk * (s_mc_gd0 - mc_goal_dist()); }
 static double mc_leaf0(void);
-static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0; double v = mc_leaf0(); return v > 0 ? v + mc_goal_bonus() : v; }
+static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0; double v = getenv("MC_J1") ? mc_leaf0() : judge2(); return v > 0 ? v + mc_goal_bonus() : v; }   // (MC_J1: the first judge with the dice-model playout)
 // health's worth before the next rest: the fights still to meet on the way (MC_FA of them) at this health, each with the measured
 // death risk fight_risk(HP/HT) (4,400 logged fights). The judge alone, fitted at floor arrivals where health is mostly full,
 // put 1 HP at 0.013: below the search's noise, so it wandered about at 25/25 with a foe in sight

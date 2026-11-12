@@ -4948,7 +4948,7 @@ static void pristine_restore(void) {
 // turn, their damage a turn). Outcomes are joined afterwards from the game's end (tools/judge2.py).
 static void snap_log(void) {
   static int last_t = -1000, last_g = -1; int t = (int)(G.now / TICK); if (last_g != cur_game) { last_g = cur_game; last_t = -1000; }
-  if (t - last_t < 25 || boss_depth(G.depth)) return; last_t = t;
+  if (t - last_t < 25) return; last_t = t;   // (boss floors too, from round 2)
   Hero *h = &G.hero; int nfood = 0, nheal = 0, nunk = 0, nsc = 0;
   for (int s2 = 0; s2 < BAG_SIZE; s2++) { Item *it = &h->bag[s2]; int k = it->kind; if (!k) continue; int q = it->qty > 0 ? it->qty : 1;
     if (is_food(k)) nfood += q; else if (k == IK_POT_HEALING && item_known(k)) nheal += q; else if (item_cat(k) == CAT_POTION && !item_known(k)) nunk += q; else if (item_cat(k) == CAT_SCROLL) nsc += q; }
