@@ -85,7 +85,7 @@ typedef struct { int32_t first; int32_t next; int32_t id; int32_t n; double w; }
 static MNode s_mn[MC_MAXN]; static int s_mnn;
 static int mc_child(int p, int id) { for (int c = s_mn[p].first; c >= 0; c = s_mn[c].next) if (s_mn[c].id == id) return c; return -1; }
 static int mc_add(int p, int id) { if (s_mnn >= MC_MAXN) return -1; int c = s_mnn++; s_mn[c] = (MNode){ -1, s_mn[p].first, id, 0, 0 }; s_mn[p].first = c; return c; }
-static long st_mc_calls, st_mc_iters;
+static long st_mc_calls, st_mc_iters; static double s_rp[256]; static int s_rid[256], s_rn;   // the root moves' instinct shares
 static int mcts(void) {
   Hero *h = &G.hero; if (s_rollout || s_is_child || getenv("NOMCTS") || h->b.paralysis) return 0;
   bool threat = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state != ST_PASSIVE && (m->state != ST_SLEEPING || distance(m->pos, h->pos) <= 2) && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) <= 8) threat = true; }   // (any creature awake in sight, or asleep beside me: whether to take it on is the search's call too; g10: the old rules walked into a crab at 8/30)
@@ -93,6 +93,14 @@ static int mcts(void) {
   if (!threat) return 0;
   static int iters = -1, horizon, calmk; static double cu, pw; if (iters < 0) { pw = getenv("MC_PW") ? atof(getenv("MC_PW")) : 1.5; iters = getenv("MC_IT") ? atoi(getenv("MC_IT")) : 300; horizon = getenv("MC_H") ? atoi(getenv("MC_H")) : 20; cu = getenv("MC_C") ? atof(getenv("MC_C")) : 0.3; calmk = 2; }
   int mv0[256]; int n0 = mc_moves(mv0); if (n0 <= 1) return 0;
+  // the instinct (AlphaZero's "policy"): the dice-model scorer prices every root move; the search spends its tries mostly where
+  // the instinct points (PUCT) and checks them against the real game, free to overrule it. A move it didn't price gets a small share.
+  static double mt_ = -1, cp; if (mt_ < 0) { mt_ = getenv("MC_T") ? atof(getenv("MC_T")) : 0.05; cp = getenv("MC_CP") ? atof(getenv("MC_CP")) : 1.0; }
+  s_ch_prior = 1; s_pr_n = 0; int chr = choose(); s_ch_prior = 0; if (getenv("MCDBG")) printf("MCPRIOR ret %d n %d\n", chr, s_pr_n);
+  { double mn = 1e18; for (int i = 0; i < s_pr_n; i++) if (s_pr_v[i] < mn) mn = s_pr_v[i]; double T = mt_ * (h->HT > 0 ? h->HT : 1), tot = 0;
+    for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
+    for (int i = 0; i < n0; i++) s_rp[i] /= tot; s_rn = n0;
+    if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
   s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 };
   uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u);
   st_mc_calls++;
@@ -107,6 +115,14 @@ static int mcts(void) {
         if (s_pend_depth) { val = mc_leaf(); break; }
         if (mc_calm()) { if (++calm >= calmk) { val = mc_leaf(); break; } } else calm = 0;
         int mv[256]; int n = mc_moves(mv); if (!n) { val = mc_leaf(); break; }
+        if (dep == 0) {   // the root: PUCT over every move, tried or not (an untried one counts as the root's average so far)
+          double nr = s_mn[0].n, q0 = nr > 0 ? s_mn[0].w / nr : 0.5, bu = -1e18; int bid = -1, bc = -1;
+          for (int i = 0; i < s_rn; i++) { int c = mc_child(0, s_rid[i]); double q = c >= 0 ? (s_mn[c].w > -500 ? s_mn[c].w / s_mn[c].n : -1e9) : q0; int cn = c >= 0 ? s_mn[c].n : 0;
+            double u = q + cp * s_rp[i] * sqrt(nr + 1) / (1 + cn) + (rand() % 1000) * 1e-9; if (u > bu) { bu = u; bid = s_rid[i]; bc = c; } }
+          if (bid < 0) { val = mc_leaf(); break; }
+          path[np++] = bid; if (!mc_apply(bid)) { val = -2; break; }
+          if (bc < 0) { val = h->HP <= 0 ? 0 : mc_leaf(); break; }   // (a new root move: judged here)
+          node = bc; continue; }
         // UCT over the moves open here; one not yet tried is tried first (in a random order)
         int untried[256], nu = 0; for (int i = 0; i < n; i++) if (node < 0 || mc_child(node, mv[i]) < 0) untried[nu++] = mv[i];
         int pick; int nch = n - nu;

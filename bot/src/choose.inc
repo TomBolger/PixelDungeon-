@@ -101,8 +101,10 @@ static int c_cal_on, c_cal_hp0, c_cal_type, c_cal_nf, c_cal_d, c_cal_g; static d
 static void ch_cal_end(bool died) {
   if (!c_cal_on || !getenv("CHCAL")) { c_cal_on = 0; return; }
   printf("CAL g%d d%d %s nf %d hp0 %d ht %d pd %.3f E %.1f lost %d died %d\n", c_cal_g, c_cal_d, mob_name(c_cal_type), c_cal_nf, c_cal_hp0, G.hero.HT, c_cal_pd, c_cal_E, c_cal_hp0 - (G.hero.HP > 0 ? G.hero.HP : 0), died); c_cal_on = 0; }
+static int s_ch_prior, s_pr_n; static int s_pr_id[720]; static double s_pr_v[720];   // s_ch_prior: price the options for the search (as move ids) and do nothing
+static int ch_dir(int from, int to) { for (int k = 0; k < 8; k++) if (from + N8[k] == to) return k; return -1; }
 static int choose(void) {
-  Hero *h = &G.hero; if (s_rollout || h->b.paralysis || h->b.frost || (G.depth % 5 == 0 && G.depth != 5) || (G.depth == 5 && !getenv("CHGOO"))) return 0;   // (bosses: not yet; the Goo model (CHGOO) lost to the old Goo code on the PC, 31.3 vs 26.3% Goo deaths: its numbers are being fixed)
+  Hero *h = &G.hero; if (!s_ch_prior && (s_rollout || h->b.paralysis || h->b.frost || (G.depth % 5 == 0 && G.depth != 5) || (G.depth == 5 && !getenv("CHGOO")))) return 0;   // (bosses: not yet; the Goo model (CHGOO) lost to the old Goo code on the PC, 31.3 vs 26.3% Goo deaths: its numbers are being fixed)
   TFoe F[24]; int nf = 0;
   // what I know of the foes: those in sight now, and those that were hunting me when last seen a few turns ago (where I saw them):
   // a foe that steps out of sight hasn't gone (the player knows it's there; the true position stays hidden)
@@ -112,10 +114,10 @@ static int choose(void) {
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state == ST_HUNTING) { mu[i] = m->uid; mp[i] = m->pos; mt[i] = G.now; } }
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i)) continue;
     bool see = BIT_GET(G.fov, m->pos), adj = adjacent(m->pos, h->pos); int pos = m->pos;
-    if (see || adj) { if (m->state != ST_HUNTING) continue; }
+    if (see || adj) { if (m->state != ST_HUNTING && !(s_ch_prior && m->state != ST_PASSIVE && (m->state != ST_SLEEPING || adj))) continue; }   // (for the search's instinct: any creature awake, as if it came for me)
     else { if (mu[i] != m->uid || G.now - mt[i] > kmem * TICK || BIT_GET(G.fov, mp[i])) continue; pos = mp[i]; }   // (out of sight: where I last saw it; if I can see that cell now, it's moved on: lost)
     if (distance(pos, h->pos) > 9) continue;
-    if (MOB_DEFS[m->type].flags & MD_NPC) continue; if ((MOB_DEFS[m->type].flags & MD_BOSS) && m->type != MT_GOO) return 0;
+    if (MOB_DEFS[m->type].flags & MD_NPC) continue; if ((MOB_DEFS[m->type].flags & MD_BOSS) && m->type != MT_GOO && !s_ch_prior) return 0;
     if (m->b.paralysis || m->b.frost) continue;
     if (nf >= 24) break; TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
     f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (f->mc < 5) f->mc = 5;
@@ -157,7 +159,7 @@ static int choose(void) {
   static int runs = -1, runs2, keep; if (runs < 0) { runs = (int)ch_k("CH_RUNS", 32); runs2 = (int)ch_k("CH_RUNS2", 256); keep = (int)ch_k("CH_KEEP", 6); }
   bool mc = !getenv("CHNOMC"); if (mc) ch_prep(F, nf);
   double hold = 0, price[700]; int stay[1] = { h->pos };
-  for (int pass = 0; pass < 2; pass++) { int R = pass ? runs2 : runs; uint32_t seed = pass ? 0x51ed27u : 0x9e3779b9u;
+  for (int pass = 0; pass < (s_ch_prior ? 1 : 2); pass++) { int R = pass ? runs2 : runs; uint32_t seed = pass ? 0x51ed27u : 0x9e3779b9u;
     for (int i = 0; i < no; i++) { Opt *o = &O[i]; if (pass && price[i] > 1e8) continue;
       #define EV(hp_, P_, path_, n_, tk_, td_) (c_seed = seed, s_te_hp = (hp_), mc ? ch_mc(F, nf, P_, path_, n_, tk_, td_, R, s_te_hp >= 0 ? s_te_hp : h->HP) + kdeath * s_te_pd * HT : tact_eval(F, nf, P_, path_, n_, NULL, tk_, td_) + (kdeath - 2.0) * s_te_pd * HT)
       double v;
@@ -177,7 +179,7 @@ static int choose(void) {
       }
       #undef EV
       price[i] = v + o->extra; if (o->kind == 0) hold = price[i]; }
-    if (!pass) {   // keep the hold and the best few for the second round
+    if (!pass && !s_ch_prior) {   // keep the hold and the best few for the second round
       int idx[700]; for (int i = 0; i < no; i++) idx[i] = i;
       for (int a = 0; a < no && a < keep + 1; a++) for (int b = a + 1; b < no; b++) if (price[idx[b]] < price[idx[a]]) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
       static bool sel[700]; memset(sel, 0, sizeof(bool) * no); sel[0] = true; for (int a = 0; a < no && a < keep; a++) sel[idx[a]] = true;
@@ -186,6 +188,19 @@ static int choose(void) {
   if (getenv("CALT") && G.depth == 5) { static int php = -1, pstep = -1; static double pl1; if (pstep == s_bot_steps - 1 && php >= 0) printf("CALT pred1 %.2f actual1 %d\n", pl1, php - h->HP);
     int bj = 0; for (int i = 1; i < no; i++) if (price[i] < price[bj]) bj = i; c_seed = 0x51ed27u; if (O[bj].kind == 1) { int path[16]; for (int j = 0; j < O[bj].n; j++) path[j] = O[bj].path[j]; ch_mc(F, nf, O[bj].P, path, O[bj].n, -1, 0, 256, h->HP); } else ch_mc(F, nf, h->pos, NULL, 0, -1, 0, 256, h->HP); int gi = F[0].i; printf("CALT2 hp %d/%d goo %d/%d pump %d adj %d pd %.2f E %.1f turns %.1f won %.2f\n", h->HP, h->HT, G.mobs[gi].HP, G.mobs[gi].HT, G.mobs[gi].aux2, adjacent(G.mobs[gi].pos, h->pos), s_te_pd, s_te_E, c_turns, c_won); php = h->HP; pstep = s_bot_steps; pl1 = c_l1; }
   s_te_hp = -1;
+  if (s_ch_prior) {   // the prices as the search's move ids (mcts.inc's numbering); the search plays them out
+    int fo[24], nfo = 0; for (int i = 0; i < G.n_mobs && nfo < 24; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && !(MOB_DEFS[m->type].flags & MD_NPC)) fo[nfo++] = i; }
+    s_pr_n = 0;
+    for (int i = 0; i < no && s_pr_n < 720; i++) { Opt *o = &O[i]; int id = -1;
+      switch (o->kind) {
+        case 0: { int t = -1; double tv = -1; for (int j = 0; j < nf; j++) if (adjacent(F[j].pos, h->pos)) { double v = F[j].dpt / (F[j].hp > 1 ? F[j].hp : 1); if (v > tv) { tv = v; t = j; } } id = t >= 0 ? ch_dir(h->pos, F[t].pos) : 8; break; }
+        case 1: id = o->n == 1 ? ch_dir(h->pos, o->P) : 8192 + o->P; break;
+        case 2: { int j = o->arg % 32, mi = F[j].i, jj = -1; for (int t = 0; t < nfo; t++) if (fo[t] == mi) jj = t; if (jj >= 0) id = 512 + (o->arg / 32) * 32 + jj; break; }
+        case 3: case 4: case 5: id = 16 + o->arg * 4; break;
+        case 6: id = 16 + o->arg * 4 + 1; break;
+        case 7: id = 9; break; }
+      if (id >= 0 && price[i] < 1e8) { s_pr_id[s_pr_n] = id; s_pr_v[s_pr_n] = price[i]; s_pr_n++; } }
+    return 2; }
   int bi = 0; for (int i = 1; i < no; i++) if (price[i] < price[bi]) bi = i;
   double best = price[bi]; int bk = O[bi].kind, barg = O[bi].kind == 2 ? O[bi].arg : O[bi].kind == 1 ? O[bi].P : O[bi].arg;
   static const char *const KN[8] = { "hold", "walk", "throw", "heal", "unknown potion", "dew vial", "teleport", "stairs" }; const char *bw = KN[bk];
