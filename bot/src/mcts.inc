@@ -103,10 +103,12 @@ static int mcts(void) {
     if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
   s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 };
   uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u);
-  st_mc_calls++;
+  st_mc_calls++; struct timespec t_a, t_b; clock_gettime(CLOCK_MONOTONIC, &t_a);
   for (int it = 0; it < iters; it++) {
     int fds[2]; if (pipe(fds)) break; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(fds[0]); close(fds[1]); break; }
     if (pid == 0) {   // the child: one walk down the tree in its own copy of the game
+      if (getenv("MC_NOP")) { int z = 0; if (write(fds[1], &z, sizeof z)) {} _exit(0); }
+      if (getenv("MC_NOSCRUB")) {} 
       close(fds[0]); s_rollout = 1; V = 0; int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); }
       uint32_t seed = base + it * 104729u; g_rng ^= seed * 2654435761u; srand(seed); la_scrub(seed);
       int path[64], np = 0, node = 0; double val = -1; int calm = 0;
@@ -150,8 +152,9 @@ static int mcts(void) {
   // the move: the best average among those tried at least a tenth as often as the most tried (the most-tried alone follows early luck)
   int best = -1, bn = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n > bn) bn = s_mn[c].n;
   double bv0 = -1; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500 && s_mn[c].n * 10 >= bn && s_mn[c].w / s_mn[c].n > bv0) { bv0 = s_mn[c].w / s_mn[c].n; best = c; }
-  if (best < 0) return 0;
-  if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn);
+  if (best < 0) { if (getenv("MC_NOP")) { struct timespec t_c; clock_gettime(CLOCK_MONOTONIC, &t_c); printf("MCNOP us/iter %.0f\n", ((t_c.tv_sec - t_a.tv_sec) * 1e6 + (t_c.tv_nsec - t_a.tv_nsec) / 1e3) / iters); } return 0; }
+  clock_gettime(CLOCK_MONOTONIC, &t_b); double us = (t_b.tv_sec - t_a.tv_sec) * 1e6 + (t_b.tv_nsec - t_a.tv_nsec) / 1e3;
+  if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d us/iter %.0f:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn, us / (iters > 0 ? iters : 1));
     for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n >= 5) printf(" [%d n%d v%.3f]", s_mn[c].id, s_mn[c].n, s_mn[c].w / s_mn[c].n); printf("\n"); }
   int id = s_mn[best].id; s_did[0] = 0; DID("search: move %d (%d of %d tries, judged %.3f)", id, s_mn[best].n, s_mn[0].n, s_mn[best].w / s_mn[best].n);
   int32_t t0 = h->time; int d0 = G.depth; mc_apply(id); if (h->time == t0 && G.depth == d0 && !s_pend_depth) return 0;
