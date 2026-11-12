@@ -21,3 +21,11 @@ the bot is far from winning, so small gains from patches are worth nothing.
 One scorer decides every move: it lists everything the hero could do this turn, values each one by the game's
 own math (the source is available: damage rolls, accuracy, regen, hunger, spawn odds, item odds), in one currency,
 and picks the best. Old rules are deleted area by area as the scorer covers them.
+
+## Standing goals and test plan (Thomas, 2026-11-12)
+- The end goal is a bot that fits on the watch, and later the same foundation for Shattered Pixel Dungeon. Neither constrains
+  the design yet, but don't build on anything that couldn't move there.
+- Test runs are about half the old size (about 480 full games, about 100 in a practice-fight lab): we're after big jumps, and
+  the size only has to rule out a horribly unlucky run.
+- A fixed seed rides along with every test: seed 25 (game 25; the old bot found tier-3+ armour and a tier-3 weapon before the
+  Goo and reached the King on floor 20). One known run to come back to and trace; random seeds for the rates.
