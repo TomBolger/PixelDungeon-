@@ -28,7 +28,18 @@ static double mc_owed(void) {
   (void)h; return owed; }
 // the leaf: if a fight is still on, the rest of it is played out with the dice model (ch_mc: the game's hit and damage
 // rolls, calibrated against 57k real encounters) standing my ground from here; the judge takes what's left of me
-static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0;
+// the current goal (the planner's target: an item, the edge of the unknown, a puzzle, the quest, the stairs): the search is
+// paid a little for each step of progress toward it (MC_GK a step, in the judge's units), so a fight on the way doesn't
+// stall the goal; damage and death still count in full
+static int s_mc_goal = -1, s_mc_gd0;
+static int mc_goal_dist(void) { if (s_mc_goal < 0) return 0; Hero *h = &G.hero; static int16_t d[MAP_LEN], q[MAP_LEN]; for (int c = 0; c < MAP_LEN; c++) d[c] = -1;
+  int qh = 0, qt = 0; d[h->pos] = 0; q[qt++] = h->pos;
+  while (qh < qt) { int c = q[qh++]; if (c == s_mc_goal) return d[c]; if (d[c] > 60) break; for (int k = 0; k < 8; k++) { int x = c + N8[k]; if (!nb_ok(c, x) || d[x] >= 0 || !BIT_GET(G.visited, x) || (!PASSABLE(G.map[x]) && x != s_mc_goal)) continue; d[x] = d[c] + 1; q[qt++] = x; } }
+  return 61; }
+static double mc_goal_bonus(void) { static double gk = -1; if (gk < 0) gk = getenv("MC_GK") ? atof(getenv("MC_GK")) : 0.003; if (s_mc_goal < 0 || gk <= 0) return 0; return gk * (s_mc_gd0 - mc_goal_dist()); }
+static double mc_leaf0(void);
+static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0; double v = mc_leaf0(); return v > 0 ? v + mc_goal_bonus() : v; }
+static double mc_leaf0(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0;
   TFoe F[24]; int nf = 0;
   for (int i = 0; i < G.n_mobs && nf < 24; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING || (MOB_DEFS[m->type].flags & MD_NPC) || distance(m->pos, h->pos) > 12) continue;
     TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
@@ -96,6 +107,7 @@ static int mcts(void) {
   // the instinct (AlphaZero's "policy"): the dice-model scorer prices every root move; the search spends its tries mostly where
   // the instinct points (PUCT) and checks them against the real game, free to overrule it. A move it didn't price gets a small share.
   static double mt_ = -1, cp; if (mt_ < 0) { mt_ = getenv("MC_T") ? atof(getenv("MC_T")) : 0.05; cp = getenv("MC_CP") ? atof(getenv("MC_CP")) : 1.0; }
+  s_mc_goal = getenv("MC_NOGOAL") ? -1 : s_goal_cell2; s_mc_gd0 = mc_goal_dist();
   s_ch_prior = 1; s_pr_n = 0; int chr = choose(); s_ch_prior = 0; if (getenv("MCDBG")) printf("MCPRIOR ret %d n %d\n", chr, s_pr_n);
   { double mn = 1e18; for (int i = 0; i < s_pr_n; i++) if (s_pr_v[i] < mn) mn = s_pr_v[i]; double T = mt_ * (h->HT > 0 ? h->HT : 1), tot = 0;
     for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
