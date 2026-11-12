@@ -48,16 +48,20 @@ static int mc_goal_dist(void) { if (s_mc_goal < 0) return 0; Hero *h = &G.hero; 
 static double mc_goal_bonus(void) { static double gk = -1; if (gk < 0) gk = getenv("MC_GK") ? atof(getenv("MC_GK")) : 0.003; if (s_mc_goal < 0 || gk <= 0) return 0; return gk * (s_mc_gd0 - mc_goal_dist()); }
 static double mc_leaf0(void);
 static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0; double v = mc_leaf0(); return v > 0 ? v + mc_goal_bonus() : v; }
+// health's worth before the next rest: the fights still to meet on the way (MC_FA of them) at this health, each with the measured
+// death risk fight_risk(HP/HT) (4,400 logged fights). The judge alone, fitted at floor arrivals where health is mostly full,
+// put 1 HP at 0.013: below the search's noise, so it wandered about at 25/25 with a foe in sight
+static double mc_ahead(double hp) { static double fa = -1; if (fa < 0) fa = getenv("MC_FA") ? atof(getenv("MC_FA")) : 0;   /* (3: 20 local games, 13 died on floors 1-4 against 9: off till the judge is refit) */ Hero *h = &G.hero; double r = fight_risk(hp / (h->HT > 0 ? h->HT : 1)); return pow(1 - r, fa); }
 static double mc_leaf0(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0;
   TFoe F[24]; int nf = 0;
   for (int i = 0; i < G.n_mobs && nf < 24; i++) { Mob *m = &G.mobs[i]; if (m->HP <= 0 || ally(i) || m->state != ST_HUNTING || (MOB_DEFS[m->type].flags & MD_NPC) || distance(m->pos, h->pos) > 12) continue;
     TFoe *f = &F[nf++]; f->wat = MOB_DEFS[m->type].flags & MD_WATER; f->i = i; f->pos = m->pos; f->hp = m->HP; f->dpt = foe_dpt(m); f->hd = hero_dpt(m); f->hi = MOB_DEFS[m->type].dmg_hi;
     f->acts = mob_move_cost(m) * 2 <= hero_move_cost() ? 2 : 1; f->mc = mob_move_cost(m) * TICK / (hero_move_cost() > 0 ? hero_move_cost() : TICK); if (f->mc < 5) f->mc = 5;
     f->ac = MOB_DEFS[m->type].atk_delay ? MOB_DEFS[m->type].atk_delay : TICK; f->tm = h->time - m->time; if (f->tm > TICK) f->tm = TICK; if (f->tm < -4 * TICK) f->tm = -4 * TICK; f->rng = magic_shooter(m->type) || m->type == MT_SCORPIO; }
-  if (nf == 0 || getenv("MC_OWED")) { double hp = h->HP + (vial_full() ? h->HT : 0) - (nf ? mc_owed() : 0); if (hp > h->HT) hp = h->HT; return judge_value(hp); }
+  if (nf == 0 || getenv("MC_OWED")) { double hp = h->HP + (vial_full() ? h->HT : 0) - (nf ? mc_owed() : 0); if (hp > h->HT) hp = h->HT; return judge_value(hp) * mc_ahead(hp); }
   ch_prep(F, nf); c_seed = (uint32_t)rand(); double E = ch_mc(F, nf, h->pos, NULL, 0, -1, 0, 16, h->HP); double pd = s_te_pd;
   double hp = h->HP + (vial_full() ? h->HT : 0) - E; if (hp > h->HT) hp = h->HT; if (hp < 1) hp = 1;
-  return (1 - pd) * judge_value(hp); }
+  return (1 - pd) * judge_value(hp) * mc_ahead(hp); }
 // the hero's moves, as ids: 0-7 a step or blow that way, 8 wait, 9 the stairs underfoot, 16+slot*4+use (drink/read/eat/plant), 512+slot*32+foe (throw), 4096+slot*32+foe (zap)
 static int mc_moves(int *mv) {
   Hero *h = &G.hero; int n = 0, hp = h->pos;
@@ -118,7 +122,9 @@ static int mcts(void) {
   // the instinct (AlphaZero's "policy"): the dice-model scorer prices every root move; the search spends its tries mostly where
   // the instinct points (PUCT) and checks them against the real game, free to overrule it. A move it didn't price gets a small share.
   static double mt_ = -1, cp; if (mt_ < 0) { mt_ = getenv("MC_T") ? atof(getenv("MC_T")) : 0.25;   /* (0.05 HT: the instinct took 93% of the tries on one move, and the search could not overrule it) */ cp = getenv("MC_CP") ? atof(getenv("MC_CP")) : 1.0; }
-  s_mc_goal = getenv("MC_NOGOAL") ? -1 : s_goal_cell2; s_mc_gd0 = mc_goal_dist();
+  s_mc_goal = getenv("MC_NOGOAL") ? -1 : s_goal_cell2;
+  if (s_mc_goal < 0 && !getenv("MC_NOGOAL")) { const char *gw = "?"; bfs(h->pos, false); int gc = plan_next(false, &gw); if (gc >= 0) s_mc_goal = gc; else if (G.exit >= 0 && BIT_GET(G.visited, G.exit)) s_mc_goal = G.exit; }   // (no goal planner on: the old planner's next target; with no goal every move scored alike and the hero wandered, t666-676)
+  s_mc_gd0 = mc_goal_dist();
   s_ch_prior = 1; s_pr_n = 0; int chr = choose(); s_ch_prior = 0; if (getenv("MCDBG")) printf("MCPRIOR ret %d n %d\n", chr, s_pr_n);
   { double mn = 1e18; for (int i = 0; i < s_pr_n; i++) if (s_pr_v[i] < mn) mn = s_pr_v[i]; double T = mt_ * (h->HT > 0 ? h->HT : 1), tot = 0;
     for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
