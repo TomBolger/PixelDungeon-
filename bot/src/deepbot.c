@@ -4325,6 +4325,7 @@ static void bl_on_death(void) {
     fflush(stdout); if (write(s_bl_fd[slot], msg, sizeof msg) != sizeof msg) {} close(s_bl_fd[slot]); int st; waitpid(s_bl_pid[slot], &st, 0); s_bl_pid[slot] = 0; }
   bl_kill_all();
 }
+static int32_t s_deep_t0;   // when I first came to the deepest floor reached (the judge's floor time: up and down again does not reset it)
 #include "mcts.inc"
 #include "suite.inc"
 static bool lookahead(void) {
@@ -4669,7 +4670,9 @@ static void floor_report(void) {
   for (int i = 61; i < 64; i++) { int j = (s_ring_n + i) & 63; if (s_ring[j][0]) printf("      %s\n", s_ring[j]); }
 }
 static void toe_cal_log(void);
+// (s_deep_t0: declared above mcts.inc) // when I first came to the deepest floor reached (the judge's floor time; up and down again doesn't reset it)
 static void on_new_floor(bool first) {
+  if (first) s_deep_t0 = G.now;
   if (getenv("ROOMDBG") && !s_rollout && !s_is_child) for (int r = 0; r < G.n_rooms; r++) printf("ROOM d%d %d type %d %d,%d-%d,%d\n", G.depth, r, G.rooms[r].type, G.rooms[r].left, G.rooms[r].top, G.rooms[r].right, G.rooms[r].bottom);
   if (getenv("ROOMDBG") && !s_rollout && !s_is_child && G.q.ghost_depth == G.depth) { char a[64], b[64]; item_name(&G.q.ghost_weapon, a, sizeof a); item_name(&G.q.ghost_armor, b, sizeof b); printf("GHOST d%d state %d alt %d weapon %s armor %s\n", G.depth, G.q.ghost, G.q.ghost_alt, a, b); }
   if (first && getenv("TOECAL")) toe_cal_log();

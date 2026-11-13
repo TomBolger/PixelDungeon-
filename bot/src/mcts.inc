@@ -47,8 +47,11 @@ static double judge2(void) {
   double ht = h->HT > 0 ? h->HT : 1, x = h->HP / ht, r = owe / (h->HP > 1 ? h->HP : 1);
   double f[51] = { x, x * x, r < 3 ? r : 3, r > 1, nf, fdpt / ht, h->lvl, ht, h->hunger >= 360, h->hunger >= 260 && h->hunger < 360, nfood < 3 ? nfood : 3, nheal < 3 ? nheal : 3, nunk < 5 ? nunk : 5,
     hero_str(), h->armor.kind ? item_tier(h->armor.kind) : 0, h->armor.lvl > -2 ? h->armor.lvl : -2, h->weapon.kind ? item_tier(h->weapon.kind) : 0, h->weapon.lvl > -2 ? h->weapon.lvl : -2,
-    G.dew, G.dew >= 10, find_kind(IK_DEW_VIAL) >= 0, seen / 300.0, (G.now - s_floor_turn0) / (double)TICK / 100.0, G.exit >= 0 && BIT_GET(G.visited, G.exit), G.now / (double)TICK / 100.0 };
-  int d = G.depth < 1 ? 1 : G.depth > 25 ? 25 : G.depth; f[24 + d] = 1; f[50] = 1;
+    G.dew, G.dew >= 10, find_kind(IK_DEW_VIAL) >= 0, seen / 300.0, (G.now - (getenv("J2CURD") ? s_floor_turn0 : s_deep_t0)) / (double)TICK / 100.0, G.exit >= 0 && BIT_GET(G.visited, G.exit), G.now / (double)TICK / 100.0 };
+  // the floor term is read from the deepest floor reached, not the one I stand on: the fitted terms run d1 2.21 > d2 2.06 > ...,
+  // so a step up the stairs read as a gain, and the search went up and down beside a monster on floor 2 a dozen times (g6)
+  int dd0 = getenv("J2CURD") ? G.depth : (G.max_depth > G.depth ? G.max_depth : G.depth);
+  int d = dd0 < 1 ? 1 : dd0 > 25 ? 25 : dd0; f[24 + d] = 1; f[50] = 1;
   // J2NEW: refitted with the search's own games (240 old-code games' snapshots plus 130 of the search's, those weighted 5x)
   static const double J2N_PB[51] = { 0.38126, 0.62613, -0.09369, 0.36843, -0.09048, -3.06074, 0.83492, -0.05102, -0.28802, -0.19482, 0.42767, 0.51823, 0.10785, 0.12592, 0.24296, 0.15744, 0.52839, 0.26610, 0.09156, 0.22598, 0.08750, 0.11058, -0.10380, 0.01137, -0.06632, 2.21209, 2.06256, 1.84454, 1.76640, 0.85625, -0.68700, -1.15700, -1.68915, -2.00030, 0.00000, -5.21437, -5.40027, -5.35788, -5.22347, 0.00000, -32.07778, -33.99623, -34.81708, -35.77966, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, -6.54057 }; static const double J2N_D50[51] = { -7.32932, 3.26470, 0.85588, -0.36275, 0.44197, -0.96096, -0.18604, -0.04088, 0.42653, 0.21158, 0.01740, -0.75953, -0.08345, -0.17532, -0.28670, -0.13415, -0.12909, -0.23769, -0.03482, -2.44683, 0.04672, -0.37203, -0.04107, -0.08393, 0.01714, -2.91885, -2.16562, -0.38187, -0.16946, 1.69973, 0.40364, 0.82927, 1.92222, 2.54666, 0.00000, 3.75622, 4.98248, 5.36495, 6.15930, 0.00000, 7.88237, 9.34614, 9.61715, 9.85062, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 4.94122 };
   static int nw = -1; if (nw < 0) nw = getenv("J2NEW") != NULL; const double *PB = nw ? J2N_PB : J2_PB, *D5 = nw ? J2N_D50 : J2_D50;
@@ -180,7 +183,15 @@ static int mcts(void) {
       if (getenv("MC_NOP")) { int z = 0; if (write(fds[1], &z, sizeof z)) {} _exit(0); }
       if (getenv("MC_NOSCRUB")) {} 
       close(fds[0]); s_rollout = 1; V = 0; int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); }
-      uint32_t seed = base + it * 104729u; g_rng ^= seed * 2654435761u; srand(seed); la_scrub(seed);
+      // common dice (MC_NOCRN: off): the root move is chosen first, and its j-th try is played in world j, the same world every
+      // other root move's j-th try was played in; with each move judged in its own random worlds, a fight-now and a step-away
+      // that differ by a turn's food came out ahead by luck, half each (and the step-away, chosen again and again, starved g1)
+      int pre_bid = -1, pre_bc = -1; uint32_t seed = base + it * 104729u;
+      if (!getenv("MC_NOCRN")) { double nr = s_mn[0].n, q0 = nr > 0 ? QN(s_mn[0].w / nr) : 0.5, bu = -1e18; srand(base + it * 7u);
+        for (int i = 0; i < s_rn; i++) { int c = mc_child(0, s_rid[i]); double q = c >= 0 ? (s_mn[c].w > -500 ? QN(s_mn[c].w / s_mn[c].n) : -1e9) : q0; int cn = c >= 0 ? s_mn[c].n : 0;
+          double u = q + cp * s_rp[i] * sqrt(nr + 1) / (1 + cn) + (rand() % 1000) * 1e-9; if (u > bu) { bu = u; pre_bid = s_rid[i]; pre_bc = c; } }
+        if (pre_bid >= 0) seed = base + (pre_bc >= 0 ? s_mn[pre_bc].n : 0) * 104729u + 1; }
+      g_rng ^= seed * 2654435761u; srand(seed); la_scrub(seed);
       int path[64], np = 0, node = 0; double val = -1; int calm = 0;
       for (int dep = 0; dep < horizon; dep++) {
         if (h->HP <= 0) { val = 0; break; }
@@ -189,6 +200,7 @@ static int mcts(void) {
         int mv[256]; int n = mc_moves(mv); if (!n) { val = mc_leaf(); break; }
         if (dep == 0) {   // the root: PUCT over every move, tried or not (an untried one counts as the root's average so far)
           double nr = s_mn[0].n, q0 = nr > 0 ? QN(s_mn[0].w / nr) : 0.5, bu = -1e18; int bid = -1, bc = -1;
+          if (pre_bid >= 0) { bid = pre_bid; bc = pre_bc; } else
           for (int i = 0; i < s_rn; i++) { int c = mc_child(0, s_rid[i]); double q = c >= 0 ? (s_mn[c].w > -500 ? QN(s_mn[c].w / s_mn[c].n) : -1e9) : q0; int cn = c >= 0 ? s_mn[c].n : 0;
             double u = q + cp * s_rp[i] * sqrt(nr + 1) / (1 + cn) + (rand() % 1000) * 1e-9; if (u > bu) { bu = u; bid = s_rid[i]; bc = c; } }
           if (bid < 0) { val = mc_leaf(); break; }
