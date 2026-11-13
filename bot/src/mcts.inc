@@ -131,7 +131,7 @@ typedef struct { int32_t first; int32_t next; int32_t id; int32_t n; double w; }
 static MNode s_mn[MC_MAXN]; static int s_mnn;
 static int mc_child(int p, int id) { for (int c = s_mn[p].first; c >= 0; c = s_mn[c].next) if (s_mn[c].id == id) return c; return -1; }
 static int mc_add(int p, int id) { if (s_mnn >= MC_MAXN) return -1; int c = s_mnn++; s_mn[c] = (MNode){ -1, s_mn[p].first, id, 0, 0 }; s_mn[p].first = c; return c; }
-static long st_mc_calls, st_mc_iters; static double s_qlo, s_qhi;   // the values seen this search: every comparison is on their spread (MuZero's normalised Q), so a Tengu floor where all is 0.00-0.07 still ranks its moves
+static int s_mc_last_id; static long st_mc_calls, st_mc_iters; static double s_qlo, s_qhi;   // the values seen this search: every comparison is on their spread (MuZero's normalised Q), so a Tengu floor where all is 0.00-0.07 still ranks its moves
 static double s_rp[256]; static int s_rid[256], s_rn;   // the root moves' instinct shares
 #define QN(q) (s_qhi > s_qlo + 1e-9 ? ((q) - s_qlo) / (s_qhi - s_qlo) : 0.5)
 static int mcts(void) {
@@ -212,6 +212,6 @@ static int mcts(void) {
   clock_gettime(CLOCK_MONOTONIC, &t_b); double us = (t_b.tv_sec - t_a.tv_sec) * 1e6 + (t_b.tv_nsec - t_a.tv_nsec) / 1e3;
   if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d us/iter %.0f:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn, us / (iters > 0 ? iters : 1));
     for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n >= 5) printf(" [%d n%d v%.3f]", s_mn[c].id, s_mn[c].n, s_mn[c].w / s_mn[c].n); printf("\n"); }
-  int id = s_mn[best].id; s_did[0] = 0; DID("search: move %d (%d of %d tries, judged %.3f)", id, s_mn[best].n, s_mn[0].n, s_mn[best].w / s_mn[best].n);
+  int id = s_mn[best].id; s_mc_last_id = id; s_did[0] = 0; DID("search: move %d (%d of %d tries, judged %.3f)", id, s_mn[best].n, s_mn[0].n, s_mn[best].w / s_mn[best].n);
   int32_t t0 = h->time; int d0 = G.depth; mc_apply(id); if (h->time == t0 && G.depth == d0 && !s_pend_depth) return 0;
   return 1; }

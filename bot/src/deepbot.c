@@ -3367,10 +3367,12 @@ static bool eat_rule(void) {                          // when and what to eat (s
   return false;
 }
 static int brain2(void);
-static void snap_log(void);
+static void snap_log(void); static void suite_eval(void); static void suite_save(void);
 static bool decide(void) {
   oracles();
   if (getenv("SNAPLOG") && !s_rollout && !s_is_child) snap_log();
+  if (getenv("SUITE") && !s_rollout && !s_is_child) { suite_eval(); exit(0); }
+  if (getenv("SUITEDIR") && !s_rollout && !s_is_child) suite_save();
   if (P && s_pure && !s_rollout) return press();   // 0.64: Assist alone: every move is Select on the watch's suggestion (windows still the bot's)
   pwater_map(); burnt_scan();
   memset(s_sale, 0, sizeof s_sale); s_sale_any = false; if (!getenv("OLDSALE")) for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && G.heaps[i].pos < MAP_LEN) { BIT_SET(s_sale, G.heaps[i].pos); s_sale_any = true; }
@@ -4323,6 +4325,7 @@ static void bl_on_death(void) {
   bl_kill_all();
 }
 #include "mcts.inc"
+#include "suite.inc"
 static bool lookahead(void) {
   if (s_rollout || s_is_child || getenv("NOLA") || !danger()) return false;
   if (!getenv("GOO_LA")) for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GOO && G.mobs[i].state == ST_HUNTING && BIT_GET(G.fov, G.mobs[i].pos)) return false;   // (the Goo plan decides)
