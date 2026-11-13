@@ -153,7 +153,7 @@ static void tr_train(void) {
   snprintf(fn, sizeof fn, "%s/polw.txt", dir); FILE *o = fopen(fn, "w"); if (o) { for (int k = 0; k < NPF; k++) fprintf(o, "%.6f\n", w[k]); fclose(o); }
   printf("TRAIN policy weights:"); for (int k = 0; k < NPF; k++) printf(" %.3f", w[k]); printf("\n");
   // the judge: two logistic fits (past the next boss; dead within 50 turns), from the current weights, labelled by each line's end
-  double pb[51], d5[51]; jw_load(); if (s_jw_on) { memcpy(pb, s_jw_pb, sizeof pb); memcpy(d5, s_jw_d5, sizeof d5); } else { memcpy(pb, J2_PB, sizeof pb); memcpy(d5, J2_D50, sizeof d5); }
+  double pb[51], d5[51]; { double f0[51] = { 0 }; f0[50] = 1; j2_score(f0); } memcpy(pb, s_j2_pb, sizeof pb); memcpy(d5, s_j2_d5, sizeof d5);   // (the judge in use: JW2's, or the built-in one J2NEW picks)
   int *ypb = malloc(sizeof(int) * (nv + 1)), *yd = malloc(sizeof(int) * (nv + 1)); int nl = 0;
   for (int i = 0; i < nv; i++) { ypb[i] = -1; for (int e = 0; e < ne; e++) if (!strcmp(E[e].key, vg[i])) { int boss = (vd[i] + 4) / 5 * 5; ypb[i] = E[e].maxd > boss; yd[i] = E[e].died && E[e].turn - vt[i] <= 50 && E[e].maxd == vd[i]; nl++; break; } }
   // fitted on standardised inputs (the clock runs to 60, HP to 100: unscaled, one rate can't suit them all), pulled
