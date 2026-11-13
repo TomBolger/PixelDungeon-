@@ -3367,7 +3367,7 @@ static bool eat_rule(void) {                          // when and what to eat (s
   return false;
 }
 static int brain2(void);
-static void snap_log(void); static void suite_eval(void); static void suite_save(void); static void suite_death_keep(void); static void suite_death_dump(void);
+static int fgoal(void); static void snap_log(void); static void suite_eval(void); static void suite_save(void); static void suite_death_keep(void); static void suite_death_dump(void);
 static bool decide(void) {
   oracles();
   if (getenv("SNAPLOG") && !s_rollout && !s_is_child) snap_log();
@@ -3527,6 +3527,7 @@ static bool decide(void) {
     bfs(h->pos, false); int sc = -1; for (int i = 0; i < G.n_heaps; i++) { Heap *hp = &G.heaps[i]; if ((unsigned)hp->pos < MAP_LEN && hp->type == HEAP_PLAIN && (hp->pos == s_stash || in_stash(hp->pos)) && item_cat(hp->item.kind) == CAT_SCROLL && b_dist[hp->pos] < 0x7FFF && b_dist[hp->pos] <= 12 && (sc < 0 || b_dist[hp->pos] < b_dist[sc])) sc = hp->pos; }
     if (sc >= 0 && sc != h->pos) { int32_t t0 = h->time; ActResult rr = tap_safe(sc); if (rr != ACT_NONE || h->time != t0) { s_did[0] = 0; DID("the scrolls at the stash, first"); walk(rr); return true; } } }
   if (!PREACH(h->pos) && in_puzzle < 0 && use_items_when_safe()) return true;
+  if (fgoal()) return true;   // the floor's goal (FGOAL): down now, rest then down, or explore on, by the judge
   // the target list
   int16_t cell[TARGETS_MAX]; uint8_t kind[TARGETS_MAX];
   int n = game_targets(cell, kind);
@@ -4967,6 +4968,7 @@ static void snap_log(void) {
     cur_game, t, G.depth, h->lvl, h->HP, h->HT, h->hunger, nfood, nheal, nunk, nsc, hero_str(), h->armor.kind ? item_tier(h->armor.kind) : 0, h->armor.lvl, h->weapon.kind ? item_tier(h->weapon.kind) : 0, h->weapon.lvl,
     G.dew, find_kind(IK_DEW_VIAL) >= 0, seen, nf, fdpt, turns, owe, (int)((G.now - s_floor_turn0) / TICK), G.exit >= 0 && BIT_GET(G.visited, G.exit)); }
 #include "brain2.inc"
+#include "goals.inc"
 int main(int argc, char **argv) {
   s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
   if (!getenv("NOF1")) { static const char *const F1[][2] = { { "EATK", "0.02" }, { "EATSEE", "1" }, { "ENGK", "1" }, { "HRES", "3" }, { "CALC", "1" }, { "EMERG4", "1" }, { "UPGM", "1" }, { "B2EV", "1" }, { "DETOUR", "99" }, { "ITEMW", "2" }, { "GRASSV", "3" }, { "VIALBANK", "1" } };   /* VIALBANK (960 games: Goo deaths 33 -> 28%, past Goo 48.8%): ten drops banked at full health are a second life */   /* pass-by formula on (owner 2026-11-07: tune the brains, don't switch them off): tied the rules at ITEMW 2 (24.1 vs 23.8% past Tengu) */ for (unsigned i = 0; i < sizeof F1 / sizeof *F1; i++) setenv(F1[i][0], F1[i][1], 0); }   // formula set 1 (2026-11-07, warrior 2x960 seeds: past Tengu 19.7 -> 23.8 and 16.9 -> 19.4%; Goo deaths 34 -> 32, 37 -> 30)

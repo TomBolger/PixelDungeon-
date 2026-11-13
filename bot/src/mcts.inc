@@ -35,8 +35,12 @@ static double judge_after(double hp, int n) {
 // 4 HP beside a crab 0.16 (the first judge, fitted at floor arrivals only, couldn't tell them apart through the search's noise)
 static const double J2_PB[51] = { 1.37308, -0.56017, -0.34519, -0.06929, 0.02486, 0.15776, 0.18194, 0.02862, -0.24492, -0.11590, 0.22680, 0.48044, 0.09516, 0.15789, 0.23769, 0.20188, 0.53411, 0.32267, 0.07810, 0.26317, 0.17373, -0.06110, -0.13600, -0.00241, -0.02351, 3.17284, 2.70709, 2.13493, 1.79003, 0.00000, -0.66364, -1.19378, -1.68865, -1.92249, 0.00000, -4.98660, -5.24522, -5.25024, -5.08780, 0.00000, -14.02703, -14.44167, -14.89316, -14.97434, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, -7.36915 };
 static const double J2_D50[51] = { -7.28120, 3.19619, 0.53419, -0.27250, 0.39590, 2.47697, -0.11181, -0.02295, 0.03597, 0.05281, 0.01699, -0.70470, -0.07134, -0.11692, -0.33235, -0.10910, -0.13884, -0.21596, -0.15797, -0.79075, 0.14553, -0.37186, -0.02327, -0.06083, 0.00987, -2.78311, -1.67932, -0.93904, -0.76228, 0.00000, 0.11464, 0.52491, 1.14453, 1.64076, 0.00000, 2.50990, 3.61332, 3.77858, 4.43387, 0.00000, 5.85710, 7.17044, 7.24158, 7.41281, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 3.70580 };
-static double judge2(void) {
-  Hero *h = &G.hero; if (h->HP <= 0) return 0;
+static double j2_score(const double *f);
+static void j2_feats(double *fo);
+static double judge2(void) { if (G.hero.HP <= 0) return 0; double f[51]; j2_feats(f); return j2_score(f); }
+// the judge's 51 inputs for the game as it stands (fgoal edits them to price a plan: the turns, the food, the floor)
+static void j2_feats(double *fo) {
+  Hero *h = &G.hero;
   int nfood = 0, nheal = 0, nunk = 0;
   for (int s2 = 0; s2 < BAG_SIZE; s2++) { Item *it = &h->bag[s2]; int k = it->kind; if (!k) continue; int q = it->qty > 0 ? it->qty : 1;
     if (is_food(k)) nfood += q; else if (k == IK_POT_HEALING && item_known(k)) nheal += q; else if (item_cat(k) == CAT_POTION && !item_known(k)) nunk += q; }
@@ -51,7 +55,8 @@ static double judge2(void) {
   // the floor term is read from the deepest floor reached, not the one I stand on: the fitted terms run d1 2.21 > d2 2.06 > ...,
   // so a step up the stairs read as a gain, and the search went up and down beside a monster on floor 2 a dozen times (g6)
   int dd0 = getenv("J2CURD") ? G.depth : (G.max_depth > G.depth ? G.max_depth : G.depth);
-  int d = dd0 < 1 ? 1 : dd0 > 25 ? 25 : dd0; f[24 + d] = 1; f[50] = 1;
+  int d = dd0 < 1 ? 1 : dd0 > 25 ? 25 : dd0; f[24 + d] = 1; f[50] = 1; memcpy(fo, f, sizeof f); }
+static double j2_score(const double *f) {
   // J2NEW: refitted with the search's own games (240 old-code games' snapshots plus 130 of the search's, those weighted 5x)
   static const double J2N_PB[51] = { 0.38126, 0.62613, -0.09369, 0.36843, -0.09048, -3.06074, 0.83492, -0.05102, -0.28802, -0.19482, 0.42767, 0.51823, 0.10785, 0.12592, 0.24296, 0.15744, 0.52839, 0.26610, 0.09156, 0.22598, 0.08750, 0.11058, -0.10380, 0.01137, -0.06632, 2.21209, 2.06256, 1.84454, 1.76640, 0.85625, -0.68700, -1.15700, -1.68915, -2.00030, 0.00000, -5.21437, -5.40027, -5.35788, -5.22347, 0.00000, -32.07778, -33.99623, -34.81708, -35.77966, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, -6.54057 }; static const double J2N_D50[51] = { -7.32932, 3.26470, 0.85588, -0.36275, 0.44197, -0.96096, -0.18604, -0.04088, 0.42653, 0.21158, 0.01740, -0.75953, -0.08345, -0.17532, -0.28670, -0.13415, -0.12909, -0.23769, -0.03482, -2.44683, 0.04672, -0.37203, -0.04107, -0.08393, 0.01714, -2.91885, -2.16562, -0.38187, -0.16946, 1.69973, 0.40364, 0.82927, 1.92222, 2.54666, 0.00000, 3.75622, 4.98248, 5.36495, 6.15930, 0.00000, 7.88237, 9.34614, 9.61715, 9.85062, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 4.94122 };
   static int nw = -1; if (nw < 0) nw = getenv("J2NEW") != NULL; const double *PB = nw ? J2N_PB : J2_PB, *D5 = nw ? J2N_D50 : J2_D50;
