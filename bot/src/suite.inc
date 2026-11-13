@@ -16,7 +16,8 @@ static double suite_run(int id, uint32_t seed) {   // one honest future after mo
   int fds[2]; if (pipe(fds)) return -1; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(fds[0]); close(fds[1]); return -1; }
   if (pid == 0) { close(fds[0]); s_rollout = 1; V = 0; int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); }
     g_rng ^= seed * 2654435761u; srand(seed); la_scrub(seed); Hero *h = &G.hero; double v = -1;
-    if (mc_apply(id)) { int calm = 0; for (int k = 0; k < 60 && h->HP > 0 && !s_pend_depth && calm < 3; k++) { if (!la_step()) break; calm = hostile_near(8, NULL) ? 0 : calm + 1; } v = h->HP <= 0 ? 0 : judge2(); }
+    static int sst = -1; if (sst < 0) sst = getenv("SUITE_STEPS") ? atoi(getenv("SUITE_STEPS")) : 60;
+    if (mc_apply(id)) { int calm = 0, k = 0; for (k = 0; k < sst && h->HP > 0 && !s_pend_depth && calm < 3; k++) { if (!la_step()) { if (getenv("SUITEDBG") && seed == 7777u) fprintf(stderr, "  la_step false at k %d: %s\n", k, s_did); break; } calm = hostile_near(8, NULL) ? 0 : calm + 1; } if (getenv("SUITEDBG") && seed == 7777u) fprintf(stderr, "  move %d: %d steps, calm %d, pend %d\n", id, k, calm, s_pend_depth); v = h->HP <= 0 ? 0 : judge2(); if (getenv("SUITEDBG") && seed == 7777u) fprintf(stderr, "  after move %d: hp %d lvl %d exp %d foes-owe? t %d seen? judge2 %.3f\n", id, h->HP, h->lvl, h->exp, (int)(G.now / TICK), v); }
     if (write(fds[1], &v, sizeof v)) {} _exit(0); }
   close(fds[1]); double v = -1; if (read(fds[0], &v, sizeof v) != sizeof v) v = -1; close(fds[0]); int st; waitpid(pid, &st, 0); return v; }
 static int suite_pick(int which) {   // 0: the search's move, 1: the instinct's
