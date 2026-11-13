@@ -76,7 +76,9 @@ static int hostile_near(int r, int *adj);
 static bool mc_calm(void);
 static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0;
   static int ro = -1; if (ro < 0) ro = getenv("MC_RO") ? atoi(getenv("MC_RO")) : 30;
-  if (ro > 0 && s_rollout) { int calm = 0; for (int k = 0; k < ro && h->HP > 0 && !s_pend_depth && calm < 3; k++) { if (!la_step()) break; calm = (getenv("MC_ROSEEN") ? hostile_near(8, NULL) != 0 : !mc_calm()) ? 0 : calm + 1; } if (h->HP <= 0) return 0; }
+  if (s_pend_depth && s_pend_depth <= G.max_depth && !getenv("MC_NOUP")) {   // the stairs to a floor I have been on: arrive and play on (the player will come back down;
+    s_arrival = true; game_level_commit(); s_arrival = false; if (G.depth != s_last_depth) { s_last_depth = G.depth; on_new_floor(false); } la_scrub((uint32_t)rand()); }   //  judged at the arrival, the stairs looked like the fight's end: g6 went up and down beside a rat till it died)
+  if (ro > 0 && s_rollout) { int calm = 0; for (int k = 0; k < ro && h->HP > 0 && calm < 3; k++) { if (s_pend_depth) { if (s_pend_depth > G.max_depth || getenv("MC_NOUP")) break; s_arrival = true; game_level_commit(); s_arrival = false; if (G.depth != s_last_depth) { s_last_depth = G.depth; on_new_floor(false); } la_scrub((uint32_t)rand()); } if (!la_step()) break; calm = (getenv("MC_ROSEEN") ? hostile_near(8, NULL) != 0 : !mc_calm()) ? 0 : calm + 1; } if (h->HP <= 0) return 0; }
   double v = getenv("MC_J1") ? mc_leaf0() : judge2(); return v > 0 ? v + mc_goal_bonus() : v; }   // (MC_J1: the first judge with the dice-model playout)
 // health's worth before the next rest: the fights still to meet on the way (MC_FA of them) at this health, each with the measured
 // death risk fight_risk(HP/HT) (4,400 logged fights). The judge alone, fitted at floor arrivals where health is mostly full,
