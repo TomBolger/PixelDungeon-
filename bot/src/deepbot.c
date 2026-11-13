@@ -32,6 +32,25 @@
 #include <stdarg.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+// Speed (2026-11-13): the bot asks getenv for its settings thousands of times a move (10% of a search try went on libc's
+// scan of the environment). The answers are kept, per name, until the bot itself changes a setting (setenv/unsetenv
+// below bump the generation). The name is copied, so a name built in a buffer can't be mistaken for another. GETENVSLOW=1: off.
+static struct { const char *k; char *kc; const char *v; unsigned gen; } s_ge[2048]; static unsigned s_ge_gen = 1; static int s_ge_slow = -1;
+static const char *fast_getenv(const char *n) {
+  if (s_ge_slow < 0) s_ge_slow = getenv("GETENVSLOW") != NULL;
+  if (s_ge_slow) return getenv(n);
+  unsigned i = (unsigned)(((uintptr_t)n >> 3) * 2654435761u) & 2047;
+  for (int p = 0; p < 2048; p++, i = (i + 1) & 2047) {
+    if (s_ge[i].k == n && s_ge[i].kc && !strcmp(s_ge[i].kc, n)) { if (s_ge[i].gen == s_ge_gen) return s_ge[i].v; s_ge[i].v = getenv(n); s_ge[i].gen = s_ge_gen; return s_ge[i].v; }
+    if (!s_ge[i].k) { s_ge[i].k = n; s_ge[i].kc = strdup(n); s_ge[i].v = getenv(n); s_ge[i].gen = s_ge_gen; return s_ge[i].v; } }
+  return getenv(n); }
+static int fast_setenv(const char *a, const char *b, int o) { s_ge_gen++; return setenv(a, b, o); }
+static int fast_unsetenv(const char *a) { s_ge_gen++; return unsetenv(a); }
+#define getenv(n) ((char *)fast_getenv(n))
+#define setenv(a, b, o) fast_setenv(a, b, o)
+#define unsetenv(a) fast_unsetenv(a)
 
 PKey g_keys[256]; int g_persist_fail;
 static void dump_map(int mark);
