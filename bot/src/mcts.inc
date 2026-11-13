@@ -201,7 +201,13 @@ static int mcts(void) {
     int node = 0; s_mn[0].n++; s_mn[0].w += v < -500 ? 0 : v;
     if (v < -500) { for (int i = 0; i < np; i++) { int c = mc_child(node, path[i]); if (c < 0) c = mc_add(node, path[i]); if (c < 0) break; if (i == np - 1) { s_mn[c].n = 1; s_mn[c].w = -1000; } node = c; } s_mn[0].n--; continue; }
     for (int i = 0; i < np; i++) { int c = mc_child(node, path[i]); if (c < 0) c = mc_add(node, path[i]); if (c < 0) break; s_mn[c].n++; s_mn[c].w += v; node = c; } }
-  int best = -1, bn = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500 && (s_mn[c].n > bn || (s_mn[c].n == bn && best >= 0 && s_mn[c].w / s_mn[c].n > s_mn[best].w / s_mn[best].n))) { bn = s_mn[c].n; best = c; }   // (the most tried: PUCT spends its tries by value; the best average alone picked 2-try flukes)
+  // the move: the best average among those tried enough to trust (MC_MINN tries, or 5% of all); the most tried alone followed the
+  // instinct's favourite: in seed 8 the hero stood in toxic gas hitting (226 tries, judged 0.04) while stepping off was judged 0.07
+  static int minn = -1; if (minn < 0) minn = getenv("MC_MINN") ? atoi(getenv("MC_MINN")) : 8;
+  int best = -1, bn = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500 && s_mn[c].n > bn) { bn = s_mn[c].n; best = c; }
+  { int need = minn > s_mn[0].n / 20 ? minn : s_mn[0].n / 20; double bq = -1; int bb = -1;
+    for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500 && s_mn[c].n >= need && s_mn[c].w / s_mn[c].n > bq) { bq = s_mn[c].w / s_mn[c].n; bb = c; }
+    if (bb >= 0) best = bb; }
   if (best < 0) { if (getenv("MC_NOP")) { struct timespec t_c; clock_gettime(CLOCK_MONOTONIC, &t_c); printf("MCNOP us/iter %.0f\n", ((t_c.tv_sec - t_a.tv_sec) * 1e6 + (t_c.tv_nsec - t_a.tv_nsec) / 1e3) / iters); } return 0; }
   clock_gettime(CLOCK_MONOTONIC, &t_b); double us = (t_b.tv_sec - t_a.tv_sec) * 1e6 + (t_b.tv_nsec - t_a.tv_nsec) / 1e3;
   if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d us/iter %.0f:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn, us / (iters > 0 ? iters : 1));
