@@ -293,3 +293,4 @@
 2026-11-12T17:40:44-08:00 W-ro2-seed25 done done
 2026-11-12T18:55:02-08:00 W-rollout2 done done
 2026-11-12T20:04:46-08:00 W-snap-search done done
+2026-11-12T20:10:01-08:00 W-stairs-s25 done done
