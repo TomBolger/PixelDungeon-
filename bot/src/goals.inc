@@ -17,10 +17,17 @@ static double fg_value(const double *f0, double T, double hp_to, double dfood, d
   hp -= starve_t / 10.0; if (hp < 1) return 0;   // (starving: a point lost every 10 turns or so)
   double x = hp / (h->HT > 0 ? h->HT : 1);
   f[0] = x; f[1] = x * x; f[2] = 0; f[3] = 0; f[4] = 0; f[5] = 0;   // (at the arrival: no foe yet)
-  f[8] = hunger >= 360; f[9] = hunger >= 260 && hunger < 360; food = fbag; f[10] = food < 3 ? (food > 0 ? food : 0) : 3;
+  // food, as a running stock: the turns eat it a 300th of a ration each, smoothly (the hungry and starving flags stay as they
+  // are unless the food runs out on the way): read through the flags, 96 turns of exploring cost 0.06 on floor 1 at 20/20,
+  // more than all its loot, because the judge's hungry flag flipped on the way (a step the next floor's meal undoes)
+  (void)food; double stock = nfood + dfood - T / 300.0;
+  if (getenv("FGFLAGS")) { f[8] = hunger >= 360; f[9] = hunger >= 260 && hunger < 360; stock = fbag; }
+  else if (stock + (360 - h->hunger) / 300.0 < 0) { f[8] = 1; f[9] = 0; }   // (starving only once the stomach and the bag are both empty)
+  f[10] = stock < 3 ? (stock > -1 ? stock : -1) : 3;   // (below none: the judge's line carried on a little, so the turns still cost)
   f[12] = f[12] + dunk > 5 ? 5 : f[12] + dunk; f[13] += dstr; f[17] += dup; f[6] += dlvl; f[7] += dlvl * 5;   // (a level: +5 max HP)
   f[21] = 0; f[22] = 0; f[23] = 0; f[24] = (G.now / (double)TICK + T) / 100.0;
   int d = G.depth + 1 > 25 ? 25 : G.depth + 1; for (int k = 1; k <= 25; k++) f[24 + k] = k == d;
+  if (getenv("FGDBG3")) { printf("FGF T %.0f:", T); for (int i = 0; i < 25; i++) printf(" %d=%.3f", i, f[i]); printf("\n"); }
   return j2_score(f); }
 static int fgoal(void) {
   Hero *h = &G.hero; if (!getenv("FGOAL") || s_rollout || s_is_child) return 0;
@@ -41,6 +48,8 @@ static int fgoal(void) {
   double v_leave = fg_value(f0, te, 0, 0, 0, 0, 0, 0);
   double v_rest = h->HP < h->HT && !game_hungry() ? fg_value(f0, te + rest_t, h->HT, 0, 0, 0, 0, 0) : -1;
   double v_expl = mv > 0 ? fg_value(f0, mv + te, 0, pfood, punk, pp, ps, dlvl) : -1;
+  if (getenv("FGDBG2")) printf("FG3 leave-at-full %.4f rest-T-at-full %.4f rest-T-at-now %.4f\n", fg_value(f0, te, h->HT, 0, 0, 0, 0, 0), fg_value(f0, te + rest_t, h->HT, 0, 0, 0, 0, 0), fg_value(f0, te + rest_t, 0, 0, 0, 0, 0, 0));
+  if (getenv("FGDBG2")) printf("FG2 T0 %.4f Tmv %.4f +food %.4f +unk %.4f +str %.4f +up %.4f +lvl %.4f\n", fg_value(f0, te, 0, 0, 0, 0, 0, 0), fg_value(f0, mv + te, 0, 0, 0, 0, 0, 0), fg_value(f0, mv + te, 0, pfood, 0, 0, 0, 0), fg_value(f0, mv + te, 0, 0, punk, 0, 0, 0), fg_value(f0, mv + te, 0, 0, 0, pp, 0, 0), fg_value(f0, mv + te, 0, 0, 0, 0, ps, 0), fg_value(f0, mv + te, 0, 0, 0, 0, 0, dlvl));
   static int ls = -1; if (getenv("FGDBG") && ls != s_bot_steps) { ls = s_bot_steps; printf("FG d%d t%d hp %d/%d hunger %d seen %.2f moves %.0f | leave %.4f rest %.4f explore %.4f (food %.2f str %.2f up %.2f)\n", G.depth, (int)(G.now / TICK), h->HP, h->HT, h->hunger, sf, mv, v_leave, v_rest, v_expl, pfood, pp, ps); }
   if (v_expl >= v_leave && v_expl >= v_rest) { st_fg[0]++; return 0; }   // keep exploring: the old route
   if (v_rest > v_leave) { st_fg[1]++; s_did[0] = 0; DID("goal: rest, then down (judge %.3f vs down now %.3f, exploring %.3f)", v_rest, v_leave, v_expl); walk(game_rest(false)); return 1; }
