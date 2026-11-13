@@ -73,9 +73,10 @@ static double mc_leaf0(void);
 // then judged. Judged at once, a rat killed and a rat left alive scored alike (0.540 both): what a move earns shows only a few
 // turns on (the suite: hitting a 3-HP rat 0.698 against waiting 0.574 once played out)
 static int hostile_near(int r, int *adj);
+static bool mc_calm(void);
 static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0;
   static int ro = -1; if (ro < 0) ro = getenv("MC_RO") ? atoi(getenv("MC_RO")) : 30;
-  if (ro > 0 && s_rollout) { int calm = 0; for (int k = 0; k < ro && h->HP > 0 && !s_pend_depth && calm < 3; k++) { if (!la_step()) break; calm = hostile_near(8, NULL) ? 0 : calm + 1; } if (h->HP <= 0) return 0; }
+  if (ro > 0 && s_rollout) { int calm = 0; for (int k = 0; k < ro && h->HP > 0 && !s_pend_depth && calm < 3; k++) { if (!la_step()) break; calm = (getenv("MC_ROSEEN") ? hostile_near(8, NULL) != 0 : !mc_calm()) ? 0 : calm + 1; } if (h->HP <= 0) return 0; }
   double v = getenv("MC_J1") ? mc_leaf0() : judge2(); return v > 0 ? v + mc_goal_bonus() : v; }   // (MC_J1: the first judge with the dice-model playout)
 // health's worth before the next rest: the fights still to meet on the way (MC_FA of them) at this health, each with the measured
 // death risk fight_risk(HP/HT) (4,400 logged fights). The judge alone, fitted at floor arrivals where health is mostly full,
