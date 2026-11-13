@@ -3367,12 +3367,13 @@ static bool eat_rule(void) {                          // when and what to eat (s
   return false;
 }
 static int brain2(void);
-static void snap_log(void); static void suite_eval(void); static void suite_save(void);
+static void snap_log(void); static void suite_eval(void); static void suite_save(void); static void suite_death_keep(void); static void suite_death_dump(void);
 static bool decide(void) {
   oracles();
   if (getenv("SNAPLOG") && !s_rollout && !s_is_child) snap_log();
   if (getenv("SUITE") && !s_rollout && !s_is_child) { suite_eval(); exit(0); }
   if (getenv("SUITEDIR") && !s_rollout && !s_is_child) suite_save();
+  if (getenv("SUITEDEATH") && !s_rollout && !s_is_child && G.depth % 5 && ({ bool t = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, G.hero.pos) <= 6) t = true; } t; })) suite_death_keep();
   if (P && s_pure && !s_rollout) return press();   // 0.64: Assist alone: every move is Select on the watch's suggestion (windows still the bot's)
   pwater_map(); burnt_scan();
   memset(s_sale, 0, sizeof s_sale); s_sale_any = false; if (!getenv("OLDSALE")) for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && G.heaps[i].pos < MAP_LEN) { BIT_SET(s_sale, G.heaps[i].pos); s_sale_any = true; }
@@ -5287,6 +5288,7 @@ int main(int argc, char **argv) {
     for (int d = 5; d <= 25; d += 5) if (G.max_depth > d) st_boss_kill[d]++;
     st_qs[0][G.q.ghost]++; st_qs[1][G.q.wand]++; st_qs[2][G.q.smith]++; st_qs[3][G.q.imp]++;
     if (G.hero.HP <= 0) ledger_death();
+    if (G.hero.HP <= 0 && getenv("SUITEDEATH")) suite_death_dump();
     if (getenv("AUDHEAL") && G.hero.HP <= 0 && game_bag_find(IK_POT_HEALING) >= 0 && item_known(IK_POT_HEALING)) printf("  AUDIT died with known healing g%d d%d\n", cur_game, G.depth);
     if (getenv("DEATHRING") && G.depth <= 5) { printf("RING g%d d%d:\n", g, G.depth); for (int i = getenv("RINGN") ? 64 - atoi(getenv("RINGN")) : 40; i < 64; i++) { int j = (s_ring_n + i) & 63; if (s_ring[j][0]) printf("    %s\n", s_ring[j]); } }
     if (getenv("MOBSTATS") && g == 0) for (int t = 0; t < MT_COUNT; t++) { const MobDef *d = &MOB_DEFS[t]; printf("MOB %s HT %d att %d def %d dmg %d-%d dr %d exp %d maxlvl %d move %d atk %d\n", mob_name(t), d->HT, d->att, d->def, d->dmg_lo, d->dmg_hi, d->dr, d->exp, d->max_lvl, d->move_cost, d->atk_delay); }

@@ -3,6 +3,18 @@
 // SUITE=1 with CAMPLOAD=file: load one, and for every move the hero has, play SUITE_K honest futures (fresh dice, only what
 // the player knows) with the old bot playing on until the fight is over (or 60 steps), judged by judge2 (0 if dead). Then ask
 // the search and the instinct what they'd do here, and print each one's regret: the best move's value minus its pick's.
+// SUITEDEATH: keep the last few threatened positions of the real game; when the hero dies, write them out (the
+// moments a run is lost are the ones worth testing; a 1-in-16 sample rarely catches them)
+#define SD_RING 10
+static PKey s_sd_keys[SD_RING][256]; static uint32_t s_sd_rng[SD_RING]; static int s_sd_steps[SD_RING], s_sd_n, s_sd_game = -1;
+static void suite_death_keep(void) {
+  if (s_sd_game != cur_game) { s_sd_game = cur_game; s_sd_n = 0; }
+  int k = s_sd_n % SD_RING; if (s_sd_n > 0 && s_sd_steps[(s_sd_n - 1) % SD_RING] == s_bot_steps) return;
+  game_save(); memcpy(s_sd_keys[k], g_keys, sizeof g_keys); memcpy(&s_sd_rng[k], &g_rng, sizeof g_rng); s_sd_steps[k] = s_bot_steps; s_sd_n++; game_load(); }
+static void suite_death_dump(void) {
+  if (s_sd_game != cur_game) return;
+  for (int i = s_sd_n > SD_RING ? s_sd_n - SD_RING : 0; i < s_sd_n; i++) { int k = i % SD_RING; char fn[300]; snprintf(fn, sizeof fn, "%s/d%04d_s%05d.bin", getenv("SUITEDEATH"), cur_game, s_sd_steps[k]);
+    FILE *f = fopen(fn, "wb"); if (f) { fwrite(s_sd_keys[k], sizeof g_keys, 1, f); fwrite(&s_sd_rng[k], sizeof g_rng, 1, f); fwrite(&s_sd_steps[k], sizeof s_sd_steps[k], 1, f); fclose(f); } } }
 static void suite_save(void) {
   static int ng = -1, cnt; if (ng != cur_game) { ng = cur_game; cnt = 0; }
   if (cnt >= (getenv("SUITEN") ? atoi(getenv("SUITEN")) : 4) || G.depth % 5 == 0) return;
