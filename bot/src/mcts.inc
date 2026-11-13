@@ -49,7 +49,10 @@ static double judge2(void) {
     hero_str(), h->armor.kind ? item_tier(h->armor.kind) : 0, h->armor.lvl > -2 ? h->armor.lvl : -2, h->weapon.kind ? item_tier(h->weapon.kind) : 0, h->weapon.lvl > -2 ? h->weapon.lvl : -2,
     G.dew, G.dew >= 10, find_kind(IK_DEW_VIAL) >= 0, seen / 300.0, (G.now - s_floor_turn0) / (double)TICK / 100.0, G.exit >= 0 && BIT_GET(G.visited, G.exit), G.now / (double)TICK / 100.0 };
   int d = G.depth < 1 ? 1 : G.depth > 25 ? 25 : G.depth; f[24 + d] = 1; f[50] = 1;
-  double zb = 0, zd = 0; for (int i = 0; i < 51; i++) { zb += J2_PB[i] * f[i]; zd += J2_D50[i] * f[i]; }
+  // J2NEW: refitted with the search's own games (240 old-code games' snapshots plus 130 of the search's, those weighted 5x)
+  static const double J2N_PB[51] = { 0.38126, 0.62613, -0.09369, 0.36843, -0.09048, -3.06074, 0.83492, -0.05102, -0.28802, -0.19482, 0.42767, 0.51823, 0.10785, 0.12592, 0.24296, 0.15744, 0.52839, 0.26610, 0.09156, 0.22598, 0.08750, 0.11058, -0.10380, 0.01137, -0.06632, 2.21209, 2.06256, 1.84454, 1.76640, 0.85625, -0.68700, -1.15700, -1.68915, -2.00030, 0.00000, -5.21437, -5.40027, -5.35788, -5.22347, 0.00000, -32.07778, -33.99623, -34.81708, -35.77966, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, -6.54057 }; static const double J2N_D50[51] = { -7.32932, 3.26470, 0.85588, -0.36275, 0.44197, -0.96096, -0.18604, -0.04088, 0.42653, 0.21158, 0.01740, -0.75953, -0.08345, -0.17532, -0.28670, -0.13415, -0.12909, -0.23769, -0.03482, -2.44683, 0.04672, -0.37203, -0.04107, -0.08393, 0.01714, -2.91885, -2.16562, -0.38187, -0.16946, 1.69973, 0.40364, 0.82927, 1.92222, 2.54666, 0.00000, 3.75622, 4.98248, 5.36495, 6.15930, 0.00000, 7.88237, 9.34614, 9.61715, 9.85062, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 4.94122 };
+  static int nw = -1; if (nw < 0) nw = getenv("J2NEW") != NULL; const double *PB = nw ? J2N_PB : J2_PB, *D5 = nw ? J2N_D50 : J2_D50;
+  double zb = 0, zd = 0; for (int i = 0; i < 51; i++) { zb += PB[i] * f[i]; zd += D5[i] * f[i]; }
   return 1 / (1 + exp(-zb)) * (1 - 1 / (1 + exp(-zd))); }
 // the fight still owed at a leaf: each awake foe in sight, its HP over my damage a turn, times its damage a turn (the game's odds)
 static double mc_owed(void) {
