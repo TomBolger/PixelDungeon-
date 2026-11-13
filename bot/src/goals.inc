@@ -8,7 +8,7 @@
 static long st_fg[3];
 // a plan's end, as the judge's inputs: T more turns pass (hunger rising, a meal eaten from the bag when it passes 260,
 // 1 HP back each 10 turns while not starving), then the stairs: the next floor, unseen, its clock at zero
-static double fg_value(const double *f0, double T, double hp_to, double dfood, double dunk, double dstr, double dup, double dlvl) {
+static double fg_value(const double *f0, double T, double hp_to, double dfood, double dunk, double dstr, double dup, double dlvl, double dat, double dwt) {
   Hero *h = &G.hero; double f[51]; memcpy(f, f0, sizeof f);
   double hunger = h->hunger + T, food = f[10] + dfood; int nfood = 0; for (int s = 0; s < BAG_SIZE; s++) if (is_food(h->bag[s].kind)) nfood += h->bag[s].qty > 0 ? h->bag[s].qty : 1;
   double fbag = nfood + dfood;
@@ -24,7 +24,7 @@ static double fg_value(const double *f0, double T, double hp_to, double dfood, d
   if (getenv("FGFLAGS")) { f[8] = hunger >= 360; f[9] = hunger >= 260 && hunger < 360; stock = fbag; }
   else if (stock + (360 - h->hunger) / 300.0 < 0) { f[8] = 1; f[9] = 0; }   // (starving only once the stomach and the bag are both empty)
   f[10] = stock < 3 ? (stock > -1 ? stock : -1) : 3;   // (below none: the judge's line carried on a little, so the turns still cost)
-  f[12] = f[12] + dunk > 5 ? 5 : f[12] + dunk; f[13] += dstr; f[17] += dup; f[6] += dlvl; f[7] += dlvl * 5;   // (a level: +5 max HP)
+  f[12] = f[12] + dunk > 5 ? 5 : f[12] + dunk; f[13] += dstr; f[17] += dup; f[6] += dlvl; f[7] += dlvl * 5; f[14] += dat; f[16] += dwt;   // (a level: +5 max HP)
   f[21] = 0; f[22] = 0; f[23] = 0; f[24] = (G.now / (double)TICK + T) / 100.0;
   int d = G.depth + 1 > 25 ? 25 : G.depth + 1; for (int k = 1; k <= 25; k++) f[24 + k] = k == d;
   if (getenv("FGDBG3")) { printf("FGF T %.0f:", T); for (int i = 0; i < 25; i++) printf(" %d=%.3f", i, f[i]); printf("\n"); }
@@ -44,12 +44,15 @@ static int fgoal(void) {
   double punk = u * 3 * 0.5 * 0.28;   // (3 random items a floor, about half seen so far per unseen share; a potion 50 in 181 of the generator)
   // the monsters still to meet: the unseen share of a floor's start (3 + depth%5 + 1), each its XP (1 + depth/2; little once I'm far above it), a level every 5 + 5*lvl
   double nm = u * (4 + G.depth % 5), xp = 1 + G.depth / 2.0; if (h->lvl > 2 * G.depth + 6) xp *= 0.3; double dlvl = nm * xp / (5.0 + 5.0 * h->lvl);
+  // a better weapon or armour among the random items still unseen (3.67 a floor on average, of which a weapon 15 in 181, an
+  // armour 10 in 181; the kinds picked evenly): the chance one beats what I wear, a tier up when it does
+  double eun = u * 3.67; int at = h->armor.kind ? item_tier(h->armor.kind) : 0, wt = h->weapon.kind ? item_tier(h->weapon.kind) : 0, na = 0, nw2 = 0, ba = 0, bw = 0;
+  for (int k = 0; k < IK_COUNT; k++) { int c = item_cat(k); if (c == CAT_ARMOR && !CLASS_ARMOR(k)) { na++; if (item_tier(k) > at) ba++; } else if (c == CAT_WEAPON && k < IK_DART) { nw2++; if (item_tier(k) > wt) bw++; } }
+  double dat = na ? eun * 10 / 181.0 * ba / na : 0, dwt = nw2 ? eun * 15 / 181.0 * bw / nw2 : 0;
   double rest_t = (h->HT - h->HP) * 10.0;
-  double v_leave = fg_value(f0, te, 0, 0, 0, 0, 0, 0);
-  double v_rest = h->HP < h->HT && !game_hungry() ? fg_value(f0, te + rest_t, h->HT, 0, 0, 0, 0, 0) : -1;
-  double v_expl = mv > 0 ? fg_value(f0, mv + te, 0, pfood, punk, pp, ps, dlvl) : -1;
-  if (getenv("FGDBG2")) printf("FG3 leave-at-full %.4f rest-T-at-full %.4f rest-T-at-now %.4f\n", fg_value(f0, te, h->HT, 0, 0, 0, 0, 0), fg_value(f0, te + rest_t, h->HT, 0, 0, 0, 0, 0), fg_value(f0, te + rest_t, 0, 0, 0, 0, 0, 0));
-  if (getenv("FGDBG2")) printf("FG2 T0 %.4f Tmv %.4f +food %.4f +unk %.4f +str %.4f +up %.4f +lvl %.4f\n", fg_value(f0, te, 0, 0, 0, 0, 0, 0), fg_value(f0, mv + te, 0, 0, 0, 0, 0, 0), fg_value(f0, mv + te, 0, pfood, 0, 0, 0, 0), fg_value(f0, mv + te, 0, 0, punk, 0, 0, 0), fg_value(f0, mv + te, 0, 0, 0, pp, 0, 0), fg_value(f0, mv + te, 0, 0, 0, 0, ps, 0), fg_value(f0, mv + te, 0, 0, 0, 0, 0, dlvl));
+  double v_leave = fg_value(f0, te, 0, 0, 0, 0, 0, 0, 0, 0);
+  double v_rest = h->HP < h->HT && !game_hungry() ? fg_value(f0, te + rest_t, h->HT, 0, 0, 0, 0, 0, 0, 0) : -1;
+  double v_expl = mv > 0 ? fg_value(f0, mv + te, 0, pfood, punk, pp, ps, dlvl, dat, dwt) : -1;
   static int ls = -1; if (getenv("FGDBG") && ls != s_bot_steps) { ls = s_bot_steps; printf("FG d%d t%d hp %d/%d hunger %d seen %.2f moves %.0f | leave %.4f rest %.4f explore %.4f (food %.2f str %.2f up %.2f)\n", G.depth, (int)(G.now / TICK), h->HP, h->HT, h->hunger, sf, mv, v_leave, v_rest, v_expl, pfood, pp, ps); }
   if (v_expl >= v_leave && v_expl >= v_rest) { st_fg[0]++; return 0; }   // keep exploring: the old route
   if (v_rest > v_leave) { st_fg[1]++; s_did[0] = 0; DID("goal: rest, then down (judge %.3f vs down now %.3f, exploring %.3f)", v_rest, v_leave, v_expl); walk(game_rest(false)); return 1; }
