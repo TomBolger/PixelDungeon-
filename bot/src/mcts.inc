@@ -1,3 +1,4 @@
+static void pol_apply(void); static void tr_record(int chosen); static uint32_t s_rb_salt;
 // ---- mcts(): the search (Thomas 2026-11-08: "play like Stockfish: we have the opponent's source code") ----
 // No model of the monsters: the game itself is the model. Each iteration forks a copy of the game, cut down to what the
 // player knows (la_scrub: only creatures in sight, hidden traps and doors as they look, unknown items drawn from their
@@ -56,6 +57,11 @@ static void j2_feats(double *fo) {
   // so a step up the stairs read as a gain, and the search went up and down beside a monster on floor 2 a dozen times (g6)
   int dd0 = getenv("J2CURD") ? G.depth : (G.max_depth > G.depth ? G.max_depth : G.depth);
   int d = dd0 < 1 ? 1 : dd0 > 25 ? 25 : dd0; f[24 + d] = 1; f[50] = 1; memcpy(fo, f, sizeof f); }
+// the judge's weights from a file (JW2: 102 numbers, the 51 for 'past the next boss' then the 51 for 'dead within 50 turns')
+static double s_jw_pb[51], s_jw_d5[51]; static int s_jw_on = -1;
+static void jw_load(void) { s_jw_on = 0; const char *fn = getenv("JW2"); if (!fn) return; FILE *f = fopen(fn, "r"); if (!f) return; int n = 0;
+  for (int i = 0; i < 51; i++) n += fscanf(f, "%lf", &s_jw_pb[i]) == 1; for (int i = 0; i < 51; i++) n += fscanf(f, "%lf", &s_jw_d5[i]) == 1; fclose(f); s_jw_on = n == 102; }
+
 static double j2_score(const double *f) {
   // J2NEW: refitted with the search's own games (240 old-code games' snapshots plus 130 of the search's, those weighted 5x)
   static const double J2N_PB[51] = { 0.38126, 0.62613, -0.09369, 0.36843, -0.09048, -3.06074, 0.83492, -0.05102, -0.28802, -0.19482, 0.42767, 0.51823, 0.10785, 0.12592, 0.24296, 0.15744, 0.52839, 0.26610, 0.09156, 0.22598, 0.08750, 0.11058, -0.10380, 0.01137, -0.06632, 2.21209, 2.06256, 1.84454, 1.76640, 0.85625, -0.68700, -1.15700, -1.68915, -2.00030, 0.00000, -5.21437, -5.40027, -5.35788, -5.22347, 0.00000, -32.07778, -33.99623, -34.81708, -35.77966, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, -6.54057 }; static const double J2N_D50[51] = { -7.32932, 3.26470, 0.85588, -0.36275, 0.44197, -0.96096, -0.18604, -0.04088, 0.42653, 0.21158, 0.01740, -0.75953, -0.08345, -0.17532, -0.28670, -0.13415, -0.12909, -0.23769, -0.03482, -2.44683, 0.04672, -0.37203, -0.04107, -0.08393, 0.01714, -2.91885, -2.16562, -0.38187, -0.16946, 1.69973, 0.40364, 0.82927, 1.92222, 2.54666, 0.00000, 3.75622, 4.98248, 5.36495, 6.15930, 0.00000, 7.88237, 9.34614, 9.61715, 9.85062, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 4.94122 };
@@ -63,6 +69,7 @@ static double j2_score(const double *f) {
   static const double J2R2_PB[51] = { 1.27425, -0.12807, -0.32170, 1.04119, -0.09871, -1.27477, 0.41278, 0.07936, -0.27588, -0.16458, 0.49355, 0.56383, 0.09197, 0.09996, 0.25320, 0.13362, 0.48068, 0.23176, 0.10059, 0.26846, -0.00482, 0.10130, -0.08296, 0.13378, -0.13821, 1.22662, 1.06155, 0.95364, 1.03583, 1.06463, -1.11138, -1.52323, -1.93777, -2.15479, -9.75901, -5.14657, -5.21829, -5.05928, -4.82205, 0.00000, -13.71519, -13.67702, -13.81373, -13.63358, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, -8.04889 }; static const double J2R2_D50[51] = { -6.94243, 2.73410, 0.83578, -0.71938, 0.36986, 0.00987, -0.20251, -0.04290, 0.51829, 0.30516, -0.01144, -0.77588, -0.05811, -0.17548, -0.26992, -0.19528, -0.23022, -0.31610, 0.03506, -2.45297, 0.08360, -0.39675, -0.04246, -0.08885, 0.01677, -2.70728, -1.77186, -0.31075, 0.19783, 2.06005, 1.10472, 1.37195, 2.43115, 3.28606, 10.08096, 4.54957, 5.91213, 6.39698, 7.27870, 0.00000, 9.18955, 10.67286, 11.02729, 11.48865, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 4.78765 };
   static int nw = -1; if (nw < 0) nw = getenv("J2NEW") ? atoi(getenv("J2NEW")) : 0;
   const double *PB = nw >= 2 ? J2R2_PB : nw ? J2N_PB : J2_PB, *D5 = nw >= 2 ? J2R2_D50 : nw ? J2N_D50 : J2_D50;
+  if (s_jw_on < 0) jw_load(); if (s_jw_on) { PB = s_jw_pb; D5 = s_jw_d5; }   // (JW2=file: the trainer's judge)
   double zb = 0, zd = 0; for (int i = 0; i < 51; i++) { zb += PB[i] * f[i]; zd += D5[i] * f[i]; }
   return 1 / (1 + exp(-zb)) * (1 - 1 / (1 + exp(-zd))); }
 // the fight still owed at a leaf: each awake foe in sight, its HP over my damage a turn, times its damage a turn (the game's odds)
@@ -189,12 +196,13 @@ static int mcts(void) {
   { double mn = 1e18; for (int i = 0; i < s_pr_n; i++) if (s_pr_v[i] < mn) mn = s_pr_v[i]; double T = mt_ * (h->HT > 0 ? h->HT : 1), tot = 0;
     for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
     for (int i = 0; i < n0; i++) s_rp[i] /= tot; s_rn = n0;
+    pol_apply();   // the learned instinct (POLW), from the old one's shares and the moves' features
     if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
   if (getenv("RNGDBG")) printf("RNG pre-loop %u t%d\n", g_rng, (int)(G.now / TICK));
   { double f[51]; j2_feats(f); s_mc_f10 = f[10]; s_mc_food0 = f[10]; s_mc_starv0 = f[8]; s_mc_hung0 = f[9]; s_mc_hunger0 = G.hero.hunger; }
   s_mc_now0 = G.now; if (getenv("MC_RH")) s_mc_rh = atoi(getenv("MC_RH"));
   s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 }; s_qlo = 1e9; s_qhi = -1e9;
-  uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u);
+  uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u) ^ s_rb_salt ^ (uint32_t)(getenv("MCSEED") ? atoi(getenv("MCSEED")) * 2246822519u : 0);
   st_mc_calls++; struct timespec t_a, t_b; clock_gettime(CLOCK_MONOTONIC, &t_a);
   for (int it = 0; it < iters; it++) {
     int fds[2]; if (pipe(fds)) break; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(fds[0]); close(fds[1]); break; }
@@ -263,6 +271,11 @@ static int mcts(void) {
   clock_gettime(CLOCK_MONOTONIC, &t_b); double us = (t_b.tv_sec - t_a.tv_sec) * 1e6 + (t_b.tv_nsec - t_a.tv_nsec) / 1e3;
   if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d us/iter %.0f:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn, us / (iters > 0 ? iters : 1));
     for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n >= 5) printf(" [%d n%d v%.3f]", s_mn[c].id, s_mn[c].n, s_mn[c].w / s_mn[c].n); printf("\n"); }
+  // training: now and then the move is drawn by the tries it got rather than taken (MC_EPS), so the lines differ
+  if (getenv("MC_EPS") && !s_is_child) { static uint32_t er = 0; er = er * 1103515245u + 12345u + s_rb_salt + (uint32_t)s_bot_steps; if ((er >> 8) % 1000 < atof(getenv("MC_EPS")) * 1000) {
+      int tot = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500) tot += s_mn[c].n;
+      if (tot > 0) { er = er * 1103515245u + 12345u; int r = (int)((er >> 8) % (uint32_t)tot); for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500) { r -= s_mn[c].n; if (r < 0) { best = c; break; } } } } }
+  tr_record(s_mn[best].id);
   int id = s_mn[best].id; s_mc_last_id = id; s_did[0] = 0; DID("search: move %d (%d of %d tries, judged %.3f)", id, s_mn[best].n, s_mn[0].n, s_mn[best].w / s_mn[best].n);
   uint32_t arng = g_rng; int32_t t0 = h->time; int d0 = G.depth; int amh[64], ap0 = h->pos; for (int i = 0; i < G.n_mobs && i < 64; i++) amh[i] = G.mobs[i].HP;
   mc_apply(id);

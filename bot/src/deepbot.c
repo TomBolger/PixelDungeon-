@@ -32,6 +32,7 @@
 #include <stdarg.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <stdlib.h>
 #include <string.h>
 // Speed (2026-11-13): the bot asks getenv for its settings thousands of times a move (10% of a search try went on libc's
@@ -4358,6 +4359,7 @@ static void bl_on_death(void) {
 static int32_t s_deep_t0;   // when I first came to the deepest floor reached (the judge's floor time: up and down again does not reset it)
 #include "mcts.inc"
 #include "suite.inc"
+#include "train.inc"
 static bool lookahead(void) {
   if (s_rollout || s_is_child || getenv("NOLA") || !danger()) return false;
   if (!getenv("GOO_LA")) for (int i = 0; i < G.n_mobs; i++) if (G.mobs[i].HP > 0 && G.mobs[i].type == MT_GOO && G.mobs[i].state == ST_HUNTING && BIT_GET(G.fov, G.mobs[i].pos)) return false;   // (the Goo plan decides)
@@ -5000,6 +5002,7 @@ static void snap_log(void) {
 #include "brain2.inc"
 #include "goals.inc"
 int main(int argc, char **argv) {
+  if (getenv("TRAIN")) { tr_train(); return 0; }   // (the trainer: fits the instinct and the judge from a round's records)
   s_salt = getenv("BOTSALT") ? (uint32_t)atoi(getenv("BOTSALT")) : 0;
   if (!getenv("NOF1")) { static const char *const F1[][2] = { { "EATK", "0.02" }, { "EATSEE", "1" }, { "ENGK", "1" }, { "HRES", "3" }, { "CALC", "1" }, { "EMERG4", "1" }, { "UPGM", "1" }, { "B2EV", "1" }, { "DETOUR", "99" }, { "ITEMW", "2" }, { "GRASSV", "3" }, { "VIALBANK", "1" } };   /* VIALBANK (960 games: Goo deaths 33 -> 28%, past Goo 48.8%): ten drops banked at full health are a second life */   /* pass-by formula on (owner 2026-11-07: tune the brains, don't switch them off): tied the rules at ITEMW 2 (24.1 vs 23.8% past Tengu) */ for (unsigned i = 0; i < sizeof F1 / sizeof *F1; i++) setenv(F1[i][0], F1[i][1], 0); }   // formula set 1 (2026-11-07, warrior 2x960 seeds: past Tengu 19.7 -> 23.8 and 16.9 -> 19.4%; Goo deaths 34 -> 32, 37 -> 30)
   if (!getenv("NOIDB")) setenv("IDB", "1", 0);   // seedlog 2: identification odds drive drink/read/buy decisions (200 games: +0.15)
@@ -5203,6 +5206,7 @@ int main(int argc, char **argv) {
       if (!getenv("NIGHTOK")) G.night = 0;   // 0.54 (owner): daytime only for now
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
+      rb_tick(); tr_snap();
       sp_stat(); bool did = decide();
       if (getenv("FIGHTLOG") && !s_is_child) { static int fu = -1, fhp0, fty, fd, fhunger, fadj, fsleep; static long fstep;   // a fight: its first foe, my HP then, the cost, the end
         if (fu < 0) { for (int k = 0; k < G.n_mobs; k++) { Mob *m = &G.mobs[k]; if (m->HP > 0 && !ally(k) && m->state == ST_HUNTING && BIT_GET(G.fov, m->pos) && !(MOB_DEFS[m->type].flags & MD_NPC)) { fu = m->uid; fhp0 = thp0; fty = m->type; fd = G.depth; fhunger = G.hero.hunger; fstep = s_bot_steps; fadj = 0; for (int j = 0; j < G.n_mobs; j++) if (G.mobs[j].HP > 0 && !ally(j) && G.mobs[j].state == ST_HUNTING && BIT_GET(G.fov, G.mobs[j].pos)) fadj++; fsleep = s_last_sleeper == m->uid; break; } } }
@@ -5301,6 +5305,8 @@ int main(int argc, char **argv) {
       if (s_floor_steps > 20000 && P) { printf("   keys %x hero %d\n", G.keys[G.depth], G.hero.pos); for (int y = 0; y < MAP_H; y++) { printf("   "); for (int x = 0; x < MAP_W; x++) { int c = x + y * MAP_W, t = G.map[c]; putchar(c == G.hero.pos ? '@' : !BIT_GET(G.visited, c) ? ' ' : c == G.exit ? '>' : c == G.entrance ? '<' : heap_at(c) >= 0 ? '*' : t == T_LOCKED_DOOR ? 'L' : t == T_LOCKED_EXIT ? 'X' : t == T_DOOR ? '+' : PASSABLE(t) ? '.' : '#'); } putchar('\n'); } for (int y = 6; y < 16; y++) { printf("   "); for (int x = 22; x < 34; x++) printf("%3d%c", G.map[x + y * MAP_W], BIT_GET(G.visited, x + y * MAP_W) ? 118 : 32); printf("\n"); } }
       if (s_floor_steps > 20000) { viol("FLOOR_STUCK", "20000 decisions on this floor (goal %d, exit visited %d)", s_goal, BIT_GET(G.visited, G.exit)); st_stuck++; break; }
     }
+    if (G.hero.HP <= 0) rb_on_death();   // (training rollback: a sleeping copy plays on; this line ends there)
+    rb_final();
     if (s_upg_child) { int r2[2] = { G.max_depth, s_won }; if (write(s_cf_out, r2, sizeof r2) != sizeof r2) {} _exit(0); }
     if (s_cf_child) cf_report(2);
     cf_kill(); s_cf_d0 = 0;
