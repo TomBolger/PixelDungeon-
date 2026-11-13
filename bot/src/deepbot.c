@@ -292,8 +292,9 @@ static bool fire_doomed(int c) {                        // flammable and joined 
   return BIT_GET(s_doom, c);
 }
 static bool looks_floor(int t) { return t == T_EMPTY || ((TFLAGS(t) & F_SECRET) && PASSABLE(t)); }   // what a hidden trap looks like
+static unsigned s_bfs_epoch;
 static void burnt_scan(void) {                          // StandardPainter.paintBurned: embers, fire traps (half hidden), spent traps, bare floor
-  memset(s_burnt, 0, sizeof s_burnt); s_burnt_any = false;
+  s_bfs_epoch++; memset(s_burnt, 0, sizeof s_burnt); s_burnt_any = false;
   if (s_noburnt) return;
   BIT_SET(s_verified, G.hero.pos);                      // where you stand holds no trap
   for (int r = 0; r < G.n_rooms; r++) { Room *R = &G.rooms[r]; int emb = 0, trap = 0;
@@ -320,7 +321,24 @@ static void pwater_map(void) {
 }
 static int16_t b_dist[MAP_LEN], b_q[MAP_LEN];
 static bool s_dry, s_dry_reach; static int s_dry_goal = -1, s_pass_bite = -1;                                      // bot2: bfs keeps out of the water (a piranha floor)
-static int bfs(int from, bool through_unknown) {        // walking distances over what the hero knows
+static int bfs_raw(int from, bool through_unknown);
+// Speed (2026-11-13): a decision asks for the same walking distances several times (6 searches a step in a look-ahead, half
+// the same). The last few are kept, keyed on everything they read that can change without the game's clock moving
+// (the clock, the floor, the hero, the dry-path and fire settings, and an epoch bumped when the burned-room map changes).
+// BFSSLOW=1: off.
+typedef struct { int64_t now; int32_t ht; int from, dep, hp, flags, goal, qt; unsigned ep; int16_t d[MAP_LEN], q[MAP_LEN]; } BfsMemo;
+static BfsMemo s_bm[4]; static int s_bm_next, s_bm_slow = -1;
+static int bfs(int from, bool through_unknown) {
+  if (s_bm_slow < 0) s_bm_slow = getenv("BFSSLOW") != NULL;
+  if (s_bm_slow) return bfs_raw(from, through_unknown);
+  int flags = through_unknown | (s_dry << 1) | (s_dry_reach << 2) | (s_oldfire << 3) | (s_firedoom << 4) | (s_burnt_any << 5) | 64;
+  for (int i = 0; i < 4; i++) { BfsMemo *m = &s_bm[i];
+    if (m->flags == flags && m->from == from && m->now == G.now && m->ht == G.hero.time && m->dep == G.depth && m->hp == G.hero.pos && m->goal == s_dry_goal && m->ep == s_bfs_epoch) {
+      memcpy(b_dist, m->d, sizeof b_dist); memcpy(b_q, m->q, m->qt * sizeof *b_q); return m->qt; } }
+  int qt = bfs_raw(from, through_unknown); BfsMemo *m = &s_bm[s_bm_next]; s_bm_next = (s_bm_next + 1) & 3;
+  m->flags = flags; m->from = from; m->now = G.now; m->ht = G.hero.time; m->dep = G.depth; m->hp = G.hero.pos; m->goal = s_dry_goal; m->ep = s_bfs_epoch; m->qt = qt;
+  memcpy(m->d, b_dist, sizeof b_dist); memcpy(m->q, b_q, qt * sizeof *b_q); return qt; }
+static int bfs_raw(int from, bool through_unknown) {        // walking distances over what the hero knows
   for (int c = 0; c < MAP_LEN; c++) b_dist[c] = 0x7FFF;
   int qh = 0, qt = 0; b_dist[from] = 0; b_q[qt++] = from;
   while (qh < qt) {
@@ -4238,7 +4256,7 @@ static void resample_unknowns(uint32_t seed) {
 // 0.93 (owner: progress with hidden information doesn't count): before a playout, the copy is cut down to what a player
 // knows: only the creatures in sight, hidden traps as plain floor and hidden doors as wall, nothing lying where it hasn't
 // been seen, unknown potions and scrolls drawn from the odds (IDB), unknown wands from the Generator's weights.
-static void la_scrub(uint32_t seed) {
+static void la_scrub(uint32_t seed) { s_bfs_epoch++;
   uint32_t r = seed * 747796405u + 2891336453u;
   int k = 0; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && (ally(i) || BIT_GET(G.fov, m->pos))) G.mobs[k++] = *m; } G.n_mobs = k;
   for (int c = 0; c < MAP_LEN; c++) { int t = G.map[c]; if (t == T_SECRET_DOOR) G.map[c] = T_WALL;
@@ -4684,6 +4702,7 @@ static void floor_report(void) {
 static void toe_cal_log(void);
 // (s_deep_t0: declared above mcts.inc) // when I first came to the deepest floor reached (the judge's floor time; up and down again doesn't reset it)
 static void on_new_floor(bool first) {
+  s_bfs_epoch++;
   if (first) s_deep_t0 = G.now;
   if (getenv("ROOMDBG") && !s_rollout && !s_is_child) for (int r = 0; r < G.n_rooms; r++) printf("ROOM d%d %d type %d %d,%d-%d,%d\n", G.depth, r, G.rooms[r].type, G.rooms[r].left, G.rooms[r].top, G.rooms[r].right, G.rooms[r].bottom);
   if (getenv("ROOMDBG") && !s_rollout && !s_is_child && G.q.ghost_depth == G.depth) { char a[64], b[64]; item_name(&G.q.ghost_weapon, a, sizeof a); item_name(&G.q.ghost_armor, b, sizeof b); printf("GHOST d%d state %d alt %d weapon %s armor %s\n", G.depth, G.q.ghost, G.q.ghost_alt, a, b); }
