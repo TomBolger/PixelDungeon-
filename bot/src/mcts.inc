@@ -90,13 +90,23 @@ static int hostile_near(int r, int *adj);
 static bool mc_calm(void);
 // every line is played on to the same moment (MC_RH turns after the root, and the fight over): stopping at 'calm' made
 // walk-first-then-kill end nearer the goal than kill-then-walk, so the search towed a 4-HP rat round two floors at full health (g1)
-static int64_t s_mc_now0; static int s_mc_rh = 25;
+static int64_t s_mc_now0; static int s_mc_rh = 25; static double s_mc_food0, s_mc_f10, s_mc_starv0, s_mc_hung0, s_mc_hunger0;
+static void j2_feats(double *fo); static double j2_score(const double *f);
 static double mc_leaf(void) { Hero *h = &G.hero; if (h->HP <= 0) return 0;
   static int ro = -1; if (ro < 0) ro = getenv("MC_RO") ? atoi(getenv("MC_RO")) : 30;
   if (s_pend_depth && s_pend_depth <= G.max_depth && !getenv("MC_NOUP")) {   // the stairs to a floor I have been on: arrive and play on (the player will come back down;
     s_arrival = true; game_level_commit(); s_arrival = false; if (G.depth != s_last_depth) { s_last_depth = G.depth; on_new_floor(false); } la_scrub((uint32_t)rand()); }   //  judged at the arrival, the stairs looked like the fight's end: g6 went up and down beside a rat till it died)
   if (ro > 0 && s_rollout) { int calm = 0; for (int k = 0; k < ro * 2 && h->HP > 0 && (calm < 3 || (k < ro && G.now < s_mc_now0 + s_mc_rh * TICK)); k++) { if (s_pend_depth) { if (s_pend_depth > G.max_depth || getenv("MC_NOUP")) break; s_arrival = true; game_level_commit(); s_arrival = false; if (G.depth != s_last_depth) { s_last_depth = G.depth; on_new_floor(false); } la_scrub((uint32_t)rand()); } if (!la_step()) break; calm = (getenv("MC_ROSEEN") ? hostile_near(8, NULL) != 0 : !mc_calm()) ? 0 : calm + 1; } if (h->HP <= 0) return 0; }
-  double v = getenv("MC_J1") ? mc_leaf0() : judge2(); return v > 0 ? v + mc_goal_bonus() : v; }   // (MC_J1: the first judge with the dice-model playout)
+  double v;
+  if (getenv("MC_J1")) v = mc_leaf0();
+  else if (getenv("MC_FLAGFOOD") || G.hero.HP <= 0) v = judge2();
+  else { double f[51]; j2_feats(f);   // food as a running stock, as the floor goal prices it: the line's turns eat a 300th of a ration each,
+    // and the hungry/starving flags stay as they were at the root unless the stock runs out (the flags alone priced a turn at
+    // nothing until too late: half the search's early deaths were starving)
+    double el = (G.now - s_mc_now0) / (double)TICK, stock = s_mc_food0 + (f[10] - s_mc_f10) - el / 300.0;
+    f[8] = s_mc_starv0; f[9] = s_mc_hung0; if (stock + (360 - s_mc_hunger0) / 300.0 < 0) { f[8] = 1; f[9] = 0; }
+    f[10] = stock < 3 ? (stock > -1 ? stock : -1) : 3; v = j2_score(f); }
+  return v > 0 ? v + mc_goal_bonus() : v; }   // (MC_J1: the first judge with the dice-model playout)
 // health's worth before the next rest: the fights still to meet on the way (MC_FA of them) at this health, each with the measured
 // death risk fight_risk(HP/HT) (4,400 logged fights). The judge alone, fitted at floor arrivals where health is mostly full,
 // put 1 HP at 0.013: below the search's noise, so it wandered about at 25/25 with a foe in sight
@@ -181,6 +191,7 @@ static int mcts(void) {
     for (int i = 0; i < n0; i++) s_rp[i] /= tot; s_rn = n0;
     if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
   if (getenv("RNGDBG")) printf("RNG pre-loop %u t%d\n", g_rng, (int)(G.now / TICK));
+  { double f[51]; j2_feats(f); s_mc_f10 = f[10]; s_mc_food0 = f[10]; s_mc_starv0 = f[8]; s_mc_hung0 = f[9]; s_mc_hunger0 = G.hero.hunger; }
   s_mc_now0 = G.now; if (getenv("MC_RH")) s_mc_rh = atoi(getenv("MC_RH"));
   s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 }; s_qlo = 1e9; s_qhi = -1e9;
   uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u);
