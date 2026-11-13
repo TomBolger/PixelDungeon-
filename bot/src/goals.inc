@@ -29,10 +29,15 @@ static double fg_value(const double *f0, double T, double hp_to, double dfood, d
   int d = G.depth + 1 > 25 ? 25 : G.depth + 1; for (int k = 1; k <= 25; k++) f[24 + k] = k == d;
   if (getenv("FGDBG3")) { printf("FGF T %.0f:", T); for (int i = 0; i < 25; i++) printf(" %d=%.3f", i, f[i]); printf("\n"); }
   return j2_score(f); }
+// the floors the goal owns (boss floors and the floor before one, and floors with a quest: the old rules, for now): there, the
+// old 'hungry: down' rule is gone (the goal prices the hunger: the food likely still here, against the turns)
+static bool fgoal_owns(void) {
+  if (!getenv("FGOAL") || boss_depth(G.depth) || boss_depth(G.depth + 1) || G.depth >= 25 || G.exit < 0 || !BIT_GET(G.visited, G.exit)) return false;
+  if (G.map[G.exit] == T_LOCKED_EXIT && !(G.keys[G.depth] & 64)) return false;
+  return !quest_on_floor() && !ghost_pending(); }
 static int fgoal(void) {
   Hero *h = &G.hero; if (!getenv("FGOAL") || s_rollout || s_is_child) return 0;
-  if (boss_depth(G.depth) || boss_depth(G.depth + 1) || G.depth >= 25 || G.exit < 0 || !BIT_GET(G.visited, G.exit)) return 0;   // (boss floors and the floor before one: the old rules, for now)
-  if (G.map[G.exit] == T_LOCKED_EXIT && !(G.keys[G.depth] & 64)) return 0;
+  if (!fgoal_owns()) return 0;
   if (!mc_calm() || enemy_count() > 0 || quest_on_floor() || ghost_pending()) return 0;
   bfs(h->pos, false); if (b_dist[G.exit] >= 0x7FFF) return 0;
   for (int i = 0; i < G.n_heaps; i++) if (heap_wanted(i) && !far_missile(i) && b_dist[G.heaps[i].pos] < 0x7FFF) return 0;   // (an item in sight: the route fetches it; seen loot is the route's)
