@@ -6,24 +6,28 @@
 // SUITEDEATH: keep the last few threatened positions of the real game; when the hero dies, write them out (the
 // moments a run is lost are the ones worth testing; a 1-in-16 sample rarely catches them)
 #define SD_RING 10
-static PKey s_sd_keys[SD_RING][256]; static uint32_t s_sd_rng[SD_RING]; static int s_sd_steps[SD_RING], s_sd_n, s_sd_game = -1;
+// Saving is done in a forked copy: the game's save and load are not a perfect round trip, and a load in the real game
+// changed how the run went (2026-11-12: every game recorded this way played differently, and badly).
+static void suite_write(const char *fn) {
+  fflush(stdout); pid_t pid = fork(); if (pid < 0) return;
+  if (pid == 0) { game_save(); FILE *f = fopen(fn, "wb"); if (f) { fwrite(g_keys, sizeof g_keys, 1, f); fwrite(&g_rng, sizeof g_rng, 1, f); fwrite(&s_bot_steps, sizeof s_bot_steps, 1, f); fclose(f); } _exit(0); }
+  int st; waitpid(pid, &st, 0); }
+static int s_sd_steps[SD_RING], s_sd_n, s_sd_game = -1;
 static void suite_death_keep(void) {
   if (s_sd_game != cur_game) { s_sd_game = cur_game; s_sd_n = 0; }
   int k = s_sd_n % SD_RING; if (s_sd_n > 0 && s_sd_steps[(s_sd_n - 1) % SD_RING] == s_bot_steps) return;
-  game_save(); memcpy(s_sd_keys[k], g_keys, sizeof g_keys); memcpy(&s_sd_rng[k], &g_rng, sizeof g_rng); s_sd_steps[k] = s_bot_steps; s_sd_n++; game_load(); }
+  char fn[300]; snprintf(fn, sizeof fn, "%s/r%04d_%d.bin", getenv("SUITEDEATH"), cur_game, k); suite_write(fn); s_sd_steps[k] = s_bot_steps; s_sd_n++; }
 static void suite_death_dump(void) {
   if (s_sd_game != cur_game) return;
-  for (int i = s_sd_n > SD_RING ? s_sd_n - SD_RING : 0; i < s_sd_n; i++) { int k = i % SD_RING; char fn[300]; snprintf(fn, sizeof fn, "%s/d%04d_s%05d.bin", getenv("SUITEDEATH"), cur_game, s_sd_steps[k]);
-    FILE *f = fopen(fn, "wb"); if (f) { fwrite(s_sd_keys[k], sizeof g_keys, 1, f); fwrite(&s_sd_rng[k], sizeof g_rng, 1, f); fwrite(&s_sd_steps[k], sizeof s_sd_steps[k], 1, f); fclose(f); } } }
+  for (int i = s_sd_n > SD_RING ? s_sd_n - SD_RING : 0; i < s_sd_n; i++) { int k = i % SD_RING; char fa[300], fb[300];
+    snprintf(fa, sizeof fa, "%s/r%04d_%d.bin", getenv("SUITEDEATH"), cur_game, k); snprintf(fb, sizeof fb, "%s/d%04d_s%05d.bin", getenv("SUITEDEATH"), cur_game, s_sd_steps[k]); rename(fa, fb); } }
 static void suite_save(void) {
   static int ng = -1, cnt; if (ng != cur_game) { ng = cur_game; cnt = 0; }
   if (cnt >= (getenv("SUITEN") ? atoi(getenv("SUITEN")) : 4) || G.depth % 5 == 0) return;
   Hero *h = &G.hero; bool threat = false;
   for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) <= 6) threat = true; }
   if (!threat || ((uint32_t)(s_bot_steps * 2654435761u + cur_game * 40503u) >> 28) != 0) return;   // (1 in 16, without touching the dice)
-  cnt++; game_save(); char fn[300]; snprintf(fn, sizeof fn, "%s/g%04d_s%05d.bin", getenv("SUITEDIR"), cur_game, s_bot_steps);
-  FILE *f = fopen(fn, "wb"); if (f) { fwrite(g_keys, sizeof g_keys, 1, f); fwrite(&g_rng, sizeof g_rng, 1, f); fwrite(&s_bot_steps, sizeof s_bot_steps, 1, f); fclose(f); }
-  game_load(); }
+  cnt++; char fn[300]; snprintf(fn, sizeof fn, "%s/g%04d_s%05d.bin", getenv("SUITEDIR"), cur_game, s_bot_steps); suite_write(fn); }
 static double suite_run(int id, uint32_t seed) {   // one honest future after move id, the old bot playing on; judged
   int fds[2]; if (pipe(fds)) return -1; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(fds[0]); close(fds[1]); return -1; }
   if (pid == 0) { close(fds[0]); s_rollout = 1; V = 0; int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); }
@@ -40,6 +44,8 @@ static int suite_pick(int which) {   // 0: the search's move, 1: the instinct's
     if (write(fds[1], &id, sizeof id)) {} _exit(0); }
   close(fds[1]); int id = -1; if (read(fds[0], &id, sizeof id) != sizeof id) id = -1; close(fds[0]); int st; waitpid(pid, &st, 0); return id; }
 static void suite_eval(void) {
+  if (getenv("SUITE_ONE")) { Hero *hh = &G.hero; for (int r = 0; r < 10; r++) { int id = atoi(getenv("SUITE_ONE")); int32_t t0 = hh->time; int hp0 = hh->HP; int mh[64]; for (int i = 0; i < G.n_mobs && i < 64; i++) mh[i] = G.mobs[i].HP; bool ok = id < 0 ? mcts() : mc_apply(id);
+      printf("ONE %d ok %d time +%d hp %d->%d pos %d,%d:", id, ok, (int)(hh->time - t0), hp0, hh->HP, cx(hh->pos), cy(hh->pos)); for (int i = 0; i < G.n_mobs && i < 64; i++) if (G.mobs[i].HP != mh[i] || distance(G.mobs[i].pos, hh->pos) <= 1) printf(" [%s %d,%d hp %d->%d st %d]", mob_name(G.mobs[i].type), cx(G.mobs[i].pos), cy(G.mobs[i].pos), mh[i], G.mobs[i].HP, G.mobs[i].state); printf(" | %s\n", s_did); } return; }
   Hero *h = &G.hero; int mv[256]; int n = mc_moves(mv); int K = getenv("SUITE_K") ? atoi(getenv("SUITE_K")) : 200;
   double val[256], se[256]; int best = -1;
   for (int i = 0; i < n; i++) { double s = 0, s2 = 0; int c = 0; for (int r = 0; r < K; r++) { double v = suite_run(mv[i], 7777u + r * 104729u); if (v < 0) { c = -1; break; } s += v; s2 += v * v; c++; }

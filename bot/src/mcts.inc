@@ -143,6 +143,7 @@ static int s_mc_last_id; static long st_mc_calls, st_mc_iters; static double s_q
 static double s_rp[256]; static int s_rid[256], s_rn;   // the root moves' instinct shares
 #define QN(q) (s_qhi > s_qlo + 1e-9 ? ((q) - s_qlo) / (s_qhi - s_qlo) : 0.5)
 static int mcts(void) {
+  if (getenv("RNGDBG") && !s_rollout && !s_is_child) printf("RNG mcts-entry %u t%d\n", g_rng, (int)(G.now / TICK));
   Hero *h = &G.hero; if (s_rollout || s_is_child || getenv("NOMCTS") || h->b.paralysis) return 0;
   bool threat = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state != ST_PASSIVE && (m->state != ST_SLEEPING || distance(m->pos, h->pos) <= 2) && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) <= 8) threat = true; }   // (any creature awake in sight, or asleep beside me: whether to take it on is the search's call too; g10: the old rules walked into a crab at 8/30)
   if (bad_air(h->pos) || h->b.burning || h->b.poison || h->b.bleed) threat = true;   // (harm going on with no foe in sight: gas, fire, poison, bleeding: the search's turn too; g10 rested to death in toxic gas)
@@ -160,6 +161,7 @@ static int mcts(void) {
     for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
     for (int i = 0; i < n0; i++) s_rp[i] /= tot; s_rn = n0;
     if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
+  if (getenv("RNGDBG")) printf("RNG pre-loop %u t%d\n", g_rng, (int)(G.now / TICK));
   s_mnn = 1; s_mn[0] = (MNode){ -1, -1, -1, 0, 0 }; s_qlo = 1e9; s_qhi = -1e9;
   uint32_t base = (uint32_t)(cur_game * 1000003u + s_bot_steps * 7919u);
   st_mc_calls++; struct timespec t_a, t_b; clock_gettime(CLOCK_MONOTONIC, &t_a);
@@ -217,9 +219,13 @@ static int mcts(void) {
     for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500 && s_mn[c].n >= need && s_mn[c].w / s_mn[c].n > bq) { bq = s_mn[c].w / s_mn[c].n; bb = c; }
     if (bb >= 0) best = bb; }
   if (best < 0) { if (getenv("MC_NOP")) { struct timespec t_c; clock_gettime(CLOCK_MONOTONIC, &t_c); printf("MCNOP us/iter %.0f\n", ((t_c.tv_sec - t_a.tv_sec) * 1e6 + (t_c.tv_nsec - t_a.tv_nsec) / 1e3) / iters); } return 0; }
+  if (getenv("RNGDBG")) printf("RNG post-loop %u\n", g_rng);
   clock_gettime(CLOCK_MONOTONIC, &t_b); double us = (t_b.tv_sec - t_a.tv_sec) * 1e6 + (t_b.tv_nsec - t_a.tv_nsec) / 1e3;
   if (getenv("MCDBG")) { printf("MC d%d t%d hp %d/%d iters %d nodes %d us/iter %.0f:", G.depth, (int)(G.now / TICK), h->HP, h->HT, s_mn[0].n, s_mnn, us / (iters > 0 ? iters : 1));
     for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].n >= 5) printf(" [%d n%d v%.3f]", s_mn[c].id, s_mn[c].n, s_mn[c].w / s_mn[c].n); printf("\n"); }
   int id = s_mn[best].id; s_mc_last_id = id; s_did[0] = 0; DID("search: move %d (%d of %d tries, judged %.3f)", id, s_mn[best].n, s_mn[0].n, s_mn[best].w / s_mn[best].n);
-  int32_t t0 = h->time; int d0 = G.depth; mc_apply(id); if (h->time == t0 && G.depth == d0 && !s_pend_depth) return 0;
+  uint32_t arng = g_rng; int32_t t0 = h->time; int d0 = G.depth; int amh[64], ap0 = h->pos; for (int i = 0; i < G.n_mobs && i < 64; i++) amh[i] = G.mobs[i].HP;
+  mc_apply(id);
+  if (getenv("MCAPPDBG")) { printf("APP rng %u after %u att %d id %d pos %d,%d->%d,%d time +%d:", arng, g_rng, h->attack_skill, id, cx(ap0), cy(ap0), cx(h->pos), cy(h->pos), (int)(h->time - t0)); for (int i = 0; i < G.n_mobs && i < 64; i++) if (distance(G.mobs[i].pos, h->pos) <= 1 || amh[i] != G.mobs[i].HP) printf(" [%s %d,%d hp %d->%d st %d tm %d]", mob_name(G.mobs[i].type), cx(G.mobs[i].pos), cy(G.mobs[i].pos), amh[i], G.mobs[i].HP, G.mobs[i].state, (int)(h->time - G.mobs[i].time)); printf(" log: %s\n", s_nlog ? s_last_log[(s_nlog - 1) & 7] : ""); }
+  if (h->time == t0 && G.depth == d0 && !s_pend_depth) return 0;
   return 1; }

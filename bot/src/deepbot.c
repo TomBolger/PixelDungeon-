@@ -3373,7 +3373,7 @@ static bool decide(void) {
   if (getenv("SNAPLOG") && !s_rollout && !s_is_child) snap_log();
   if (getenv("SUITE") && !s_rollout && !s_is_child) { suite_eval(); exit(0); }
   if (getenv("SUITEDIR") && !s_rollout && !s_is_child) suite_save();
-  if (getenv("SUITEDEATH") && !s_rollout && !s_is_child && G.depth % 5 && ({ bool t = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, G.hero.pos) <= 6) t = true; } t; })) suite_death_keep();
+  if (getenv("SUITEDEATH") && !s_rollout && !s_is_child && ({ bool t = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && BIT_GET(G.fov, m->pos) && m->state == ST_HUNTING && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, G.hero.pos) <= 6) t = true; } t; })) suite_death_keep();
   if (P && s_pure && !s_rollout) return press();   // 0.64: Assist alone: every move is Select on the watch's suggestion (windows still the bot's)
   pwater_map(); burnt_scan();
   memset(s_sale, 0, sizeof s_sale); s_sale_any = false; if (!getenv("OLDSALE")) for (int i = 0; i < G.n_heaps; i++) if (G.heaps[i].type == HEAP_FOR_SALE && G.heaps[i].pos < MAP_LEN) { BIT_SET(s_sale, G.heaps[i].pos); s_sale_any = true; }
