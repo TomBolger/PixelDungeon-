@@ -201,7 +201,10 @@ static int mcts(void) {
     for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
     for (int i = 0; i < n0; i++) s_rp[i] /= tot; s_rn = n0;
     if (getenv("NN")) nn_policy(); else pol_apply();   // the learned instinct (NN: the network POLNN; else POLW's line), on the old one's shares
-    if (s_mc_setup_only) return 2;   // (the imitation recorder: the root moves and the old instinct's shares, and nothing played)
+    if (s_mc_setup_only) return 2;
+    if (getenv("NNPLAY")) {   // (the instinct alone, no search: its favourite root move; to see what the copy of the old code is worth by itself)
+      int bi = 0; for (int i = 1; i < s_rn; i++) if (s_rp[i] > s_rp[bi]) bi = i; int id = s_rid[bi]; s_mc_last_id = id;
+      s_did[0] = 0; DID("instinct: move %d (%.2f)", id, s_rp[bi]); int32_t t0 = h->time; mc_apply(id); if (h->time == t0 && !s_pend_depth) return 0; return 1; }   // (the imitation recorder: the root moves and the old instinct's shares, and nothing played)
     if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
   if (getenv("RNGDBG")) printf("RNG pre-loop %u t%d\n", g_rng, (int)(G.now / TICK));
   { double f[51]; j2_feats(f); s_mc_f10 = f[10]; s_mc_food0 = f[10]; s_mc_starv0 = f[8]; s_mc_hung0 = f[9]; s_mc_hunger0 = G.hero.hunger; }
