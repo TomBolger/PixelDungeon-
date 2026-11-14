@@ -123,8 +123,9 @@ run_train() {
     local k; for ((k = 0; k < games; k++)); do [ -f "$gd/p$(printf %04d $k).txt" ] || echo "$k" >> "$tasks"; done
     echo "round $g: $(wc -l < "$tasks") games to play $(date -Is)" >> "$log"
     if [ -s "$tasks" ]; then
-      export BD="$bd" BIN="$bin" GD="$gd" JRE="$JRE" TSEED="$seed" TROUND="$g"
-      setsid xargs -P "$CORES" 9>&- -L 1 bash -c 'read -ra E < "$GD/settings"; cd "$BD" && env -i PATH=/usr/bin:/bin "${E[@]}" START=$TSEED MCSEED=$((TROUND * 1000 + $0)) nice -n 10 timeout 86400 "./$BIN" $((TSEED + 1)) > "$GD/p$(printf %04d $0).tmp" 2>/dev/null; mv "$GD/p$(printf %04d $0).tmp" "$GD/p$(printf %04d $0).txt"' < "$tasks" &
+      # (vary=1: game k is seed+k, each a different dungeon, the old code's own games for it to learn from; else the one seed, each game its own search seed)
+      export BD="$bd" BIN="$bin" GD="$gd" JRE="$JRE" TSEED="$seed" TROUND="$g" TVARY="${TVARY:-0}"
+      setsid xargs -P "$CORES" 9>&- -L 1 bash -c 'read -ra E < "$GD/settings"; S=$TSEED; [ "$TVARY" = 1 ] && S=$((TSEED + $0)); cd "$BD" && env -i PATH=/usr/bin:/bin "${E[@]}" START=$S MCSEED=$((TROUND * 1000 + $0)) nice -n 10 timeout 86400 "./$BIN" $((S + 1)) > "$GD/p$(printf %04d $0).tmp" 2>/dev/null; mv "$GD/p$(printf %04d $0).tmp" "$GD/p$(printf %04d $0).txt"' < "$tasks" &
       supervise $! "$job" "echo \"round $g of $gens: \$(ls $gd/p*.txt 2>/dev/null | wc -l) of $games games\"" "$cancelled"
     fi
     [ -f "$ROOT/STOP" ] || [ -f "$cancelled" ] && break
@@ -145,7 +146,7 @@ run_train() {
   rm -f "$cancelled"; }
 
 run_job() {   # $1 = job file
-  local jf="$1" job bundle="" bin="deepbot" games=0 first=0 chunk=10 runs=() line train=0 gens=1 tseed=25 window=3
+  local jf="$1" job bundle="" bin="deepbot" games=0 first=0 chunk=10 runs=() line train=0 gens=1 tseed=25 window=3 vary=0
   job=$(basename "$jf" .job); okname "$job" || { mv "$jf" "$ROOT/done/bad_name.job"; return; }
   local res="$ROOT/results/$job"; mkdir -p "$res"; local log="$res/runner.log"; : > "$log"
   while IFS= read -r line || [ -n "$line" ]; do
@@ -154,7 +155,7 @@ run_job() {   # $1 = job file
       bundle=*) bundle="${line#bundle=}";; bin=*) bin="${line#bin=}";;
       games=*) games="${line#games=}";; first=*) first="${line#first=}";; chunk=*) chunk="${line#chunk=}";;
       run\ *) runs+=("${line#run }");;
-      train=*) train="${line#train=}";; gens=*) gens="${line#gens=}";; seed=*) tseed="${line#seed=}";; window=*) window="${line#window=}";;
+      train=*) train="${line#train=}";; gens=*) gens="${line#gens=}";; seed=*) tseed="${line#seed=}";; window=*) window="${line#window=}";; vary=*) vary="${line#vary=}";;
       *) echo "ignored line: $line" >> "$log";;
     esac
   done < "$jf"
@@ -162,7 +163,7 @@ run_job() {   # $1 = job file
   local bd="$WORK/b/${bundle%.tgz}"
   if [ ! -d "$bd" ]; then mkdir -p "$bd" && tar -xzf "$ROOT/bundles/$bundle" -C "$bd" 2>>"$log" || { echo "cannot unpack $bundle" >> "$log"; rm -rf "$bd"; mv "$jf" "$ROOT/done/"; return; }; fi
   [ -x "$bd/$bin" ] || { echo "no program $bin in $bundle" >> "$log"; mv "$jf" "$ROOT/done/"; return; }
-  if [ "$train" = 1 ]; then run_train "$jf" "$job" "$bd" "$bin" "$games" "$gens" "$tseed" "$window" "${runs[0]}"; return; fi
+  if [ "$train" = 1 ]; then TVARY="$vary" run_train "$jf" "$job" "$bd" "$bin" "$games" "$gens" "$tseed" "$window" "${runs[0]}"; return; fi
   local out="$WORK/out/$job" sum; sum=$(md5sum < "$jf" | cut -c1-32)
   if [ "$(cat "$out/job.md5" 2>/dev/null)" != "$sum" ]; then rm -rf "$out"; mkdir -p "$out"; echo "$sum" > "$out/job.md5"; else echo "resuming: finished chunks kept" >> "$log"; fi
   local tasks="$out/tasks"; : > "$tasks"

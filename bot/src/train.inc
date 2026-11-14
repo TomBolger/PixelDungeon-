@@ -1,3 +1,4 @@
+static long st_im_hit, st_im_miss;
 // ---- Training (owner 2026-11-13: "put in the days of search"): AlphaZero-style on one seed.
 // The search plays; at every search decision it writes what it found (TR lines: the position for the judge, and for each
 // root move the tries it got, its average and the features the instinct reads). Between rounds a trainer fits:
@@ -92,6 +93,7 @@ static bool rb_on_death(void) {
     _exit(0); }
   return false; }
 static void rb_final(void) {   // the last line (the hero won, or no copy is left): the copies are let go, and the first process may end
+  if (!getenv("RB") && getenv("TREC") && !s_is_child) { printf("TRE %d g%d died %d depth %d maxd %d turn %d steps %d lvl %d imitation %ld matched %ld not\n", 0, cur_game, G.hero.HP <= 0, G.depth, G.max_depth, (int)(G.now / TICK), s_bot_steps, G.hero.lvl, st_im_hit, st_im_miss); fflush(stdout); return; }   // (no rollback: one line, the game)
   if (!getenv("RB") || !s_rb || s_is_child) return;
   if (G.hero.HP > 0) rb_line_end(0);
   rb_kill_all(); fflush(stdout); s_rb->done = 1; }

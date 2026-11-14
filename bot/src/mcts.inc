@@ -1,5 +1,5 @@
 static void pol_apply(void); static void tr_record(int chosen); static uint32_t s_rb_salt;
-static void nn_policy(void); static void nn_record(int chosen); static void nn_value(const double *f, double *zb, double *zd); static int s_j2_raw;
+static void nn_policy(void); static void nn_record(int chosen); static void nn_value(const double *f, double *zb, double *zd); static int s_j2_raw; static int s_mc_setup_only;
 // ---- mcts(): the search (Thomas 2026-11-08: "play like Stockfish: we have the opponent's source code") ----
 // No model of the monsters: the game itself is the model. Each iteration forks a copy of the game, cut down to what the
 // player knows (la_scrub: only creatures in sight, hidden traps and doors as they look, unknown items drawn from their
@@ -184,7 +184,7 @@ static double s_rp[256]; static int s_rid[256], s_rn;   // the root moves' insti
 #define QN(q) (s_qhi > s_qlo + 1e-9 ? ((q) - s_qlo) / (s_qhi - s_qlo) : 0.5)
 static int mcts(void) {
   if (getenv("RNGDBG") && !s_rollout && !s_is_child) printf("RNG mcts-entry %u t%d\n", g_rng, (int)(G.now / TICK));
-  Hero *h = &G.hero; if (s_rollout || s_is_child || getenv("NOMCTS") || h->b.paralysis) return 0;
+  Hero *h = &G.hero; if (s_rollout || s_is_child || (getenv("NOMCTS") && !s_mc_setup_only) || h->b.paralysis) return 0;
   bool threat = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state != ST_PASSIVE && (m->state != ST_SLEEPING || distance(m->pos, h->pos) <= 2) && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) <= 8) threat = true; }   // (any creature awake in sight, or asleep beside me: whether to take it on is the search's call too; g10: the old rules walked into a crab at 8/30)
   if (bad_air(h->pos) || h->b.burning || h->b.poison || h->b.bleed) threat = true;   // (harm going on with no foe in sight: gas, fire, poison, bleeding: the search's turn too; g10 rested to death in toxic gas)
   if (!threat) return 0;
@@ -201,6 +201,7 @@ static int mcts(void) {
     for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
     for (int i = 0; i < n0; i++) s_rp[i] /= tot; s_rn = n0;
     if (getenv("NN")) nn_policy(); else pol_apply();   // the learned instinct (NN: the network POLNN; else POLW's line), on the old one's shares
+    if (s_mc_setup_only) return 2;   // (the imitation recorder: the root moves and the old instinct's shares, and nothing played)
     if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
   if (getenv("RNGDBG")) printf("RNG pre-loop %u t%d\n", g_rng, (int)(G.now / TICK));
   { double f[51]; j2_feats(f); s_mc_f10 = f[10]; s_mc_food0 = f[10]; s_mc_starv0 = f[8]; s_mc_hung0 = f[9]; s_mc_hunger0 = G.hero.hunger; }

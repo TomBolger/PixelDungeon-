@@ -148,6 +148,12 @@ enum { HEAP_PLAIN, HEAP_CHEST, HEAP_SKELETON, HEAP_LOCKED_CHEST, HEAP_CRYSTAL_CH
 
 typedef enum { ACN_EAT, ACN_DRINK, ACN_READ, ACN_EQUIP, ACN_UNEQUIP, ACN_THROW, ACN_QUICK, ACN_DROP, ACN_REFORGE, ACN_ZAP,
                ACN_PLANT, ACN_LIGHT, ACN_APPLY, ACN_SET, ACN_RETURN, ACN_END, ACN_MINE, ACN_SPECIAL, ACN_DISENCHANT, ACN_SHATTER, ACN_COUNT } ItemAction;
+#ifdef OVL_HOST   // (the bot's recorder: the player's actions as they are asked for; not on the watch)
+extern void (*g_act_hook)(int kind, int a, int b);
+#define ACT_HOOK(k, a, b) do { if (g_act_hook) g_act_hook((k), (a), (b)); } while (0)
+#else
+#define ACT_HOOK(k, a, b) do { } while (0)
+#endif
 extern const char *ACTION_NAMES[ACN_COUNT];
 
 ItemCat item_cat(int kind);

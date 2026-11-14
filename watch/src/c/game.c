@@ -1319,7 +1319,11 @@ static ActResult hero_act(void) {
 }
 
 // ---------------- Public actions ----------------
+#ifdef OVL_HOST
+void (*g_act_hook)(int, int, int);
+#endif
 ActResult game_tap_cell(int16_t c) {                   // Hero.handle
+  ACT_HOOK(1, c, 0);
   g_trade = 0;
   mreg_ensure();
   if (G.hero.HP <= 0 || c < 0 || c >= MAP_LEN) return ACT_NONE;
@@ -1372,6 +1376,7 @@ ActResult game_jump(void) {                            // "Yes, I know what I'm 
   return hero_act();
 }
 ActResult game_rest(bool till_healthy) {               // Hero.rest
+  ACT_HOOK(2, till_healthy, 0);
   mreg_ensure();
   if (G.hero.HP <= 0) return ACT_NONE;
   G.interrupted = false;
@@ -1387,6 +1392,7 @@ ActResult game_rest(bool till_healthy) {               // Hero.rest
   return ACT_TURN;
 }
 ActResult game_search(void) {
+  ACT_HOOK(3, 0, 0);
   mreg_ensure();
   if (G.hero.HP <= 0) return ACT_NONE;
   G.action = HA_NONE;

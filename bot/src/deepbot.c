@@ -5209,7 +5209,7 @@ int main(int argc, char **argv) {
       int tpos0 = G.hero.pos; bool tfoe0 = enemy_count() > 0;
       int thung0 = G.hero.hunger; int thp0 = G.hero.HP;
       rb_tick(); tr_snap(); nn_snap();
-      sp_stat(); bool did = decide();
+      int im_pos0 = G.hero.pos; im_before(); sp_stat(); bool did = decide(); im_after(im_pos0);
       if (getenv("FIGHTLOG") && !s_is_child) { static int fu = -1, fhp0, fty, fd, fhunger, fadj, fsleep; static long fstep;   // a fight: its first foe, my HP then, the cost, the end
         if (fu < 0) { for (int k = 0; k < G.n_mobs; k++) { Mob *m = &G.mobs[k]; if (m->HP > 0 && !ally(k) && m->state == ST_HUNTING && BIT_GET(G.fov, m->pos) && !(MOB_DEFS[m->type].flags & MD_NPC)) { fu = m->uid; fhp0 = thp0; fty = m->type; fd = G.depth; fhunger = G.hero.hunger; fstep = s_bot_steps; fadj = 0; for (int j = 0; j < G.n_mobs; j++) if (G.mobs[j].HP > 0 && !ally(j) && G.mobs[j].state == ST_HUNTING && BIT_GET(G.fov, G.mobs[j].pos)) fadj++; fsleep = s_last_sleeper == m->uid; break; } } }
         else { int ci = -1; for (int k = 0; k < G.n_mobs; k++) if (G.mobs[k].uid == fu && G.mobs[k].HP > 0) ci = k;

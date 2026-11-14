@@ -113,8 +113,8 @@ static void nn_snap(void) {   // the judge's view every 25 steps, fights or not
   float P[NNP]; nn_pos(f, P); printf("TV %d g%d s%d t%d d%d zb %.4f zd %.4f |", s_rb_branch, cur_game, s_bot_steps, (int)(G.now / TICK), G.depth, zb, zd); for (int i = 0; i < NNP; i++) printf(" %.4g", P[i]); printf("\n"); }
 
 // ---- the trainer (TRAINNN=dir[:dir...], output to TRAINOUT): Adam, minibatches, the networks warm-started from POLNN/VALNN ----
-typedef struct { float *P; int nm; float *M; float *tgt; float *lp0; } NnDec;
-typedef struct { float *P; float zb, zd; int yb, yd; char key[64]; int t, d; } NnPos;
+typedef struct { float *P; int nm; float *M; float *tgt; float *lp0; int ho; } NnDec;
+typedef struct { float *P; float zb, zd; int yb, yd; char key[64]; int t, d, ho; } NnPos;
 static void nn_adam(float *w, float *g, float *m, float *v, int n, float lr, int t) {
   float b1 = 0.9f, b2 = 0.999f, c1 = 1 - powf(b1, t), c2 = 1 - powf(b2, t);
   for (int i = 0; i < n; i++) { m[i] = b1 * m[i] + (1 - b1) * g[i]; v[i] = b2 * v[i] + (1 - b2) * g[i] * g[i]; w[i] -= lr * (m[i] / c1) / (sqrtf(v[i] / c2) + 1e-8f); g[i] = 0; } }
@@ -133,21 +133,23 @@ static void nn_train(void) {
   while (ls && fgets(fn, sizeof fn, ls)) { fn[strcspn(fn, "\n")] = 0; FILE *f = fopen(fn, "r"); if (!f) continue;
     while (fgets(ln, sizeof ln, f)) {
       if (!strncmp(ln, "TRE ", 4)) { int b, g, died, d, md, t; if (ne < ecap && sscanf(ln, "TRE %d g%d died %d depth %d maxd %d turn %d", &b, &g, &died, &d, &md, &t) == 6) { snprintf(E[ne].key, 64, "%s:%d", fn, b); E[ne].died = died; E[ne].maxd = md; E[ne].turn = t; ne++; } continue; }
-      bool isn = !strncmp(ln, "TN ", 3), isv = !strncmp(ln, "TV ", 3); if (!isn && !isv) continue;
+      bool isi = !strncmp(ln, "TI ", 3), isn = !strncmp(ln, "TN ", 3) || isi, isv = !strncmp(ln, "TV ", 3); if (!isn && !isv) continue;
       int b, g, s, t, d, ch = -1; float zb, zd; char *p;
-      if (isn) { if (sscanf(ln, "TN %d g%d s%d t%d d%d ch %d zb %f zd %f", &b, &g, &s, &t, &d, &ch, &zb, &zd) != 8) continue; }
+      if (isn) { if (sscanf(ln + 3, "%d g%d s%d t%d d%d ch %d zb %f zd %f", &b, &g, &s, &t, &d, &ch, &zb, &zd) != 8) continue; }
       else if (sscanf(ln, "TV %d g%d s%d t%d d%d zb %f zd %f", &b, &g, &s, &t, &d, &zb, &zd) != 7) continue;
       p = strchr(ln, '|'); if (!p) continue; p++;
+      uint32_t hh = 2166136261u; for (const char *c = fn; *c; c++) hh = (hh ^ (uint8_t)*c) * 16777619u; int ho = ((hh + (uint32_t)g * 2654435761u) >> 7) % 10 == 9;   // (held out by game: positions of one game are too alike to test on)
       float *P = malloc(sizeof(float) * NNP); bool ok = true; for (int i = 0; i < NNP && ok; i++) { char *e; P[i] = strtof(p, &e); ok = e != p; p = e; }
       if (!ok) { free(P); continue; }
-      if (np < pcap) { NnPos *X = &V[np++]; X->P = P; X->zb = zb; X->zd = zd; X->t = t; X->d = d; snprintf(X->key, 64, "%s:%d", fn, b); X->yb = -1; }
+      if (np < pcap) { NnPos *X = &V[np++]; X->P = P; X->zb = zb; X->zd = zd; X->t = t; X->d = d; X->ho = ho; snprintf(X->key, 64, "%s:%d", fn, b); X->yb = -1; }
       if (!isn || nd >= dcap) continue;
       char *q = strchr(p, '|'); if (!q) continue; q++; int nm = strtol(q, &q, 10); if (nm < 2 || nm > 16) continue;
-      NnDec *T = &D[nd]; T->P = P; T->nm = nm; T->M = malloc(sizeof(float) * nm * NNM); T->tgt = malloc(sizeof(float) * nm); T->lp0 = malloc(sizeof(float) * nm);
+      NnDec *T = &D[nd]; T->P = P; T->nm = nm; T->ho = ho; T->M = malloc(sizeof(float) * nm * NNM); T->tgt = malloc(sizeof(float) * nm); T->lp0 = malloc(sizeof(float) * nm);
       int nvs[16]; double qs[16], pr[16];
       for (int m = 0; m < nm && ok; m++) { while (*q == ' ') q++; strtol(q, &q, 10); if (*q != ':') { ok = false; break; } q++; nvs[m] = strtol(q, &q, 10); q++; qs[m] = strtod(q, &q); q++; pr[m] = strtod(q, &q);
         for (int k = 0; k < NNM; k++) { if (*q != ':') { ok = false; break; } q++; T->M[m * NNM + k] = strtof(q, &q); } }
       if (!ok) continue;
+      if (isi) { double ps = 0; for (int m = 0; m < nm; m++) ps += pr[m]; for (int m = 0; m < nm; m++) { double p0 = pr[m] / (ps > 0 ? ps : 1); T->lp0[m] = (float)log(p0 > 1e-6 ? p0 : 1e-6); T->tgt[m] = nvs[m] ? 1.0f : 0.0f; } nd++; continue; }   // (the old code's choice: all of the target)
       // the improved instinct: the old shares, tilted towards moves whose average beat the position's (in spreads of the averages)
       double qm = 0, qn = 0, qv = 0; for (int m = 0; m < nm; m++) if (nvs[m] >= minn) { qm += qs[m] * nvs[m]; qn += nvs[m]; }
       if (qn < 30) continue; qm /= qn; for (int m = 0; m < nm; m++) if (nvs[m] >= minn) qv += nvs[m] * (qs[m] - qm) * (qs[m] - qm); qv = sqrt(qv / qn) + 0.01;
@@ -171,7 +173,7 @@ static void nn_train(void) {
     int nw1 = NNH * (NNP + NNM); float *g1 = calloc(nw1, 4), *m1 = calloc(nw1, 4), *v1 = calloc(nw1, 4), gb1[NNH] = { 0 }, mb1[NNH] = { 0 }, vb1[NNH] = { 0 }, g2[NNH] = { 0 }, m2[NNH] = { 0 }, v2[NNH] = { 0 }, gb2[1] = { 0 }, mb2[1] = { 0 }, vb2[1] = { 0 };
     int step = 0, bs = 32; double ph = 0, p0h = 0;
     for (int ep = 0; ep < epochs; ep++) { double loss = 0, kl0 = 0; int cnt = 0;
-      for (int i0 = 0; i0 < nd; i0++) { rs = rs * 1664525u + 1013904223u; int di = rs % (uint32_t)nd; if (di % 10 == 9) continue; NnDec *T = &D[di];   // (every 10th decision held out)
+      for (int i0 = 0; i0 < nd; i0++) { rs = rs * 1664525u + 1013904223u; int di = rs % (uint32_t)nd; if (D[di].ho) continue; NnDec *T = &D[di];
         float z[16], hid[16][NNH], zin[16][NNP + NNM], o[16], mx = -1e9f;
         for (int m = 0; m < T->nm; m++) { float x[NNP + NNM]; memcpy(x, T->P, sizeof(float) * NNP); memcpy(x + NNP, T->M + m * NNM, sizeof(float) * NNM);
           for (int i = 0; i < n->in; i++) zin[m][i] = (x[i] - n->mu[i]) / n->sd[i];
@@ -185,7 +187,7 @@ static void nn_train(void) {
         if (cnt % bs == 0) { step++; float sc = 1.0f / bs; for (int i = 0; i < nw1; i++) g1[i] *= sc; for (int j = 0; j < NNH; j++) { gb1[j] *= sc; g2[j] *= sc; } gb2[0] *= sc;
           nn_adam(&n->W1[0][0], g1, m1, v1, nw1, lr, step); nn_adam(n->b1, gb1, mb1, vb1, NNH, lr, step); nn_adam(n->W2[0], g2, m2, v2, NNH, lr, step); nn_adam(n->b2, gb2, mb2, vb2, 1, lr, step); } }
       double hl = 0, h0 = 0; int hn = 0; float xx[NNP + NNM], hd2[NNH], oo[1];
-      for (int di = 9; di < nd; di += 10) { NnDec *T = &D[di]; float z[16], mx = -1e9f; double s0 = 0; for (int m = 0; m < T->nm; m++) { memcpy(xx, T->P, sizeof(float) * NNP); memcpy(xx + NNP, T->M + m * NNM, sizeof(float) * NNM); nn_fwd(n, xx, hd2, oo); z[m] = T->lp0[m] + oo[0]; if (z[m] > mx) mx = z[m]; s0 += exp(T->lp0[m]); }
+      for (int di = 0; di < nd; di++) { NnDec *T = &D[di]; if (!T->ho) continue; float z[16], mx = -1e9f; double s0 = 0; for (int m = 0; m < T->nm; m++) { memcpy(xx, T->P, sizeof(float) * NNP); memcpy(xx + NNP, T->M + m * NNM, sizeof(float) * NNM); nn_fwd(n, xx, hd2, oo); z[m] = T->lp0[m] + oo[0]; if (z[m] > mx) mx = z[m]; s0 += exp(T->lp0[m]); }
         double s = 0; for (int m = 0; m < T->nm; m++) s += exp(z[m] - mx); for (int m = 0; m < T->nm; m++) { hl -= T->tgt[m] * (z[m] - mx - log(s)); h0 -= T->tgt[m] * (T->lp0[m] - log(s0)); } hn++; }
       printf("NNTRAIN instinct epoch %d: loss %.4f, mean square correction %.4f | held out: network %.4f, old instinct %.4f (n %d)\n", ep, loss / (cnt ? cnt : 1), kl0 / (cnt ? cnt : 1), hn ? hl / hn : 0, hn ? h0 / hn : 0, hn); ph = hn ? hl / hn : 0; p0h = hn ? h0 / hn : 0; }
     // what the target itself scores (the floor the loss can reach) and what the old instinct alone scores
@@ -202,7 +204,7 @@ static void nn_train(void) {
     int nw1 = NNH * NNP; float *g1 = calloc(nw1, 4), *m1 = calloc(nw1, 4), *v1 = calloc(nw1, 4), gb1[NNH] = { 0 }, mb1[NNH] = { 0 }, vb1[NNH] = { 0 }, g2[2 * NNH] = { 0 }, m2[2 * NNH] = { 0 }, v2[2 * NNH] = { 0 }, gb2[2] = { 0 }, mb2[2] = { 0 }, vb2[2] = { 0 };
     int step = 0, bs = 64; double vh = 0, v0h = 0;
     for (int ep = 0; ep < epochs; ep++) { double loss = 0, loss0 = 0; int cnt = 0;
-      for (int i0 = 0; i0 < np; i0++) { rs = rs * 1664525u + 1013904223u; int vi = rs % (uint32_t)np; if (vi % 10 == 9) continue; NnPos *X = &V[vi]; if (X->yb < 0) continue;
+      for (int i0 = 0; i0 < np; i0++) { rs = rs * 1664525u + 1013904223u; int vi = rs % (uint32_t)np; if (V[vi].ho) continue; NnPos *X = &V[vi]; if (X->yb < 0) continue;
         float zin[NNP], hid[NNH]; for (int i = 0; i < NNP; i++) zin[i] = (X->P[i] - n->mu[i]) / n->sd[i];
         for (int j = 0; j < NNH; j++) { float a = n->b1[j]; for (int i = 0; i < NNP; i++) a += n->W1[j][i] * zin[i]; hid[j] = tanhf(a); }
         float dout[2];
@@ -214,7 +216,7 @@ static void nn_train(void) {
         if (cnt % bs == 0) { step++; float sc = 1.0f / bs; for (int i = 0; i < nw1; i++) g1[i] *= sc; for (int j = 0; j < NNH; j++) gb1[j] *= sc; for (int j = 0; j < 2 * NNH; j++) g2[j] *= sc; gb2[0] *= sc; gb2[1] *= sc;
           nn_adam(&n->W1[0][0], g1, m1, v1, nw1, lr, step); nn_adam(n->b1, gb1, mb1, vb1, NNH, lr, step); nn_adam(&n->W2[0][0], g2, m2, v2, 2 * NNH, lr, step); nn_adam(n->b2, gb2, mb2, vb2, 2, lr, step); } }
       double hl = 0, h0 = 0; int hn = 0; float hd2[NNH], oo[2];
-      for (int vi = 9; vi < np; vi += 10) { NnPos *X = &V[vi]; if (X->yb < 0) continue; nn_fwd(n, X->P, hd2, oo);
+      for (int vi = 0; vi < np; vi++) { NnPos *X = &V[vi]; if (X->yb < 0 || !X->ho) continue; nn_fwd(n, X->P, hd2, oo);
         for (int o = 0; o < 2; o++) { int y = o ? X->yd : X->yb; float z0 = o ? X->zd : X->zb, p = 1 / (1 + expf(-(z0 + oo[o]))), p0 = 1 / (1 + expf(-z0)); hl -= y ? logf(p + 1e-9f) : logf(1 - p + 1e-9f); h0 -= y ? logf(p0 + 1e-9f) : logf(1 - p0 + 1e-9f); } hn++; }
       printf("NNTRAIN judge epoch %d: loss %.4f (judge2 alone %.4f) | held out: network %.4f, judge2 alone %.4f (n %d)\n", ep, loss / (cnt ? cnt : 1), loss0 / (cnt ? cnt : 1), hn ? hl / hn : 0, hn ? h0 / hn : 0, hn); vh = hn ? hl / hn : 0; v0h = hn ? h0 / hn : 0; }
     char fo[1100]; snprintf(fo, sizeof fo, "%s/valnn.txt", out);
@@ -222,3 +224,50 @@ static void nn_train(void) {
     else { printf("NNTRAIN judge: not kept (held out %.4f vs judge2 %.4f)\n", vh, v0h); if (getenv("VALNN")) { Net t; if (nn_read(&t, getenv("VALNN"), NNP, 2)) nn_write(&t, fo); } } free(g1); free(m1); free(v1); }
   else printf("NNTRAIN judge: kept as it was (too few labelled positions or answers of each kind)\n");
 }
+
+// ---- imitation (owner 2026-11-14: learn from the old code first, then improve by search, as AlphaGo did) ----
+// IMREC=1 (with the old code playing, NOMCTS=1): at every moment the search would have taken (a foe about, or harm going on),
+// the root moves are listed as the search lists them, and the old code's own choice, caught at the game's door (the action
+// hooks), is matched to one of them. The record (TI) is the position, the moves' features and which one the old code took.
+static int s_im_n, s_im_kind = -1, s_im_a, s_im_b, s_im_on;
+static void im_hook(int kind, int a, int b) { if (s_im_kind < 0 && !s_is_child && !s_rollout) { s_im_kind = kind; s_im_a = a; s_im_b = b; } }
+static void im_before(void) {
+  s_im_on = 0; if (!getenv("IMREC") || s_is_child || s_rollout) return;
+  if (((uint32_t)(s_bot_steps * 2654435761u + cur_game * 97u) >> 29) >= (uint32_t)(getenv("NNREC_EIGHTHS") ? atoi(getenv("NNREC_EIGHTHS")) : 8)) return;
+  // in a forked copy: listing the moves and pricing them touches the old code's own memory (its foe memory, caches), and the
+  // old code's game must be exactly what it would have been (the copy hands back the moves and their features)
+  int fds[2]; if (pipe(fds)) return; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(fds[0]); close(fds[1]); return; }
+  if (pid == 0) { close(fds[0]); s_is_child = 1; int dn = open("/dev/null", O_WRONLY); if (dn >= 0) { dup2(dn, 1); close(dn); }
+    s_is_child = 0; s_mc_setup_only = 1; int r = mcts(); s_mc_setup_only = 0; s_is_child = 1; int cnt = 0;
+    if (r == 2 && s_rn >= 2) { double f[51]; j2_feats(f); nn_pos(f, s_nn_P); cnt = s_rn < 256 ? s_rn : 256; for (int i = 0; i < cnt; i++) { s_nn_p0[i] = s_rp[i]; nn_move(s_rid[i], s_rp[i], s_nn_M[i]); } }
+    if (write(fds[1], &cnt, sizeof cnt)) {}
+    if (cnt) { if (write(fds[1], s_rid, sizeof(int) * cnt)) {} if (write(fds[1], s_nn_p0, sizeof(double) * cnt)) {} if (write(fds[1], s_nn_P, sizeof s_nn_P)) {} if (write(fds[1], s_nn_M, sizeof(float) * NNM * cnt)) {} }
+    close(fds[1]); _exit(0); }
+  close(fds[1]); int cnt = 0; FILE *pf = fdopen(fds[0], "rb");
+  if (pf && fread(&cnt, sizeof cnt, 1, pf) == 1 && cnt >= 2 && fread(s_rid, sizeof(int), cnt, pf) == (size_t)cnt && fread(s_nn_p0, sizeof(double), cnt, pf) == (size_t)cnt && fread(s_nn_P, sizeof s_nn_P, 1, pf) == 1 && fread(s_nn_M, sizeof(float) * NNM, cnt, pf) == (size_t)cnt) s_im_n = cnt; else cnt = 0;
+  if (pf) fclose(pf); else close(fds[0]); int st; waitpid(pid, &st, 0);
+  if (cnt < 2) return;
+  s_im_kind = -1; g_act_hook = im_hook; s_im_on = 1; }
+static int im_match(int pos) {   // the old code's action as one of the root moves (-1: none of them)
+  int want = -1;
+  if (s_im_kind == 1) { int c = s_im_a; if (c == pos) want = 9;
+    else if (adjacent(c, pos)) { for (int k = 0; k < 8; k++) if (pos + N8[k] == c) want = k; }
+    else { for (int i = 0; i < s_im_n; i++) if (s_rid[i] == 8192 + c) return i;
+      bfs(c, false); int best = -1, bd = 0x7FFF; for (int k = 0; k < 8; k++) { int q = pos + N8[k]; if ((unsigned)q < MAP_LEN && nb_ok(pos, q) && b_dist[q] < bd) { bd = b_dist[q]; best = k; } } want = best; } }
+  else if (s_im_kind == 2 || s_im_kind == 3) want = 8;
+  else if (s_im_kind == 4) { int u = s_im_b == ACN_DRINK ? 0 : s_im_b == ACN_READ ? 1 : s_im_b == ACN_EAT ? 2 : s_im_b == ACN_PLANT ? 3 : -1; if (u >= 0) want = 16 + s_im_a * 4 + u; }
+  else if (s_im_kind == 5 || s_im_kind == 6) { int mi = mob_at(s_im_b); if (mi >= 0) want = (s_im_kind == 5 ? 512 : 4096) + s_im_a * 32 + mi; }
+  for (int i = 0; i < s_im_n; i++) if (s_rid[i] == want) return i;
+  return -1; }
+static void im_after(int pos0) {
+  if (!s_im_on) return; g_act_hook = NULL; s_im_on = 0; if (s_im_kind < 0) return;
+  int ch = im_match(pos0); if (ch < 0) { st_im_miss++; return; } st_im_hit++;
+  int ord[256], n = s_im_n; for (int i = 0; i < n; i++) ord[i] = i;
+  for (int a = 0; a < n; a++) for (int b = a + 1; b < n; b++) if (s_nn_p0[ord[b]] > s_nn_p0[ord[a]]) { int t = ord[a]; ord[a] = ord[b]; ord[b] = t; }
+  int m = n < 16 ? n : 16; bool in = false; for (int r = 0; r < m; r++) if (ord[r] == ch) in = true; if (!in) ord[m - 1] = ch;   // (the 16 the old instinct liked best, and the one taken)
+  double f[51]; j2_feats(f); double zb = 0, zd = 0; j2_score(f); for (int i = 0; i < 51; i++) { zb += s_j2_pb[i] * f[i]; zd += s_j2_d5[i] * f[i]; }
+  printf("TI %d g%d s%d t%d d%d ch %d zb %.4f zd %.4f |", s_rb_branch, cur_game, s_bot_steps, (int)(G.now / TICK), G.depth, s_rid[ch], zb, zd);
+  for (int i = 0; i < NNP; i++) printf(" %.4g", s_nn_P[i]);
+  printf(" | %d", m);
+  for (int r = 0; r < m; r++) { int i = ord[r]; printf(" %d:%d:0:%.4g", s_rid[i], i == ch ? 1 : 0, s_nn_p0[i]); for (int k = 0; k < NNM; k++) printf(":%.3g", s_nn_M[i][k]); }
+  printf("\n"); }

@@ -100,6 +100,7 @@ static const OvlHeader *use_ovl(void) {
   return o;
 }
 ActResult game_item_do(int slot, ItemAction a) {
+  ACT_HOOK(4, slot, a);
   mreg_ensure();
   const OvlHeader *o = use_ovl();
   if (!o) return ACT_NONE;
@@ -271,8 +272,8 @@ int hero_op(int op, int a, int b, void *p) {
 Item g_wnd_item;
 ActResult pick_up_ex(int c, bool reach) { return (ActResult)hero_op(HO_PICKUP, c, reach, NULL); }
 ActResult open_heap(int c) { return (ActResult)hero_op(HO_OPEN, c, 0, NULL); }
-ActResult game_zap(int slot, int16_t target) { return (ActResult)hero_op(HO_ZAP, slot, target, NULL); }
-ActResult game_throw(int slot, int16_t target) { return (ActResult)hero_op(HO_THROW, slot, target, NULL); }
+ActResult game_zap(int slot, int16_t target) { ACT_HOOK(6, slot, target); return (ActResult)hero_op(HO_ZAP, slot, target, NULL); }
+ActResult game_throw(int slot, int16_t target) { ACT_HOOK(5, slot, target); return (ActResult)hero_op(HO_THROW, slot, target, NULL); }
 ActResult game_aim(int what, int slot, int16_t target) { return (ActResult)hero_op(what == 1 ? HO_ZAP : what == 2 ? HO_LEAP : HO_THROW, what == 2 ? target : slot, target, NULL); }
 void game_ankh(void) { hero_op(HO_ANKH, 0, 0, NULL); }
 ActResult game_quick_throw(int slot) { int t = game_nearest_enemy(); return t < 0 ? ACT_NONE : game_throw(slot, t); }
