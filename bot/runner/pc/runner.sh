@@ -117,8 +117,8 @@ run_train() {
   while [ "$g" -le "$gens" ] && [ ! -f "$ROOT/STOP" ] && [ ! -f "$cancelled" ]; do
     local gd="$out/g$g"; mkdir -p "$gd"; rm -f "$gd"/*.tmp; local tasks="$gd/tasks"; : > "$tasks"
     mkdir -p "$bd/w"; local wenv=()
-    [ -f "$res/w/cur/polw.txt" ] && cp "$res/w/cur/polw.txt" "$bd/w/polw.txt" && wenv+=("POLW=w/polw.txt")
-    [ -f "$res/w/cur/jw2.txt" ] && cp "$res/w/cur/jw2.txt" "$bd/w/jw2.txt" && wenv+=("JW2=w/jw2.txt")
+    [ -f "$res/w/cur/polnn.txt" ] && cp "$res/w/cur/polnn.txt" "$bd/w/polnn.txt" && wenv+=("POLNN=w/polnn.txt")
+    [ -f "$res/w/cur/valnn.txt" ] && cp "$res/w/cur/valnn.txt" "$bd/w/valnn.txt" && wenv+=("VALNN=w/valnn.txt")
     printf '%s\n' "${envs[*]} ${wenv[*]}" > "$gd/settings"
     local k; for ((k = 0; k < games; k++)); do [ -f "$gd/p$(printf %04d $k).txt" ] || echo "$k" >> "$tasks"; done
     echo "round $g: $(wc -l < "$tasks") games to play $(date -Is)" >> "$log"
@@ -133,12 +133,9 @@ run_train() {
     grep -h -E '^(game |TRE |TRB )' "$gd"/p*.txt > "$res/round$g.txt" 2>/dev/null
     # the trainer: the last few rounds' records, starting from this round's weights
     local tdirs="$gd" j; for ((j = g - 1; j > g - window && j >= 1; j--)); do [ -d "$out/g$j" ] && tdirs="$tdirs:$out/g$j"; done
-    ( cd "$bd" && env -i PATH=/usr/bin:/bin "${envs[@]}" ${wenv[@]} TRAIN="$tdirs" TRAINOUT="$gd" nice -n 10 "./$bin" > "$res/train$g.txt" 2>&1 )
-    if [ -f "$gd/polw.txt" ] && [ -f "$gd/jw2.txt" ]; then
-      mkdir -p "$res/w/g$g"; cp "$gd/polw.txt" "$gd/jw2.txt" "$res/w/g$g/"
-      cp "$gd/polw.txt" "$res/w/cur/polw.tmp" && mv "$res/w/cur/polw.tmp" "$res/w/cur/polw.txt"
-      cp "$gd/jw2.txt" "$res/w/cur/jw2.tmp" && mv "$res/w/cur/jw2.tmp" "$res/w/cur/jw2.txt"
-    else echo "round $g: the trainer wrote no weights (see train$g.txt); the old ones stay" >> "$log"; fi
+    ( cd "$bd" && env -i PATH=/usr/bin:/bin "${envs[@]}" ${wenv[@]} TRAINNN="$tdirs" TRAINOUT="$gd" nice -n 10 "./$bin" > "$res/train$g.txt" 2>&1 )
+    local wf; mkdir -p "$res/w/g$g"
+    for wf in polnn valnn; do if [ -f "$gd/$wf.txt" ]; then cp "$gd/$wf.txt" "$res/w/g$g/"; cp "$gd/$wf.txt" "$res/w/cur/$wf.tmp" && mv "$res/w/cur/$wf.tmp" "$res/w/cur/$wf.txt"; else echo "round $g: no new $wf (see train$g.txt); the old one stays" >> "$log"; fi; done
     awk -v g="$g" '/^game /{n++; for(i=1;i<=NF;i++) if($i=="(max"){m=$(i+1)+0; s+=m; if(m>5)goo++; if(m>10)tengu++} if($0~/WON/)w++} /^TRB /{b++} END{printf "round %d: %d games, deepest floor on average %.2f, past Goo %d, past Tengu %d, won %d, rollbacks %d\n", g, n, n?s/n:0, goo, tengu, w, b}' "$res/round$g.txt" >> "$res/train_log.txt"
     for ((j = g - window - 1; j >= 1; j--)); do [ -d "$out/g$j" ] && rm -rf "$out/g$j"; done   # (records older than the window: gone; their summaries stay)
     g=$((g + 1)); echo "$g" > "$res/gen.tmp" && mv "$res/gen.tmp" "$res/gen"

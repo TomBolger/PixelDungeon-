@@ -98,7 +98,7 @@ static void rb_final(void) {   // the last line (the hero won, or no copy is lef
 
 // ---- the record of a search decision ----
 static void tr_record(int chosen) {
-  if (!getenv("TREC") || s_is_child || s_rollout) return;
+  if (!getenv("TREC") || atoi(getenv("TREC")) == 2 || s_is_child || s_rollout) return;
   double f[51]; j2_feats(f);
   printf("TR %d g%d s%d t%d d%d hp %d/%d ch %d |", s_rb_branch, cur_game, s_bot_steps, (int)(G.now / TICK), G.depth, G.hero.HP, G.hero.HT, chosen);
   for (int i = 0; i < 51; i++) printf(" %.4g", f[i]);
@@ -107,7 +107,7 @@ static void tr_record(int chosen) {
     printf(" %d:%d:%.4f", s_rid[i], n, q); for (int k = 0; k < NPF; k++) printf(":%.3g", s_tr_phi[i][k]); }
   printf("\n"); }
 static void tr_snap(void) {   // the judge's inputs every 25 steps, fights or not (the judge needs quiet positions too)
-  if (!getenv("TREC") || s_is_child || s_rollout || s_bot_steps % 25) return;
+  if (!getenv("TREC") || atoi(getenv("TREC")) == 2 || s_is_child || s_rollout || s_bot_steps % 25) return;
   static int last = -1; if (last == s_bot_steps) return; last = s_bot_steps;
   double f[51]; j2_feats(f); printf("TS %d g%d s%d t%d d%d |", s_rb_branch, cur_game, s_bot_steps, (int)(G.now / TICK), G.depth); for (int i = 0; i < 51; i++) printf(" %.4g", f[i]); printf("\n"); }
 // ---- the trainer (TRAIN=dir: reads every *.txt there, writes polw.txt and jw2.txt next to them; no Python needed) ----

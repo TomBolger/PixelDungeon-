@@ -1,4 +1,5 @@
 static void pol_apply(void); static void tr_record(int chosen); static uint32_t s_rb_salt;
+static void nn_policy(void); static void nn_record(int chosen); static void nn_value(const double *f, double *zb, double *zd); static int s_j2_raw;
 // ---- mcts(): the search (Thomas 2026-11-08: "play like Stockfish: we have the opponent's source code") ----
 // No model of the monsters: the game itself is the model. Each iteration forks a copy of the game, cut down to what the
 // player knows (la_scrub: only creatures in sight, hidden traps and doors as they look, unknown items drawn from their
@@ -73,6 +74,7 @@ static double j2_score(const double *f) {
   if (s_jw_on < 0) jw_load(); if (s_jw_on) { PB = s_jw_pb; D5 = s_jw_d5; }   // (JW2=file: the trainer's judge)
   s_j2_pb = PB; s_j2_d5 = D5;
   double zb = 0, zd = 0; for (int i = 0; i < 51; i++) { zb += PB[i] * f[i]; zd += D5[i] * f[i]; }
+  if (getenv("NN") && !s_j2_raw) nn_value(f, &zb, &zd);   // (NN: the judge network's correction, VALNN)
   return 1 / (1 + exp(-zb)) * (1 - 1 / (1 + exp(-zd))); }
 // the fight still owed at a leaf: each awake foe in sight, its HP over my damage a turn, times its damage a turn (the game's odds)
 static double mc_owed(void) {
@@ -198,7 +200,7 @@ static int mcts(void) {
   { double mn = 1e18; for (int i = 0; i < s_pr_n; i++) if (s_pr_v[i] < mn) mn = s_pr_v[i]; double T = mt_ * (h->HT > 0 ? h->HT : 1), tot = 0;
     for (int i = 0; i < n0; i++) { double p = 0; for (int j = 0; j < s_pr_n; j++) if (s_pr_id[j] == mv0[i]) { double e = exp(-(s_pr_v[j] - mn) / T); if (e > p) p = e; } if (p < 0.01) p = 0.01; s_rp[i] = p; s_rid[i] = mv0[i]; tot += p; }
     for (int i = 0; i < n0; i++) s_rp[i] /= tot; s_rn = n0;
-    pol_apply();   // the learned instinct (POLW), from the old one's shares and the moves' features
+    if (getenv("NN")) nn_policy(); else pol_apply();   // the learned instinct (NN: the network POLNN; else POLW's line), on the old one's shares
     if (getenv("MCDBG")) { printf("MCP"); for (int i = 0; i < n0; i++) if (s_rp[i] > 0.03) printf(" %d:%.2f", s_rid[i], s_rp[i]); printf(" | priced:"); for (int j = 0; j < s_pr_n && j < 12; j++) printf(" %d=%.1f", s_pr_id[j], s_pr_v[j]); printf("\n"); } }
   if (getenv("RNGDBG")) printf("RNG pre-loop %u t%d\n", g_rng, (int)(G.now / TICK));
   { double f[51]; j2_feats(f); s_mc_f10 = f[10]; s_mc_food0 = f[10]; s_mc_starv0 = f[8]; s_mc_hung0 = f[9]; s_mc_hunger0 = G.hero.hunger; }
@@ -277,7 +279,7 @@ static int mcts(void) {
   if (getenv("MC_EPS") && !s_is_child) { static uint32_t er = 0; er = er * 1103515245u + 12345u + s_rb_salt + (uint32_t)s_bot_steps; if ((er >> 8) % 1000 < atof(getenv("MC_EPS")) * 1000) {
       int tot = 0; for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500) tot += s_mn[c].n;
       if (tot > 0) { er = er * 1103515245u + 12345u; int r = (int)((er >> 8) % (uint32_t)tot); for (int c = s_mn[0].first; c >= 0; c = s_mn[c].next) if (s_mn[c].w > -500) { r -= s_mn[c].n; if (r < 0) { best = c; break; } } } } }
-  tr_record(s_mn[best].id);
+  tr_record(s_mn[best].id); nn_record(s_mn[best].id);
   int id = s_mn[best].id; s_mc_last_id = id; s_did[0] = 0; DID("search: move %d (%d of %d tries, judged %.3f)", id, s_mn[best].n, s_mn[0].n, s_mn[best].w / s_mn[best].n);
   uint32_t arng = g_rng; int32_t t0 = h->time; int d0 = G.depth; int amh[64], ap0 = h->pos; for (int i = 0; i < G.n_mobs && i < 64; i++) amh[i] = G.mobs[i].HP;
   mc_apply(id);
