@@ -384,3 +384,4 @@
 2026-11-15T02:02:23-08:00 TRAIN-sp done round 8 of 300: 95 of 96 games
 2026-11-15T02:22:24-08:00 TRAIN-sp done done
 2026-11-15T03:16:30-08:00 TRAIN-sp2 done round 1 of 300: 95 of 96 games
+2026-11-15T04:03:44-08:00 TRAIN-sp2 done round 2 of 300: 95 of 96 games
