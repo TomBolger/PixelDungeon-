@@ -80,14 +80,14 @@ static void nn_value(const double *f, double *zb, double *zd) {
   if (s_nn_loaded < 0) nn_load(); if (!s_vnet.on) return;
   float P[NNP], hid[NNH], o[2]; nn_pos(f, P); nn_fwd(&s_vnet, P, hid, o); *zb += o[0]; *zd += o[1]; }
 // the instinct's correction for each root move (on entry s_rp holds the old instinct's shares)
-static float s_nn_P[NNP], s_nn_M[256][NNM]; static double s_nn_p0[256];
+static float s_nn_P[NNP], s_nn_M[256][NNM], s_nn_o[256]; static double s_nn_p0[256];
 static void nn_policy(void) {
   if (s_nn_loaded < 0) nn_load();
   double f[51]; j2_feats(f); nn_pos(f, s_nn_P);
-  for (int i = 0; i < s_rn && i < 256; i++) { s_nn_p0[i] = s_rp[i]; nn_move(s_rid[i], s_rp[i], s_nn_M[i]); }
+  for (int i = 0; i < s_rn && i < 256; i++) { s_nn_p0[i] = s_rp[i]; nn_move(s_rid[i], s_rp[i], s_nn_M[i]); s_nn_o[i] = 0; }
   if (!s_pnet.on) return;
   double z[256], mx = -1e18; float x[NNP + NNM], hid[NNH], o[1]; memcpy(x, s_nn_P, sizeof s_nn_P);
-  for (int i = 0; i < s_rn && i < 256; i++) { memcpy(x + NNP, s_nn_M[i], sizeof s_nn_M[i]); nn_fwd(&s_pnet, x, hid, o); z[i] = log(s_rp[i] > 1e-6 ? s_rp[i] : 1e-6) + o[0]; if (z[i] > mx) mx = z[i]; }
+  for (int i = 0; i < s_rn && i < 256; i++) { memcpy(x + NNP, s_nn_M[i], sizeof s_nn_M[i]); nn_fwd(&s_pnet, x, hid, o); s_nn_o[i] = o[0]; z[i] = log(s_rp[i] > 1e-6 ? s_rp[i] : 1e-6) + o[0]; if (z[i] > mx) mx = z[i]; }
   double tot = 0; for (int i = 0; i < s_rn && i < 256; i++) { z[i] = exp(z[i] - mx); tot += z[i]; }
   for (int i = 0; i < s_rn && i < 256; i++) s_rp[i] = z[i] / tot < 0.003 ? 0.003 : z[i] / tot;
   tot = 0; for (int i = 0; i < s_rn; i++) tot += s_rp[i]; for (int i = 0; i < s_rn; i++) s_rp[i] /= tot; }
@@ -104,7 +104,7 @@ static void nn_record(int chosen) {
   for (int i = 0; i < NNP; i++) printf(" %.4g", s_nn_P[i]);
   printf(" | %d", m);
   for (int r = 0; r < m; r++) { int i = ord[r]; int c = mc_child(0, s_rid[i]); int nv = c >= 0 && s_mn[c].w > -500 ? s_mn[c].n : 0; double q = nv ? s_mn[c].w / nv : 0;
-    printf(" %d:%d:%.4f:%.4g", s_rid[i], nv, q, s_nn_p0[i]); for (int k = 0; k < NNM; k++) printf(":%.3g", s_nn_M[i][k]); }
+    printf(" %d:%d:%.4f:%.4g:%.4f", s_rid[i], nv, q, s_nn_p0[i], s_nn_o[i]); for (int k = 0; k < NNM; k++) printf(":%.3g", s_nn_M[i][k]); }   // (and the network's own correction: the search's prior was the old share tilted by it)
   printf("\n"); }
 static void nn_snap(void) {   // the judge's view every 25 steps, fights or not
   if (!getenv("TREC") || atoi(getenv("TREC")) != 2 || s_is_child || s_rollout || s_bot_steps % 25) return;
@@ -113,7 +113,7 @@ static void nn_snap(void) {   // the judge's view every 25 steps, fights or not
   float P[NNP]; nn_pos(f, P); printf("TV %d g%d s%d t%d d%d zb %.4f zd %.4f |", s_rb_branch, cur_game, s_bot_steps, (int)(G.now / TICK), G.depth, zb, zd); for (int i = 0; i < NNP; i++) printf(" %.4g", P[i]); printf("\n"); }
 
 // ---- the trainer (TRAINNN=dir[:dir...], output to TRAINOUT): Adam, minibatches, the networks warm-started from POLNN/VALNN ----
-typedef struct { float *P; int nm; float *M; float *tgt; float *lp0; int ho; } NnDec;
+typedef struct { float *P; int nm; float *M; float *tgt; float *lp0; float *o0; int ho; } NnDec;
 typedef struct { float *P; float zb, zd; int yb, yd; char key[64]; int t, d, ho; } NnPos;
 static void nn_adam(float *w, float *g, float *m, float *v, int n, float lr, int t) {
   float b1 = 0.9f, b2 = 0.999f, c1 = 1 - powf(b1, t), c2 = 1 - powf(b2, t);
@@ -144,17 +144,18 @@ static void nn_train(void) {
       if (np < pcap) { NnPos *X = &V[np++]; X->P = P; X->zb = zb; X->zd = zd; X->t = t; X->d = d; X->ho = ho; snprintf(X->key, 64, "%s:%d", fn, b); X->yb = -1; }
       if (!isn || nd >= dcap) continue;
       char *q = strchr(p, '|'); if (!q) continue; q++; int nm = strtol(q, &q, 10); if (nm < 2 || nm > 16) continue;
-      NnDec *T = &D[nd]; T->P = P; T->nm = nm; T->ho = ho; T->M = malloc(sizeof(float) * nm * NNM); T->tgt = malloc(sizeof(float) * nm); T->lp0 = malloc(sizeof(float) * nm);
-      int nvs[16]; double qs[16], pr[16];
-      for (int m = 0; m < nm && ok; m++) { while (*q == ' ') q++; strtol(q, &q, 10); if (*q != ':') { ok = false; break; } q++; nvs[m] = strtol(q, &q, 10); q++; qs[m] = strtod(q, &q); q++; pr[m] = strtod(q, &q);
+      NnDec *T = &D[nd]; T->P = P; T->nm = nm; T->ho = ho; T->o0 = calloc(nm, sizeof(float)); T->M = malloc(sizeof(float) * nm * NNM); T->tgt = malloc(sizeof(float) * nm); T->lp0 = malloc(sizeof(float) * nm);
+      int nvs[16]; double qs[16], pr[16], o0s[16];
+      for (int m = 0; m < nm && ok; m++) { while (*q == ' ') q++; strtol(q, &q, 10); if (*q != ':') { ok = false; break; } q++; nvs[m] = strtol(q, &q, 10); q++; qs[m] = strtod(q, &q); q++; pr[m] = strtod(q, &q); o0s[m] = 0; if (!isi && *q == ':' && !strncmp(ln, "TN ", 3)) { q++; o0s[m] = strtod(q, &q); }
         for (int k = 0; k < NNM; k++) { if (*q != ':') { ok = false; break; } q++; T->M[m * NNM + k] = strtof(q, &q); } }
       if (!ok) continue;
+      for (int m = 0; m < nm; m++) T->o0[m] = (float)o0s[m];
       if (isi) { double ps = 0; for (int m = 0; m < nm; m++) ps += pr[m]; for (int m = 0; m < nm; m++) { double p0 = pr[m] / (ps > 0 ? ps : 1); T->lp0[m] = (float)log(p0 > 1e-6 ? p0 : 1e-6); T->tgt[m] = nvs[m] ? 1.0f : 0.0f; } nd++; continue; }   // (the old code's choice: all of the target)
       // the improved instinct: the old shares, tilted towards moves whose average beat the position's (in spreads of the averages)
       double qm = 0, qn = 0, qv = 0; for (int m = 0; m < nm; m++) if (nvs[m] >= minn) { qm += qs[m] * nvs[m]; qn += nvs[m]; }
       if (qn < 30) continue; qm /= qn; for (int m = 0; m < nm; m++) if (nvs[m] >= minn) qv += nvs[m] * (qs[m] - qm) * (qs[m] - qm); qv = sqrt(qv / qn) + 0.01;
       double tz[16], mx = -1e18, ps = 0; for (int m = 0; m < nm; m++) ps += pr[m];
-      for (int m = 0; m < nm; m++) { double p0 = pr[m] / (ps > 0 ? ps : 1); T->lp0[m] = (float)log(p0 > 1e-6 ? p0 : 1e-6); tz[m] = T->lp0[m] + (nvs[m] >= minn ? cq * (qs[m] - qm) / qv : 0); if (tz[m] > mx) mx = tz[m]; }
+      for (int m = 0; m < nm; m++) { double p0 = pr[m] / (ps > 0 ? ps : 1); T->lp0[m] = (float)log(p0 > 1e-6 ? p0 : 1e-6); tz[m] = T->lp0[m] + o0s[m] + (nvs[m] >= minn ? cq * (qs[m] - qm) / qv : 0);   /* (from the search's prior: the old share and the network's correction; round 1 of self-play built it from the old share alone, and the copy of the old code was trained away) */ if (tz[m] > mx) mx = tz[m]; }
       double tt = 0; for (int m = 0; m < nm; m++) { tz[m] = exp(tz[m] - mx); tt += tz[m]; } for (int m = 0; m < nm; m++) T->tgt[m] = (float)(tz[m] / tt);
       nd++; (void)ch; }
     fclose(f); }
@@ -184,8 +185,8 @@ static void nn_train(void) {
           for (int j = 0; j < NNH; j++) { float a = n->b1[j]; for (int i = 0; i < n->in; i++) a += n->W1[j][i] * zin[m][i]; hid[m][j] = tanhf(a); }
           o[m] = n->b2[0]; for (int j = 0; j < NNH; j++) o[m] += n->W2[0][j] * hid[m][j]; z[m] = T->lp0[m] + o[m]; if (z[m] > mx) mx = z[m]; }
         float s = 0, p[16]; for (int m = 0; m < T->nm; m++) { p[m] = expf(z[m] - mx); s += p[m]; }
-        for (int m = 0; m < T->nm; m++) { p[m] /= s; loss -= T->tgt[m] * logf(p[m] + 1e-9f); kl0 += o[m] * o[m];
-          float d = p[m] - T->tgt[m] + 2 * l2o * o[m];   // (the pull towards adding nothing)
+        for (int m = 0; m < T->nm; m++) { p[m] /= s; loss -= T->tgt[m] * logf(p[m] + 1e-9f); kl0 += (o[m] - T->o0[m]) * (o[m] - T->o0[m]);
+          float d = p[m] - T->tgt[m] + 2 * l2o * (o[m] - T->o0[m]);   // (the pull back towards what the network said when the game was played)
           gb2[0] += d; for (int j = 0; j < NNH; j++) { g2[j] += d * hid[m][j]; float dh = d * n->W2[0][j] * (1 - hid[m][j] * hid[m][j]); gb1[j] += dh; for (int i = 0; i < n->in; i++) g1[j * n->in + i] += dh * zin[m][i]; } }
         cnt++;
         if (cnt % bs == 0) { step++; float sc = 1.0f / bs; for (int i = 0; i < nw1; i++) g1[i] *= sc; for (int j = 0; j < NNH; j++) { gb1[j] *= sc; g2[j] *= sc; } gb2[0] *= sc;
