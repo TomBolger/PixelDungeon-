@@ -199,7 +199,7 @@ static void nn_train(void) {
     else { printf("NNTRAIN instinct: not kept (held out %.4f vs the old instinct %.4f); the previous network stays\n", ph, p0h); if (getenv("POLNN")) { Net t; if (nn_read(&t, getenv("POLNN"), NNP + NNM, 1)) nn_write(&t, fo); } }
     free(g1); free(m1); free(v1); }
   // -- the judge --
-  if (nl > 200 && npb >= 30 && nd5 >= 30) { Net *n = &s_vnet; if (!nn_read(n, getenv("VALNN"), NNP, 2)) { nn_init(n, NNP, 2, 999);
+  if (!getenv("NN_NOVAL") && nl > 200 && npb >= 30 && nd5 >= 30) { Net *n = &s_vnet; if (!nn_read(n, getenv("VALNN"), NNP, 2)) { nn_init(n, NNP, 2, 999);
       float **xs = malloc(sizeof(float *) * np); int c = 0; for (int i = 0; i < np; i++) if (V[i].yb >= 0) xs[c++] = V[i].P; nn_standardise(n, xs, c, NNP); free(xs); }
     int nw1 = NNH * NNP; float *g1 = calloc(nw1, 4), *m1 = calloc(nw1, 4), *v1 = calloc(nw1, 4), gb1[NNH] = { 0 }, mb1[NNH] = { 0 }, vb1[NNH] = { 0 }, g2[2 * NNH] = { 0 }, m2[2 * NNH] = { 0 }, v2[2 * NNH] = { 0 }, gb2[2] = { 0 }, mb2[2] = { 0 }, vb2[2] = { 0 };
     int step = 0, bs = 64; double vh = 0, v0h = 0;

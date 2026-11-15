@@ -123,9 +123,9 @@ run_train() {
     local k; for ((k = 0; k < games; k++)); do [ -f "$gd/p$(printf %04d $k).txt" ] || echo "$k" >> "$tasks"; done
     echo "round $g: $(wc -l < "$tasks") games to play $(date -Is)" >> "$log"
     if [ -s "$tasks" ]; then
-      # (vary=1: game k is seed+k, each a different dungeon, the old code's own games for it to learn from; else the one seed, each game its own search seed)
+      # (vary=1: game k is seed+k, each a different dungeon; vary=2: new dungeons every round (seed + round*1000 + k); else the one seed, each game its own search seed)
       export BD="$bd" BIN="$bin" GD="$gd" JRE="$JRE" TSEED="$seed" TROUND="$g" TVARY="${TVARY:-0}"
-      setsid xargs -P "$CORES" 9>&- -L 1 bash -c 'read -ra E < "$GD/settings"; S=$TSEED; [ "$TVARY" = 1 ] && S=$((TSEED + $0)); cd "$BD" && env -i PATH=/usr/bin:/bin "${E[@]}" START=$S MCSEED=$((TROUND * 1000 + $0)) nice -n 10 timeout 86400 "./$BIN" $((S + 1)) > "$GD/p$(printf %04d $0).tmp" 2>/dev/null; mv "$GD/p$(printf %04d $0).tmp" "$GD/p$(printf %04d $0).txt"' < "$tasks" &
+      setsid xargs -P "$CORES" 9>&- -L 1 bash -c 'read -ra E < "$GD/settings"; S=$TSEED; [ "$TVARY" = 1 ] && S=$((TSEED + $0)); [ "$TVARY" = 2 ] && S=$((TSEED + TROUND * 1000 + $0)); cd "$BD" && env -i PATH=/usr/bin:/bin "${E[@]}" START=$S MCSEED=$((TROUND * 1000 + $0)) nice -n 10 timeout 86400 "./$BIN" $((S + 1)) > "$GD/p$(printf %04d $0).tmp" 2>/dev/null; mv "$GD/p$(printf %04d $0).tmp" "$GD/p$(printf %04d $0).txt"' < "$tasks" &
       supervise $! "$job" "echo \"round $g of $gens: \$(ls $gd/p*.txt 2>/dev/null | wc -l) of $games games\"" "$cancelled"
     fi
     [ -f "$ROOT/STOP" ] || [ -f "$cancelled" ] && break

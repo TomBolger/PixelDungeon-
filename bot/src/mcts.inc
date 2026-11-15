@@ -185,6 +185,7 @@ static double s_rp[256]; static int s_rid[256], s_rn;   // the root moves' insti
 static int mcts(void) {
   if (getenv("RNGDBG") && !s_rollout && !s_is_child) printf("RNG mcts-entry %u t%d\n", g_rng, (int)(G.now / TICK));
   Hero *h = &G.hero; if (s_rollout || s_is_child || (getenv("NOMCTS") && !s_mc_setup_only) || h->b.paralysis) return 0;
+  if (getenv("MC_NOBOSS") && boss_depth(G.depth) && !s_mc_setup_only) return 0;   // (boss floors: the old code, for now: the search lost the Goo twice as often)
   bool threat = false; for (int i = 0; i < G.n_mobs; i++) { Mob *m = &G.mobs[i]; if (m->HP > 0 && !ally(i) && (BIT_GET(G.fov, m->pos) || adjacent(m->pos, h->pos)) && m->state != ST_PASSIVE && (m->state != ST_SLEEPING || distance(m->pos, h->pos) <= 2) && !(MOB_DEFS[m->type].flags & MD_NPC) && distance(m->pos, h->pos) <= 8) threat = true; }   // (any creature awake in sight, or asleep beside me: whether to take it on is the search's call too; g10: the old rules walked into a crab at 8/30)
   if (bad_air(h->pos) || h->b.burning || h->b.poison || h->b.bleed) threat = true;   // (harm going on with no foe in sight: gas, fire, poison, bleeding: the search's turn too; g10 rested to death in toxic gas)
   if (!threat) return 0;
