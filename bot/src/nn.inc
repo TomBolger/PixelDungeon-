@@ -167,7 +167,7 @@ static void nn_train(void) {
   int epochs = getenv("NN_EPOCHS") ? atoi(getenv("NN_EPOCHS")) : 8; float lr = getenv("NN_LR") ? atof(getenv("NN_LR")) : 1e-3f, l2o = getenv("NN_L2O") ? atof(getenv("NN_L2O")) : 0.02f;
   uint32_t rs = 12345;
   // -- the instinct --
-  if (nd > 100) { Net *n = &s_pnet; if (!nn_read(n, getenv("POLNN"), NNP + NNM, 1)) { nn_init(n, NNP + NNM, 1, 777);
+  if (!getenv("NN_NOPOL") && nd > 100) { Net *n = &s_pnet; if (!nn_read(n, getenv("POLNN"), NNP + NNM, 1)) { nn_init(n, NNP + NNM, 1, 777);
       float **xs = malloc(sizeof(float *) * nd); float *buf = malloc(sizeof(float) * nd * (NNP + NNM));
       for (int i = 0; i < nd; i++) { xs[i] = buf + (size_t)i * (NNP + NNM); memcpy(xs[i], D[i].P, sizeof(float) * NNP); memcpy(xs[i] + NNP, D[i].M, sizeof(float) * NNM); }
       nn_standardise(n, xs, nd, NNP + NNM); free(xs); free(buf); }
