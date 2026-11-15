@@ -171,7 +171,11 @@ static void nn_train(void) {
       for (int i = 0; i < nd; i++) { xs[i] = buf + (size_t)i * (NNP + NNM); memcpy(xs[i], D[i].P, sizeof(float) * NNP); memcpy(xs[i] + NNP, D[i].M, sizeof(float) * NNM); }
       nn_standardise(n, xs, nd, NNP + NNM); free(xs); free(buf); }
     int nw1 = NNH * (NNP + NNM); float *g1 = calloc(nw1, 4), *m1 = calloc(nw1, 4), *v1 = calloc(nw1, 4), gb1[NNH] = { 0 }, mb1[NNH] = { 0 }, vb1[NNH] = { 0 }, g2[NNH] = { 0 }, m2[NNH] = { 0 }, v2[NNH] = { 0 }, gb2[1] = { 0 }, mb2[1] = { 0 }, vb2[1] = { 0 };
-    int step = 0, bs = 32; double ph = 0, p0h = 0;
+    int step = 0, bs = 32; double ph = 0, p0h = 0, pst = 1e9;
+    { double hl = 0; int hn = 0; float xx[NNP + NNM], hd2[NNH], oo[1];   // (the network it starts from, on the same held-out games: a new one must beat that too)
+      for (int di = 0; di < nd; di++) { NnDec *T = &D[di]; if (!T->ho) continue; float z[16], mx = -1e9f; for (int m = 0; m < T->nm; m++) { memcpy(xx, T->P, sizeof(float) * NNP); memcpy(xx + NNP, T->M + m * NNM, sizeof(float) * NNM); nn_fwd(n, xx, hd2, oo); z[m] = T->lp0[m] + oo[0]; if (z[m] > mx) mx = z[m]; }
+        double s = 0; for (int m = 0; m < T->nm; m++) s += exp(z[m] - mx); for (int m = 0; m < T->nm; m++) hl -= T->tgt[m] * (z[m] - mx - log(s)); hn++; }
+      if (hn && getenv("POLNN")) { pst = hl / hn; printf("NNTRAIN instinct: the network it starts from, held out %.4f\n", pst); } }
     for (int ep = 0; ep < epochs; ep++) { double loss = 0, kl0 = 0; int cnt = 0;
       for (int i0 = 0; i0 < nd; i0++) { rs = rs * 1664525u + 1013904223u; int di = rs % (uint32_t)nd; if (D[di].ho) continue; NnDec *T = &D[di];
         float z[16], hid[16][NNH], zin[16][NNP + NNM], o[16], mx = -1e9f;
@@ -195,8 +199,8 @@ static void nn_train(void) {
     printf("NNTRAIN instinct: the old instinct alone %.4f, the best possible %.4f\n", lo / nd, lt / nd);
     // kept only if it beats the old instinct on the decisions it never trained on (a network that got worse is not passed on)
     char fo[1100]; snprintf(fo, sizeof fo, "%s/polnn.txt", out);
-    if (ph < p0h - 0.002) { nn_write(n, fo); printf("NNTRAIN instinct: kept (held out %.4f vs the old instinct %.4f)\n", ph, p0h); }
-    else { printf("NNTRAIN instinct: not kept (held out %.4f vs the old instinct %.4f); the previous network stays\n", ph, p0h); if (getenv("POLNN")) { Net t; if (nn_read(&t, getenv("POLNN"), NNP + NNM, 1)) nn_write(&t, fo); } }
+    if (ph < p0h - 0.002 && ph < pst - 0.001) { nn_write(n, fo); printf("NNTRAIN instinct: kept (held out %.4f vs the old instinct %.4f, the last network %.4f)\n", ph, p0h, pst); }
+    else { printf("NNTRAIN instinct: not kept (held out %.4f vs the old instinct %.4f, the last network %.4f); the previous network stays\n", ph, p0h, pst); if (getenv("POLNN")) { Net t; if (nn_read(&t, getenv("POLNN"), NNP + NNM, 1)) nn_write(&t, fo); } }
     free(g1); free(m1); free(v1); }
   // -- the judge --
   if (!getenv("NN_NOVAL") && nl > 200 && npb >= 30 && nd5 >= 30) { Net *n = &s_vnet; if (!nn_read(n, getenv("VALNN"), NNP, 2)) { nn_init(n, NNP, 2, 999);
